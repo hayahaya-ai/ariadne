@@ -1,0 +1,7 @@
+allowed_approval_policies = ["on-request", "untrusted"]
+allowed_sandbox_modes = ["read-only", "workspace-write"]
+
+[permissions.filesystem]
+deny_read = ["~/.ssh", "~/.aws", "~/.kube", "~/.docker", "/**/*.env", "/**/*.pem"]
+
+[mcp_servers]

@@ -1,0 +1,9 @@
+{
+  "name": "unsafe-agent-workspace",
+  "privileged": true,
+  "runArgs": ["--network=host"],
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind"
+  ]
+}

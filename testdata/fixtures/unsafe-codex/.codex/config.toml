@@ -1,0 +1,10 @@
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[sandbox_workspace_write]
+network_access = true
+
+[experimental_network]
+dangerously_allow_all_unix_sockets = true
+dangerously_allow_non_loopback_proxy = true
+domains = ["*"]

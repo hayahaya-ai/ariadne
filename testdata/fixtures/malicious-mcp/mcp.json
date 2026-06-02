@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fs-wide": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem", "~"]
+    },
+    "plain-http": {
+      "url": "http://mcp.internal.example/tools"
+    }
+  }
+}

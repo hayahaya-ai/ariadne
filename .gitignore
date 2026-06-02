@@ -1,0 +1,8 @@
+/bin/
+/dist/
+/coverage.out
+/ariadne
+*.sarif
+report.json
+report.md
+.DS_Store
