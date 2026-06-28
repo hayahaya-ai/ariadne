@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-report-v1.schema.json",
+  "title": "Ariadne Report v1",
+  "type": "object",
+  "required": ["schema_version", "run_id", "generated_at", "run_kind", "graph", "redaction", "limitations"],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "type": "string", "enum": ["story", "path"] },
+    "target_path": { "type": "string" },
+    "exposures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/exposure" }
+    },
+    "graph": { "$ref": "#/$defs/graph" },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence" }
+    },
+    "redaction": { "type": "object" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "exposure": {
+      "type": "object",
+      "required": ["id", "title", "status", "proof_mode", "path_nodes", "path_edges", "observation"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["exposed", "protected", "inconclusive"] },
+        "proof_mode": { "type": "string", "enum": ["inferred", "simulated", "live_lab"] },
+        "path_nodes": { "type": "array", "items": { "type": "string" } },
+        "path_edges": { "type": "array", "items": { "type": "string" } },
+        "observation": { "type": "object" }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "array", "items": { "type": "object" } },
+        "edges": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["id", "kind", "grade", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "grade": { "type": "string" },
+        "source": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}

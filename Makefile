@@ -1,20 +1,36 @@
-BIN ?= bin/ariadne
+PROJECT ?= ariadne-prove
+BIN ?= $(PROJECT)/bin/ariadne
 GOCACHE ?= /private/tmp/ariadne-gocache
 
-.PHONY: test build doctor scan-fixture clean
+.PHONY: check fmt test vet build stories inventory prove scan clean
+
+check:
+	$(MAKE) -C $(PROJECT) check
+
+fmt:
+	$(MAKE) -C $(PROJECT) fmt
 
 test:
-	GOCACHE=$(GOCACHE) go test ./...
+	$(MAKE) -C $(PROJECT) test
+
+vet:
+	$(MAKE) -C $(PROJECT) vet
 
 build:
-	mkdir -p bin
-	GOCACHE=$(GOCACHE) go build -o $(BIN) ./cmd/ariadne
+	$(MAKE) -C $(PROJECT) build
 
-doctor:
-	GOCACHE=$(GOCACHE) go run ./cmd/ariadne doctor --mode endpoint
+stories:
+	$(MAKE) -C $(PROJECT) stories
 
-scan-fixture:
-	GOCACHE=$(GOCACHE) go run ./cmd/ariadne scan --mode repo --path testdata/fixtures/unsafe-codex
+inventory:
+	cd $(PROJECT) && GOCACHE=$(GOCACHE) go run ./cmd/ariadne inventory --path testdata/realpath/messy-ai-surfaces
+
+prove:
+	cd $(PROJECT) && GOCACHE=$(GOCACHE) go run ./cmd/ariadne prove --path testdata/realpath/combined-risk
+
+scan:
+	$(MAKE) -C $(PROJECT) scan
 
 clean:
-	rm -rf bin coverage.out report.json report.md ariadne.sarif
+	$(MAKE) -C $(PROJECT) clean
+	rm -rf report.json report.md ariadne.sarif

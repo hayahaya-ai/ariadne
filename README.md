@@ -1,67 +1,80 @@
 # Ariadne
 
-Ariadne is a local, read-only posture scanner for AI coding-agent setups.
-It focuses on Claude Code, Codex, and MCP configuration risk.
+Ariadne is a deterministic exposure analysis tool for local AI agent runtimes and their tool configurations.
 
-The scanner is intentionally narrow:
+It answers a concrete security question:
 
-- It does not execute discovered commands.
-- It does not start MCP servers.
-- It does not read secret values.
-- It does not upload data.
-- It reports detected posture, not runtime enforcement.
+> Can untrusted instructions plus agent authority create a path to sensitive local boundaries, and do controls break that path?
 
-The differentiator is attack-path synthesis: individual findings are combined into
-CISO-readable abuse paths such as network-enabled agent posture plus missing
-secret-deny coverage plus unknown MCP servers.
+Ariadne is fact-first. It collects deterministic evidence, builds a graph, and classifies only the exposure paths supported by that graph. It does not execute agents, run MCP servers, install packages, call external services, or read secret values.
 
-## Usage
+The active implementation is in [`ariadne-prove/`](ariadne-prove/).
+
+## Quick Start
+
+```bash
+make build
+./ariadne-prove/bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces
+./ariadne-prove/bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk
+./ariadne-prove/bin/ariadne scan --targets ariadne-prove/testdata/realpath/targets.txt
+```
+
+## What It Does
+
+- Discovers AI-agent configuration surfaces across repositories and endpoint-style home directories.
+- Parses known security-relevant config and instruction files.
+- Summarizes private or high-volume agent context without emitting content.
+- Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
+- Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
+- Emits JSON for automation, fleet aggregation, and security data pipelines.
+
+## Exposure Families
+
+- **Secret boundary access:** untrusted repo or agent instructions can influence a runtime that has file-read authority near secret-like files.
+- **Mutable tool launch:** an agent can invoke a tool launched through mutable package-manager or interpreter configuration that grants local execution.
+- **Data egress chain:** untrusted influence, private-data reachability, and external communication reachability exist in the same graph.
+
+## Commands
+
+From the repository root:
 
 ```bash
 make test
 make build
-
-go run ./cmd/ariadne doctor --mode endpoint
-go run ./cmd/ariadne scan --mode repo --path .
-go run ./cmd/ariadne scan --mode repo --format json --out report.json
-go run ./cmd/ariadne scan --mode repo --format markdown --out report.md
-go run ./cmd/ariadne scan --mode repo --format sarif --out ariadne.sarif --fail-on high
-go run ./cmd/ariadne remediate --input report.json
+make scan
 ```
 
-Scan modes:
-
-- `repo`: repo-local files only; safe for CI.
-- `endpoint`: repo plus user/system agent configs.
-- `devbox`: repo plus devcontainer/devbox indicators.
-
-## What It Flags
-
-- YOLO, bypass, and full-access modes.
-- Network-enabled agent config.
-- Missing enterprise-managed policy evidence.
-- Missing deny-read policy coverage for common secret-adjacent paths.
-- Unknown MCP servers.
-- MCP launched through `npx`, `uvx`, `node`, `python`, `docker`, or shell.
-- Broad filesystem MCP access.
-- Non-HTTPS remote MCP.
-- Risky agent instruction files.
-- Risky devcontainer settings like Docker socket, privileged mode, host network, and secret mounts.
-- Missing audit/telemetry hints where supported.
-
-## Important Limit
-
-Ariadne is a static scanner. It cannot prove whether an agent can actually
-read a file, reach a VPN service, or is contained by a sandbox at runtime.
-Findings use language like "declared config" and "not runtime-verified" on purpose.
-
-## Tests
+From `ariadne-prove/`:
 
 ```bash
-GOCACHE=/private/tmp/ariadne-gocache go test ./...
+./bin/ariadne inventory --path .
+./bin/ariadne prove --path .
+./bin/ariadne scan --targets targets.txt --format json --out scan.json
+./bin/ariadne stories list
+./bin/ariadne prove --story data-egress-chain-exposed
 ```
 
-## Project Status
+## Documentation
 
-This is an early scanner-first implementation. Built-in Go rules are the primary
-policy engine. Optional Rego/custom policy support is not implemented yet.
+- [Install](ariadne-prove/INSTALL.md)
+- [Deterministic scan model](ariadne-prove/docs/deterministic-scan.md)
+- [Threat model](ariadne-prove/docs/threat-model.md)
+- [Fleet usage](ariadne-prove/docs/fleet.md)
+- [JSON and graph contract](ariadne-prove/docs/json-schema.md)
+- [Contributing](ariadne-prove/CONTRIBUTING.md)
+- [Security policy](ariadne-prove/SECURITY.md)
+
+## Privacy And Safety
+
+Ariadne is local-first and deterministic by default.
+
+- It does not execute agent runtimes.
+- It does not execute MCP/tool servers.
+- It does not install or resolve packages.
+- It does not call network services.
+- It does not emit secret values.
+- Private histories, transcripts, paste caches, and file histories are summarized by metadata only.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).

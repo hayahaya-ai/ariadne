@@ -1,0 +1,283 @@
+package report
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"sort"
+	"strings"
+
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
+)
+
+func Render(w io.Writer, r model.Report, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	default:
+		return fmt.Errorf("unknown format: %s", format)
+	}
+}
+
+func RenderInventory(w io.Writer, r model.InventoryReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderInventoryTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	default:
+		return fmt.Errorf("unknown format: %s", format)
+	}
+}
+
+func RenderScan(w io.Writer, r model.ScanReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderScanTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	default:
+		return fmt.Errorf("unknown format: %s", format)
+	}
+}
+
+func renderScanTable(w io.Writer, r model.ScanReport) error {
+	fmt.Fprintf(w, "Ariadne Scan\n\n")
+	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
+	fmt.Fprintf(w, "Agent: %s\n", r.Agent)
+	fmt.Fprintf(w, "Targets: %d completed, %d errors\n", r.Summary.Completed, r.Summary.Errors)
+	fmt.Fprintf(w, "Exposure paths: %d exposed, %d protected, %d inconclusive\n\n", r.Summary.Exposed, r.Summary.Protected, r.Summary.Inconclusive)
+	for _, target := range r.Targets {
+		fmt.Fprintf(w, "Target: %s (%s)\n", target.Target.ID, target.Target.Path)
+		if target.Error != "" {
+			fmt.Fprintf(w, "  Error: %s\n\n", target.Error)
+			continue
+		}
+		if len(target.Report.Exposures) == 0 {
+			fmt.Fprintf(w, "  - no exposure paths returned\n\n")
+			continue
+		}
+		for _, exposure := range target.Report.Exposures {
+			fmt.Fprintf(w, "  - %s: %s (%s)\n", exposure.ID, strings.ToUpper(string(exposure.Status)), exposure.ProofMode)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "Limitations:\n")
+		for _, limitation := range r.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func renderInventoryTable(w io.Writer, r model.InventoryReport) error {
+	fmt.Fprintf(w, "Ariadne Inventory\n\n")
+	fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
+	fmt.Fprintf(w, "Agent: %s\n\n", r.Agent)
+	fmt.Fprintf(w, "AI surfaces discovered:\n")
+	if len(r.Collection.Surfaces) == 0 {
+		fmt.Fprintf(w, "  - none discovered for supported surface families\n")
+	} else {
+		for _, surface := range r.Collection.Surfaces {
+			fmt.Fprintf(w, "  - %s [%s/%s/%s] %s\n", surface.Source, surface.Runtime, surface.Category, surface.HandlingMode, surface.Summary)
+		}
+	}
+	fmt.Fprintf(w, "\nFacts collected:\n")
+	if len(r.Collection.Facts) == 0 {
+		fmt.Fprintf(w, "  - no deterministic facts collected\n")
+	} else {
+		for _, fact := range r.Collection.Facts {
+			fmt.Fprintf(w, "  - %s: %s Source: %s Evidence: %s Redaction: %s\n", fact.Type, fact.Summary, empty(fact.Source, "not recorded"), fact.EvidenceGrade, fact.Redaction)
+		}
+	}
+	fmt.Fprintf(w, "\nModeled graph:\n")
+	fmt.Fprintf(w, "  Nodes: %d\n", len(r.Graph.Nodes))
+	fmt.Fprintf(w, "  Edges: %d\n", len(r.Graph.Edges))
+	if len(r.Collection.Warnings) > 0 {
+		fmt.Fprintf(w, "\nWarnings:\n")
+		for _, warning := range r.Collection.Warnings {
+			fmt.Fprintf(w, "  - %s\n", warning)
+		}
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range r.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func renderTable(w io.Writer, r model.Report) error {
+	if r.RunKind == "path" {
+		fmt.Fprintf(w, "Ariadne Prove\n\n")
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+		fmt.Fprintf(w, "Mode: %s\n", r.Story.Mode)
+		fmt.Fprintf(w, "Agent: %s\n\n", r.Story.Runtime)
+	} else {
+		match := "PASS"
+		if !r.Matched {
+			match = "FAIL"
+		}
+		fmt.Fprintf(w, "Ariadne Story Lab\n\n")
+		fmt.Fprintf(w, "Story: %s\n", r.Story.ID)
+		fmt.Fprintf(w, "Persona: %s\n", r.Story.Persona)
+		fmt.Fprintf(w, "Question: %s\n", r.Story.UserQuestion)
+		fmt.Fprintf(w, "Oracle: %s\n\n", match)
+	}
+	exposures := r.Exposures
+	if len(exposures) == 0 {
+		exposures = []model.ExposureResult{r.Exposure}
+	}
+	for i, exposure := range exposures {
+		if len(exposures) > 1 {
+			fmt.Fprintf(w, "Exposure Path %d: %s\n", i+1, exposure.Title)
+		}
+		fmt.Fprintf(w, "What was tested:\n  %s\n\n", exposure.WhatWasTested)
+		fmt.Fprintf(w, "Facts:\n")
+		renderFacts(w, r, exposure)
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Graph path:\n")
+		if len(exposure.PathEdges) == 0 {
+			fmt.Fprintf(w, "  - no complete supported path established\n")
+		}
+		for _, edge := range exposure.PathEdges {
+			fmt.Fprintf(w, "  - %s\n", edge)
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Classification:\n")
+		fmt.Fprintf(w, "  Status: %s\n", strings.ToUpper(string(exposure.Status)))
+		fmt.Fprintf(w, "  Proof mode: %s\n", exposure.ProofMode)
+		fmt.Fprintf(w, "  Observation: %s - %s\n\n", exposure.Observation.Status, exposure.Observation.Summary)
+		fmt.Fprintf(w, "Why it matters:\n  %s\n\n", exposure.WhyItMatters)
+		if len(exposure.ControlsBreakPath) > 0 {
+			fmt.Fprintf(w, "Controls that break the path:\n")
+			for _, control := range exposure.ControlsBreakPath {
+				fmt.Fprintf(w, "  - %s\n", control)
+			}
+			fmt.Fprintln(w)
+		}
+		if i < len(exposures)-1 {
+			fmt.Fprintln(w)
+		}
+	}
+	if len(r.Mismatches) > 0 {
+		fmt.Fprintf(w, "\nMismatches:\n")
+		for _, mismatch := range r.Mismatches {
+			fmt.Fprintf(w, "  - %s\n", mismatch)
+		}
+	}
+	return nil
+}
+
+func renderFacts(w io.Writer, r model.Report, exposure model.ExposureResult) {
+	facts := factsForExposure(r, exposure)
+	if len(facts) == 0 {
+		fmt.Fprintf(w, "  - no supporting facts collected for this supported exposure family\n")
+		return
+	}
+	for _, fact := range facts {
+		fmt.Fprintf(w, "  - %s\n", fact)
+	}
+}
+
+func factsForExposure(r model.Report, exposure model.ExposureResult) []string {
+	nodeIDs := map[string]bool{}
+	for _, edge := range exposure.PathEdges {
+		parts := strings.Split(edge, "|")
+		if len(parts) == 3 {
+			nodeIDs[parts[0]] = true
+			nodeIDs[parts[2]] = true
+		}
+	}
+	if len(exposure.PathEdges) == 0 {
+		for _, node := range r.Graph.Nodes {
+			if node.Type == "trust_input" || node.Type == "boundary" || node.Type == "config" {
+				nodeIDs[node.ID] = true
+			}
+		}
+	}
+	nodeByID := map[string]model.Node{}
+	for _, node := range r.Graph.Nodes {
+		nodeByID[node.ID] = node
+	}
+	evidenceByID := map[string]model.Evidence{}
+	for _, evidence := range r.Evidence {
+		evidenceByID[evidence.ID] = evidence
+	}
+	var facts []string
+	for id := range nodeIDs {
+		if node, ok := nodeByID[id]; ok {
+			facts = append(facts, factForNode(node))
+		}
+	}
+	for _, edge := range r.Graph.Edges {
+		for _, pathEdge := range exposure.PathEdges {
+			if edge.Key() == pathEdge && edge.EvidenceID != "" {
+				if evidence, ok := evidenceByID[edge.EvidenceID]; ok {
+					facts = append(facts, "Evidence: "+evidence.Summary+" Source: "+empty(evidence.Source, "not recorded"))
+				}
+			}
+		}
+	}
+	facts = uniqueStrings(facts)
+	sort.Strings(facts)
+	return facts
+}
+
+func factForNode(node model.Node) string {
+	source := ""
+	if node.Source != "" {
+		source = " Source: " + node.Source
+	}
+	switch node.Type {
+	case "runtime":
+		return "Runtime observed: " + node.Label + source
+	case "config":
+		return "Config observed: " + node.Label + source
+	case "trust_input":
+		return "Trust input observed: " + node.Label + source
+	case "tool":
+		return "Tool observed: " + node.Label + source
+	case "authority":
+		return "Authority modeled: " + node.Label
+	case "boundary":
+		return "Boundary modeled: " + node.Label + source
+	case "control":
+		return "Control observed: " + node.Label + source
+	default:
+		return "Graph node observed: " + node.Type + " " + node.Label + source
+	}
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func empty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}

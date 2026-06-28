@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": ["Read(*)"],
+    "deny": ["Read(.env)", "Read(**/.env)"]
+  }
+}

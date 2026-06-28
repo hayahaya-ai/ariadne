@@ -19,7 +19,7 @@ func TestUnsafeCodexProducesAttackPathsAndRedactsSecrets(t *testing.T) {
 	assertFinding(t, report, "dangerous-agent-mode")
 	assertFinding(t, report, "network-enabled-agent")
 	assertFinding(t, report, "missing-secret-deny-policy")
-	assertAttackPath(t, report, "agent-network-exfiltration")
+	assertAttackPath(t, report, "agent-network-data-egress")
 	out, _ := json.Marshal(report)
 	if strings.Contains(string(out), fakeSecret) {
 		t.Fatalf("report leaked fixture secret: %s", out)
@@ -44,7 +44,7 @@ func TestMCPPackageAndBroadFilesystemDetection(t *testing.T) {
 	assertFinding(t, report, "unknown-or-unapproved-mcp")
 	assertFinding(t, report, "mcp-package-or-interpreter-launch")
 	assertFinding(t, report, "mcp-broad-filesystem")
-	assertAttackPath(t, report, "mcp-supply-chain-execution")
+	assertAttackPath(t, report, "mutable-tool-launch-execution")
 }
 
 func TestUnsafeClaudeBypassAndMCPDetection(t *testing.T) {
@@ -57,7 +57,7 @@ func TestUnsafeClaudeBypassAndMCPDetection(t *testing.T) {
 	assertFinding(t, report, "unknown-or-unapproved-mcp")
 	assertFinding(t, report, "mcp-package-or-interpreter-launch")
 	assertFinding(t, report, "mcp-broad-filesystem")
-	assertAttackPath(t, report, "mcp-supply-chain-execution")
+	assertAttackPath(t, report, "mutable-tool-launch-execution")
 }
 
 func TestDevcontainerRisks(t *testing.T) {

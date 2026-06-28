@@ -1,0 +1,32 @@
+{
+  "id": "mutable-tool-launch-exposed",
+  "title": "Mutable tool launcher exposes local execution",
+  "persona": "developer / AppSec",
+  "user_question": "Can this local agent setup be led to execute unreviewed tool code?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "world/repo"
+  },
+  "expected": {
+    "status": "exposed",
+    "proof_mode": "simulated",
+    "required_nodes": [
+      "runtime:codex",
+      "runtime:claude",
+      "tool:mcp-package-launch",
+      "authority:local-code-execution",
+      "boundary:developer-execution-boundary"
+    ],
+    "required_edges": [
+      "runtime:codex|can_call|tool:mcp-package-launch",
+      "runtime:claude|can_call|tool:mcp-package-launch",
+      "tool:mcp-package-launch|grants|authority:local-code-execution",
+      "authority:local-code-execution|reaches|boundary:developer-execution-boundary"
+    ],
+    "controls_break_path": [
+      "review and pin MCP servers"
+    ],
+    "redaction_must_not_contain": []
+  }
+}

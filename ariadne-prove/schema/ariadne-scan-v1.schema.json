@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-scan-v1.schema.json",
+  "title": "Ariadne Scan v1",
+  "type": "object",
+  "required": ["schema_version", "run_id", "generated_at", "run_kind", "summary", "targets"],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "const": "scan" },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "summary": { "type": "object" },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target"],
+        "properties": {
+          "target": { "type": "object" },
+          "report": { "type": "object" },
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}

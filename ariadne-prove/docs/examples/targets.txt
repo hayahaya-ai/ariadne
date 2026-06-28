@@ -1,0 +1,3 @@
+combined,../../testdata/realpath/combined-risk
+safe,../../testdata/realpath/safe-controls
+repo-only,../../testdata/realpath/repo-only-risk

@@ -24,7 +24,7 @@ enforce runtime policy, or upload endpoint inventory.
 4. **Synthesize Attack Paths**
 
    Combine facts and findings into credible abuse paths, for example prompt
-   injection to secret exposure or MCP supply-chain execution.
+   injection to secret exposure or mutable tool launch execution.
 
 5. **Report**
 

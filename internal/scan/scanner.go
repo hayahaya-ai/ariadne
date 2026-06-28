@@ -845,23 +845,23 @@ func synthesizeAttackPaths(report Report) []AttackPath {
 			"Prompt injection to secret exposure",
 			[]string{"Sensitive or instruction-bearing repo context", "Missing secret-adjacent deny policy", "Broad shell, bypass, or MCP access"},
 			"A malicious instruction in repo content or MCP tool metadata could steer the local coding agent toward developer credentials or token caches while operating near sensitive code.",
-			"Treats local agent context as an exfiltration bridge from source-controlled text to developer secrets.",
+			"Treats local agent context as a data-egress bridge from source-controlled text to developer secrets.",
 			[]string{"Enforce deny-read coverage for secret-adjacent paths", "Disable bypass/full-access modes", "Restrict MCP servers and filesystem roots"}))
 	}
 	if len(network) > 0 && len(noSecrets) > 0 && (len(unknownMCP) > 0 || len(danger) > 0) {
-		paths = append(paths, attackPath("agent-network-exfiltration", SeverityCritical, appendAll(network, noSecrets, unknownMCP, danger),
-			"Agent-to-network exfiltration path",
+		paths = append(paths, attackPath("agent-network-data-egress", SeverityCritical, appendAll(network, noSecrets, unknownMCP, danger),
+			"Agent-to-network data-egress path",
 			[]string{"Declared network-enabled agent config", "Missing secret-adjacent deny policy", "Unknown MCP or bypass-capable agent"},
 			"An agent with network-enabled execution and weak local secret boundaries could be manipulated to move sensitive data out of the developer environment.",
 			"Network-enabled agent posture is the point where local prompt injection can become data movement.",
 			[]string{"Disable network by default", "Use allowlisted network policy", "Add secret deny rules", "Remove unknown MCP servers"}))
 	}
 	if len(mcpPackage) > 0 && (sensitive || len(mcpFS) > 0) {
-		paths = append(paths, attackPath("mcp-supply-chain-execution", SeverityHigh, appendAll(mcpPackage, mcpFS),
-			"MCP supply-chain execution path",
+		paths = append(paths, attackPath("mutable-tool-launch-execution", SeverityHigh, appendAll(mcpPackage, mcpFS),
+			"Mutable tool launch execution path",
 			[]string{"MCP launched via package manager or interpreter", "Sensitive repo or broad filesystem scope"},
 			"A package-manager or interpreter-launched MCP server can drift or execute local code with the same user privileges as the developer agent.",
-			"MCP turns model tool access into local code execution and dependency supply-chain exposure.",
+			"MCP turns model tool access into local code execution when tool launchers are mutable or unreviewed.",
 			[]string{"Use reviewed/pinned MCP binaries", "Avoid package-manager launched MCP", "Restrict filesystem scope"}))
 	}
 	if len(danger) > 0 && report.ScanMode == ModeEndpoint {

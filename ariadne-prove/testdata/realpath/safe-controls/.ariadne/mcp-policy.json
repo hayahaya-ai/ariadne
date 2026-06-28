@@ -1,0 +1,4 @@
+{
+  "approved_mcp_servers": ["filesystem"],
+  "require_pinned_packages": true
+}

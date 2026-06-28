@@ -118,7 +118,7 @@ func runExplain(args []string) {
 	id := args[0]
 	explanations := map[string]string{
 		"dangerous-agent-mode":              "Dangerous modes bypass approval and sandbox boundaries. The scanner detects declared indicators only; it does not verify runtime enforcement.",
-		"network-enabled-agent":             "Network-enabled agent config raises exfiltration risk from the developer environment. The scanner does not verify actual VPN/internal reachability.",
+		"network-enabled-agent":             "Network-enabled agent config raises data-egress risk from the developer environment. The scanner does not verify actual VPN/internal reachability.",
 		"missing-secret-deny-policy":        "Missing deny-read policy coverage means common credential paths are not declared as protected. This is not proof that an agent can read secrets.",
 		"unknown-or-unapproved-mcp":         "Unknown MCP servers expand tool blast radius and may expose local commands, SaaS APIs, or filesystem access.",
 		"mcp-package-or-interpreter-launch": "Package-manager and interpreter-launched MCP servers can drift or execute local code under the developer user.",
