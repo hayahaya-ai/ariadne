@@ -48,6 +48,19 @@ Edge types:
 - `reaches`
 - `restricts`
 
+## Graph Export Formats
+
+The JSON graph is the canonical machine contract. Ariadne can also render the
+same nodes and edges directly for visualization:
+
+```bash
+ariadne inventory --path . --format mermaid --out ariadne-graph.mmd
+ariadne prove --path . --format dot --out ariadne-graph.dot
+ariadne scan --targets targets.txt --format mermaid --out fleet-graph.mmd
+```
+
+`dot` output is Graphviz-compatible. `mermaid` output uses `flowchart LR`.
+
 ### Exposure
 
 An exposure path includes:

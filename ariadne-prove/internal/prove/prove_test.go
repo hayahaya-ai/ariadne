@@ -121,6 +121,57 @@ func TestJSONReportContainsGraphEvidence(t *testing.T) {
 	}
 }
 
+func TestGraphExportFormatsExposeVisualEdges(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dot bytes.Buffer
+	if err := report.Render(&dot, r, "dot"); err != nil {
+		t.Fatal(err)
+	}
+	dotOut := dot.String()
+	if !strings.Contains(dotOut, "digraph ariadne_graph") {
+		t.Fatalf("dot output missing graph header:\n%s", dotOut)
+	}
+	if !strings.Contains(dotOut, `"trustinput:repo-instruction" -> "runtime:codex" [label="influences"]`) {
+		t.Fatalf("dot output missing influence edge:\n%s", dotOut)
+	}
+
+	var mermaid bytes.Buffer
+	if err := report.Render(&mermaid, r, "mermaid"); err != nil {
+		t.Fatal(err)
+	}
+	mermaidOut := mermaid.String()
+	if !strings.Contains(mermaidOut, "flowchart LR") {
+		t.Fatalf("mermaid output missing flowchart header:\n%s", mermaidOut)
+	}
+	if !strings.Contains(mermaidOut, `-->|"influences"|`) {
+		t.Fatalf("mermaid output missing influence edge:\n%s", mermaidOut)
+	}
+}
+
+func TestScanGraphExportIncludesTargets(t *testing.T) {
+	targetFile, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "targets.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunScan(Options{TargetsFile: targetFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := report.RenderScan(&out, r, "mermaid"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := out.String()
+	for _, target := range []string{"target: combined", "target: safe", "target: repo-only"} {
+		if !strings.Contains(rendered, target) {
+			t.Fatalf("scan graph missing %s:\n%s", target, rendered)
+		}
+	}
+}
+
 func TestRunPathCombinedRiskProducesMultipleExposurePaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {

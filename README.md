@@ -17,6 +17,7 @@ make build
 ./ariadne-prove/bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces
 ./ariadne-prove/bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk
 ./ariadne-prove/bin/ariadne scan --targets ariadne-prove/testdata/realpath/targets.txt
+./ariadne-prove/bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk --format mermaid --out ariadne-graph.mmd
 ```
 
 ## What It Does
@@ -25,6 +26,7 @@ make build
 - Parses known security-relevant config and instruction files.
 - Summarizes private or high-volume agent context without emitting content.
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
+- Exports graph evidence as JSON, Graphviz DOT, or Mermaid for review and visualization.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
 - Emits JSON for automation, fleet aggregation, and security data pipelines.
 

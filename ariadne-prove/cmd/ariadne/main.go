@@ -43,7 +43,7 @@ func runScan(args []string) {
 	path := fs.String("path", "", "single target path to scan")
 	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
-	format := fs.String("format", "table", "output format: table, json")
+	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -66,7 +66,7 @@ func runInventory(args []string) {
 	path := fs.String("path", ".", "repo or workspace path to inventory")
 	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
-	format := fs.String("format", "table", "output format: table, json")
+	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -91,7 +91,7 @@ func runProve(args []string) {
 	path := fs.String("path", ".", "repo or workspace path to prove when --story is not set")
 	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
-	format := fs.String("format", "table", "output format: table, json")
+	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -155,7 +155,9 @@ Examples:
   ariadne stories list
   ariadne inventory --path .
   ariadne inventory --path . --mode endpoint --format json
+  ariadne inventory --path . --format mermaid --out graph.mmd
   ariadne prove --path .
+  ariadne prove --path . --format dot --out graph.dot
   ariadne scan --targets targets.txt --format json
   ariadne prove --path . --agent codex --format json
   ariadne prove --story local-agent-secret-exposed

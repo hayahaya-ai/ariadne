@@ -59,6 +59,13 @@ Emit JSON:
 ./bin/ariadne prove --path . --format json --out exposure.json
 ```
 
+Export the graph for review or visualization:
+
+```bash
+./bin/ariadne inventory --path . --format mermaid --out ariadne-graph.mmd
+./bin/ariadne prove --path . --format dot --out ariadne-graph.dot
+```
+
 Scan multiple local or mounted targets:
 
 ```bash
@@ -87,7 +94,7 @@ Useful flags:
 
 - `--agent all|codex|claude`
 - `--mode repo|endpoint`
-- `--format table|json`
+- `--format table|json|dot|mermaid`
 - `--out <file>`
 - `--include-sensitive-paths`
 
@@ -119,6 +126,7 @@ Inventory output includes:
 - graph nodes and edges
 - redaction metadata
 - warnings and limitations
+- graph exports with `--format dot` or `--format mermaid`
 
 Prove output adds:
 

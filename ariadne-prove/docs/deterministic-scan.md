@@ -10,6 +10,7 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 - models authorities, boundaries, and controls
 - builds graph edges between facts
 - classifies supported exposure paths
+- exports the same graph as JSON, Graphviz DOT, or Mermaid when requested
 
 ## What Ariadne Does Not Do
 

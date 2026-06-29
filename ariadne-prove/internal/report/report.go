@@ -18,6 +18,10 @@ func Render(w io.Writer, r model.Report, format string) error {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
+	case "dot", "graphviz":
+		return renderGraphDOT(w, graphTitle(r.RunKind, r.Story.ID), r.Graph)
+	case "mermaid":
+		return renderGraphMermaid(w, graphTitle(r.RunKind, r.Story.ID), r.Graph)
 	default:
 		return fmt.Errorf("unknown format: %s", format)
 	}
@@ -31,6 +35,10 @@ func RenderInventory(w io.Writer, r model.InventoryReport, format string) error 
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
+	case "dot", "graphviz":
+		return renderGraphDOT(w, "Ariadne inventory graph", r.Graph)
+	case "mermaid":
+		return renderGraphMermaid(w, "Ariadne inventory graph", r.Graph)
 	default:
 		return fmt.Errorf("unknown format: %s", format)
 	}
@@ -44,9 +52,148 @@ func RenderScan(w io.Writer, r model.ScanReport, format string) error {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
+	case "dot", "graphviz":
+		return renderScanDOT(w, r)
+	case "mermaid":
+		return renderScanMermaid(w, r)
 	default:
 		return fmt.Errorf("unknown format: %s", format)
 	}
+}
+
+func renderGraphDOT(w io.Writer, title string, g model.Graph) error {
+	fmt.Fprintln(w, "digraph ariadne_graph {")
+	fmt.Fprintln(w, "  rankdir=LR;")
+	fmt.Fprintf(w, "  labelloc=\"t\";\n")
+	fmt.Fprintf(w, "  label=%s;\n", dotQuote(title))
+	renderGraphDOTBody(w, g, "")
+	fmt.Fprintln(w, "}")
+	return nil
+}
+
+func renderScanDOT(w io.Writer, r model.ScanReport) error {
+	fmt.Fprintln(w, "digraph ariadne_scan {")
+	fmt.Fprintln(w, "  rankdir=LR;")
+	fmt.Fprintf(w, "  labelloc=\"t\";\n")
+	fmt.Fprintf(w, "  label=%s;\n", dotQuote("Ariadne scan graph"))
+	for i, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		prefix := fmt.Sprintf("target%d_", i)
+		fmt.Fprintf(w, "  subgraph cluster_%d {\n", i)
+		fmt.Fprintf(w, "    label=%s;\n", dotQuote("target: "+target.Target.ID))
+		renderGraphDOTBody(w, target.Report.Graph, prefix)
+		fmt.Fprintln(w, "  }")
+	}
+	fmt.Fprintln(w, "}")
+	return nil
+}
+
+func renderGraphDOTBody(w io.Writer, g model.Graph, prefix string) {
+	for _, node := range g.Nodes {
+		fmt.Fprintf(w, "    %s [label=%s, shape=%s];\n", dotQuote(prefix+node.ID), dotQuote(nodeLabel(node)), dotShape(node.Type))
+	}
+	for _, edge := range g.Edges {
+		fmt.Fprintf(w, "    %s -> %s [label=%s];\n", dotQuote(prefix+edge.From), dotQuote(prefix+edge.To), dotQuote(edge.Type))
+	}
+}
+
+func renderGraphMermaid(w io.Writer, title string, g model.Graph) error {
+	fmt.Fprintln(w, "---")
+	fmt.Fprintf(w, "title: %s\n", mermaidText(title))
+	fmt.Fprintln(w, "---")
+	fmt.Fprintln(w, "flowchart LR")
+	renderGraphMermaidBody(w, g, "")
+	return nil
+}
+
+func renderScanMermaid(w io.Writer, r model.ScanReport) error {
+	fmt.Fprintln(w, "---")
+	fmt.Fprintln(w, "title: Ariadne scan graph")
+	fmt.Fprintln(w, "---")
+	fmt.Fprintln(w, "flowchart LR")
+	for i, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		prefix := fmt.Sprintf("target%d_", i)
+		fmt.Fprintf(w, "  subgraph cluster_%d[\"%s\"]\n", i, mermaidText("target: "+target.Target.ID))
+		renderGraphMermaidBody(w, target.Report.Graph, prefix)
+		fmt.Fprintln(w, "  end")
+	}
+	return nil
+}
+
+func renderGraphMermaidBody(w io.Writer, g model.Graph, prefix string) {
+	ids := make(map[string]string, len(g.Nodes))
+	for i, node := range g.Nodes {
+		id := fmt.Sprintf("%sn%d", prefix, i)
+		ids[node.ID] = id
+		fmt.Fprintf(w, "    %s[\"%s\"]\n", id, mermaidText(nodeLabel(node)))
+	}
+	for _, edge := range g.Edges {
+		from, fromOK := ids[edge.From]
+		to, toOK := ids[edge.To]
+		if !fromOK || !toOK {
+			continue
+		}
+		fmt.Fprintf(w, "    %s -->|\"%s\"| %s\n", from, mermaidText(edge.Type), to)
+	}
+}
+
+func graphTitle(runKind, storyID string) string {
+	if storyID != "" && storyID != "real-path" {
+		return "Ariadne story graph: " + storyID
+	}
+	if runKind != "" {
+		return "Ariadne " + runKind + " graph"
+	}
+	return "Ariadne graph"
+}
+
+func nodeLabel(node model.Node) string {
+	parts := []string{node.Type + ": " + node.Label}
+	if node.Runtime != "" && node.Runtime != node.Label {
+		parts = append(parts, "runtime: "+node.Runtime)
+	}
+	if node.Source != "" {
+		parts = append(parts, "source: "+node.Source)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func dotShape(nodeType string) string {
+	switch nodeType {
+	case "runtime":
+		return "box"
+	case "authority":
+		return "hexagon"
+	case "boundary":
+		return "octagon"
+	case "control":
+		return "diamond"
+	case "trust_input":
+		return "note"
+	default:
+		return "ellipse"
+	}
+}
+
+func dotQuote(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
+	return `"` + replacer.Replace(value) + `"`
+}
+
+func mermaidText(value string) string {
+	replacer := strings.NewReplacer(
+		`"`, "#quot;",
+		"[", "(",
+		"]", ")",
+		"|", "/",
+		"\n", "<br/>",
+	)
+	return replacer.Replace(value)
 }
 
 func renderScanTable(w io.Writer, r model.ScanReport) error {
