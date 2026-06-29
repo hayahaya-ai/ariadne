@@ -1,49 +1,58 @@
 # Architecture
 
-Ariadne is intentionally scanner-first. It does not provision agent config,
-enforce runtime policy, or upload endpoint inventory.
+The active Ariadne implementation lives in [`ariadne-prove/`](../ariadne-prove/).
+The root command delegates to that implementation when run from a source checkout.
 
-## Pipeline
+## Deterministic Pipeline
 
-1. **Collect**
+1. **Discover surfaces**
 
-   Read bounded local files for Codex, Claude Code, MCP, repository instructions,
-   package scripts, Makefiles, and devcontainer/devbox indicators.
+   Walk supported AI-agent surfaces for Claude Code, Codex, generic repository
+   instructions, MCP configuration, command files, plugin surfaces, memories,
+   histories, and sensitive boundary indicators.
 
-2. **Normalize**
+2. **Parse or summarize**
 
-   Convert local files into facts with evidence source, scan mode, platform,
-   confidence, and runtime limitations.
+   Parse known security-relevant configuration. Summarize private or high-volume
+   context such as histories, paste caches, and session state without emitting
+   content.
 
-3. **Evaluate Rules**
+3. **Normalize facts**
 
-   Run built-in Go rules for high-signal local posture issues such as bypass mode,
-   network enablement, missing managed policy evidence, risky MCP launchers, broad
-   filesystem roots, and risky devcontainer settings.
+   Convert observed files and declarations into typed facts with source,
+   handling mode, evidence grade, redaction status, summary, and limitations.
 
-4. **Synthesize Attack Paths**
+4. **Build the graph**
 
-   Combine facts and findings into credible abuse paths, for example prompt
-   injection to secret exposure or mutable tool launch execution.
+   Connect trust inputs, runtimes, configs, tools, authorities, boundaries, and
+   controls with explicit graph edges.
 
-5. **Report**
+5. **Evaluate exposure**
 
-   Emit table, JSON, Markdown, or SARIF with redaction enabled by default.
+   Classify only supported graph-backed exposure paths as `exposed`,
+   `protected`, or `inconclusive`.
 
-## Non-Goals For V1
+6. **Report**
 
-- Runtime enforcement.
-- Fleet dashboard.
-- Uploads.
-- Automatic remediation.
-- Native Windows scanning.
-- Executing MCP servers to inspect tools.
+   Emit fact-first terminal output, JSON, Graphviz DOT, or Mermaid. Scan mode
+   aggregates the same reports across many local or mounted targets.
 
-## Extension Points
+## Main Packages
 
-- More precise parsers for Codex, Claude Code, and MCP config.
-- Optional custom policy rules.
-- Enterprise repo tier inventory.
-- Signed release artifacts and SBOMs.
-- Future control-plane integration that consumes local reports without weakening
-  the local-first safety model.
+- `surface`: AI surface registry and bounded discovery.
+- `adapter`: deterministic collection and runtime-specific parsing.
+- `prove`: graph construction, exposure evaluation, Story Lab, and scan runs.
+- `report`: terminal, JSON, DOT, and Mermaid rendering.
+- `model`: stable report, graph, evidence, and scan types.
+
+## Non-Goals For This Layer
+
+- executing agents, MCP servers, package managers, or shell commands
+- reading or reporting secret values
+- live exploit proof
+- non-deterministic LLM review
+- cloud control-plane collection
+- runtime enforcement
+
+Those can be future layers. The deterministic layer is intentionally useful on
+its own.
