@@ -356,7 +356,10 @@ func normalizeRealPathExposures(exposures []model.ExposureResult) {
 }
 
 func BuildGraph(c model.Collection) model.Graph {
-	var g model.Graph
+	g := model.Graph{
+		Nodes: []model.Node{},
+		Edges: []model.Edge{},
+	}
 	addNode := func(node model.Node) {
 		for _, existing := range g.Nodes {
 			if existing.ID == node.ID {

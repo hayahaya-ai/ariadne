@@ -172,6 +172,24 @@ func TestScanGraphExportIncludesTargets(t *testing.T) {
 	}
 }
 
+func TestJSONGraphsUseArraysForEmptyEdges(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "repo-only-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(blob)
+	if strings.Contains(out, `"edges":null`) || strings.Contains(out, `"nodes":null`) {
+		t.Fatalf("graph arrays must not serialize as null: %s", out)
+	}
+	if !strings.Contains(out, `"edges":[]`) {
+		t.Fatalf("expected empty edge array in repo-only graph: %s", out)
+	}
+}
+
 func TestRunPathCombinedRiskProducesMultipleExposurePaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {
