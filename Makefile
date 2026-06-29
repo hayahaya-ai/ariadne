@@ -33,4 +33,3 @@ scan:
 
 clean:
 	$(MAKE) -C $(PROJECT) clean
-	rm -rf report.json report.md ariadne.sarif
