@@ -17,6 +17,7 @@ make build
 ./ariadne-prove/bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces
 ./ariadne-prove/bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk
 ./ariadne-prove/bin/ariadne scan --targets ariadne-prove/testdata/realpath/targets.txt
+./ariadne-prove/bin/ariadne dashboard --path ariadne-prove/testdata/realpath/combined-risk --out ariadne-dashboard.html
 ./ariadne-prove/bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk --format mermaid --out ariadne-graph.mmd
 ```
 
@@ -28,6 +29,9 @@ make build
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
 - Exports graph evidence as JSON, Graphviz DOT, or Mermaid for review and visualization.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
+- Prioritizes graph-backed issues with deterministic rules.
+- Supports custom rule policies for organization-specific risky paths.
+- Writes local HTML dashboards with issue and facts-dive views.
 - Emits JSON for automation, fleet aggregation, and security data pipelines.
 
 ## Exposure Families
@@ -52,6 +56,8 @@ From `ariadne-prove/`:
 ./bin/ariadne inventory --path .
 ./bin/ariadne prove --path .
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json
+./bin/ariadne dashboard --path . --out ariadne-dashboard.html
+./bin/ariadne prove --path . --rules .ariadne/rules.json
 ./bin/ariadne stories list
 ./bin/ariadne prove --story data-egress-chain-exposed
 ```
@@ -60,6 +66,7 @@ From `ariadne-prove/`:
 
 - [Install](ariadne-prove/INSTALL.md)
 - [Deterministic scan model](ariadne-prove/docs/deterministic-scan.md)
+- [Priority rules](ariadne-prove/docs/priority-rules.md)
 - [Threat model](ariadne-prove/docs/threat-model.md)
 - [Fleet usage](ariadne-prove/docs/fleet.md)
 - [JSON and graph contract](ariadne-prove/docs/json-schema.md)

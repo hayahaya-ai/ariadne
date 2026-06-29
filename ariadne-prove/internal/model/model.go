@@ -62,22 +62,23 @@ type Story struct {
 }
 
 type Report struct {
-	SchemaVersion string           `json:"schema_version"`
-	RunID         string           `json:"run_id"`
-	GeneratedAt   time.Time        `json:"generated_at"`
-	RunKind       string           `json:"run_kind"`
-	TargetPath    string           `json:"target_path,omitempty"`
-	Story         StorySummary     `json:"story"`
-	Expected      ExpectedResult   `json:"expected"`
-	Matched       bool             `json:"matched"`
-	Mismatches    []string         `json:"mismatches,omitempty"`
-	Exposure      ExposureResult   `json:"exposure"`
-	Exposures     []ExposureResult `json:"exposures,omitempty"`
-	Graph         Graph            `json:"graph"`
-	Evidence      []Evidence       `json:"evidence"`
-	Redaction     RedactionInfo    `json:"redaction"`
-	Warnings      []string         `json:"warnings,omitempty"`
-	Limitations   []string         `json:"limitations"`
+	SchemaVersion  string           `json:"schema_version"`
+	RunID          string           `json:"run_id"`
+	GeneratedAt    time.Time        `json:"generated_at"`
+	RunKind        string           `json:"run_kind"`
+	TargetPath     string           `json:"target_path,omitempty"`
+	Story          StorySummary     `json:"story"`
+	Expected       ExpectedResult   `json:"expected"`
+	Matched        bool             `json:"matched"`
+	Mismatches     []string         `json:"mismatches,omitempty"`
+	Exposure       ExposureResult   `json:"exposure"`
+	Exposures      []ExposureResult `json:"exposures,omitempty"`
+	Interpretation Interpretation   `json:"interpretation"`
+	Graph          Graph            `json:"graph"`
+	Evidence       []Evidence       `json:"evidence"`
+	Redaction      RedactionInfo    `json:"redaction"`
+	Warnings       []string         `json:"warnings,omitempty"`
+	Limitations    []string         `json:"limitations"`
 }
 
 type StorySummary struct {
@@ -240,20 +241,130 @@ type ScanSummary struct {
 	Protected     int `json:"protected"`
 	Inconclusive  int `json:"inconclusive"`
 	ExposurePaths int `json:"exposure_paths"`
+	Critical      int `json:"critical"`
+	High          int `json:"high"`
+	Medium        int `json:"medium"`
+	Low           int `json:"low"`
+	Info          int `json:"info"`
 }
 
 type ScanReport struct {
-	SchemaVersion string             `json:"schema_version"`
-	RunID         string             `json:"run_id"`
-	GeneratedAt   time.Time          `json:"generated_at"`
-	RunKind       string             `json:"run_kind"`
-	Mode          string             `json:"mode"`
-	Agent         string             `json:"agent"`
-	Summary       ScanSummary        `json:"summary"`
-	Targets       []ScanTargetResult `json:"targets"`
-	Redaction     RedactionInfo      `json:"redaction"`
-	Warnings      []string           `json:"warnings,omitempty"`
-	Limitations   []string           `json:"limitations"`
+	SchemaVersion  string             `json:"schema_version"`
+	RunID          string             `json:"run_id"`
+	GeneratedAt    time.Time          `json:"generated_at"`
+	RunKind        string             `json:"run_kind"`
+	Mode           string             `json:"mode"`
+	Agent          string             `json:"agent"`
+	Summary        ScanSummary        `json:"summary"`
+	Targets        []ScanTargetResult `json:"targets"`
+	Interpretation Interpretation     `json:"interpretation"`
+	Redaction      RedactionInfo      `json:"redaction"`
+	Warnings       []string           `json:"warnings,omitempty"`
+	Limitations    []string           `json:"limitations"`
+}
+
+type Severity string
+
+const (
+	SeverityCritical Severity = "critical"
+	SeverityHigh     Severity = "high"
+	SeverityMedium   Severity = "medium"
+	SeverityLow      Severity = "low"
+	SeverityInfo     Severity = "info"
+)
+
+type Priority string
+
+const (
+	PriorityP0 Priority = "p0"
+	PriorityP1 Priority = "p1"
+	PriorityP2 Priority = "p2"
+	PriorityP3 Priority = "p3"
+	PriorityP4 Priority = "p4"
+)
+
+type Disposition string
+
+const (
+	DispositionFixNow     Disposition = "fix_now"
+	DispositionReview     Disposition = "review"
+	DispositionMonitor    Disposition = "monitor"
+	DispositionControlled Disposition = "controlled"
+	DispositionExpected   Disposition = "expected_capability"
+)
+
+type Interpretation struct {
+	Mode         string       `json:"mode"`
+	Engine       string       `json:"engine"`
+	FutureModes  []string     `json:"future_modes,omitempty"`
+	Summary      IssueSummary `json:"summary"`
+	Issues       []Issue      `json:"issues"`
+	Limitations  []string     `json:"limitations"`
+	PolicySource string       `json:"policy_source,omitempty"`
+}
+
+type IssueSummary struct {
+	Total      int `json:"total"`
+	Critical   int `json:"critical"`
+	High       int `json:"high"`
+	Medium     int `json:"medium"`
+	Low        int `json:"low"`
+	Info       int `json:"info"`
+	FixNow     int `json:"fix_now"`
+	Review     int `json:"review"`
+	Monitor    int `json:"monitor"`
+	Controlled int `json:"controlled"`
+	Expected   int `json:"expected"`
+}
+
+type Issue struct {
+	ID                 string      `json:"id"`
+	Title              string      `json:"title"`
+	Severity           Severity    `json:"severity"`
+	Priority           Priority    `json:"priority"`
+	Disposition        Disposition `json:"disposition"`
+	Category           string      `json:"category"`
+	ExposureID         string      `json:"exposure_id,omitempty"`
+	ExposureStatus     Status      `json:"exposure_status,omitempty"`
+	RuleID             string      `json:"rule_id"`
+	RuleSource         string      `json:"rule_source"`
+	InterpretationMode string      `json:"interpretation_mode"`
+	AffectedTarget     string      `json:"affected_target,omitempty"`
+	Rationale          string      `json:"rationale"`
+	Signals            []string    `json:"signals"`
+	GraphEdges         []string    `json:"graph_edges"`
+	Controls           []string    `json:"controls,omitempty"`
+	Actions            []string    `json:"actions"`
+	Confidence         string      `json:"confidence"`
+}
+
+type RulePolicy struct {
+	Version string       `json:"version"`
+	Rules   []CustomRule `json:"rules"`
+}
+
+type CustomRule struct {
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
+	Description string        `json:"description,omitempty"`
+	Category    string        `json:"category,omitempty"`
+	Severity    Severity      `json:"severity"`
+	Priority    Priority      `json:"priority"`
+	Disposition Disposition   `json:"disposition"`
+	When        RuleCondition `json:"when"`
+	Rationale   string        `json:"rationale,omitempty"`
+	Actions     []string      `json:"actions,omitempty"`
+}
+
+type RuleCondition struct {
+	Mode                      string         `json:"mode,omitempty"`
+	ExposureID                string         `json:"exposure_id,omitempty"`
+	ExposureStatus            Status         `json:"exposure_status,omitempty"`
+	HasNodes                  []string       `json:"has_nodes,omitempty"`
+	HasEdges                  []string       `json:"has_edges,omitempty"`
+	HasControls               []string       `json:"has_controls,omitempty"`
+	MissingControls           []string       `json:"missing_controls,omitempty"`
+	MinSurfaceCountByCategory map[string]int `json:"min_surface_count_by_category,omitempty"`
 }
 
 type RuntimeEvidence struct {

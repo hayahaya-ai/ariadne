@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/adapter"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/interpret"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/storylab"
 )
@@ -25,6 +26,7 @@ type Options struct {
 	Targets               []model.ScanTarget
 	Agent                 string
 	Mode                  string
+	RulesPath             string
 	IncludeSensitivePaths bool
 }
 
@@ -42,6 +44,10 @@ func RunStory(opts Options) (model.Report, error) {
 	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir})
 	graph := BuildGraph(collection)
 	exposure := Evaluate(collection, graph, manifest)
+	policy, err := loadPolicy(story.Dir, opts.RulesPath)
+	if err != nil {
+		return model.Report{}, err
+	}
 	report := model.Report{
 		SchemaVersion: model.SchemaVersion,
 		RunID:         randomID(),
@@ -72,6 +78,14 @@ func RunStory(opts Options) (model.Report, error) {
 			"Phase 1 evaluates exposure paths, not governance or runtime blocking.",
 		},
 	}
+	report.Interpretation = interpret.Evaluate(interpret.Input{
+		Target:     manifest.ID,
+		Mode:       manifest.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  report.Exposures,
+		Policy:     policy,
+	})
 	report.Expected.RedactionMustNotContain = nil
 	report.Matched, report.Mismatches = Compare(report, manifest.Expected)
 	return report, nil
@@ -109,7 +123,11 @@ func RunPath(opts Options) (model.Report, error) {
 	if len(exposures) > 0 {
 		primary = exposures[0]
 	}
-	return model.Report{
+	policy, err := loadPolicy(root, opts.RulesPath)
+	if err != nil {
+		return model.Report{}, err
+	}
+	report := model.Report{
 		SchemaVersion: model.SchemaVersion,
 		RunID:         randomID(),
 		GeneratedAt:   time.Now().UTC(),
@@ -139,7 +157,16 @@ func RunPath(opts Options) (model.Report, error) {
 			"Exposure means Ariadne found a graph path from influence or tool authority to a sensitive boundary; runtime exploitability is not proven.",
 			"Missing evidence is represented as inconclusive rather than safe.",
 		},
-	}, nil
+	}
+	report.Interpretation = interpret.Evaluate(interpret.Input{
+		Target:     root,
+		Mode:       opts.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  exposures,
+		Policy:     policy,
+	})
+	return report, nil
 }
 
 func RunInventory(opts Options) (model.InventoryReport, error) {
@@ -246,6 +273,7 @@ func RunScan(opts Options) (model.ScanReport, error) {
 			Path:                  target.Path,
 			Agent:                 opts.Agent,
 			Mode:                  opts.Mode,
+			RulesPath:             opts.RulesPath,
 			IncludeSensitivePaths: opts.IncludeSensitivePaths,
 		})
 		result := model.ScanTargetResult{Target: target}
@@ -270,7 +298,21 @@ func RunScan(opts Options) (model.ScanReport, error) {
 		}
 		r.Targets = append(r.Targets, result)
 	}
+	r.Interpretation = interpret.AggregateScan(r.Targets)
+	r.Summary.Critical = r.Interpretation.Summary.Critical
+	r.Summary.High = r.Interpretation.Summary.High
+	r.Summary.Medium = r.Interpretation.Summary.Medium
+	r.Summary.Low = r.Interpretation.Summary.Low
+	r.Summary.Info = r.Interpretation.Summary.Info
 	return r, nil
+}
+
+func loadPolicy(root, explicit string) (model.RulePolicy, error) {
+	path := interpret.DefaultPolicyPath(root, explicit)
+	if path == "" {
+		return model.RulePolicy{Version: "ariadne.rules/v1"}, nil
+	}
+	return interpret.LoadPolicy(path)
 }
 
 func LoadTargets(path string) ([]model.ScanTarget, error) {
@@ -501,6 +543,8 @@ func EvaluateAll(c model.Collection, g model.Graph, mode string) []model.Exposur
 			Title:     "No concrete exposure path established",
 			Status:    model.StatusInconclusive,
 			ProofMode: model.ProofInferred,
+			PathNodes: []string{},
+			PathEdges: []string{},
 			Observation: model.Observation{
 				Status:  model.ObservationInconclusive,
 				Summary: "Ariadne did not collect enough evidence to establish a supported exposure path.",
@@ -829,7 +873,7 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 }
 
 func existingEdges(g model.Graph, candidates []string) []string {
-	var out []string
+	out := []string{}
 	for _, key := range candidates {
 		if g.HasEdge(key) {
 			out = append(out, key)
@@ -840,7 +884,7 @@ func existingEdges(g model.Graph, candidates []string) []string {
 
 func nodesFromEdges(edges []string) []string {
 	seen := map[string]bool{}
-	var nodes []string
+	nodes := []string{}
 	for _, edge := range edges {
 		parts := strings.Split(edge, "|")
 		if len(parts) != 3 {

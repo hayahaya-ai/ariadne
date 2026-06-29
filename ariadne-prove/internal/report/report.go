@@ -22,6 +22,8 @@ func Render(w io.Writer, r model.Report, format string) error {
 		return renderGraphDOT(w, graphTitle(r.RunKind, r.Story.ID), r.Graph)
 	case "mermaid":
 		return renderGraphMermaid(w, graphTitle(r.RunKind, r.Story.ID), r.Graph)
+	case "html", "dashboard":
+		return renderReportDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown format: %s", format)
 	}
@@ -56,6 +58,8 @@ func RenderScan(w io.Writer, r model.ScanReport, format string) error {
 		return renderScanDOT(w, r)
 	case "mermaid":
 		return renderScanMermaid(w, r)
+	case "html", "dashboard":
+		return renderScanDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown format: %s", format)
 	}
@@ -202,6 +206,7 @@ func renderScanTable(w io.Writer, r model.ScanReport) error {
 	fmt.Fprintf(w, "Agent: %s\n", r.Agent)
 	fmt.Fprintf(w, "Targets: %d completed, %d errors\n", r.Summary.Completed, r.Summary.Errors)
 	fmt.Fprintf(w, "Exposure paths: %d exposed, %d protected, %d inconclusive\n\n", r.Summary.Exposed, r.Summary.Protected, r.Summary.Inconclusive)
+	renderIssueSummary(w, r.Interpretation)
 	for _, target := range r.Targets {
 		fmt.Fprintf(w, "Target: %s (%s)\n", target.Target.ID, target.Target.Path)
 		if target.Error != "" {
@@ -286,6 +291,7 @@ func renderTable(w io.Writer, r model.Report) error {
 	if len(exposures) == 0 {
 		exposures = []model.ExposureResult{r.Exposure}
 	}
+	renderIssueSummary(w, r.Interpretation)
 	for i, exposure := range exposures {
 		if len(exposures) > 1 {
 			fmt.Fprintf(w, "Exposure Path %d: %s\n", i+1, exposure.Title)
@@ -325,6 +331,40 @@ func renderTable(w io.Writer, r model.Report) error {
 		}
 	}
 	return nil
+}
+
+func renderIssueSummary(w io.Writer, interpretation model.Interpretation) {
+	if interpretation.Mode == "" {
+		return
+	}
+	fmt.Fprintf(w, "Deterministic priority:\n")
+	fmt.Fprintf(w, "  Issues: %d total, %d critical, %d high, %d medium, %d low, %d info\n",
+		interpretation.Summary.Total,
+		interpretation.Summary.Critical,
+		interpretation.Summary.High,
+		interpretation.Summary.Medium,
+		interpretation.Summary.Low,
+		interpretation.Summary.Info,
+	)
+	if len(interpretation.Issues) == 0 {
+		fmt.Fprintf(w, "  - no prioritized issues returned\n\n")
+		return
+	}
+	limit := len(interpretation.Issues)
+	if limit > 8 {
+		limit = 8
+	}
+	for _, issue := range interpretation.Issues[:limit] {
+		target := ""
+		if issue.AffectedTarget != "" {
+			target = " Target: " + issue.AffectedTarget
+		}
+		fmt.Fprintf(w, "  - %s/%s %s [%s]%s\n", strings.ToUpper(string(issue.Priority)), strings.ToUpper(string(issue.Severity)), issue.Title, issue.Disposition, target)
+	}
+	if len(interpretation.Issues) > limit {
+		fmt.Fprintf(w, "  - %d more issues in JSON or dashboard output\n", len(interpretation.Issues)-limit)
+	}
+	fmt.Fprintln(w)
 }
 
 func renderFacts(w io.Writer, r model.Report, exposure model.ExposureResult) {

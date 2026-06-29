@@ -3,6 +3,7 @@ package prove
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -185,6 +186,9 @@ func TestJSONGraphsUseArraysForEmptyEdges(t *testing.T) {
 	if strings.Contains(out, `"edges":null`) || strings.Contains(out, `"nodes":null`) {
 		t.Fatalf("graph arrays must not serialize as null: %s", out)
 	}
+	if strings.Contains(out, `"path_edges":null`) || strings.Contains(out, `"path_nodes":null`) || strings.Contains(out, `"graph_edges":null`) {
+		t.Fatalf("path and issue arrays must not serialize as null: %s", out)
+	}
 	if !strings.Contains(out, `"edges":[]`) {
 		t.Fatalf("expected empty edge array in repo-only graph: %s", out)
 	}
@@ -209,6 +213,63 @@ func TestRunPathCombinedRiskProducesMultipleExposurePaths(t *testing.T) {
 	}
 	if !r.Graph.HasEdge("authority:external-communication|reaches|boundary:external-destination") {
 		t.Fatalf("missing data-egress external communication graph edge")
+	}
+}
+
+func TestRunPathCombinedRiskPrioritizesHighRiskPaths(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Interpretation.Mode != "deterministic" {
+		t.Fatalf("interpretation mode = %q, want deterministic", r.Interpretation.Mode)
+	}
+	if r.Interpretation.Summary.Critical < 2 || r.Interpretation.Summary.High < 1 {
+		t.Fatalf("expected critical and high issue counts, got %+v", r.Interpretation.Summary)
+	}
+	assertIssue(t, r.Interpretation.Issues, "builtin:large private impossible", "", "", false)
+	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-mutable-tool-launch:mutable-tool-launch-execution", model.SeverityCritical, model.PriorityP0, true)
+	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-data-egress-chain:data-egress-chain", model.SeverityCritical, model.PriorityP0, true)
+	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-secret-boundary-access:prompt-injection-to-secret-canary", model.SeverityHigh, model.PriorityP1, true)
+}
+
+func TestRunPathAppliesCustomDeterministicRules(t *testing.T) {
+	rulesPath := filepath.Join(t.TempDir(), "rules.json")
+	policy := `{
+  "version": "ariadne.rules/v1",
+  "rules": [
+    {
+      "id": "org-critical-mutable-tool",
+      "title": "Org critical mutable tool path",
+      "category": "org-policy",
+      "severity": "critical",
+      "priority": "p0",
+      "disposition": "fix_now",
+      "when": {
+        "mode": "repo",
+        "exposure_id": "mutable-tool-launch-execution",
+        "exposure_status": "exposed",
+        "has_edges": ["tool:mcp-package-launch|grants|authority:local-code-execution"],
+        "missing_controls": ["control:mcp-reviewed-pinned"]
+      },
+      "rationale": "Organization policy requires mutable tool launch paths to be treated as critical.",
+      "actions": ["Pin MCP packages", "Require reviewed MCP server definitions"]
+    }
+  ]
+}`
+	if err := os.WriteFile(rulesPath, []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), RulesPath: rulesPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := assertIssue(t, r.Interpretation.Issues, "custom:org-critical-mutable-tool:mutable-tool-launch-execution", model.SeverityCritical, model.PriorityP0, true)
+	if issue.RuleSource != "custom" {
+		t.Fatalf("rule source = %s, want custom", issue.RuleSource)
+	}
+	if !strings.Contains(strings.Join(issue.Actions, " "), "Pin MCP packages") {
+		t.Fatalf("custom issue missing configured action: %+v", issue)
 	}
 }
 
@@ -268,6 +329,9 @@ func TestRunScanAggregatesMultipleTargets(t *testing.T) {
 	}
 	if r.Summary.Exposed == 0 || r.Summary.Protected == 0 || r.Summary.Inconclusive == 0 {
 		t.Fatalf("expected exposed, protected, and inconclusive paths in scan summary: %+v", r.Summary)
+	}
+	if r.Interpretation.Summary.Total == 0 || r.Summary.Critical != r.Interpretation.Summary.Critical {
+		t.Fatalf("scan summary did not aggregate deterministic issue priority: summary=%+v interpretation=%+v", r.Summary, r.Interpretation.Summary)
 	}
 	if len(r.Targets) != 3 {
 		t.Fatalf("targets = %d, want 3", len(r.Targets))
@@ -398,6 +462,29 @@ func TestTableReportIsFactFirst(t *testing.T) {
 	}
 }
 
+func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := report.Render(&out, r, "html"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := out.String()
+	for _, want := range []string{
+		"Ariadne Exposure Dashboard",
+		"Issue Dashboard",
+		"Exposure Paths",
+		"Facts Dive",
+		"Mutable tool launch can reach local code execution",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func storyRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", "..", "testdata", "storylab"))
@@ -427,6 +514,26 @@ func assertExposure(t *testing.T, r model.Report, id string, status model.Status
 		}
 	}
 	t.Fatalf("missing exposure %s in %+v", id, r.Exposures)
+}
+
+func assertIssue(t *testing.T, issues []model.Issue, id string, severity model.Severity, priority model.Priority, shouldExist bool) model.Issue {
+	t.Helper()
+	for _, issue := range issues {
+		if issue.ID != id {
+			continue
+		}
+		if !shouldExist {
+			t.Fatalf("issue %s should not exist", id)
+		}
+		if issue.Severity != severity || issue.Priority != priority {
+			t.Fatalf("issue %s severity/priority = %s/%s, want %s/%s", id, issue.Severity, issue.Priority, severity, priority)
+		}
+		return issue
+	}
+	if shouldExist {
+		t.Fatalf("missing issue %s in %+v", id, issues)
+	}
+	return model.Issue{}
 }
 
 func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {

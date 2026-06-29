@@ -26,6 +26,8 @@ func main() {
 		runInventory(os.Args[2:])
 	case "scan":
 		runScan(os.Args[2:])
+	case "dashboard":
+		runDashboard(os.Args[2:])
 	case "stories":
 		runStories(os.Args[2:])
 	case "help", "-h", "--help":
@@ -45,9 +47,10 @@ func runScan(args []string) {
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
+	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
-	r, err := prove.RunScan(prove.Options{TargetsFile: *targetsFile, Path: *path, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	r, err := prove.RunScan(prove.Options{TargetsFile: *targetsFile, Path: *path, Agent: *agent, Mode: *mode, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
 	if err != nil {
 		fatal(err)
 	}
@@ -93,6 +96,7 @@ func runProve(args []string) {
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
+	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
 	var r model.Report
@@ -102,9 +106,9 @@ func runProve(args []string) {
 		if rootErr != nil {
 			fatal(rootErr)
 		}
-		r, err = prove.RunStory(prove.Options{StoryRoot: resolvedStoryRoot, StoryID: *storyID, IncludeSensitivePaths: *includeSensitive})
+		r, err = prove.RunStory(prove.Options{StoryRoot: resolvedStoryRoot, StoryID: *storyID, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
 	} else {
-		r, err = prove.RunPath(prove.Options{Path: *path, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+		r, err = prove.RunPath(prove.Options{Path: *path, Agent: *agent, Mode: *mode, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
 	}
 	if err != nil {
 		fatal(err)
@@ -119,6 +123,40 @@ func runProve(args []string) {
 	}
 	if r.RunKind == "story" && !r.Matched {
 		os.Exit(1)
+	}
+}
+
+func runDashboard(args []string) {
+	fs := flag.NewFlagSet("dashboard", flag.ExitOnError)
+	targetsFile := fs.String("targets", "", "file of scan targets, one path per line or id,path")
+	path := fs.String("path", ".", "single target path to inspect")
+	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
+	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
+	outPath := fs.String("out", "ariadne-dashboard.html", "write HTML dashboard to file")
+	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	if *targetsFile != "" {
+		r, err := prove.RunScan(prove.Options{TargetsFile: *targetsFile, Path: *path, Agent: *agent, Mode: *mode, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
+		if err != nil {
+			fatal(err)
+		}
+		if err := report.RenderScan(writer, r, "html"); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	r, err := prove.RunPath(prove.Options{Path: *path, Agent: *agent, Mode: *mode, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	if err := report.Render(writer, r, "html"); err != nil {
+		fatal(err)
 	}
 }
 
@@ -149,6 +187,7 @@ Commands:
   inventory      Collect deterministic AI surface facts without classifying exposure
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
+  dashboard      Write a local HTML issue dashboard for one target or a target list
   stories list   List Story Lab scenarios
 
 Examples:
@@ -157,9 +196,12 @@ Examples:
   ariadne inventory --path . --mode endpoint --format json
   ariadne inventory --path . --format mermaid --out graph.mmd
   ariadne prove --path .
+  ariadne dashboard --path . --out ariadne-dashboard.html
   ariadne prove --path . --format dot --out graph.dot
   ariadne scan --targets targets.txt --format json
+  ariadne scan --targets targets.txt --format html --out fleet-dashboard.html
   ariadne prove --path . --agent codex --format json
+  ariadne prove --path . --rules .ariadne/rules.json
   ariadne prove --story local-agent-secret-exposed
   ariadne prove --story local-agent-secret-exposed --format json`))
 }

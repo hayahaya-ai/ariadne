@@ -15,6 +15,7 @@
       "items": { "$ref": "#/$defs/exposure" }
     },
     "graph": { "$ref": "#/$defs/graph" },
+    "interpretation": { "$ref": "#/$defs/interpretation" },
     "evidence": {
       "type": "array",
       "items": { "$ref": "#/$defs/evidence" }
@@ -54,6 +55,59 @@
         "grade": { "type": "string" },
         "source": { "type": "string" },
         "summary": { "type": "string" }
+      }
+    },
+    "interpretation": {
+      "type": "object",
+      "required": ["mode", "engine", "summary", "issues", "limitations"],
+      "properties": {
+        "mode": { "type": "string" },
+        "engine": { "type": "string" },
+        "future_modes": { "type": "array", "items": { "type": "string" } },
+        "summary": { "$ref": "#/$defs/issue_summary" },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+        "limitations": { "type": "array", "items": { "type": "string" } },
+        "policy_source": { "type": "string" }
+      }
+    },
+    "issue_summary": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "critical": { "type": "integer" },
+        "high": { "type": "integer" },
+        "medium": { "type": "integer" },
+        "low": { "type": "integer" },
+        "info": { "type": "integer" },
+        "fix_now": { "type": "integer" },
+        "review": { "type": "integer" },
+        "monitor": { "type": "integer" },
+        "controlled": { "type": "integer" },
+        "expected": { "type": "integer" }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "required": ["id", "title", "severity", "priority", "disposition", "rule_id", "rule_source", "interpretation_mode"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+        "priority": { "type": "string", "enum": ["p0", "p1", "p2", "p3", "p4"] },
+        "disposition": { "type": "string", "enum": ["fix_now", "review", "monitor", "controlled", "expected_capability"] },
+        "category": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "exposure_status": { "type": "string", "enum": ["exposed", "protected", "inconclusive"] },
+        "rule_id": { "type": "string" },
+        "rule_source": { "type": "string" },
+        "interpretation_mode": { "type": "string" },
+        "affected_target": { "type": "string" },
+        "rationale": { "type": "string" },
+        "signals": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "type": "string" }
       }
     }
   }

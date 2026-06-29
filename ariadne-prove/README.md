@@ -15,6 +15,9 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - Summarizes private or high-volume agent context without emitting content.
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
+- Prioritizes graph-backed issues with deterministic rules.
+- Supports custom rule policies for organization-specific risky paths.
+- Writes a local HTML dashboard with issues and a facts dive.
 - Emits stable JSON for automation, fleet aggregation, and security data pipelines.
 
 ## Current Exposure Families
@@ -50,6 +53,7 @@ Inspect the current repository:
 ```bash
 ./bin/ariadne inventory --path .
 ./bin/ariadne prove --path .
+./bin/ariadne dashboard --path . --out ariadne-dashboard.html
 ```
 
 Emit JSON:
@@ -57,6 +61,7 @@ Emit JSON:
 ```bash
 ./bin/ariadne inventory --path . --format json --out inventory.json
 ./bin/ariadne prove --path . --format json --out exposure.json
+./bin/ariadne scan --targets targets.txt --format json --out scan.json
 ```
 
 Export the graph for review or visualization:
@@ -70,6 +75,7 @@ Scan multiple local or mounted targets:
 
 ```bash
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json
+./bin/ariadne dashboard --targets targets.txt --out fleet-dashboard.html
 ```
 
 `targets.txt` accepts one target per line:
@@ -87,6 +93,8 @@ repo-only,/srv/repos/example
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
 | `ariadne scan --targets <file>` | Run `prove` across many local or mounted targets and aggregate the results. |
+| `ariadne dashboard --path <dir>` | Write a local HTML issue dashboard for one target. |
+| `ariadne dashboard --targets <file>` | Write a local HTML issue dashboard across many targets. |
 | `ariadne stories list` | List validation scenarios. |
 | `ariadne prove --story <id>` | Run one validation scenario against its expected oracle. |
 
@@ -96,7 +104,10 @@ Useful flags:
 - `--mode repo|endpoint`
 - `--format table|json|dot|mermaid`
 - `--out <file>`
+- `--rules <file>`
 - `--include-sensitive-paths`
+
+Custom deterministic rules can also live at `.ariadne/rules.json`. See [docs/priority-rules.md](docs/priority-rules.md).
 
 ## Supported Evidence Surfaces
 
@@ -135,7 +146,16 @@ Prove output adds:
 - proof mode: `inferred`, `simulated`, or `live_lab`
 - graph path edges
 - controls that break the path
+- deterministic interpretation with issue priority, severity, disposition, evidence signals, and actions
 - limitations
+
+Dashboard output adds:
+
+- issue summary
+- prioritized issue table
+- exposure paths
+- facts dive with graph edges and evidence rows
+- warnings and limitations
 
 Schema docs live in [docs/json-schema.md](docs/json-schema.md). Machine-readable draft schemas live in [schema/](schema/).
 
@@ -190,7 +210,7 @@ See [docs/fleet.md](docs/fleet.md).
 
 ## Project Status
 
-This repository currently focuses on the deterministic evidence and graph layer. A future phase can add optional non-deterministic review on top of these facts, but the deterministic layer is intentionally useful on its own.
+This repository currently focuses on deterministic evidence, graph-backed exposure, and deterministic priority interpretation. A future phase can add optional LLM review on top of these facts, but the deterministic layer is intentionally useful on its own.
 
 ## Contributing
 

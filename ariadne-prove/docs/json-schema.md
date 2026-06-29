@@ -48,6 +48,32 @@ Edge types:
 - `reaches`
 - `restricts`
 
+### Interpretation
+
+`prove`, `scan`, and `dashboard` include deterministic interpretation on top of exposure paths.
+
+Interpretation includes:
+
+- `mode`: currently `deterministic`
+- `engine`: interpreter name
+- `future_modes`: planned optional modes such as `llm_review`
+- `summary`: issue counts by severity and disposition
+- `issues`: prioritized issue records
+- `policy_source`: `built_in` or `built_in+custom`
+- `limitations`
+
+Each issue includes:
+
+- `priority`: `p0`, `p1`, `p2`, `p3`, or `p4`
+- `severity`: `critical`, `high`, `medium`, `low`, or `info`
+- `disposition`: `fix_now`, `review`, `monitor`, `controlled`, or `expected_capability`
+- `rule_source`: `built_in` or `custom`
+- `signals`: facts or graph predicates that caused the rule to match
+- `graph_edges`: path evidence cited by the issue
+- `actions`: concrete next steps
+
+Custom deterministic policies are documented in [priority-rules.md](priority-rules.md).
+
 ## Graph Export Formats
 
 The JSON graph is the canonical machine contract. Ariadne can also render the
@@ -57,6 +83,7 @@ same nodes and edges directly for visualization:
 ariadne inventory --path . --format mermaid --out ariadne-graph.mmd
 ariadne prove --path . --format dot --out ariadne-graph.dot
 ariadne scan --targets targets.txt --format mermaid --out fleet-graph.mmd
+ariadne dashboard --path . --out ariadne-dashboard.html
 ```
 
 `dot` output is Graphviz-compatible. `mermaid` output uses `flowchart LR`.
