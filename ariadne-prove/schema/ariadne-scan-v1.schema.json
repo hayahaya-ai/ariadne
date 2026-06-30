@@ -49,11 +49,14 @@
       "properties": {
         "mode": { "type": "string" },
         "engine": { "type": "string" },
+        "available_modes": { "type": "array", "items": { "type": "string" } },
         "future_modes": { "type": "array", "items": { "type": "string" } },
         "summary": { "$ref": "#/$defs/issue_summary" },
         "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
         "limitations": { "type": "array", "items": { "type": "string" } },
-        "policy_source": { "type": "string" }
+        "policy_source": { "type": "string" },
+        "review_source": { "type": "string" },
+        "request_digest": { "type": "string" }
       }
     },
     "issue_summary": {

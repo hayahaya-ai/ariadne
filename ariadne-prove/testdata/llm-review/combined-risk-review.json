@@ -1,0 +1,33 @@
+{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture",
+  "model": "fixture-model",
+  "summary": "The data egress chain is the highest-risk path in this fixture.",
+  "issues": [
+    {
+      "id": "fixture-data-egress-critical",
+      "title": "LLM-reviewed data egress path",
+      "severity": "critical",
+      "priority": "p0",
+      "disposition": "fix_now",
+      "category": "data-egress",
+      "exposure_id": "data-egress-chain",
+      "exposure_status": "exposed",
+      "rationale": "The packet contains untrusted influence, private-data reachability, and external communication reachability.",
+      "signals": [
+        "Graph contains the data egress chain."
+      ],
+      "graph_edges": [
+        "trustinput:repo-instruction|influences|runtime:codex",
+        "authority:external-communication|reaches|boundary:external-destination"
+      ],
+      "actions": [
+        "Restrict external communication for agent runtimes."
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "limitations": [
+    "Fixture review only."
+  ]
+}

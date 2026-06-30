@@ -31,6 +31,7 @@ make build
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
+- Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
 - Writes local HTML dashboards with issue and facts-dive views.
 - Emits JSON for automation, fleet aggregation, and security data pipelines.
 
@@ -58,6 +59,8 @@ From `ariadne-prove/`:
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
 ./bin/ariadne prove --path . --rules .ariadne/rules.json
+./bin/ariadne prove --path . --llm-request-out llm-request.json
+./bin/ariadne prove --path . --interpret llm --llm-review llm-review.json
 ./bin/ariadne stories list
 ./bin/ariadne prove --story data-egress-chain-exposed
 ```

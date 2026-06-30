@@ -56,10 +56,12 @@ Interpretation includes:
 
 - `mode`: currently `deterministic`
 - `engine`: interpreter name
-- `future_modes`: planned optional modes such as `llm_review`
+- `available_modes`: supported modes such as `deterministic` and `llm_review`
 - `summary`: issue counts by severity and disposition
 - `issues`: prioritized issue records
 - `policy_source`: `built_in` or `built_in+custom`
+- `review_source`: source of an ingested LLM review, when applicable
+- `request_digest`: SHA-256 digest of the LLM review request packet, when applicable
 - `limitations`
 
 Each issue includes:
@@ -73,6 +75,13 @@ Each issue includes:
 - `actions`: concrete next steps
 
 Custom deterministic policies are documented in [priority-rules.md](priority-rules.md).
+
+LLM review mode uses two JSON payloads:
+
+- request packet: `ariadne.llm_review_request/v1`
+- review response: `ariadne.llm_review/v1`
+
+The request packet contains only Ariadne's redacted collection facts, graph evidence, exposure paths, deterministic interpretation, redaction metadata, and limitations. The response is accepted only when every issue cites an existing exposure and supported graph edges.
 
 ## Graph Export Formats
 

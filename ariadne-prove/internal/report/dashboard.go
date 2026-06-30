@@ -239,7 +239,7 @@ func renderDashboardHeader(w io.Writer, title string, fields []kv) {
 	fmt.Fprintln(w, `<section class="topbar">`)
 	fmt.Fprintln(w, `<div class="title">`)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", esc(title))
-	fmt.Fprintln(w, `<div class="subtle">Deterministic facts, graph-backed exposure paths, and priority interpretation.</div>`)
+	fmt.Fprintln(w, `<div class="subtle">Fact collection, graph-backed exposure paths, and selected priority interpretation.</div>`)
 	fmt.Fprintln(w, "</div>")
 	for _, field := range fields {
 		fmt.Fprintln(w, `<div class="metric">`)
@@ -253,8 +253,8 @@ func renderDashboardHeader(w io.Writer, title string, fields []kv) {
 func renderIssueDashboard(w io.Writer, interpretation model.Interpretation) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
-	fmt.Fprintln(w, `<div><h2>Issue Dashboard</h2><div class="subtle">Prioritized only after deterministic facts connect into graph paths.</div></div>`)
-	fmt.Fprintf(w, `<div class="subtle">Mode: %s</div>`, esc(firstNonEmpty(interpretation.Mode, "not evaluated")))
+	fmt.Fprintln(w, `<div><h2>Issue Dashboard</h2><div class="subtle">Prioritized only after Ariadne facts connect into graph paths.</div></div>`)
+	fmt.Fprintf(w, `<div class="subtle">%s</div>`, esc(interpretationMeta(interpretation)))
 	fmt.Fprintln(w, "</div>")
 	renderIssueMetrics(w, interpretation.Summary)
 	if len(interpretation.Issues) == 0 {
@@ -295,6 +295,21 @@ func renderIssueMetrics(w io.Writer, summary model.IssueSummary) {
 		fmt.Fprintln(w, "</div>")
 	}
 	fmt.Fprintln(w, "</div>")
+}
+
+func interpretationMeta(interpretation model.Interpretation) string {
+	parts := []string{"Mode: " + firstNonEmpty(interpretation.Mode, "not evaluated")}
+	if interpretation.ReviewSource != "" {
+		parts = append(parts, "Source: "+interpretation.ReviewSource)
+	}
+	if interpretation.RequestDigest != "" {
+		digest := interpretation.RequestDigest
+		if len(digest) > 12 {
+			digest = digest[:12]
+		}
+		parts = append(parts, "Request: "+digest)
+	}
+	return strings.Join(parts, " | ")
 }
 
 func renderExposureSection(w io.Writer, exposures []model.ExposureResult) {

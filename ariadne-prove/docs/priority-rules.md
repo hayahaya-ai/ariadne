@@ -116,15 +116,79 @@ ariadne dashboard --targets targets.txt --out fleet-dashboard.html
 - facts dive with graph edges and evidence rows
 - warnings and limitations
 
-## Future LLM Review
+## LLM Review Mode
 
-The JSON output advertises `future_modes: ["llm_review"]`.
+Ariadne also supports `llm_review` as an optional interpretation mode.
 
-That mode is intentionally not implemented yet. The intended shape is:
+The LLM does not collect facts. Ariadne collects and redacts the facts first, then sends only a review packet containing:
 
-- deterministic collector and graph remain the source of truth
-- LLM review receives redacted facts and graph evidence
-- LLM judgment is stored as an interpretation layer, not as raw fact
-- deterministic and LLM interpretations can be compared
+- redacted surfaces and facts
+- graph nodes and edges
+- exposure paths
+- deterministic interpretation as an anchor
+- limitations and redaction metadata
 
-This keeps Ariadne fact-first while allowing a future non-deterministic review mode for ambiguous or organization-specific judgment.
+Generate a review packet:
+
+```bash
+ariadne prove --path . --llm-request-out llm-request.json
+```
+
+Have an LLM reviewer produce JSON with schema version `ariadne.llm_review/v1`, then ingest it:
+
+```bash
+ariadne prove --path . --interpret llm --llm-review llm-review.json
+ariadne dashboard --path . --interpret llm --llm-review llm-review.json --out ariadne-dashboard.html
+```
+
+You can also plug in a local reviewer command. Ariadne writes the review packet to stdin and expects review JSON on stdout:
+
+```bash
+ariadne prove --path . --interpret llm --llm-command ./security-reviewer
+```
+
+The command is executed directly, not through a shell. Use a wrapper executable if the reviewer needs complex arguments.
+
+Example review response:
+
+```json
+{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "internal-security-reviewer",
+  "model": "team-approved-model",
+  "summary": "The data egress chain is the highest-risk path.",
+  "issues": [
+    {
+      "id": "data-egress-critical",
+      "title": "LLM-reviewed data egress path",
+      "severity": "critical",
+      "priority": "p0",
+      "disposition": "fix_now",
+      "category": "data-egress",
+      "exposure_id": "data-egress-chain",
+      "exposure_status": "exposed",
+      "rationale": "The packet contains untrusted influence, private-data reachability, and external communication reachability.",
+      "signals": [
+        "Graph contains the data egress chain."
+      ],
+      "graph_edges": [
+        "trustinput:repo-instruction|influences|runtime:codex"
+      ],
+      "actions": [
+        "Restrict external communication for agent runtimes."
+      ],
+      "confidence": "medium"
+    }
+  ]
+}
+```
+
+LLM output is fact-bound:
+
+- every issue must cite an existing `exposure_id`
+- `exposure_status` must match Ariadne's exposure status
+- every `graph_edges` entry must exactly match an Ariadne graph edge
+- unsupported severity, priority, or disposition values are rejected
+- LLM output is stored as interpretation, not as raw evidence
+
+This keeps Ariadne fact-first while allowing non-deterministic review for ambiguous or organization-specific judgment.

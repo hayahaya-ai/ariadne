@@ -294,13 +294,16 @@ const (
 )
 
 type Interpretation struct {
-	Mode         string       `json:"mode"`
-	Engine       string       `json:"engine"`
-	FutureModes  []string     `json:"future_modes,omitempty"`
-	Summary      IssueSummary `json:"summary"`
-	Issues       []Issue      `json:"issues"`
-	Limitations  []string     `json:"limitations"`
-	PolicySource string       `json:"policy_source,omitempty"`
+	Mode           string       `json:"mode"`
+	Engine         string       `json:"engine"`
+	AvailableModes []string     `json:"available_modes,omitempty"`
+	FutureModes    []string     `json:"future_modes,omitempty"`
+	Summary        IssueSummary `json:"summary"`
+	Issues         []Issue      `json:"issues"`
+	Limitations    []string     `json:"limitations"`
+	PolicySource   string       `json:"policy_source,omitempty"`
+	ReviewSource   string       `json:"review_source,omitempty"`
+	RequestDigest  string       `json:"request_digest,omitempty"`
 }
 
 type IssueSummary struct {
@@ -365,6 +368,33 @@ type RuleCondition struct {
 	HasControls               []string       `json:"has_controls,omitempty"`
 	MissingControls           []string       `json:"missing_controls,omitempty"`
 	MinSurfaceCountByCategory map[string]int `json:"min_surface_count_by_category,omitempty"`
+}
+
+type LLMReviewRequest struct {
+	SchemaVersion      string           `json:"schema_version"`
+	Target             string           `json:"target"`
+	Mode               string           `json:"mode"`
+	Question           string           `json:"question"`
+	Instructions       []string         `json:"instructions"`
+	Collection         Collection       `json:"collection"`
+	Graph              Graph            `json:"graph"`
+	Exposures          []ExposureResult `json:"exposures"`
+	Deterministic      Interpretation   `json:"deterministic_interpretation"`
+	Redaction          RedactionInfo    `json:"redaction"`
+	Limitations        []string         `json:"limitations"`
+	AllowedPriorities  []Priority       `json:"allowed_priorities"`
+	AllowedSeverities  []Severity       `json:"allowed_severities"`
+	AllowedStatuses    []Status         `json:"allowed_statuses"`
+	AllowedDisposition []Disposition    `json:"allowed_dispositions"`
+}
+
+type LLMReviewResponse struct {
+	SchemaVersion string   `json:"schema_version"`
+	Reviewer      string   `json:"reviewer,omitempty"`
+	Model         string   `json:"model,omitempty"`
+	Summary       string   `json:"summary,omitempty"`
+	Issues        []Issue  `json:"issues"`
+	Limitations   []string `json:"limitations,omitempty"`
 }
 
 type RuntimeEvidence struct {

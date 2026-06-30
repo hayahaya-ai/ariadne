@@ -273,6 +273,152 @@ func TestRunPathAppliesCustomDeterministicRules(t *testing.T) {
 	}
 }
 
+func TestRunPathLLMReviewFromFilePrioritizesGraphBackedIssue(t *testing.T) {
+	reviewPath := filepath.Join(t.TempDir(), "llm-review.json")
+	review := `{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture",
+  "model": "fixture-model",
+  "summary": "The data egress chain is the highest-risk path.",
+  "issues": [
+    {
+      "id": "data-egress-critical",
+      "title": "LLM-reviewed data egress path",
+      "severity": "critical",
+      "priority": "p0",
+      "disposition": "fix_now",
+      "category": "data-egress",
+      "exposure_id": "data-egress-chain",
+      "exposure_status": "exposed",
+      "rationale": "The packet contains untrusted influence, private-data reachability, and external communication reachability.",
+      "signals": ["Graph contains the data egress chain."],
+      "graph_edges": [
+        "trustinput:repo-instruction|influences|runtime:codex",
+        "authority:external-communication|reaches|boundary:external-destination"
+      ],
+      "actions": ["Restrict external communication for agent runtimes."],
+      "confidence": "medium"
+    }
+  ],
+  "limitations": ["Fixture review only."]
+}`
+	if err := os.WriteFile(reviewPath, []byte(review), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), InterpretMode: "llm", LLMReviewPath: reviewPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Interpretation.Mode != "llm_review" {
+		t.Fatalf("interpretation mode = %s, want llm_review", r.Interpretation.Mode)
+	}
+	if r.Interpretation.RequestDigest == "" {
+		t.Fatalf("expected request digest for LLM audit")
+	}
+	issue := assertIssue(t, r.Interpretation.Issues, "llm:data-egress-critical", model.SeverityCritical, model.PriorityP0, true)
+	if issue.RuleSource != "llm" || issue.InterpretationMode != "llm_review" {
+		t.Fatalf("issue was not normalized as LLM review: %+v", issue)
+	}
+}
+
+func TestRunPathLLMReviewFromCommand(t *testing.T) {
+	dir := t.TempDir()
+	reviewer := filepath.Join(dir, "reviewer")
+	script := `#!/bin/sh
+cat >/dev/null
+printf '%s\n' '{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture-command",
+  "issues": [
+    {
+      "id": "command-secret-path",
+      "title": "Command-reviewed secret path",
+      "severity": "high",
+      "priority": "p1",
+      "disposition": "fix_now",
+      "category": "secret-access",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "exposure_status": "exposed",
+      "graph_edges": [
+        "authority:file-read|reaches|boundary:secret-like-file"
+      ],
+      "rationale": "The command reviewer selected the graph-backed secret path.",
+      "signals": ["Graph reaches a secret-like file boundary."],
+      "actions": ["Add deny-read controls."],
+      "confidence": "medium"
+    }
+  ]
+}'
+`
+	if err := os.WriteFile(reviewer, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), InterpretMode: "llm", LLMCommand: reviewer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Interpretation.Mode != "llm_review" {
+		t.Fatalf("interpretation mode = %s, want llm_review", r.Interpretation.Mode)
+	}
+	issue := assertIssue(t, r.Interpretation.Issues, "llm:command-secret-path", model.SeverityHigh, model.PriorityP1, true)
+	if issue.RuleSource != "llm" {
+		t.Fatalf("issue source = %s, want llm", issue.RuleSource)
+	}
+}
+
+func TestRunPathLLMReviewRejectsUnsupportedGraphEvidence(t *testing.T) {
+	reviewPath := filepath.Join(t.TempDir(), "bad-llm-review.json")
+	review := `{
+  "schema_version": "ariadne.llm_review/v1",
+  "issues": [
+    {
+      "title": "Invented edge",
+      "severity": "critical",
+      "priority": "p0",
+      "disposition": "fix_now",
+      "exposure_id": "data-egress-chain",
+      "exposure_status": "exposed",
+      "graph_edges": ["runtime:codex|invented|boundary:root"]
+    }
+  ]
+}`
+	if err := os.WriteFile(reviewPath, []byte(review), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), InterpretMode: "llm", LLMReviewPath: reviewPath})
+	if err == nil || !strings.Contains(err.Error(), "unsupported graph edge") {
+		t.Fatalf("expected unsupported graph edge error, got %v", err)
+	}
+}
+
+func TestRunPathWritesRedactedLLMReviewRequest(t *testing.T) {
+	requestPath := filepath.Join(t.TempDir(), "llm-request.json")
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), LLMRequestOut: requestPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Interpretation.Mode != "deterministic" {
+		t.Fatalf("request generation should not change interpretation mode, got %s", r.Interpretation.Mode)
+	}
+	data, err := os.ReadFile(requestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "REALPATH_FAKE_SECRET_DO_NOT_LEAK") {
+		t.Fatalf("LLM review request leaked fake secret value")
+	}
+	var request model.LLMReviewRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.SchemaVersion != "ariadne.llm_review_request/v1" {
+		t.Fatalf("request schema = %s", request.SchemaVersion)
+	}
+	if len(request.Graph.Edges) == 0 || len(request.Deterministic.Issues) == 0 {
+		t.Fatalf("LLM request should include graph evidence and deterministic anchor")
+	}
+}
+
 func TestDataEgressChainProtectedStoryControlBreaksPath(t *testing.T) {
 	r, err := RunStory(Options{StoryRoot: storyRoot(t), StoryID: "data-egress-chain-protected"})
 	if err != nil {

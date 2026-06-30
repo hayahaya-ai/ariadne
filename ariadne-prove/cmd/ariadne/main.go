@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/prove"
@@ -48,9 +49,26 @@ func runScan(args []string) {
 	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
+	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
+	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
+	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
+	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
-	r, err := prove.RunScan(prove.Options{TargetsFile: *targetsFile, Path: *path, Agent: *agent, Mode: *mode, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
+	r, err := prove.RunScan(prove.Options{
+		TargetsFile:           *targetsFile,
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		RulesPath:             *rulesPath,
+		InterpretMode:         *interpretMode,
+		LLMReviewPath:         *llmReview,
+		LLMCommand:            *llmCommand,
+		LLMRequestOut:         *llmRequestOut,
+		LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
+		IncludeSensitivePaths: *includeSensitive,
+	})
 	if err != nil {
 		fatal(err)
 	}
@@ -97,6 +115,11 @@ func runProve(args []string) {
 	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
+	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
+	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
+	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
+	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
 	var r model.Report
@@ -106,9 +129,30 @@ func runProve(args []string) {
 		if rootErr != nil {
 			fatal(rootErr)
 		}
-		r, err = prove.RunStory(prove.Options{StoryRoot: resolvedStoryRoot, StoryID: *storyID, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
+		r, err = prove.RunStory(prove.Options{
+			StoryRoot:             resolvedStoryRoot,
+			StoryID:               *storyID,
+			RulesPath:             *rulesPath,
+			InterpretMode:         *interpretMode,
+			LLMReviewPath:         *llmReview,
+			LLMCommand:            *llmCommand,
+			LLMRequestOut:         *llmRequestOut,
+			LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
+			IncludeSensitivePaths: *includeSensitive,
+		})
 	} else {
-		r, err = prove.RunPath(prove.Options{Path: *path, Agent: *agent, Mode: *mode, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
+		r, err = prove.RunPath(prove.Options{
+			Path:                  *path,
+			Agent:                 *agent,
+			Mode:                  *mode,
+			RulesPath:             *rulesPath,
+			InterpretMode:         *interpretMode,
+			LLMReviewPath:         *llmReview,
+			LLMCommand:            *llmCommand,
+			LLMRequestOut:         *llmRequestOut,
+			LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
+			IncludeSensitivePaths: *includeSensitive,
+		})
 	}
 	if err != nil {
 		fatal(err)
@@ -134,6 +178,11 @@ func runDashboard(args []string) {
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	outPath := fs.String("out", "ariadne-dashboard.html", "write HTML dashboard to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
+	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
+	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
+	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
+	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
 	writer, closeFn, err := outputWriter(*outPath)
@@ -142,7 +191,19 @@ func runDashboard(args []string) {
 	}
 	defer closeFn()
 	if *targetsFile != "" {
-		r, err := prove.RunScan(prove.Options{TargetsFile: *targetsFile, Path: *path, Agent: *agent, Mode: *mode, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
+		r, err := prove.RunScan(prove.Options{
+			TargetsFile:           *targetsFile,
+			Path:                  *path,
+			Agent:                 *agent,
+			Mode:                  *mode,
+			RulesPath:             *rulesPath,
+			InterpretMode:         *interpretMode,
+			LLMReviewPath:         *llmReview,
+			LLMCommand:            *llmCommand,
+			LLMRequestOut:         *llmRequestOut,
+			LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
+			IncludeSensitivePaths: *includeSensitive,
+		})
 		if err != nil {
 			fatal(err)
 		}
@@ -151,7 +212,18 @@ func runDashboard(args []string) {
 		}
 		return
 	}
-	r, err := prove.RunPath(prove.Options{Path: *path, Agent: *agent, Mode: *mode, RulesPath: *rulesPath, IncludeSensitivePaths: *includeSensitive})
+	r, err := prove.RunPath(prove.Options{
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		RulesPath:             *rulesPath,
+		InterpretMode:         *interpretMode,
+		LLMReviewPath:         *llmReview,
+		LLMCommand:            *llmCommand,
+		LLMRequestOut:         *llmRequestOut,
+		LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
+		IncludeSensitivePaths: *includeSensitive,
+	})
 	if err != nil {
 		fatal(err)
 	}
@@ -202,6 +274,8 @@ Examples:
   ariadne scan --targets targets.txt --format html --out fleet-dashboard.html
   ariadne prove --path . --agent codex --format json
   ariadne prove --path . --rules .ariadne/rules.json
+  ariadne prove --path . --llm-request-out llm-request.json
+  ariadne prove --path . --interpret llm --llm-review llm-review.json
   ariadne prove --story local-agent-secret-exposed
   ariadne prove --story local-agent-secret-exposed --format json`))
 }

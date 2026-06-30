@@ -337,7 +337,7 @@ func renderIssueSummary(w io.Writer, interpretation model.Interpretation) {
 	if interpretation.Mode == "" {
 		return
 	}
-	fmt.Fprintf(w, "Deterministic priority:\n")
+	fmt.Fprintf(w, "%s:\n", interpretationLabel(interpretation))
 	fmt.Fprintf(w, "  Issues: %d total, %d critical, %d high, %d medium, %d low, %d info\n",
 		interpretation.Summary.Total,
 		interpretation.Summary.Critical,
@@ -346,6 +346,17 @@ func renderIssueSummary(w io.Writer, interpretation model.Interpretation) {
 		interpretation.Summary.Low,
 		interpretation.Summary.Info,
 	)
+	if interpretation.ReviewSource != "" || interpretation.RequestDigest != "" {
+		fmt.Fprintf(w, "  Review: %s", empty(interpretation.ReviewSource, "not recorded"))
+		if interpretation.RequestDigest != "" {
+			digest := interpretation.RequestDigest
+			if len(digest) > 12 {
+				digest = digest[:12]
+			}
+			fmt.Fprintf(w, " Request: %s", digest)
+		}
+		fmt.Fprintln(w)
+	}
 	if len(interpretation.Issues) == 0 {
 		fmt.Fprintf(w, "  - no prioritized issues returned\n\n")
 		return
@@ -365,6 +376,17 @@ func renderIssueSummary(w io.Writer, interpretation model.Interpretation) {
 		fmt.Fprintf(w, "  - %d more issues in JSON or dashboard output\n", len(interpretation.Issues)-limit)
 	}
 	fmt.Fprintln(w)
+}
+
+func interpretationLabel(interpretation model.Interpretation) string {
+	switch interpretation.Mode {
+	case "llm_review":
+		return "LLM priority review"
+	case "deterministic":
+		return "Deterministic priority"
+	default:
+		return "Priority interpretation"
+	}
 }
 
 func renderFacts(w io.Writer, r model.Report, exposure model.ExposureResult) {

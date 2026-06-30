@@ -64,15 +64,15 @@ func Evaluate(in Input) model.Interpretation {
 	issues = append(issues, customIssues(in)...)
 	sortIssues(issues)
 	return model.Interpretation{
-		Mode:        modeDeterministic,
-		Engine:      engineName,
-		FutureModes: []string{"llm_review"},
-		Summary:     summarize(issues),
-		Issues:      issues,
+		Mode:           modeDeterministic,
+		Engine:         engineName,
+		AvailableModes: availableModes(),
+		Summary:        summarize(issues),
+		Issues:         issues,
 		Limitations: []string{
 			"Deterministic interpretation prioritizes known graph patterns only.",
 			"Priority is based on observed facts, declared config, modeled graph edges, and configured rules.",
-			"LLM review is a future interpretation mode and was not used for this result.",
+			"LLM review was not used for this result.",
 		},
 		PolicySource: policySource(in.Policy),
 	}
@@ -80,24 +80,35 @@ func Evaluate(in Input) model.Interpretation {
 
 func AggregateScan(targets []model.ScanTargetResult) model.Interpretation {
 	var issues []model.Issue
+	mode := modeDeterministic
+	engine := engineName
 	for _, target := range targets {
+		if target.Report.Interpretation.Mode == modeLLMReview {
+			mode = modeLLMReview
+			engine = llmEngineName
+		}
 		for _, issue := range target.Report.Interpretation.Issues {
 			issue.AffectedTarget = target.Target.ID
 			issues = append(issues, issue)
 		}
 	}
 	sortIssues(issues)
+	limitations := []string{
+		"Scan interpretation aggregates per-target issues.",
+		"Targets with collection errors do not contribute issues.",
+	}
+	if mode == modeDeterministic {
+		limitations = append(limitations, "LLM review was not used for this result.")
+	} else {
+		limitations = append(limitations, "LLM review is an interpretation layer over deterministic Ariadne facts.")
+	}
 	return model.Interpretation{
-		Mode:        modeDeterministic,
-		Engine:      engineName,
-		FutureModes: []string{"llm_review"},
-		Summary:     summarize(issues),
-		Issues:      issues,
-		Limitations: []string{
-			"Scan interpretation aggregates deterministic per-target issues.",
-			"Targets with collection errors do not contribute issues.",
-			"LLM review is a future interpretation mode and was not used for this result.",
-		},
+		Mode:           mode,
+		Engine:         engine,
+		AvailableModes: availableModes(),
+		Summary:        summarize(issues),
+		Issues:         issues,
+		Limitations:    limitations,
 	}
 }
 
@@ -483,4 +494,8 @@ func stringSlice(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+func availableModes() []string {
+	return []string{modeDeterministic, modeLLMReview}
 }

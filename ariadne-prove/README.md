@@ -17,6 +17,7 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
+- Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
 - Writes a local HTML dashboard with issues and a facts dive.
 - Emits stable JSON for automation, fleet aggregation, and security data pipelines.
 
@@ -54,6 +55,7 @@ Inspect the current repository:
 ./bin/ariadne inventory --path .
 ./bin/ariadne prove --path .
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
+./bin/ariadne prove --path . --llm-request-out llm-request.json
 ```
 
 Emit JSON:
@@ -105,6 +107,10 @@ Useful flags:
 - `--format table|json|dot|mermaid`
 - `--out <file>`
 - `--rules <file>`
+- `--interpret deterministic|llm`
+- `--llm-request-out <file>`
+- `--llm-review <file>`
+- `--llm-command <command>`
 - `--include-sensitive-paths`
 
 Custom deterministic rules can also live at `.ariadne/rules.json`. See [docs/priority-rules.md](docs/priority-rules.md).
@@ -147,6 +153,7 @@ Prove output adds:
 - graph path edges
 - controls that break the path
 - deterministic interpretation with issue priority, severity, disposition, evidence signals, and actions
+- optional LLM review interpretation when `--interpret llm` is used
 - limitations
 
 Dashboard output adds:
@@ -210,7 +217,7 @@ See [docs/fleet.md](docs/fleet.md).
 
 ## Project Status
 
-This repository currently focuses on deterministic evidence, graph-backed exposure, and deterministic priority interpretation. A future phase can add optional LLM review on top of these facts, but the deterministic layer is intentionally useful on its own.
+This repository currently focuses on deterministic evidence, graph-backed exposure, deterministic priority interpretation, and optional fact-bound LLM review. The deterministic layer remains useful on its own and is the evidence source for LLM review.
 
 ## Contributing
 

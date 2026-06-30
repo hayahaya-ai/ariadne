@@ -27,6 +27,11 @@ type Options struct {
 	Agent                 string
 	Mode                  string
 	RulesPath             string
+	InterpretMode         string
+	LLMReviewPath         string
+	LLMCommand            string
+	LLMRequestOut         string
+	LLMTimeout            time.Duration
 	IncludeSensitivePaths bool
 }
 
@@ -78,14 +83,27 @@ func RunStory(opts Options) (model.Report, error) {
 			"Phase 1 evaluates exposure paths, not governance or runtime blocking.",
 		},
 	}
-	report.Interpretation = interpret.Evaluate(interpret.Input{
+	interp, err := interpret.EvaluateWithOptions(interpret.Input{
 		Target:     manifest.ID,
 		Mode:       manifest.Mode,
 		Collection: collection,
 		Graph:      graph,
 		Exposures:  report.Exposures,
 		Policy:     policy,
+	}, interpret.Options{
+		Mode:           opts.InterpretMode,
+		ReviewPath:     opts.LLMReviewPath,
+		Command:        opts.LLMCommand,
+		RequestOut:     opts.LLMRequestOut,
+		Timeout:        opts.LLMTimeout,
+		Question:       report.Story.UserQuestion,
+		Redaction:      report.Redaction,
+		RunLimitations: report.Limitations,
 	})
+	if err != nil {
+		return model.Report{}, err
+	}
+	report.Interpretation = interp
 	report.Expected.RedactionMustNotContain = nil
 	report.Matched, report.Mismatches = Compare(report, manifest.Expected)
 	return report, nil
@@ -158,14 +176,27 @@ func RunPath(opts Options) (model.Report, error) {
 			"Missing evidence is represented as inconclusive rather than safe.",
 		},
 	}
-	report.Interpretation = interpret.Evaluate(interpret.Input{
+	interp, err := interpret.EvaluateWithOptions(interpret.Input{
 		Target:     root,
 		Mode:       opts.Mode,
 		Collection: collection,
 		Graph:      graph,
 		Exposures:  exposures,
 		Policy:     policy,
+	}, interpret.Options{
+		Mode:           opts.InterpretMode,
+		ReviewPath:     opts.LLMReviewPath,
+		Command:        opts.LLMCommand,
+		RequestOut:     opts.LLMRequestOut,
+		Timeout:        opts.LLMTimeout,
+		Question:       report.Story.UserQuestion,
+		Redaction:      report.Redaction,
+		RunLimitations: report.Limitations,
 	})
+	if err != nil {
+		return model.Report{}, err
+	}
+	report.Interpretation = interp
 	return report, nil
 }
 
@@ -242,6 +273,12 @@ func RunScan(opts Options) (model.ScanReport, error) {
 	if len(targets) == 0 {
 		return model.ScanReport{}, fmt.Errorf("scan requires --targets or --path")
 	}
+	if len(targets) > 1 && opts.LLMReviewPath != "" {
+		return model.ScanReport{}, fmt.Errorf("--llm-review can only be used with a single scan target; use --llm-command for multi-target LLM review")
+	}
+	if len(targets) > 1 && opts.LLMRequestOut != "" {
+		return model.ScanReport{}, fmt.Errorf("--llm-request-out can only be used with a single scan target")
+	}
 	r := model.ScanReport{
 		SchemaVersion: model.SchemaVersion,
 		RunID:         randomID(),
@@ -274,6 +311,11 @@ func RunScan(opts Options) (model.ScanReport, error) {
 			Agent:                 opts.Agent,
 			Mode:                  opts.Mode,
 			RulesPath:             opts.RulesPath,
+			InterpretMode:         opts.InterpretMode,
+			LLMReviewPath:         opts.LLMReviewPath,
+			LLMCommand:            opts.LLMCommand,
+			LLMRequestOut:         opts.LLMRequestOut,
+			LLMTimeout:            opts.LLMTimeout,
 			IncludeSensitivePaths: opts.IncludeSensitivePaths,
 		})
 		result := model.ScanTargetResult{Target: target}
