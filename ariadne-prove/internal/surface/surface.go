@@ -15,11 +15,12 @@ import (
 const RegistryVersion = "ariadne.ai-surface/v1"
 
 type Options struct {
-	RepoPath string
-	HomePath string
-	Mode     string
-	Runtime  string
-	BasePath string
+	RepoPath              string
+	HomePath              string
+	Mode                  string
+	Runtime               string
+	BasePath              string
+	IncludeSensitivePaths bool
 }
 
 type Rule struct {
@@ -93,7 +94,7 @@ func discoverRoot(root, scope, pathPrefix string, opts Options) ([]model.Surface
 	var warnings []string
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			warnings = append(warnings, "could not inspect "+safeRel(opts.BasePath, path)+": "+walkErr.Error())
+			warnings = append(warnings, "could not inspect "+safeRel(opts, path)+": "+walkErr.Error())
 			return nil
 		}
 		relPath, err := filepath.Rel(root, path)
@@ -132,14 +133,14 @@ func discoverRoot(root, scope, pathPrefix string, opts Options) ([]model.Surface
 				size = info.Size()
 			}
 			surfaces = append(surfaces, model.Surface{
-				ID:           surfaceID(rule.Runtime, rule.Kind, safeRel(opts.BasePath, path)),
+				ID:           surfaceID(rule.Runtime, rule.Kind, safeRel(opts, path)),
 				Path:         path,
 				Runtime:      rule.Runtime,
 				Scope:        scope,
 				Category:     rule.Category,
 				Kind:         rule.Kind,
 				HandlingMode: rule.HandlingMode,
-				Source:       safeRel(opts.BasePath, path),
+				Source:       safeRel(opts, path),
 				Summary:      rule.Summary,
 				ApproxBytes:  size,
 			})
@@ -147,7 +148,7 @@ func discoverRoot(root, scope, pathPrefix string, opts Options) ([]model.Surface
 		return nil
 	})
 	if err != nil {
-		warnings = append(warnings, "surface discovery failed for "+safeRel(opts.BasePath, root)+": "+err.Error())
+		warnings = append(warnings, "surface discovery failed for "+safeRel(opts, root)+": "+err.Error())
 	}
 	return surfaces, warnings
 }
@@ -197,14 +198,14 @@ func shouldSummarizeDir(relPath string) bool {
 
 func skippedSurface(path, relPath, scope string, opts Options) model.Surface {
 	return model.Surface{
-		ID:           surfaceID("generic", "skipped-directory", safeRel(opts.BasePath, path)),
+		ID:           surfaceID("generic", "skipped-directory", safeRel(opts, path)),
 		Path:         path,
 		Runtime:      "generic",
 		Scope:        scope,
 		Category:     "skipped",
 		Kind:         "skipped-directory",
 		HandlingMode: "skip",
-		Source:       safeRel(opts.BasePath, path),
+		Source:       safeRel(opts, path),
 		Summary:      "Directory skipped during AI surface discovery: " + relPath,
 	}
 }
@@ -218,14 +219,14 @@ func summarizeDir(path, relPath, scope string, opts Options) model.Surface {
 		kind = "codex-private-context"
 	}
 	return model.Surface{
-		ID:           surfaceID(runtime, kind, safeRel(opts.BasePath, path)),
+		ID:           surfaceID(runtime, kind, safeRel(opts, path)),
 		Path:         path,
 		Runtime:      runtime,
 		Scope:        scope,
 		Category:     "history-cache",
 		Kind:         kind,
 		HandlingMode: "summarize",
-		Source:       safeRel(opts.BasePath, path),
+		Source:       safeRel(opts, path),
 		Summary:      "Private context surface summarized; contents were not inspected or emitted.",
 		ApproxBytes:  bytes,
 		FileCount:    files,
@@ -278,9 +279,12 @@ func surfaceID(runtime, kind, source string) string {
 	return "surface:" + runtime + ":" + kind + ":" + hex.EncodeToString(h[:])[:12]
 }
 
-func safeRel(root, path string) string {
-	if root != "" {
-		if r, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(r, "..") {
+func safeRel(opts Options, path string) string {
+	if opts.IncludeSensitivePaths {
+		return filepath.Clean(path)
+	}
+	if opts.BasePath != "" {
+		if r, err := filepath.Rel(opts.BasePath, path); err == nil && !strings.HasPrefix(r, "..") {
 			return filepath.ToSlash(r)
 		}
 	}

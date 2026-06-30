@@ -46,7 +46,7 @@ func RunStory(opts Options) (model.Report, error) {
 	manifest := story.Manifest
 	repoPath := resolve(story.Dir, manifest.World.RepoPath)
 	homePath := resolve(story.Dir, manifest.World.HomePath)
-	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir})
+	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
 	graph := BuildGraph(collection)
 	exposure := Evaluate(collection, graph, manifest)
 	policy, err := loadPolicy(story.Dir, opts.RulesPath)
@@ -128,11 +128,12 @@ func RunPath(opts Options) (model.Report, error) {
 		home, _ = os.UserHomeDir()
 	}
 	collection := adapter.Collect(adapter.Options{
-		RepoPath: root,
-		HomePath: home,
-		Mode:     opts.Mode,
-		Runtime:  opts.Agent,
-		StoryDir: root,
+		RepoPath:              root,
+		HomePath:              home,
+		Mode:                  opts.Mode,
+		Runtime:               opts.Agent,
+		StoryDir:              root,
+		IncludeSensitivePaths: opts.IncludeSensitivePaths,
 	})
 	graph := BuildGraph(collection)
 	exposures := EvaluateAll(collection, graph, opts.Mode)
@@ -221,11 +222,12 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 		target = home
 	}
 	collection := adapter.Collect(adapter.Options{
-		RepoPath: root,
-		HomePath: home,
-		Mode:     opts.Mode,
-		Runtime:  opts.Agent,
-		StoryDir: root,
+		RepoPath:              root,
+		HomePath:              home,
+		Mode:                  opts.Mode,
+		Runtime:               opts.Agent,
+		StoryDir:              root,
+		IncludeSensitivePaths: opts.IncludeSensitivePaths,
 	})
 	graph := BuildGraph(collection)
 	return model.InventoryReport{

@@ -14,11 +14,12 @@ import (
 )
 
 type Options struct {
-	RepoPath string
-	HomePath string
-	Mode     string
-	Runtime  string
-	StoryDir string
+	RepoPath              string
+	HomePath              string
+	Mode                  string
+	Runtime               string
+	StoryDir              string
+	IncludeSensitivePaths bool
 }
 
 var riskyInstructionPattern = regexp.MustCompile(`(?i)(read\s+\.env|read\s+.*secret|secret|token|always approve|ignore security|bypass|send\s+.*secret|send\s+.*token|private key|\.ssh|\.aws)`)
@@ -30,11 +31,12 @@ func Collect(opts Options) model.Collection {
 		base = opts.RepoPath
 	}
 	surfaces, warnings := surface.Discover(surface.Options{
-		RepoPath: opts.RepoPath,
-		HomePath: opts.HomePath,
-		Mode:     opts.Mode,
-		Runtime:  opts.Runtime,
-		BasePath: base,
+		RepoPath:              opts.RepoPath,
+		HomePath:              opts.HomePath,
+		Mode:                  opts.Mode,
+		Runtime:               opts.Runtime,
+		BasePath:              base,
+		IncludeSensitivePaths: opts.IncludeSensitivePaths,
 	})
 	c.Surfaces = surfaces
 	c.Warnings = append(c.Warnings, warnings...)

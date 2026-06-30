@@ -24,7 +24,7 @@ func renderReportDashboard(w io.Writer, r model.Report) error {
 		{"Mode", r.Story.Mode},
 		{"Agent", r.Story.Runtime},
 	})
-	renderIssueDashboard(w, r.Interpretation)
+	renderIssueDashboard(w, r.Interpretation, r.Graph, r.Evidence, r.Redaction)
 	renderExposureSection(w, r.Exposures)
 	renderFactsDive(w, r.Graph, r.Evidence, r.Warnings, r.Limitations)
 	fmt.Fprintln(w, "</main>")
@@ -46,7 +46,7 @@ func renderScanDashboard(w io.Writer, r model.ScanReport) error {
 		{"Agent", r.Agent},
 		{"Errors", fmt.Sprintf("%d", r.Summary.Errors)},
 	})
-	renderIssueDashboard(w, r.Interpretation)
+	renderIssueDashboard(w, r.Interpretation, model.Graph{}, nil, r.Redaction)
 	renderScanTargetSection(w, r)
 	renderScanFactsDive(w, r)
 	fmt.Fprintln(w, "</main>")
@@ -250,7 +250,7 @@ func renderDashboardHeader(w io.Writer, title string, fields []kv) {
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderIssueDashboard(w io.Writer, interpretation model.Interpretation) {
+func renderIssueDashboard(w io.Writer, interpretation model.Interpretation, graph model.Graph, evidence []model.Evidence, redaction model.RedactionInfo) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Issue Dashboard</h2><div class="subtle">Prioritized only after Ariadne facts connect into graph paths.</div></div>`)
@@ -262,14 +262,18 @@ func renderIssueDashboard(w io.Writer, interpretation model.Interpretation) {
 		fmt.Fprintln(w, "</section>")
 		return
 	}
+	if !redaction.SensitivePathsIncluded {
+		fmt.Fprintln(w, `<div class="empty">File references are redacted in this dashboard. Re-run with <span class="mono">--include-sensitive-paths</span> for an operator dashboard with exact local paths.</div>`)
+	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Priority</th><th>Severity</th><th>Issue</th><th>Status</th><th>Evidence</th><th>Action</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Priority</th><th>Severity</th><th>Issue</th><th>Status</th><th>Where to look</th><th>Evidence</th><th>Action</th></tr></thead><tbody>")
 	for _, issue := range interpretation.Issues {
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(string(issue.Priority)), esc(strings.ToUpper(string(issue.Priority))))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(string(issue.Severity)), esc(strings.ToUpper(string(issue.Severity))))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(issue.Title), esc(issue.Rationale), esc(issue.ID))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><div class="subtle">%s</div></td>`, cssClass(string(issue.ExposureStatus)), esc(strings.ToUpper(string(issue.ExposureStatus))), esc(string(issue.Disposition)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderIssueReferences(issueReferences(issue, graph, evidence)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(issue.Signals))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(issue.Actions))
 		fmt.Fprintln(w, "</tr>")
@@ -295,6 +299,179 @@ func renderIssueMetrics(w io.Writer, summary model.IssueSummary) {
 		fmt.Fprintln(w, "</div>")
 	}
 	fmt.Fprintln(w, "</div>")
+}
+
+type issueReference struct {
+	Kind    string
+	Summary string
+	Source  string
+}
+
+func issueReferences(issue model.Issue, graph model.Graph, evidence []model.Evidence) []issueReference {
+	refs := referencesFromGraphEdges(issue, graph, evidence)
+	if len(refs) == 0 {
+		refs = referencesFromCategory(issue, graph, evidence)
+	}
+	return limitReferences(uniqueReferences(refs), 8)
+}
+
+func referencesFromGraphEdges(issue model.Issue, graph model.Graph, evidence []model.Evidence) []issueReference {
+	nodeByID := make(map[string]model.Node, len(graph.Nodes))
+	for _, node := range graph.Nodes {
+		nodeByID[node.ID] = node
+	}
+	evidenceByID := make(map[string]model.Evidence, len(evidence))
+	for _, item := range evidence {
+		if item.ID != "" && item.Source != "" {
+			evidenceByID[item.ID] = item
+		}
+	}
+	var refs []issueReference
+	for _, wanted := range issue.GraphEdges {
+		for _, edge := range graph.Edges {
+			if edge.Key() != wanted {
+				continue
+			}
+			for _, nodeID := range []string{edge.From, edge.To} {
+				node, ok := nodeByID[nodeID]
+				if !ok || node.Source == "" {
+					continue
+				}
+				refs = append(refs, issueReference{Kind: node.Type, Summary: node.Label, Source: node.Source})
+			}
+			if item, ok := evidenceByID[edge.EvidenceID]; ok {
+				refs = append(refs, issueReference{Kind: item.Kind, Summary: item.Summary, Source: item.Source})
+			}
+		}
+	}
+	return refs
+}
+
+func referencesFromCategory(issue model.Issue, graph model.Graph, evidence []model.Evidence) []issueReference {
+	var refs []issueReference
+	nodeTypes := categoryNodeTypes(issue)
+	for _, node := range graph.Nodes {
+		if node.Source == "" || !nodeMatchesCategory(issue, node, nodeTypes) {
+			continue
+		}
+		refs = append(refs, issueReference{Kind: node.Type, Summary: node.Label, Source: node.Source})
+	}
+	for _, item := range evidence {
+		if item.Source == "" || !categoryEvidenceMatches(issue, item) {
+			continue
+		}
+		refs = append(refs, issueReference{Kind: item.Kind, Summary: item.Summary, Source: item.Source})
+	}
+	return refs
+}
+
+func categoryNodeTypes(issue model.Issue) []string {
+	switch issue.Category {
+	case "tool-surface", "local-code-execution":
+		return []string{"mcp-tool-config", "tool", "command-hook", "plugin-skill"}
+	case "private-context":
+		return []string{"history-cache", "memory", "boundary"}
+	case "secret-access":
+		return []string{"runtime", "config", "boundary", "sensitive-boundary"}
+	case "data-egress":
+		return []string{"trust_input", "runtime", "config", "boundary", "control"}
+	default:
+		return nil
+	}
+}
+
+func nodeMatchesCategory(issue model.Issue, node model.Node, nodeTypes []string) bool {
+	if !contains(nodeTypes, node.Type) {
+		return false
+	}
+	label := strings.ToLower(node.Label)
+	switch issue.Category {
+	case "private-context":
+		return node.Type == "history-cache" || node.Type == "memory" || label == "agent-private-context"
+	case "tool-surface", "local-code-execution":
+		return node.Type == "mcp-tool-config" || node.Type == "tool" || node.Type == "command-hook" || node.Type == "plugin-skill"
+	case "secret-access":
+		return node.Type == "runtime" || node.Type == "config" || strings.Contains(label, "secret")
+	case "data-egress":
+		return node.Type == "trust_input" || node.Type == "runtime" || node.Type == "config" || node.Type == "control" || strings.Contains(label, "external") || strings.Contains(label, "secret")
+	default:
+		return true
+	}
+}
+
+func categoryEvidenceMatches(issue model.Issue, item model.Evidence) bool {
+	text := strings.ToLower(item.Kind + " " + item.Summary)
+	switch issue.Category {
+	case "tool-surface", "local-code-execution":
+		return strings.Contains(text, "mcp") || strings.Contains(text, "tool") || strings.Contains(text, "command")
+	case "private-context":
+		return strings.Contains(text, "private") || strings.Contains(text, "history") || strings.Contains(text, "cache") || strings.Contains(text, "context")
+	case "secret-access":
+		return strings.Contains(text, "secret") || strings.Contains(text, "boundary") || strings.Contains(text, "config")
+	case "data-egress":
+		return strings.Contains(text, "external") || strings.Contains(text, "network") || strings.Contains(text, "trust") || strings.Contains(text, "boundary")
+	default:
+		return false
+	}
+}
+
+func uniqueReferences(refs []issueReference) []issueReference {
+	seen := map[string]bool{}
+	var out []issueReference
+	for _, ref := range refs {
+		if ref.Source == "" {
+			continue
+		}
+		key := ref.Kind + "|" + ref.Summary + "|" + ref.Source
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ref)
+	}
+	return out
+}
+
+func limitReferences(refs []issueReference, limit int) []issueReference {
+	if len(refs) <= limit {
+		return refs
+	}
+	out := append([]issueReference{}, refs[:limit]...)
+	out = append(out, issueReference{Kind: "more", Summary: fmt.Sprintf("%d additional references in Facts Dive / JSON", len(refs)-limit)})
+	return out
+}
+
+func renderIssueReferences(refs []issueReference) string {
+	if len(refs) == 0 {
+		return `<span class="subtle">No direct source reference mapped. Use Facts Dive for supporting evidence.</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<ul class="list">`)
+	for _, ref := range refs {
+		b.WriteString("<li>")
+		if ref.Source != "" {
+			b.WriteString(`<span class="mono">`)
+			b.WriteString(esc(ref.Source))
+			b.WriteString(`</span>`)
+		}
+		if ref.Kind != "" || ref.Summary != "" {
+			b.WriteString(`<div class="subtle">`)
+			b.WriteString(esc(strings.TrimSpace(ref.Kind + " " + ref.Summary)))
+			b.WriteString(`</div>`)
+		}
+		b.WriteString("</li>")
+	}
+	b.WriteString("</ul>")
+	return b.String()
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func interpretationMeta(interpretation model.Interpretation) string {

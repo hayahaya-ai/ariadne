@@ -106,6 +106,27 @@ func TestRedactionDoesNotLeakCanaries(t *testing.T) {
 	}
 }
 
+func TestIncludeSensitivePathsEmitsOperatorSourceReferences(t *testing.T) {
+	redacted, err := RunStory(Options{StoryRoot: storyRoot(t), StoryID: "endpoint-risk-inferred"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator, err := RunStory(Options{StoryRoot: storyRoot(t), StoryID: "endpoint-risk-inferred", IncludeSensitivePaths: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := storyRoot(t)
+	if !hasSourcePrefix(operator.Graph.Nodes, root) {
+		t.Fatalf("operator report did not include exact fixture source paths")
+	}
+	if hasSourcePrefix(redacted.Graph.Nodes, root) {
+		t.Fatalf("default report unexpectedly included exact fixture source paths")
+	}
+	if !operator.Redaction.SensitivePathsIncluded {
+		t.Fatalf("operator report should record sensitive paths included")
+	}
+}
+
 func TestJSONReportContainsGraphEvidence(t *testing.T) {
 	r, err := RunStory(Options{StoryRoot: storyRoot(t), StoryID: "local-agent-secret-exposed"})
 	if err != nil {
@@ -695,6 +716,15 @@ func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {
 func hasGraphNodeType(g model.Graph, nodeType string) bool {
 	for _, node := range g.Nodes {
 		if node.Type == nodeType {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSourcePrefix(nodes []model.Node, prefix string) bool {
+	for _, node := range nodes {
+		if strings.HasPrefix(node.Source, prefix) {
 			return true
 		}
 	}
