@@ -195,19 +195,27 @@ type ControlProofSpec struct {
 }
 
 type ControlVerificationTask struct {
-	ID                   string              `json:"id"`
-	Control              string              `json:"control"`
-	Severity             string              `json:"severity"`
-	Targets              []string            `json:"targets"`
-	Question             string              `json:"question"`
-	Why                  string              `json:"why"`
-	EvidenceReferences   []EvidenceReference `json:"evidence_refs"`
-	ProofSurfaces        []string            `json:"proof_surfaces"`
-	RecognizedIndicators []string            `json:"recognized_indicators"`
-	Actions              []string            `json:"actions"`
-	RerunCommands        []string            `json:"rerun_commands"`
-	SuccessCriteria      []string            `json:"success_criteria"`
-	Limitations          []string            `json:"limitations"`
+	ID                   string                   `json:"id"`
+	Control              string                   `json:"control"`
+	Severity             string                   `json:"severity"`
+	Targets              []string                 `json:"targets"`
+	Question             string                   `json:"question"`
+	Why                  string                   `json:"why"`
+	EvidenceReferences   []EvidenceReference      `json:"evidence_refs"`
+	ProofSurfaces        []string                 `json:"proof_surfaces"`
+	RecognizedIndicators []string                 `json:"recognized_indicators"`
+	EvidenceExamples     []ControlEvidenceExample `json:"evidence_examples"`
+	Actions              []string                 `json:"actions"`
+	RerunCommands        []string                 `json:"rerun_commands"`
+	SuccessCriteria      []string                 `json:"success_criteria"`
+	Limitations          []string                 `json:"limitations"`
+}
+
+type ControlEvidenceExample struct {
+	Surface     string   `json:"surface"`
+	Summary     string   `json:"summary"`
+	Example     string   `json:"example"`
+	Limitations []string `json:"limitations"`
 }
 
 type ArchitectureTargetReport struct {

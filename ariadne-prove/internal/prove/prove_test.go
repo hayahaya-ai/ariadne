@@ -2769,12 +2769,14 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Where to prove this:",
 		"Evidence references:",
 		"Accepted indicators:",
+		"Evidence examples:",
 		"Rerun:",
 		"Done when:",
 		"Recognized indicators:",
 		"What would prove it:",
 		"control:input-isolation",
 		".ariadne/input-policy.json",
+		"\"input_isolation\": true",
 		"input_isolation",
 	} {
 		if !strings.Contains(out, want) {
@@ -2840,11 +2842,13 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Where to prove this",
 		"References",
 		"Accepted indicators",
+		"Evidence examples",
 		"Done when",
 		"Recognized indicators",
 		"What would prove it",
 		"control:input-isolation",
 		".ariadne/input-policy.json",
+		"&#34;input_isolation&#34;: true",
 		"input_isolation",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -2871,6 +2875,7 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Verification tasks:",
 		"Where to prove this:",
 		"Evidence references:",
+		"Evidence examples:",
 		"Rerun:",
 		"Recognized indicators:",
 	} {
@@ -2920,6 +2925,7 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"combined",
 		"Where to prove this",
 		"References",
+		"Evidence examples",
 		"Done when",
 		"Recognized indicators",
 	} {
@@ -3239,7 +3245,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
 	assertRequiredKeys(t, controlProofSpec, "control", "evidence_kind", "proof_surfaces", "recognized_indicators", "notes", "limitations")
 	controlVerificationTask := schemaMap(t, controlCatalogSchema, "$defs", "control_verification_task")
-	assertRequiredKeys(t, controlVerificationTask, "id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "actions", "rerun_commands", "success_criteria", "limitations")
+	assertRequiredKeys(t, controlVerificationTask, "id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "evidence_examples", "actions", "rerun_commands", "success_criteria", "limitations")
+	controlEvidenceExample := schemaMap(t, controlCatalogSchema, "$defs", "control_evidence_example")
+	assertRequiredKeys(t, controlEvidenceExample, "surface", "summary", "example", "limitations")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
@@ -3712,7 +3720,14 @@ func hasControlVerificationTask(items []model.ControlVerificationTask, control s
 				break
 			}
 		}
-		if hasSource && hasIndicator && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
+		hasExample := false
+		for _, candidate := range item.EvidenceExamples {
+			if strings.Contains(candidate.Example, indicator) && candidate.Surface != "" {
+				hasExample = true
+				break
+			}
+		}
+		if hasSource && hasIndicator && hasExample && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
 			return true
 		}
 	}

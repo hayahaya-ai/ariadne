@@ -607,7 +607,7 @@ func renderControlVerificationTasksDashboard(w io.Writer, tasks []model.ControlV
 		return
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Task</th><th>Why</th><th>Evidence references</th><th>Add or verify at</th><th>Accepted indicators</th><th>Rerun / done when</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Task</th><th>Why</th><th>Evidence references</th><th>Add or verify at</th><th>Accepted indicators</th><th>Evidence examples</th><th>Rerun / done when</th></tr></thead><tbody>")
 	limit := len(tasks)
 	if limit > 16 {
 		limit = 16
@@ -620,11 +620,12 @@ func renderControlVerificationTasksDashboard(w io.Writer, tasks []model.ControlV
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(task.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.ProofSurfaces, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.RecognizedIndicators, 8)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(controlEvidenceExampleLines(task.EvidenceExamples, 2)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(task.RerunCommands, 2)), renderSmallList(limitStrings(task.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(tasks) > limit {
-		fmt.Fprintf(w, `<tr><td colspan="7"><span class="subtle">%d more verification tasks in JSON output.</span></td></tr>`, len(tasks)-limit)
+		fmt.Fprintf(w, `<tr><td colspan="8"><span class="subtle">%d more verification tasks in JSON output.</span></td></tr>`, len(tasks)-limit)
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")

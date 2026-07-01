@@ -103,7 +103,7 @@
     },
     "control_verification_task": {
       "type": "object",
-      "required": ["id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "actions", "rerun_commands", "success_criteria", "limitations"],
+      "required": ["id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "evidence_examples", "actions", "rerun_commands", "success_criteria", "limitations"],
       "properties": {
         "id": { "type": "string" },
         "control": { "type": "string" },
@@ -114,9 +114,23 @@
         "evidence_refs": { "type": "array", "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" } },
         "proof_surfaces": { "type": "array", "items": { "type": "string" } },
         "recognized_indicators": { "type": "array", "items": { "type": "string" } },
+        "evidence_examples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_evidence_example" }
+        },
         "actions": { "type": "array", "items": { "type": "string" } },
         "rerun_commands": { "type": "array", "items": { "type": "string" } },
         "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_evidence_example": {
+      "type": "object",
+      "required": ["surface", "summary", "example", "limitations"],
+      "properties": {
+        "surface": { "type": "string" },
+        "summary": { "type": "string" },
+        "example": { "type": "string" },
         "limitations": { "type": "array", "items": { "type": "string" } }
       }
     }

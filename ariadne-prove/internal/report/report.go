@@ -1396,6 +1396,9 @@ func renderControlVerificationTasks(w io.Writer, tasks []model.ControlVerificati
 		if len(task.RecognizedIndicators) > 0 {
 			fmt.Fprintf(w, "      Accepted indicators: %s\n", strings.Join(limitStrings(task.RecognizedIndicators, 5), "; "))
 		}
+		if len(task.EvidenceExamples) > 0 {
+			fmt.Fprintf(w, "      Evidence examples: %s\n", strings.Join(controlEvidenceExampleLines(task.EvidenceExamples, 2), "; "))
+		}
 		if len(task.RerunCommands) > 0 {
 			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(task.RerunCommands, 2), "; "))
 		}
@@ -1442,6 +1445,7 @@ func buildControlVerificationTasks(items []model.ArchitectureClosure, proofSpecs
 			EvidenceReferences:   dedupeEvidenceReferences(item.EvidenceReferences),
 			ProofSurfaces:        uniqueSortedStrings(proofSurfaces),
 			RecognizedIndicators: append([]string{}, proof.RecognizedIndicators...),
+			EvidenceExamples:     controlEvidenceExamples(item.Control, proofSurfaces, proof.RecognizedIndicators),
 			Actions:              append([]string{}, item.Actions...),
 			RerunCommands:        controlVerificationCommands(ctx),
 			SuccessCriteria:      controlVerificationSuccessCriteria(item.Control),
@@ -1516,6 +1520,185 @@ func controlVerificationSuccessCriteria(control string) []string {
 		fmt.Sprintf("Associated architecture flaws no longer list %s in control_test.missing_hard_barriers.", control),
 		"If the task is still present, evidence_refs should point to the remaining source or architecture gap.",
 	}
+}
+
+func controlEvidenceExamples(control string, proofSurfaces []string, indicators []string) []model.ControlEvidenceExample {
+	surface := preferredControlEvidenceExampleSurface(control, proofSurfaces)
+	if surface == "" {
+		surface = "supported control evidence surface"
+	}
+	fields := firstStrings(controlEvidenceExampleIndicators(control, indicators), 2)
+	return []model.ControlEvidenceExample{
+		{
+			Surface: surface,
+			Summary: fmt.Sprintf("Declare %s evidence for %s using parser-recognized indicators.", strings.Join(fields, " and "), control),
+			Example: controlEvidenceExampleBody(surface, fields),
+			Limitations: []string{
+				"Example evidence shows the declared proof shape only; live enforcement still requires observed runtime enforcement evidence when applicable.",
+			},
+		},
+	}
+}
+
+func preferredControlEvidenceExampleSurface(control string, proofSurfaces []string) string {
+	for _, preferred := range preferredControlEvidenceSurfaceOrder(control) {
+		for _, surface := range proofSurfaces {
+			if surface == preferred {
+				return surface
+			}
+		}
+	}
+	for _, surface := range proofSurfaces {
+		if strings.HasPrefix(surface, ".ariadne/") {
+			return surface
+		}
+	}
+	for _, surface := range proofSurfaces {
+		if strings.HasPrefix(surface, ".claude/") || strings.HasPrefix(surface, ".codex/") {
+			return surface
+		}
+	}
+	if len(proofSurfaces) > 0 {
+		return proofSurfaces[0]
+	}
+	return ""
+}
+
+func preferredControlEvidenceSurfaceOrder(control string) []string {
+	switch {
+	case strings.Contains(control, "input") || strings.Contains(control, "trusted-source") || strings.Contains(control, "prompt-injection"):
+		return []string{".ariadne/input-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "response") || strings.Contains(control, "triage") || strings.Contains(control, "behavioral") || strings.Contains(control, "session-termination") || strings.Contains(control, "credential-revocation") || strings.Contains(control, "quarantine") || strings.Contains(control, "access-reduction"):
+		return []string{".ariadne/response-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "identity") || strings.Contains(control, "credential") || strings.Contains(control, "jit") || strings.Contains(control, "token-lifetime") || strings.Contains(control, "hardware-bound"):
+		return []string{".ariadne/identity-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "egress") || strings.Contains(control, "network-restricted") || strings.Contains(control, "webhook") || strings.Contains(control, "per-tool-network"):
+		return []string{".ariadne/egress-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "output"):
+		return []string{".ariadne/output-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "resource") || strings.Contains(control, "rate-limit") || strings.Contains(control, "spend") || strings.Contains(control, "loop") || strings.Contains(control, "timeout") || strings.Contains(control, "concurrency") || strings.Contains(control, "circuit-breaker"):
+		return []string{".ariadne/resource-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "governance") || strings.Contains(control, "inventory") || strings.Contains(control, "owner") || strings.Contains(control, "deployment-approval") || strings.Contains(control, "risk-assessment") || strings.Contains(control, "shadow-ai"):
+		return []string{".ariadne/governance-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "config") || strings.Contains(control, "managed-settings") || strings.Contains(control, "immutable-agent-runtime") || strings.Contains(control, "rollback"):
+		return []string{".ariadne/integrity-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "delegation") || strings.Contains(control, "delegate") || strings.Contains(control, "subagent") || strings.Contains(control, "agent-to-agent") || strings.Contains(control, "origin-intent"):
+		return []string{".ariadne/delegation-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "memory") || strings.Contains(control, "context"):
+		return []string{".ariadne/memory-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "authorization") || strings.Contains(control, "abac") || strings.Contains(control, "caller") || strings.Contains(control, "workload") || strings.Contains(control, "privilege-scoping") || strings.Contains(control, "access-revocation"):
+		return []string{".ariadne/authorization-policy.json", ".ariadne/workload-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "audit") || strings.Contains(control, "log") || strings.Contains(control, "trace") || strings.Contains(control, "telemetry"):
+		return []string{".ariadne/observability-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "tool") || strings.Contains(control, "mcp"):
+		return []string{".ariadne/tool-policy.json", ".ariadne/mcp-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "ai-bom") || strings.Contains(control, "model") || strings.Contains(control, "training") || strings.Contains(control, "dependency") || strings.Contains(control, "provider") || strings.Contains(control, "artifact") || strings.Contains(control, "runtime-component"):
+		return []string{".ariadne/supply-chain-policy.json", ".ariadne/agent-policy.json"}
+	default:
+		return []string{".ariadne/agent-policy.json"}
+	}
+}
+
+func firstStrings(items []string, limit int) []string {
+	if limit <= 0 || len(items) <= limit {
+		return append([]string{}, items...)
+	}
+	return append([]string{}, items[:limit]...)
+}
+
+func controlEvidenceExampleIndicators(control string, indicators []string) []string {
+	if len(indicators) > 0 {
+		return append([]string{}, indicators...)
+	}
+	return controlRecognizedIndicators(control)
+}
+
+func controlEvidenceExampleBody(surface string, indicators []string) string {
+	if len(indicators) == 0 {
+		return "{}"
+	}
+	if strings.HasSuffix(surface, ".toml") || strings.Contains(surface, "config.toml") {
+		var lines []string
+		for _, indicator := range indicators {
+			key, value := controlEvidenceExampleKeyValue(indicator)
+			lines = append(lines, fmt.Sprintf("%s = %s", key, value))
+		}
+		return strings.Join(lines, "\n")
+	}
+	if strings.HasSuffix(surface, ".md") {
+		var lines []string
+		for _, indicator := range indicators {
+			lines = append(lines, "- "+indicator)
+		}
+		return strings.Join(lines, "\n")
+	}
+	var parts []string
+	for _, indicator := range indicators {
+		key, value := controlEvidenceExampleKeyValue(indicator)
+		parts = append(parts, fmt.Sprintf("%q: %s", key, value))
+	}
+	return "{\n  " + strings.Join(parts, ",\n  ") + "\n}"
+}
+
+func controlEvidenceExampleKeyValue(indicator string) (string, string) {
+	key := indicator
+	value := "true"
+	if before, after, ok := strings.Cut(indicator, ":"); ok {
+		key = before
+		switch strings.ToLower(after) {
+		case "true", "false":
+			value = strings.ToLower(after)
+		default:
+			value = fmt.Sprintf("%q", after)
+		}
+	}
+	key = strings.TrimSpace(key)
+	key = strings.Trim(key, "\"'")
+	key = strings.ReplaceAll(key, "-", "_")
+	if key == "" {
+		key = "control_evidence"
+	}
+	return key, value
+}
+
+func controlEvidenceExampleLines(examples []model.ControlEvidenceExample, limit int) []string {
+	if limit <= 0 || limit > len(examples) {
+		limit = len(examples)
+	}
+	var out []string
+	for _, example := range examples[:limit] {
+		line := strings.TrimSpace(example.Surface)
+		if example.Summary != "" {
+			if line != "" {
+				line += ": "
+			}
+			line += strings.TrimSpace(example.Summary)
+		}
+		if example.Example != "" {
+			if line != "" {
+				line += " "
+			}
+			line += "Example: " + compactExample(example.Example)
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	if len(examples) > limit {
+		out = append(out, fmt.Sprintf("%d additional example(s) in JSON output", len(examples)-limit))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func compactExample(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if len(value) > 180 {
+		return value[:177] + "..."
+	}
+	return value
 }
 
 func shellQuoteCommandArg(value string) string {
