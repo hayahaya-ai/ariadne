@@ -16,6 +16,7 @@
     },
     "graph": { "$ref": "#/$defs/graph" },
     "interpretation": { "$ref": "#/$defs/interpretation" },
+    "zero_trust": { "$ref": "#/$defs/zero_trust" },
     "evidence": {
       "type": "array",
       "items": { "$ref": "#/$defs/evidence" }
@@ -53,6 +54,59 @@
         "id": { "type": "string" },
         "kind": { "type": "string" },
         "grade": { "type": "string" },
+        "source": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "zero_trust": {
+      "type": "object",
+      "required": ["framework_version", "summary", "checks"],
+      "properties": {
+        "framework_version": { "const": "ariadne.zero_trust_agent/v1" },
+        "summary": { "$ref": "#/$defs/zero_trust_summary" },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_check" }
+        }
+      }
+    },
+    "zero_trust_summary": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "breaking": { "type": "integer" },
+        "controlled": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "not_observed": { "type": "integer" }
+      }
+    },
+    "zero_trust_check": {
+      "type": "object",
+      "required": ["id", "principle", "boundary", "tier", "status", "design_test", "finding", "evidence", "graph_edges", "actions"],
+      "properties": {
+        "id": { "type": "string" },
+        "principle": { "type": "string" },
+        "boundary": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "status": { "type": "string", "enum": ["breaking", "controlled", "unknown", "not_observed"] },
+        "design_test": { "type": "string" },
+        "finding": { "type": "string" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_evidence" }
+        },
+        "graph_edges": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "zero_trust_evidence": {
+      "type": "object",
+      "required": ["id", "kind", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
         "source": { "type": "string" },
         "summary": { "type": "string" }
       }

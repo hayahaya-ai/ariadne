@@ -292,6 +292,7 @@ func renderTable(w io.Writer, r model.Report) error {
 		exposures = []model.ExposureResult{r.Exposure}
 	}
 	renderIssueSummary(w, r.Interpretation)
+	renderZeroTrustTable(w, r.ZeroTrust)
 	for i, exposure := range exposures {
 		if len(exposures) > 1 {
 			fmt.Fprintf(w, "Exposure Path %d: %s\n", i+1, exposure.Title)
@@ -331,6 +332,61 @@ func renderTable(w io.Writer, r model.Report) error {
 		}
 	}
 	return nil
+}
+
+func renderZeroTrustTable(w io.Writer, z model.ZeroTrust) {
+	if z.FrameworkVersion == "" {
+		return
+	}
+	fmt.Fprintf(w, "Zero Trust architecture:\n")
+	fmt.Fprintf(w, "  Checks: %d total, %d breaking, %d controlled, %d unknown, %d not observed\n",
+		z.Summary.Total,
+		z.Summary.Breaking,
+		z.Summary.Controlled,
+		z.Summary.Unknown,
+		z.Summary.NotObserved,
+	)
+	for _, check := range z.Checks {
+		fmt.Fprintf(w, "  - %s %s / %s: %s\n", statusLabel(string(check.Status)), check.Principle, check.Boundary, check.Finding)
+		if len(check.Evidence) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", zeroTrustEvidenceLine(check.Evidence, 3))
+		}
+		if len(check.Controls) > 0 {
+			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(check.Controls, "; "))
+		}
+		if len(check.Actions) > 0 {
+			fmt.Fprintf(w, "    Next: %s\n", check.Actions[0])
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+func zeroTrustEvidenceLine(evidence []model.ZeroTrustEvidence, limit int) string {
+	var parts []string
+	seen := map[string]bool{}
+	for _, item := range evidence {
+		source := item.Source
+		if source == "" {
+			source = item.ID
+		}
+		if source == "" {
+			source = item.Kind
+		}
+		if source == "" || seen[source] {
+			continue
+		}
+		if len(parts) >= limit {
+			parts = append(parts, fmt.Sprintf("%d more", len(evidence)-len(parts)))
+			break
+		}
+		seen[source] = true
+		parts = append(parts, source)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func statusLabel(value string) string {
+	return strings.ToUpper(strings.ReplaceAll(value, "_", " "))
 }
 
 func renderIssueSummary(w io.Writer, interpretation model.Interpretation) {

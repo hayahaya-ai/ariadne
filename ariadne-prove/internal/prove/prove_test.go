@@ -471,6 +471,49 @@ func TestRunPathSafeControlsBreakPaths(t *testing.T) {
 	}
 }
 
+func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ZeroTrust.FrameworkVersion != "ariadne.zero_trust_agent/v1" {
+		t.Fatalf("zero trust framework version = %q", r.ZeroTrust.FrameworkVersion)
+	}
+	if r.ZeroTrust.Summary.Breaking == 0 {
+		t.Fatalf("expected breaking zero trust checks: %+v", r.ZeroTrust.Summary)
+	}
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:authority-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:sensitive-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
+}
+
+func TestZeroTrustSafeControlsShowsControlBoundary(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:control-strength", model.ZeroTrustControlled)
+	if len(check.Controls) == 0 {
+		t.Fatalf("controlled zero trust check should cite controls: %+v", check)
+	}
+}
+
+func TestZeroTrustMemoryBoundaryUsesGraphEvidence(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "messy-ai-surfaces")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Graph.HasEdge("authority:file-read|reaches|boundary:agent-private-context") &&
+		!r.Graph.HasEdge("authority:broad-local|reaches|boundary:agent-private-context") {
+		t.Fatalf("expected private context reachability edge")
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:memory-boundary", model.ZeroTrustBreaking)
+	if !containsString(check.GraphEdges, "boundary:agent-private-context") {
+		t.Fatalf("memory boundary check does not cite private context graph edge: %+v", check.GraphEdges)
+	}
+}
+
 func TestRunPathRepoOnlyRiskIsInconclusive(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "repo-only-risk")})
 	if err != nil {
@@ -641,6 +684,8 @@ func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	rendered := out.String()
 	for _, want := range []string{
 		"Ariadne Exposure Dashboard",
+		"Zero Trust Architecture",
+		"Influence boundary",
 		"Issue Dashboard",
 		"Exposure Paths",
 		"Facts Dive",
@@ -703,6 +748,24 @@ func assertIssue(t *testing.T, issues []model.Issue, id string, severity model.S
 	return model.Issue{}
 }
 
+func assertZeroTrustCheck(t *testing.T, checks []model.ZeroTrustCheck, id string, status model.ZeroTrustStatus) model.ZeroTrustCheck {
+	t.Helper()
+	for _, check := range checks {
+		if check.ID != id {
+			continue
+		}
+		if check.Status != status {
+			t.Fatalf("zero trust check %s status = %s, want %s", id, check.Status, status)
+		}
+		if check.Finding == "" {
+			t.Fatalf("zero trust check %s missing finding", id)
+		}
+		return check
+	}
+	t.Fatalf("missing zero trust check %s in %+v", id, checks)
+	return model.ZeroTrustCheck{}
+}
+
 func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {
 	t.Helper()
 	for _, surface := range surfaces {
@@ -716,6 +779,15 @@ func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {
 func hasGraphNodeType(g model.Graph, nodeType string) bool {
 	for _, node := range g.Nodes {
 		if node.Type == nodeType {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, fragment string) bool {
+	for _, value := range values {
+		if strings.Contains(value, fragment) {
 			return true
 		}
 	}

@@ -29,6 +29,7 @@ make build
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
 - Exports graph evidence as JSON, Graphviz DOT, or Mermaid for review and visualization.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
+- Maps exposure evidence to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
 - Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
@@ -40,6 +41,14 @@ make build
 - **Secret boundary access:** untrusted repo or agent instructions can influence a runtime that has file-read authority near secret-like files.
 - **Mutable tool launch:** an agent can invoke a tool launched through mutable package-manager or interpreter configuration that grants local execution.
 - **Data egress chain:** untrusted influence, private-data reachability, and external communication reachability exist in the same graph.
+
+## Zero Trust Architecture
+
+Ariadne reports where agent architecture is breaking across influence, authority, sensitive data, tool/MCP, memory/context, identity, observability, and control-strength boundaries.
+
+The model is fact-first: `breaking` requires graph evidence, `controlled` requires a control edge, and unsupported identity or audit claims remain `unknown`.
+
+See [Zero Trust agent architecture](ariadne-prove/docs/zero-trust-agent-architecture.md).
 
 ## Commands
 
@@ -69,6 +78,7 @@ From `ariadne-prove/`:
 
 - [Install](ariadne-prove/INSTALL.md)
 - [Deterministic scan model](ariadne-prove/docs/deterministic-scan.md)
+- [Zero Trust agent architecture](ariadne-prove/docs/zero-trust-agent-architecture.md)
 - [Priority rules](ariadne-prove/docs/priority-rules.md)
 - [Threat model](ariadne-prove/docs/threat-model.md)
 - [Fleet usage](ariadne-prove/docs/fleet.md)

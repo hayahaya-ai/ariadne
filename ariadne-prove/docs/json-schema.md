@@ -76,6 +76,25 @@ Each issue includes:
 
 Custom deterministic policies are documented in [priority-rules.md](priority-rules.md).
 
+### Zero Trust
+
+`prove` output includes `zero_trust`, an architecture-boundary assessment derived from the same deterministic facts, graph edges, controls, and limitations.
+
+Each check includes:
+
+- `principle`: Zero Trust principle such as least agency, assume breach, or never trust and always verify
+- `boundary`: architecture boundary under review
+- `status`: `breaking`, `controlled`, `unknown`, or `not_observed`
+- `design_test`: the capability-removal test Ariadne applies
+- `finding`: fact-backed result text
+- `evidence`: source references and summaries
+- `graph_edges`: graph evidence supporting the check
+- `controls`: controls that break or restrict the path
+- `actions`: concrete next steps
+- `limitations`
+
+`breaking` is reserved for graph-backed paths or missing break-path controls. Missing identity, credential, ABAC, JIT, or telemetry evidence is reported as `unknown` until Ariadne has collectors that can prove the boundary.
+
 LLM review mode uses two JSON payloads:
 
 - request packet: `ariadne.llm_review_request/v1`

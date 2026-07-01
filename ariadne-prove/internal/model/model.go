@@ -74,6 +74,7 @@ type Report struct {
 	Exposure       ExposureResult   `json:"exposure"`
 	Exposures      []ExposureResult `json:"exposures,omitempty"`
 	Interpretation Interpretation   `json:"interpretation"`
+	ZeroTrust      ZeroTrust        `json:"zero_trust"`
 	Graph          Graph            `json:"graph"`
 	Evidence       []Evidence       `json:"evidence"`
 	Redaction      RedactionInfo    `json:"redaction"`
@@ -94,6 +95,51 @@ type RedactionInfo struct {
 	Level                  string `json:"level"`
 	SensitivePathsIncluded bool   `json:"sensitive_paths_included"`
 	CanaryValuesIncluded   bool   `json:"canary_values_included"`
+}
+
+type ZeroTrustStatus string
+
+const (
+	ZeroTrustBreaking    ZeroTrustStatus = "breaking"
+	ZeroTrustControlled  ZeroTrustStatus = "controlled"
+	ZeroTrustUnknown     ZeroTrustStatus = "unknown"
+	ZeroTrustNotObserved ZeroTrustStatus = "not_observed"
+)
+
+type ZeroTrust struct {
+	FrameworkVersion string           `json:"framework_version"`
+	Summary          ZeroTrustSummary `json:"summary"`
+	Checks           []ZeroTrustCheck `json:"checks"`
+}
+
+type ZeroTrustSummary struct {
+	Total       int `json:"total"`
+	Breaking    int `json:"breaking"`
+	Controlled  int `json:"controlled"`
+	Unknown     int `json:"unknown"`
+	NotObserved int `json:"not_observed"`
+}
+
+type ZeroTrustCheck struct {
+	ID          string              `json:"id"`
+	Principle   string              `json:"principle"`
+	Boundary    string              `json:"boundary"`
+	Tier        string              `json:"tier"`
+	Status      ZeroTrustStatus     `json:"status"`
+	DesignTest  string              `json:"design_test"`
+	Finding     string              `json:"finding"`
+	Evidence    []ZeroTrustEvidence `json:"evidence"`
+	GraphEdges  []string            `json:"graph_edges"`
+	Controls    []string            `json:"controls,omitempty"`
+	Actions     []string            `json:"actions"`
+	Limitations []string            `json:"limitations,omitempty"`
+}
+
+type ZeroTrustEvidence struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Source  string `json:"source,omitempty"`
+	Summary string `json:"summary"`
 }
 
 type Evidence struct {

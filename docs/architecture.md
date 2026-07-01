@@ -32,7 +32,14 @@ The root command delegates to that implementation when run from a source checkou
    Classify only supported graph-backed exposure paths as `exposed`,
    `protected`, or `inconclusive`.
 
-6. **Report**
+6. **Assess Zero Trust architecture**
+
+   Map exposure evidence to influence, authority, sensitive data, tool/MCP,
+   memory/context, identity, observability, and control-strength boundaries.
+   Checks are reported as `breaking`, `controlled`, `unknown`, or
+   `not_observed`.
+
+7. **Report**
 
    Emit fact-first terminal output, JSON, Graphviz DOT, or Mermaid. Scan mode
    aggregates the same reports across many local or mounted targets.
@@ -42,6 +49,7 @@ The root command delegates to that implementation when run from a source checkou
 - `surface`: AI surface registry and bounded discovery.
 - `adapter`: deterministic collection and runtime-specific parsing.
 - `prove`: graph construction, exposure evaluation, Story Lab, and scan runs.
+- `zerotrust`: architecture-boundary assessment from facts, graph edges, and controls.
 - `report`: terminal, JSON, DOT, and Mermaid rendering.
 - `model`: stable report, graph, evidence, and scan types.
 

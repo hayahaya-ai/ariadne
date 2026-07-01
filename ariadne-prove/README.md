@@ -15,6 +15,7 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - Summarizes private or high-volume agent context without emitting content.
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
+- Maps those paths to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
 - Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
@@ -26,6 +27,30 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - **Secret boundary access:** untrusted repo or agent instructions can influence a runtime that has file-read authority near secret-like files.
 - **Mutable tool launch:** an agent can invoke a tool launched through mutable package-manager or interpreter configuration that grants local execution.
 - **Data egress chain:** untrusted influence, private-data reachability, and external communication reachability exist in the same graph.
+
+## Zero Trust Architecture Readout
+
+Ariadne emits a `zero_trust` object in `prove` JSON and renders the same model in the dashboard.
+
+Current checks cover:
+
+- influence boundary
+- authority boundary
+- sensitive data boundary
+- tool and MCP boundary
+- memory and context boundary
+- agent identity boundary
+- observability boundary
+- control strength: impossible versus tedious
+
+Statuses are evidence-bound:
+
+- `breaking`: graph evidence shows an unbroken exposure path or missing break-path control.
+- `controlled`: graph evidence shows a control edge that breaks a supported path.
+- `unknown`: relevant surfaces exist, but Ariadne lacks enough evidence to prove or clear the boundary.
+- `not_observed`: supported collectors did not observe that boundary.
+
+See [docs/zero-trust-agent-architecture.md](docs/zero-trust-agent-architecture.md).
 
 ## Install
 
@@ -152,6 +177,7 @@ Prove output adds:
 - proof mode: `inferred`, `simulated`, or `live_lab`
 - graph path edges
 - controls that break the path
+- Zero Trust architecture checks with evidence, graph edges, controls, actions, and limitations
 - deterministic interpretation with issue priority, severity, disposition, evidence signals, and actions
 - optional LLM review interpretation when `--interpret llm` is used
 - limitations

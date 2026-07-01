@@ -24,6 +24,7 @@ func renderReportDashboard(w io.Writer, r model.Report) error {
 		{"Mode", r.Story.Mode},
 		{"Agent", r.Story.Runtime},
 	})
+	renderZeroTrustDashboard(w, r.ZeroTrust)
 	renderIssueDashboard(w, r.Interpretation, r.Graph, r.Evidence, r.Redaction)
 	renderExposureSection(w, r.Exposures)
 	renderFactsDive(w, r.Graph, r.Evidence, r.Warnings, r.Limitations)
@@ -46,6 +47,7 @@ func renderScanDashboard(w io.Writer, r model.ScanReport) error {
 		{"Agent", r.Agent},
 		{"Errors", fmt.Sprintf("%d", r.Summary.Errors)},
 	})
+	renderScanZeroTrustDashboard(w, r)
 	renderIssueDashboard(w, r.Interpretation, model.Graph{}, nil, r.Redaction)
 	renderScanTargetSection(w, r)
 	renderScanFactsDive(w, r)
@@ -200,6 +202,10 @@ tr:last-child td { border-bottom: 0; }
 .medium { color: #1f2937; background: #f6d471; }
 .low { color: #fff; background: var(--low); }
 .info { color: #fff; background: var(--info); }
+.breaking { color: #fff; background: var(--critical); }
+.controlled { color: #fff; background: var(--low); }
+.unknown { color: #fff; background: var(--info); }
+.not-observed { color: #1f2937; background: #d8dee7; }
 .exposed { color: #fff; background: var(--critical); }
 .protected { color: #fff; background: var(--low); }
 .inconclusive { color: #1f2937; background: #d8dee7; }
@@ -281,6 +287,127 @@ func renderIssueDashboard(w io.Writer, interpretation model.Interpretation, grap
 	fmt.Fprintln(w, "</tbody></table></div>")
 	renderInterpretationLimitations(w, interpretation)
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
+	if z.FrameworkVersion == "" {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Zero Trust Architecture</h2><div class="subtle">Architecture boundaries evaluated from deterministic facts and graph edges.</div></div>`)
+	fmt.Fprintf(w, `<div class="subtle">%s</div>`, esc(z.FrameworkVersion))
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"Breaking", fmt.Sprintf("%d", z.Summary.Breaking)},
+		{"Controlled", fmt.Sprintf("%d", z.Summary.Controlled)},
+		{"Unknown", fmt.Sprintf("%d", z.Summary.Unknown)},
+		{"Not observed", fmt.Sprintf("%d", z.Summary.NotObserved)},
+		{"Checks", fmt.Sprintf("%d", z.Summary.Total)},
+	})
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Boundary</th><th>Finding</th><th>Evidence</th><th>Graph / Control</th><th>Next action</th></tr></thead><tbody>")
+	for _, check := range z.Checks {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(string(check.Status)), esc(statusLabel(string(check.Status))))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(check.Boundary), esc(check.Principle), esc(check.ID), esc(check.Tier))
+		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(check.Finding), esc(check.DesignTest))
+		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(check.Evidence))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(check.GraphEdges, 4)), renderControlLine(check.Controls))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(check.Actions, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderScanZeroTrustDashboard(w io.Writer, r model.ScanReport) {
+	var total model.ZeroTrustSummary
+	byTarget := make([]kv, 0, len(r.Targets))
+	for _, target := range r.Targets {
+		if target.Error != "" || target.Report.ZeroTrust.FrameworkVersion == "" {
+			continue
+		}
+		s := target.Report.ZeroTrust.Summary
+		total.Total += s.Total
+		total.Breaking += s.Breaking
+		total.Controlled += s.Controlled
+		total.Unknown += s.Unknown
+		total.NotObserved += s.NotObserved
+		byTarget = append(byTarget, kv{
+			Key:   target.Target.ID,
+			Value: fmt.Sprintf("%d breaking, %d controlled, %d unknown", s.Breaking, s.Controlled, s.Unknown),
+		})
+	}
+	if total.Total == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Zero Trust Architecture</h2><div class="subtle">Aggregated architecture-boundary readout across scanned targets.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Breaking", fmt.Sprintf("%d", total.Breaking)},
+		{"Controlled", fmt.Sprintf("%d", total.Controlled)},
+		{"Unknown", fmt.Sprintf("%d", total.Unknown)},
+		{"Not observed", fmt.Sprintf("%d", total.NotObserved)},
+		{"Checks", fmt.Sprintf("%d", total.Total)},
+	})
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Target</th><th>Zero Trust readout</th></tr></thead><tbody>")
+	for _, row := range byTarget {
+		fmt.Fprintf(w, "<tr><td><strong>%s</strong></td><td>%s</td></tr>\n", esc(row.Key), esc(row.Value))
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderZeroTrustEvidence(evidence []model.ZeroTrustEvidence) string {
+	if len(evidence) == 0 {
+		return `<span class="subtle">No direct evidence mapped.</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<ul class="list">`)
+	for _, item := range limitEvidence(evidence, 5) {
+		b.WriteString("<li>")
+		if item.Source != "" {
+			b.WriteString(`<span class="mono">`)
+			b.WriteString(esc(item.Source))
+			b.WriteString(`</span>`)
+		} else if item.ID != "" {
+			b.WriteString(`<span class="mono">`)
+			b.WriteString(esc(item.ID))
+			b.WriteString(`</span>`)
+		}
+		b.WriteString(`<div class="subtle">`)
+		b.WriteString(esc(strings.TrimSpace(item.Kind + " " + item.Summary)))
+		b.WriteString(`</div></li>`)
+	}
+	b.WriteString("</ul>")
+	return b.String()
+}
+
+func renderControlLine(controls []string) string {
+	if len(controls) == 0 {
+		return ""
+	}
+	return `<h3>Controls</h3>` + renderSmallList(controls)
+}
+
+func limitStrings(items []string, limit int) []string {
+	if len(items) <= limit {
+		return items
+	}
+	out := append([]string{}, items[:limit]...)
+	out = append(out, fmt.Sprintf("%d additional items in JSON", len(items)-limit))
+	return out
+}
+
+func limitEvidence(items []model.ZeroTrustEvidence, limit int) []model.ZeroTrustEvidence {
+	if len(items) <= limit {
+		return items
+	}
+	out := append([]model.ZeroTrustEvidence{}, items[:limit]...)
+	out = append(out, model.ZeroTrustEvidence{Kind: "summary", Summary: fmt.Sprintf("%d additional evidence items in JSON", len(items)-limit)})
+	return out
 }
 
 func renderIssueMetrics(w io.Writer, summary model.IssueSummary) {

@@ -16,6 +16,7 @@ import (
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/interpret"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/storylab"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/zerotrust"
 )
 
 type Options struct {
@@ -49,6 +50,7 @@ func RunStory(opts Options) (model.Report, error) {
 	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
 	graph := BuildGraph(collection)
 	exposure := Evaluate(collection, graph, manifest)
+	zeroTrust := zerotrust.Assess(collection, graph, []model.ExposureResult{exposure})
 	policy, err := loadPolicy(story.Dir, opts.RulesPath)
 	if err != nil {
 		return model.Report{}, err
@@ -69,6 +71,7 @@ func RunStory(opts Options) (model.Report, error) {
 		Expected:  manifest.Expected,
 		Exposure:  exposure,
 		Exposures: []model.ExposureResult{exposure},
+		ZeroTrust: zeroTrust,
 		Graph:     graph,
 		Evidence:  collection.Evidence,
 		Redaction: model.RedactionInfo{
@@ -138,6 +141,7 @@ func RunPath(opts Options) (model.Report, error) {
 	graph := BuildGraph(collection)
 	exposures := EvaluateAll(collection, graph, opts.Mode)
 	normalizeRealPathExposures(exposures)
+	zeroTrust := zerotrust.Assess(collection, graph, exposures)
 	primary := model.ExposureResult{}
 	if len(exposures) > 0 {
 		primary = exposures[0]
@@ -163,6 +167,7 @@ func RunPath(opts Options) (model.Report, error) {
 		Matched:   true,
 		Exposure:  primary,
 		Exposures: exposures,
+		ZeroTrust: zeroTrust,
 		Graph:     graph,
 		Evidence:  collection.Evidence,
 		Redaction: model.RedactionInfo{
@@ -548,6 +553,8 @@ func authorityReachesBoundary(authorityID, boundaryID string) bool {
 	switch boundaryID {
 	case "boundary:secret-like-file", "boundary:developer-secret-boundary":
 		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
+	case "boundary:agent-private-context":
+		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
 	case "boundary:developer-execution-boundary":
 		return authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
 	case "boundary:external-destination":
@@ -903,8 +910,10 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"runtime:claude|has_authority|authority:broad-local",
 		"authority:file-read|reaches|boundary:secret-like-file",
 		"authority:file-read|reaches|boundary:developer-secret-boundary",
+		"authority:file-read|reaches|boundary:agent-private-context",
 		"authority:broad-local|reaches|boundary:secret-like-file",
 		"authority:broad-local|reaches|boundary:developer-secret-boundary",
+		"authority:broad-local|reaches|boundary:agent-private-context",
 		"runtime:codex|has_authority|authority:external-communication",
 		"runtime:claude|has_authority|authority:external-communication",
 		"authority:external-communication|reaches|boundary:external-destination",
@@ -912,6 +921,7 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"control:network-restricted|restricts|boundary:external-destination",
 		"control:deny-secret-read|restricts|boundary:secret-like-file",
 		"control:deny-secret-read|restricts|boundary:developer-secret-boundary",
+		"control:deny-secret-read|restricts|boundary:agent-private-context",
 	}
 	return existingEdges(g, candidates)
 }
