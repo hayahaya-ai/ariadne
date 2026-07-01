@@ -18,7 +18,10 @@ Relative paths are resolved relative to the target file.
 
 ```bash
 ariadne scan --targets endpoints.txt --format json --out ariadne-scan.json
+ariadne architecture --targets endpoints.txt --format json --out ariadne-architecture.json
 ```
+
+Use `architecture --targets` when the question is not just "which targets have exposure paths?" but "which Zero Trust agent architecture boundaries are breaking, controlled, unknown, or not observed across the fleet?" The architecture fleet report groups flaw categories by target coverage and also emits `boundary_coverage` rows with evidence sources, missing evidence, next collectors, and control evidence needed.
 
 ## Collection Pattern
 
@@ -26,8 +29,9 @@ For endpoint fleets:
 
 1. Run Ariadne locally on each machine, or mount endpoint snapshots to a collector host.
 2. Store JSON output in a central bucket or data lake.
-3. Index `summary`, `targets[].report.exposures`, `targets[].report.graph`, and `targets[].report.evidence`.
+3. Index `summary`, `targets[].report.exposures`, `targets[].report.graph`, `targets[].report.evidence`, `groups`, and `boundary_coverage`.
 4. Alert on `status=exposed` for supported exposure families.
+5. Track Zero Trust closure by querying `boundary_coverage[].missing_evidence`, `boundary_coverage[].next_collectors`, and `boundary_coverage[].control_evidence_needed`.
 
 ## Privacy Guidance
 

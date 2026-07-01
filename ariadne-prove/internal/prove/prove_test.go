@@ -2621,6 +2621,7 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		"Filter: breaking",
 		"Untrusted instructions can steer privileged tools",
 		"Agent has broad standing authority instead of least agency",
+		"Boundary checks:",
 		"Evidence:",
 		"Breaks when:",
 		"Evidence surfaces:",
@@ -2647,6 +2648,9 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 	}
 	if decoded.Summary.Total == 0 || decoded.Summary.Total != decoded.Summary.Breaking {
 		t.Fatalf("expected only breaking flaws in summary: %+v", decoded.Summary)
+	}
+	if decoded.EvidenceCoverage.Known == 0 || decoded.Maturity.Summary.Total == 0 || len(decoded.BoundaryCoverage) == 0 {
+		t.Fatalf("architecture JSON should include evidence coverage, maturity, and boundary coverage: coverage=%+v maturity=%+v boundaries=%d", decoded.EvidenceCoverage, decoded.Maturity.Summary, len(decoded.BoundaryCoverage))
 	}
 	for _, flaw := range decoded.Flaws {
 		if flaw.Status != model.ZeroTrustBreaking {
@@ -2682,6 +2686,7 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Zero Trust architecture fleet:",
 		"Filter: breaking",
+		"Boundary coverage:",
 		"Flaws by target coverage:",
 		"combined",
 		"Evidence:",
@@ -2712,6 +2717,25 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	}
 	if decoded.Summary.MatchingFlaws == 0 || decoded.Summary.DistinctFlaws == 0 || len(decoded.Groups) == 0 {
 		t.Fatalf("expected grouped matching flaws: %+v groups=%d", decoded.Summary, len(decoded.Groups))
+	}
+	if len(decoded.BoundaryCoverage) == 0 {
+		t.Fatalf("expected fleet boundary coverage rows")
+	}
+	hasBoundaryEvidence := false
+	hasBoundaryContract := false
+	for _, boundary := range decoded.BoundaryCoverage {
+		if boundary.StatusCounts.Total == 0 || boundary.TargetCount == 0 {
+			t.Fatalf("boundary coverage row should count target checks: %+v", boundary)
+		}
+		if len(boundary.EvidenceSources) > 0 {
+			hasBoundaryEvidence = true
+		}
+		if len(boundary.ControlEvidenceNeeded) > 0 || len(boundary.MissingEvidence) > 0 || len(boundary.NextCollectors) > 0 {
+			hasBoundaryContract = true
+		}
+	}
+	if !hasBoundaryEvidence || !hasBoundaryContract {
+		t.Fatalf("fleet boundary coverage should retain evidence anchors and closure contracts: evidence=%v contract=%v", hasBoundaryEvidence, hasBoundaryContract)
 	}
 	hasEvidenceSources := false
 	for _, group := range decoded.Groups {

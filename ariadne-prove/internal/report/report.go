@@ -91,9 +91,15 @@ func BuildArchitectureReport(r model.Report, statusFilter string) (model.Archite
 		StatusFilter:     filter,
 		Summary:          summarizeArchitectureFlaws(flaws),
 		OverallSummary:   r.ZeroTrust.ArchitectureSummary,
-		Flaws:            flaws,
-		Redaction:        r.Redaction,
-		Limitations:      append([]string{}, r.Limitations...),
+		EvidenceCoverage: r.ZeroTrust.Coverage,
+		Maturity:         r.ZeroTrust.Maturity,
+		BoundaryCoverage: buildArchitectureBoundaryCoverage([]architectureCoverageInput{{
+			TargetID:  "target",
+			ZeroTrust: r.ZeroTrust,
+		}}),
+		Flaws:       flaws,
+		Redaction:   r.Redaction,
+		Limitations: append([]string{}, r.Limitations...),
 	}, nil
 }
 
@@ -118,6 +124,7 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 	}
 	out.Summary.Targets = r.Summary.Targets
 	groups := map[string]*model.ArchitectureFlawGroup{}
+	var coverageInputs []architectureCoverageInput
 	for _, target := range r.Targets {
 		targetReport := model.ArchitectureTargetReport{Target: target.Target}
 		if target.Error != "" {
@@ -127,6 +134,10 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 			continue
 		}
 		out.Summary.Completed++
+		coverageInputs = append(coverageInputs, architectureCoverageInput{
+			TargetID:  target.Target.ID,
+			ZeroTrust: target.Report.ZeroTrust,
+		})
 		for _, flaw := range target.Report.ZeroTrust.ArchitectureFlaws {
 			if !architectureStatusAllowed(flaw.Status, filter) {
 				continue
@@ -174,8 +185,12 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 		}
 		return severityRank(out.Groups[i].Severity) > severityRank(out.Groups[j].Severity)
 	})
+	out.BoundaryCoverage = buildArchitectureBoundaryCoverage(coverageInputs)
 	if out.Groups == nil {
 		out.Groups = []model.ArchitectureFlawGroup{}
+	}
+	if out.BoundaryCoverage == nil {
+		out.BoundaryCoverage = []model.ArchitectureBoundary{}
 	}
 	if out.Targets == nil {
 		out.Targets = []model.ArchitectureTargetReport{}
@@ -628,6 +643,7 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 		r.OverallSummary.Unknown,
 		r.OverallSummary.NotObserved,
 	)
+	renderArchitectureBoundarySummary(w, r.BoundaryCoverage, r.EvidenceCoverage)
 	if len(r.Flaws) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
 		return nil
@@ -675,6 +691,7 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 		r.Summary.Unknown,
 		r.Summary.NotObserved,
 	)
+	renderArchitectureBoundaryCoverage(w, r.BoundaryCoverage, 8)
 	if len(r.Groups) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
 		return nil
@@ -718,6 +735,66 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func renderArchitectureBoundarySummary(w io.Writer, boundaries []model.ArchitectureBoundary, coverage model.ZeroTrustCoverage) {
+	if len(boundaries) == 0 {
+		return
+	}
+	var summary model.ZeroTrustSummary
+	for _, boundary := range boundaries {
+		summary.Total += boundary.StatusCounts.Total
+		summary.Breaking += boundary.StatusCounts.Breaking
+		summary.Controlled += boundary.StatusCounts.Controlled
+		summary.Unknown += boundary.StatusCounts.Unknown
+		summary.NotObserved += boundary.StatusCounts.NotObserved
+	}
+	fmt.Fprintf(w, "  Boundary checks: %d total, %d breaking, %d controlled, %d unknown, %d not observed; evidence gaps: %d\n",
+		summary.Total,
+		summary.Breaking,
+		summary.Controlled,
+		summary.Unknown,
+		summary.NotObserved,
+		coverage.Gaps,
+	)
+}
+
+func renderArchitectureBoundaryCoverage(w io.Writer, boundaries []model.ArchitectureBoundary, limit int) {
+	if len(boundaries) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Boundary coverage:\n")
+	if limit <= 0 || limit > len(boundaries) {
+		limit = len(boundaries)
+	}
+	for _, boundary := range boundaries[:limit] {
+		fmt.Fprintf(w, "    - %s: %d target-check(s); %d breaking, %d controlled, %d unknown, %d not observed\n",
+			boundary.Boundary,
+			boundary.StatusCounts.Total,
+			boundary.StatusCounts.Breaking,
+			boundary.StatusCounts.Controlled,
+			boundary.StatusCounts.Unknown,
+			boundary.StatusCounts.NotObserved,
+		)
+		if targets := architectureBoundaryTargetsLine(boundary); targets != "" {
+			fmt.Fprintf(w, "      Targets: %s\n", targets)
+		}
+		if len(boundary.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(boundary.EvidenceSources, 5), "; "))
+		}
+		if len(boundary.ControlEvidenceNeeded) > 0 {
+			fmt.Fprintf(w, "      Control evidence needed: %s\n", strings.Join(limitStrings(boundary.ControlEvidenceNeeded, 5), "; "))
+		}
+		if len(boundary.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "      Missing evidence: %s\n", strings.Join(limitStrings(boundary.MissingEvidence, 5), "; "))
+		}
+		if len(boundary.NextCollectors) > 0 {
+			fmt.Fprintf(w, "      Next collectors: %s\n", strings.Join(limitStrings(boundary.NextCollectors, 3), "; "))
+		}
+	}
+	if len(boundaries) > limit {
+		fmt.Fprintf(w, "    - %d more boundary coverage rows in JSON output\n", len(boundaries)-limit)
+	}
 }
 
 func summarizeArchitectureFlaws(flaws []model.ZeroTrustArchitecture) model.ZeroTrustSummary {
@@ -764,6 +841,133 @@ func incrementArchitectureScanSummary(summary *model.ArchitectureScanSummary, st
 	default:
 		summary.NotObserved++
 	}
+}
+
+type architectureCoverageInput struct {
+	TargetID  string
+	ZeroTrust model.ZeroTrust
+}
+
+func buildArchitectureBoundaryCoverage(inputs []architectureCoverageInput) []model.ArchitectureBoundary {
+	byCheckID := map[string]*model.ArchitectureBoundary{}
+	for _, input := range inputs {
+		targetID := input.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		controlEvidenceByCheck, evidenceSurfacesByCheck := architectureContractsByCheck(input.ZeroTrust.ArchitectureFlaws)
+		gapsByCheck := architectureGapsByCheck(input.ZeroTrust.Coverage.GapDetails)
+		for _, check := range input.ZeroTrust.Checks {
+			boundary := byCheckID[check.ID]
+			if boundary == nil {
+				boundary = &model.ArchitectureBoundary{
+					CheckID:    check.ID,
+					Boundary:   check.Boundary,
+					Principle:  check.Principle,
+					Tier:       check.Tier,
+					DesignTest: check.DesignTest,
+				}
+				byCheckID[check.ID] = boundary
+			}
+			incrementZeroTrustSummary(&boundary.StatusCounts, check.Status)
+			appendArchitectureBoundaryTarget(boundary, check.Status, targetID)
+			boundary.EvidenceSources = append(boundary.EvidenceSources, zeroTrustEvidenceSources(check.Evidence)...)
+			boundary.Controls = append(boundary.Controls, check.Controls...)
+			boundary.ControlEvidenceNeeded = append(boundary.ControlEvidenceNeeded, controlEvidenceByCheck[check.ID]...)
+			boundary.EvidenceSurfaces = append(boundary.EvidenceSurfaces, evidenceSurfacesByCheck[check.ID]...)
+			boundary.Actions = append(boundary.Actions, check.Actions...)
+			boundary.Limitations = append(boundary.Limitations, check.Limitations...)
+			for _, gap := range gapsByCheck[check.ID] {
+				boundary.MissingEvidence = append(boundary.MissingEvidence, gap.MissingEvidence...)
+				if gap.NextCollector != "" {
+					boundary.NextCollectors = append(boundary.NextCollectors, gap.NextCollector)
+				}
+			}
+		}
+	}
+	out := make([]model.ArchitectureBoundary, 0, len(byCheckID))
+	for _, boundary := range byCheckID {
+		boundary.BreakingTargets = uniqueSortedStrings(boundary.BreakingTargets)
+		boundary.ControlledTargets = uniqueSortedStrings(boundary.ControlledTargets)
+		boundary.UnknownTargets = uniqueSortedStrings(boundary.UnknownTargets)
+		boundary.NotObservedTargets = uniqueSortedStrings(boundary.NotObservedTargets)
+		boundary.TargetCount = len(boundary.BreakingTargets) + len(boundary.ControlledTargets) + len(boundary.UnknownTargets) + len(boundary.NotObservedTargets)
+		boundary.EvidenceSources = uniqueSortedStrings(boundary.EvidenceSources)
+		boundary.Controls = uniqueSortedStrings(boundary.Controls)
+		boundary.ControlEvidenceNeeded = uniqueSortedStrings(boundary.ControlEvidenceNeeded)
+		boundary.EvidenceSurfaces = uniqueSortedStrings(boundary.EvidenceSurfaces)
+		boundary.MissingEvidence = uniqueSortedStrings(boundary.MissingEvidence)
+		boundary.NextCollectors = uniqueSortedStrings(boundary.NextCollectors)
+		boundary.Actions = uniqueSortedStrings(boundary.Actions)
+		boundary.Limitations = uniqueSortedStrings(boundary.Limitations)
+		out = append(out, *boundary)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := architectureBoundaryRank(out[i])
+		right := architectureBoundaryRank(out[j])
+		if left == right {
+			return out[i].Boundary < out[j].Boundary
+		}
+		return left > right
+	})
+	if out == nil {
+		return []model.ArchitectureBoundary{}
+	}
+	return out
+}
+
+func architectureContractsByCheck(flaws []model.ZeroTrustArchitecture) (map[string][]string, map[string][]string) {
+	controlEvidenceByCheck := map[string][]string{}
+	evidenceSurfacesByCheck := map[string][]string{}
+	for _, flaw := range flaws {
+		for _, checkID := range flaw.CheckIDs {
+			controlEvidenceByCheck[checkID] = append(controlEvidenceByCheck[checkID], flaw.ControlEvidenceNeeded...)
+			evidenceSurfacesByCheck[checkID] = append(evidenceSurfacesByCheck[checkID], flaw.EvidenceSurfaces...)
+		}
+	}
+	return controlEvidenceByCheck, evidenceSurfacesByCheck
+}
+
+func architectureGapsByCheck(gaps []model.ZeroTrustGap) map[string][]model.ZeroTrustGap {
+	out := map[string][]model.ZeroTrustGap{}
+	for _, gap := range gaps {
+		out[gap.CheckID] = append(out[gap.CheckID], gap)
+	}
+	return out
+}
+
+func appendArchitectureBoundaryTarget(boundary *model.ArchitectureBoundary, status model.ZeroTrustStatus, targetID string) {
+	switch status {
+	case model.ZeroTrustBreaking:
+		boundary.BreakingTargets = append(boundary.BreakingTargets, targetID)
+	case model.ZeroTrustControlled:
+		boundary.ControlledTargets = append(boundary.ControlledTargets, targetID)
+	case model.ZeroTrustUnknown:
+		boundary.UnknownTargets = append(boundary.UnknownTargets, targetID)
+	default:
+		boundary.NotObservedTargets = append(boundary.NotObservedTargets, targetID)
+	}
+}
+
+func architectureBoundaryRank(boundary model.ArchitectureBoundary) int {
+	return boundary.StatusCounts.Breaking*1000 + boundary.StatusCounts.Unknown*100 + boundary.StatusCounts.NotObserved*10 + boundary.StatusCounts.Controlled
+}
+
+func architectureBoundaryTargetsLine(boundary model.ArchitectureBoundary) string {
+	var parts []string
+	if len(boundary.BreakingTargets) > 0 {
+		parts = append(parts, "breaking "+strings.Join(limitStrings(boundary.BreakingTargets, 4), ", "))
+	}
+	if len(boundary.UnknownTargets) > 0 {
+		parts = append(parts, "unknown "+strings.Join(limitStrings(boundary.UnknownTargets, 4), ", "))
+	}
+	if len(boundary.NotObservedTargets) > 0 {
+		parts = append(parts, "not observed "+strings.Join(limitStrings(boundary.NotObservedTargets, 4), ", "))
+	}
+	if len(boundary.ControlledTargets) > 0 {
+		parts = append(parts, "controlled "+strings.Join(limitStrings(boundary.ControlledTargets, 4), ", "))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func uniqueSortedStrings(values []string) []string {

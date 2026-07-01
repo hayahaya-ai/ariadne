@@ -93,24 +93,28 @@ type ArchitectureReport struct {
 	StatusFilter     string                  `json:"status_filter"`
 	Summary          ZeroTrustSummary        `json:"summary"`
 	OverallSummary   ZeroTrustSummary        `json:"overall_summary"`
+	EvidenceCoverage ZeroTrustCoverage       `json:"evidence_coverage"`
+	Maturity         ZeroTrustMaturity       `json:"maturity"`
+	BoundaryCoverage []ArchitectureBoundary  `json:"boundary_coverage"`
 	Flaws            []ZeroTrustArchitecture `json:"flaws"`
 	Redaction        RedactionInfo           `json:"redaction"`
 	Limitations      []string                `json:"limitations"`
 }
 
 type ArchitectureScanReport struct {
-	SchemaVersion string                     `json:"schema_version"`
-	RunID         string                     `json:"run_id"`
-	GeneratedAt   time.Time                  `json:"generated_at"`
-	RunKind       string                     `json:"run_kind"`
-	Mode          string                     `json:"mode"`
-	Agent         string                     `json:"agent"`
-	StatusFilter  string                     `json:"status_filter"`
-	Summary       ArchitectureScanSummary    `json:"summary"`
-	Groups        []ArchitectureFlawGroup    `json:"groups"`
-	Targets       []ArchitectureTargetReport `json:"targets"`
-	Redaction     RedactionInfo              `json:"redaction"`
-	Limitations   []string                   `json:"limitations"`
+	SchemaVersion    string                     `json:"schema_version"`
+	RunID            string                     `json:"run_id"`
+	GeneratedAt      time.Time                  `json:"generated_at"`
+	RunKind          string                     `json:"run_kind"`
+	Mode             string                     `json:"mode"`
+	Agent            string                     `json:"agent"`
+	StatusFilter     string                     `json:"status_filter"`
+	Summary          ArchitectureScanSummary    `json:"summary"`
+	BoundaryCoverage []ArchitectureBoundary     `json:"boundary_coverage"`
+	Groups           []ArchitectureFlawGroup    `json:"groups"`
+	Targets          []ArchitectureTargetReport `json:"targets"`
+	Redaction        RedactionInfo              `json:"redaction"`
+	Limitations      []string                   `json:"limitations"`
 }
 
 type ArchitectureScanSummary struct {
@@ -145,6 +149,28 @@ type ArchitectureFlawGroup struct {
 	EvidenceSurfaces      []string         `json:"evidence_surfaces"`
 	EvidenceSources       []string         `json:"evidence_sources"`
 	Actions               []string         `json:"actions"`
+}
+
+type ArchitectureBoundary struct {
+	CheckID               string           `json:"check_id"`
+	Boundary              string           `json:"boundary"`
+	Principle             string           `json:"principle"`
+	Tier                  string           `json:"tier"`
+	DesignTest            string           `json:"design_test"`
+	StatusCounts          ZeroTrustSummary `json:"status_counts"`
+	TargetCount           int              `json:"target_count"`
+	BreakingTargets       []string         `json:"breaking_targets"`
+	ControlledTargets     []string         `json:"controlled_targets"`
+	UnknownTargets        []string         `json:"unknown_targets"`
+	NotObservedTargets    []string         `json:"not_observed_targets"`
+	EvidenceSources       []string         `json:"evidence_sources"`
+	Controls              []string         `json:"controls"`
+	ControlEvidenceNeeded []string         `json:"control_evidence_needed"`
+	EvidenceSurfaces      []string         `json:"evidence_surfaces"`
+	MissingEvidence       []string         `json:"missing_evidence"`
+	NextCollectors        []string         `json:"next_collectors"`
+	Actions               []string         `json:"actions"`
+	Limitations           []string         `json:"limitations"`
 }
 
 type StorySummary struct {

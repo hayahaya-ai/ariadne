@@ -584,6 +584,9 @@ Start with:
 
 - `architecture_summary`: counts architecture flaw categories by status
 - `architecture_flaws`: user-centered flaw categories with evidence, graph edges, observed controls, control evidence needed, evidence surfaces, and next actions
+- `boundary_coverage`: check-level Zero Trust boundary coverage with target counts, evidence sources, controls, missing evidence, next collectors, and control evidence needed
+- `evidence_coverage`: known versus missing Zero Trust evidence for a single target
+- `maturity`: Foundation requirement status for a single target
 - `checks`: lower-level boundary evaluations that support the flaw map
 
 Each check includes:

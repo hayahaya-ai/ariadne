@@ -30,6 +30,7 @@ make build
 - Exports graph evidence as JSON, Graphviz DOT, or Mermaid for review and visualization.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
 - Maps exposure evidence to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.
+- Aggregates Zero Trust boundary coverage across target lists, including evidence anchors, missing evidence, next collectors, and the control evidence needed to close gaps.
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
 - Detects declared Zero Trust agent controls such as approval, sandbox, output filtering, continuous authorization, resource limits, credential-helper, request-to-action traceability, retention, memory integrity, provenance, and credential-isolation posture.
