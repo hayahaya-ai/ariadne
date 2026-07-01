@@ -1,0 +1,19 @@
+{
+  "ai_bom": true,
+  "model_provenance": {
+    "model_provider": "approved-provider",
+    "model_version": "stable"
+  },
+  "training_data_lineage": {
+    "dataset_lineage": "provider-attested"
+  },
+  "dependency_health": {
+    "openssf_scorecard": true,
+    "dependency_scan": true,
+    "signed_releases": true
+  },
+  "provider_risk_review": true,
+  "signed_ai_artifacts": true,
+  "runtime_component_validation": true,
+  "reachability_analysis": true
+}

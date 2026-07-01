@@ -133,6 +133,10 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectResponsePolicy(c, s)
 	case "governance-policy":
 		collectGovernancePolicy(c, s)
+	case "supply-chain-policy":
+		collectSupplyChainPolicy(c, s)
+	case "ai-bom":
+		collectAIBOM(c, s)
 	case "opentelemetry-config":
 		collectTelemetryConfig(c, s)
 	case "claude-plugin-config", "claude-installed-plugins":
@@ -585,6 +589,37 @@ func collectGovernanceControls(c *model.Collection, runtime, source, text string
 	}
 }
 
+func collectSupplyChainControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Supply-chain policy"
+	if runtime != "" {
+		prefix = runtime + " supply-chain policy"
+	}
+	if aiBOMConfigured(text) {
+		addControl(c, "control:ai-bom", "ai-bom", runtime, source, prefix+" declares an AI bill of materials or ML bill of materials.")
+	}
+	if modelProvenanceConfigured(text) {
+		addControl(c, "control:model-provenance", "model-provenance", runtime, source, prefix+" declares model origin, model provider, model version, or model artifact provenance.")
+	}
+	if trainingDataLineageConfigured(text) {
+		addControl(c, "control:training-data-lineage", "training-data-lineage", runtime, source, prefix+" declares training data, fine-tuning data, dataset lineage, or source attribution.")
+	}
+	if dependencyHealthConfigured(text) {
+		addControl(c, "control:dependency-health-scan", "dependency-health-scan", runtime, source, prefix+" declares dependency health, OpenSSF Scorecard, maintainer activity, vulnerability, or redundancy review.")
+	}
+	if providerRiskReviewConfigured(text) {
+		addControl(c, "control:provider-risk-review", "provider-risk-review", runtime, source, prefix+" declares tool, model, framework, vendor, or provider security review.")
+	}
+	if signedAIArtifactsConfigured(text) {
+		addControl(c, "control:signed-ai-artifacts", "signed-ai-artifacts", runtime, source, prefix+" declares signed model, dataset, framework, or agent component artifacts.")
+	}
+	if runtimeComponentValidationConfigured(text) {
+		addControl(c, "control:runtime-component-validation", "runtime-component-validation", runtime, source, prefix+" declares runtime validation for model, tool, framework, or component integrity.")
+	}
+	if reachabilityAnalysisConfigured(text) {
+		addControl(c, "control:dependency-reachability-analysis", "dependency-reachability-analysis", runtime, source, prefix+" declares vulnerable dependency reachability or dependency redundancy analysis.")
+	}
+}
+
 func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -696,6 +731,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	collectEgressControls(c, s.Source, text)
 	collectResponseControls(c, "", s.Source, text)
 	collectGovernanceControls(c, "", s.Source, text)
+	collectSupplyChainControls(c, "", s.Source, text)
 }
 
 func collectToolPolicy(c *model.Collection, s model.Surface) {
@@ -744,6 +780,24 @@ func collectGovernancePolicy(c *model.Collection, s model.Surface) {
 	}
 	text := strings.ToLower(string(data))
 	collectGovernanceControls(c, "", s.Source, text)
+}
+
+func collectSupplyChainPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	collectSupplyChainControls(c, "", s.Source, text)
+}
+
+func collectAIBOM(c *model.Collection, s model.Surface) {
+	addObservedControl(c, "control:ai-bom", "ai-bom", "", s.Source, "AI bill of materials surface was observed.")
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	collectSupplyChainControls(c, "", s.Source, strings.ToLower(string(data)))
 }
 
 func collectInputPolicy(c *model.Collection, s model.Surface) {
@@ -2006,6 +2060,94 @@ func shadowAIDiscoveryConfigured(text string) bool {
 		strings.Contains(text, "unmanaged_agent_detection") ||
 		strings.Contains(text, "ai_usage_discovery") ||
 		strings.Contains(text, "llm_usage_discovery")
+}
+
+func aiBOMConfigured(text string) bool {
+	return strings.Contains(text, "ai_bom") ||
+		strings.Contains(text, "ai-bom") ||
+		strings.Contains(text, "aibom") ||
+		strings.Contains(text, "ml_bom") ||
+		strings.Contains(text, "ml-bom") ||
+		strings.Contains(text, "mlbom") ||
+		strings.Contains(text, "cyclonedx") ||
+		strings.Contains(text, "bill_of_materials") ||
+		strings.Contains(text, "bom_format")
+}
+
+func modelProvenanceConfigured(text string) bool {
+	return strings.Contains(text, "model_provenance") ||
+		strings.Contains(text, "model-provenance") ||
+		strings.Contains(text, "model_origin") ||
+		strings.Contains(text, "model_provider") ||
+		strings.Contains(text, "model_version") ||
+		strings.Contains(text, "model_artifact") ||
+		strings.Contains(text, "model_digest") ||
+		strings.Contains(text, "model_signature") ||
+		strings.Contains(text, "model_lineage")
+}
+
+func trainingDataLineageConfigured(text string) bool {
+	return strings.Contains(text, "training_data_lineage") ||
+		strings.Contains(text, "training_dataset_lineage") ||
+		strings.Contains(text, "dataset_lineage") ||
+		strings.Contains(text, "fine_tuning_data") ||
+		strings.Contains(text, "fine-tuning data") ||
+		strings.Contains(text, "training_data") ||
+		strings.Contains(text, "dataset_provenance") ||
+		strings.Contains(text, "source_dataset")
+}
+
+func dependencyHealthConfigured(text string) bool {
+	return strings.Contains(text, "dependency_health") ||
+		strings.Contains(text, "openssf") ||
+		strings.Contains(text, "scorecard") ||
+		strings.Contains(text, "maintainer_activity") ||
+		strings.Contains(text, "signed_releases") ||
+		strings.Contains(text, "vulnerability_scan") ||
+		strings.Contains(text, "dependency_scan") ||
+		strings.Contains(text, "unmaintained_package")
+}
+
+func providerRiskReviewConfigured(text string) bool {
+	return strings.Contains(text, "provider_risk_review") ||
+		strings.Contains(text, "vendor_assessment") ||
+		strings.Contains(text, "supplier_review") ||
+		strings.Contains(text, "third_party_risk") ||
+		strings.Contains(text, "tool_provider_review") ||
+		strings.Contains(text, "model_provider_review") ||
+		strings.Contains(text, "framework_provider_review") ||
+		strings.Contains(text, "provider_security_review")
+}
+
+func signedAIArtifactsConfigured(text string) bool {
+	return strings.Contains(text, "signed_ai_artifacts") ||
+		strings.Contains(text, "signed_model") ||
+		strings.Contains(text, "signed_models") ||
+		strings.Contains(text, "model_signature") ||
+		strings.Contains(text, "dataset_signature") ||
+		strings.Contains(text, "framework_signature") ||
+		strings.Contains(text, "component_signature") ||
+		strings.Contains(text, "sigstore") ||
+		strings.Contains(text, "cosign")
+}
+
+func runtimeComponentValidationConfigured(text string) bool {
+	return strings.Contains(text, "runtime_component_validation") ||
+		strings.Contains(text, "runtime_validation") ||
+		strings.Contains(text, "validate_components_at_runtime") ||
+		strings.Contains(text, "runtime_integrity_validation") ||
+		strings.Contains(text, "post_deployment_tamper_detection") ||
+		strings.Contains(text, "component_attestation") ||
+		strings.Contains(text, "artifact_attestation")
+}
+
+func reachabilityAnalysisConfigured(text string) bool {
+	return strings.Contains(text, "reachability_analysis") ||
+		strings.Contains(text, "vulnerable_code_reachability") ||
+		strings.Contains(text, "dependency_reachability") ||
+		strings.Contains(text, "dependency_redundancy") ||
+		strings.Contains(text, "redundancy_audit") ||
+		strings.Contains(text, "dependency_tree_audit")
 }
 
 func contextRetentionConfigured(text string) bool {

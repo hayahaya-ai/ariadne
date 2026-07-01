@@ -714,6 +714,134 @@ func TestZeroTrustRiskyToolWithoutIntegrityIsBreaking(t *testing.T) {
 	}
 }
 
+func TestZeroTrustSupplyChainPolicyControlsBoundary(t *testing.T) {
+	path := realPathFixture(t, "safe-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "supply-chain-policy")
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "ai-bom")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:ai-bom",
+		"control:model-provenance",
+		"control:training-data-lineage",
+		"control:dependency-health-scan",
+		"control:provider-risk-review",
+		"control:signed-ai-artifacts",
+		"control:runtime-component-validation",
+		"control:dependency-reachability-analysis",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("supply-chain boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing supply-chain control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:ai-bom|verifies|tool:mcp-package-launch",
+		"control:model-provenance|verifies|runtime:claude",
+		"control:dependency-health-scan|verifies|tool:mcp-package-launch",
+		"control:signed-ai-artifacts|verifies|runtime:codex",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing supply-chain graph edge %s", edge)
+		}
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:supply-chain-provenance", model.ZeroTrustControlled)
+	if req.ControlQuality != "hard_barrier" {
+		t.Fatalf("supply-chain requirement quality = %q", req.ControlQuality)
+	}
+}
+
+func TestZeroTrustRiskySupplyChainWithoutEvidenceIsBreaking(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": ["Read(*)", "Bash(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mcp := `{
+  "mcpServers": {
+    "mutable": {
+      "command": "npx",
+      "args": ["@example/mutable-mcp-server", "~"]
+    }
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "mcp.json"), []byte(mcp), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("risky supply chain without evidence should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "supply-chain") {
+		t.Fatalf("supply-chain finding should explain missing provenance: %q", check.Finding)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:supply-chain-provenance", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("supply-chain requirement quality = %q", req.ControlQuality)
+	}
+}
+
+func TestZeroTrustAIBOMWithoutValidationIsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".ariadne"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bom := `{
+  "bom_format": "CycloneDX",
+  "metadata": {
+    "component": {
+      "type": "machine-learning-model",
+      "name": "example/model"
+    }
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".ariadne", "ai-bom.json"), []byte(bom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:ai-bom") {
+		t.Fatalf("partial AI-BOM should cite observed BOM control: %+v", check.Controls)
+	}
+	for _, id := range []string{"control:signed-ai-artifacts", "control:runtime-component-validation"} {
+		if containsString(check.Controls, id) {
+			t.Fatalf("partial AI-BOM should not invent validation control %s: %+v", id, check.Controls)
+		}
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:supply-chain-provenance", model.ZeroTrustUnknown)
+	if req.ControlQuality != "partial_declared" {
+		t.Fatalf("partial AI-BOM requirement quality = %q", req.ControlQuality)
+	}
+}
+
 func TestZeroTrustDelegationPolicyControlsDelegationBoundary(t *testing.T) {
 	path := realPathFixture(t, "delegation-controls")
 	inventory, err := RunInventory(Options{Path: path})
@@ -1047,6 +1175,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
@@ -1089,6 +1218,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
@@ -1096,6 +1226,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:config-integrity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:tool-integrity-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:supply-chain-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:delegation-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:response-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:governance-boundary")
@@ -1138,6 +1269,14 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:tool-deployment-verification",
 		"control:tool-sandbox-execution",
 		"control:tool-circuit-breaker",
+		"control:ai-bom",
+		"control:model-provenance",
+		"control:training-data-lineage",
+		"control:dependency-health-scan",
+		"control:provider-risk-review",
+		"control:signed-ai-artifacts",
+		"control:runtime-component-validation",
+		"control:dependency-reachability-analysis",
 		"control:delegation-scope",
 		"control:delegation-allowlist",
 		"control:agent-to-agent-authorization",
@@ -1183,6 +1322,7 @@ func TestZeroTrustMaturitySafeControlsMeetFoundation(t *testing.T) {
 		"ztf:short-lived-credentials",
 		"ztf:least-agency-permissions",
 		"ztf:tool-integrity",
+		"ztf:supply-chain-provenance",
 		"ztf:identity-based-isolation",
 		"ztf:comprehensive-agent-logs",
 		"ztf:input-validation",
@@ -1217,6 +1357,10 @@ func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:tool-integrity", model.ZeroTrustBreaking)
 	if req.ControlQuality != "missing_hard_barrier" {
 		t.Fatalf("tool integrity requirement quality = %q", req.ControlQuality)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:supply-chain-provenance", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("supply-chain requirement quality = %q", req.ControlQuality)
 	}
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:deployment-governance", model.ZeroTrustBreaking)
 	if req.ControlQuality != "missing_hard_barrier" {

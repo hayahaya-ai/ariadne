@@ -9,6 +9,7 @@ Ariadne focuses on local AI-agent exposure management.
 - endpoint-level agent config
 - agent memory, history, and paste caches
 - tool and MCP configuration
+- AI-BOM, ML-BOM, model, tool, framework, dependency, and provider provenance records
 - external communication paths
 
 ## Trust Boundaries
@@ -17,6 +18,7 @@ Ariadne focuses on local AI-agent exposure management.
 - local agent runtime
 - local filesystem and user context
 - model-callable tools
+- agent model, tool, framework, and dependency supply chain
 - external destinations
 - policy and control surfaces
 - response and containment controls
@@ -28,6 +30,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can the agent reach secret-like local boundaries?
 - Can a mutable tool launcher grant local execution?
 - Are model-callable tools approved, provenance-bound, descriptor-validated, authenticated, and argument-validated?
+- Are model, tool, framework, MCP, and dependency components covered by AI-BOM or ML-BOM evidence, model provenance, dependency health, provider review, signing, or runtime validation?
 - Can delegated or sub-agent work inherit parent authority without explicit authorization and scope?
 - Can private-data reachability combine with external communication reachability?
 - Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation?
@@ -45,6 +48,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can authority reach sensitive data, private context, execution, or external destinations?
 - Can private data leave only through approved external destinations?
 - Can a model-callable tool change capability without allowlisting, pinning, descriptor integrity, authentication, or argument validation?
+- Can an agent load model, tool, framework, MCP, or dependency components without AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence?
 - Can a lower-trust delegated agent become a confused deputy for a more privileged parent agent?
 - Do controls remove the path, or do they only add friction?
 - Is agent identity scoped and attributable?
@@ -63,6 +67,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - runtime behavioral sandbox bypass testing
 - registry/package reputation checks
 - live MCP descriptor retrieval, registry resolution, package digest verification, or signature validation
+- live OpenSSF Scorecard execution, dependency reachability analysis, model-weight inspection, training-data verification, vendor assurance validation, or runtime attestation
 - cloud API collection
 - non-deterministic LLM review
 - identity provider, ABAC, JIT, token lifetime, segmentation, named-caller, or hardware-bound credential enforcement verification

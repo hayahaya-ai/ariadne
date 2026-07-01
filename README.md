@@ -33,6 +33,7 @@ make build
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
 - Detects declared Zero Trust agent controls such as approval, sandbox, credential-helper, audit, and retention posture.
+- Detects AI supply-chain evidence such as AI-BOM or ML-BOM surfaces, model provenance, dependency health, provider review, signing, and runtime validation declarations.
 - Flags inline credential field indicators in agent configuration without emitting values.
 - Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
 - Writes local HTML dashboards with issue and facts-dive views.
@@ -46,7 +47,7 @@ make build
 
 ## Zero Trust Architecture
 
-Ariadne reports where agent architecture is breaking across influence, authority, sensitive data, tool/MCP, memory/context, identity, observability, and control-strength boundaries.
+Ariadne reports where agent architecture is breaking across influence, authority, sensitive data, tool/MCP, AI supply chain, memory/context, identity, observability, response, governance, configuration integrity, and control-strength boundaries.
 
 The model is fact-first: `breaking` requires graph evidence, `controlled` requires a control edge, and unsupported identity or audit claims remain `unknown`.
 

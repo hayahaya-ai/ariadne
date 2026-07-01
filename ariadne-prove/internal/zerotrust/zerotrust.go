@@ -17,6 +17,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		egressBoundary(c, g, exposures),
 		toolBoundary(c, g, exposures),
 		toolIntegrityBoundary(c, g),
+		supplyChainBoundary(c, g),
 		delegationBoundary(c, g),
 		memoryBoundary(c, g),
 		identityBoundary(c, g),
@@ -266,6 +267,47 @@ func toolIntegrityBoundary(c model.Collection, g model.Graph) model.ZeroTrustChe
 			"Require authenticated, short-lived tool access for sensitive or remote tools.",
 		},
 		Limitations: []string{"Ariadne detects declared tool integrity controls and static tool surfaces, but does not execute tools, resolve registries, validate signatures, inspect live MCP descriptors, or prove runtime enforcement."},
+	}
+}
+
+func supplyChainBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	controls := controlIDs(c, supplyChainControlIDs()...)
+	controlEvidence := controlsEvidence(c, supplyChainControlIDs()...)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported tool, plugin, model, or AI supply-chain surface was observed."
+	if hasSupplyChainRelevantSurface(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Agent supply-chain surfaces exist, but Ariadne did not observe AI-BOM, model provenance, dependency health, provider review, signing, or runtime validation evidence."
+	}
+	if len(controlEvidence) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed supply-chain evidence, but not enough to prove BOM plus dependency health plus provenance or provider review plus artifact validation."
+	}
+	if hasRiskySupplyChainSurface(c) && !hasHardSupplyChainBoundary(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Risk-bearing agent supply-chain surfaces exist without observed AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence."
+	}
+	if hasSupplyChainRelevantSurface(c) && hasHardSupplyChainBoundary(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed hard supply-chain evidence: AI-BOM, dependency health, provenance or provider review, and artifact signing or runtime validation."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:supply-chain-boundary",
+		Principle:  "Never trust, always verify",
+		Boundary:   "AI supply-chain boundary",
+		Tier:       "foundation",
+		Status:     status,
+		DesignTest: "Agent tool, framework, and model components should have known provenance, dependency health, provider review, and tamper-evident validation before they extend agent capability.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, supplyChainEvidence(c), toolIntegrityEvidence(c), runtimeEvidence(c)), 8),
+		GraphEdges: supplyChainEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Maintain an AI-BOM or ML-BOM for model, dataset, fine-tuning, framework, tool, and MCP components.",
+			"Run dependency health and provider risk reviews for agent tools, frameworks, and model services.",
+			"Prefer signed artifacts, package digests, attestation, and runtime component validation for risk-bearing agent components.",
+		},
+		Limitations: []string{"Ariadne detects local supply-chain declarations and BOM surfaces, but does not resolve registries, validate signatures, inspect model weights, verify provider claims, or execute runtime attestation."},
 	}
 }
 
@@ -670,6 +712,7 @@ func maturity(c model.Collection) model.ZeroTrustMaturity {
 		requireShortLivedCredentials(c),
 		requireLeastAgencyPermissions(c),
 		requireToolIntegrity(c),
+		requireSupplyChainProvenance(c),
 		requireIdentityBasedIsolation(c),
 		requireComprehensiveLogs(c),
 		requireInputValidation(c),
@@ -881,6 +924,60 @@ func requireToolIntegrity(c model.Collection) model.ZeroTrustRequirement {
 			"Allowlist approved tools and MCP servers per agent function.",
 			"Pin or sign tool artifacts and validate descriptors, schemas, and arguments before execution.",
 			"Use authenticated, short-lived access for sensitive tools.",
+		},
+	)
+}
+
+func requireSupplyChainProvenance(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, supplyChainControlIDs()...)
+	evidence := firstEvidence(
+		controlsEvidence(c, supplyChainControlIDs()...),
+		supplyChainEvidence(c),
+		toolIntegrityEvidence(c),
+		runtimeEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported tool, plugin, model, or AI supply-chain surface was observed, so Ariadne did not evaluate supply-chain provenance."
+	missing := []string{"AI-BOM or ML-BOM", "model provenance or provider review", "dependency health evidence", "artifact signing or runtime validation evidence"}
+	if hasSupplyChainRelevantSurface(c) {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent supply-chain surfaces exist, but Ariadne did not observe AI-BOM, model provenance, dependency health, provider review, signing, or runtime validation evidence."
+	}
+	if len(controls) > 0 && !hasHardSupplyChainBoundary(c) {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed supply-chain evidence, but not enough to prove BOM plus dependency health plus provenance or provider review plus artifact validation."
+		missing = []string{"complete AI-BOM or ML-BOM", "dependency health or reachability evidence", "model provenance, dataset lineage, or provider review", "signed artifact or runtime validation evidence"}
+	}
+	if hasRiskySupplyChainSurface(c) && !hasHardSupplyChainBoundary(c) {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "Risk-bearing agent supply-chain surfaces exist without complete AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence."
+		missing = []string{"AI-BOM or ML-BOM", "model or provider provenance", "dependency health or reachability analysis", "artifact signing or runtime validation"}
+	}
+	if hasSupplyChainRelevantSurface(c) && hasHardSupplyChainBoundary(c) {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed AI-BOM, dependency health, provenance or provider review, and artifact signing or runtime validation evidence."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:supply-chain-provenance",
+		"foundation",
+		"Never trust, always verify",
+		"AI-BOM, model provenance, dependency health, and artifact validation",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Maintain an AI-BOM or ML-BOM for model, dataset, framework, MCP, plugin, and tool components.",
+			"Attach dependency health, provider review, and reachability evidence to agent component inventories.",
+			"Require signed artifacts, package digests, attestations, or runtime validation before agent components extend capability.",
 		},
 	)
 }
@@ -1343,6 +1440,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without tool integrity evidence, a compromised or mutable model-callable tool can change what the agent believes it is calling or what capability it receives."
 		gap.NextCollector = "Collect tool policy, MCP allowlists, descriptor/signature metadata, package digests, tool authentication policy, and PreToolUse or schema validation controls."
+	case "zt:supply-chain-boundary":
+		gap.MissingEvidence = []string{
+			"AI-BOM or ML-BOM evidence",
+			"model provenance, training-data lineage, or provider risk review evidence",
+			"dependency health, signed artifact, runtime validation, or reachability-analysis evidence",
+		}
+		gap.WhyItMatters = "Without supply-chain evidence, Ariadne cannot prove that agent tools, frameworks, model components, or providers are known and tamper-resistant enough for Zero Trust architecture."
+		gap.NextCollector = "Collect supply-chain policy, AI-BOM or CycloneDX ML-BOM, model provenance, dataset lineage, OpenSSF Scorecard or dependency-health results, provider assessments, signatures, attestations, and runtime validation evidence."
 	case "zt:delegation-boundary":
 		gap.MissingEvidence = []string{
 			"delegation scope or delegated permission policy",
@@ -1621,6 +1726,19 @@ func toolIntegrityControlIDs() []string {
 	}
 }
 
+func supplyChainControlIDs() []string {
+	return []string{
+		"control:ai-bom",
+		"control:model-provenance",
+		"control:training-data-lineage",
+		"control:dependency-health-scan",
+		"control:provider-risk-review",
+		"control:signed-ai-artifacts",
+		"control:runtime-component-validation",
+		"control:dependency-reachability-analysis",
+	}
+}
+
 func delegationControlIDs() []string {
 	return []string{
 		"control:delegation-scope",
@@ -1686,6 +1804,29 @@ func hasRiskyToolSurface(c model.Collection) bool {
 		}
 	}
 	return false
+}
+
+func hasHardSupplyChainBoundary(c model.Collection) bool {
+	bom := hasAnyControl(c, "control:ai-bom")
+	dependencyHealth := hasAnyControl(c, "control:dependency-health-scan", "control:dependency-reachability-analysis")
+	provenanceOrProvider := hasAnyControl(c, "control:model-provenance", "control:training-data-lineage", "control:provider-risk-review")
+	validation := hasAnyControl(c, "control:signed-ai-artifacts", "control:runtime-component-validation", "control:signed-tool-artifacts", "control:tool-deployment-verification")
+	return bom && dependencyHealth && provenanceOrProvider && validation
+}
+
+func hasSupplyChainRelevantSurface(c model.Collection) bool {
+	return hasToolIntegritySurface(c) ||
+		len(surfaceEvidenceByCategory(c, "supply-chain-bom")) > 0 ||
+		hasToolID(c, "tool:agent-plugin-surface") ||
+		hasToolID(c, "tool:agent-command-shell")
+}
+
+func hasRiskySupplyChainSurface(c model.Collection) bool {
+	return hasRiskyToolSurface(c) ||
+		hasToolID(c, "tool:agent-plugin-surface") ||
+		hasToolID(c, "tool:agent-command-shell") ||
+		hasToolID(c, "tool:mcp-package-launch") ||
+		hasAuthority(c, "authority:local-code-execution")
 }
 
 func hasHardConfigIntegrity(c model.Collection) bool {
@@ -1982,6 +2123,12 @@ func toolIntegrityEvidence(c model.Collection) []model.ZeroTrustEvidence {
 	return dedupeEvidence(out)
 }
 
+func supplyChainEvidence(c model.Collection) []model.ZeroTrustEvidence {
+	out := surfaceEvidenceByCategory(c, "supply-chain-bom")
+	out = append(out, controlsEvidence(c, supplyChainControlIDs()...)...)
+	return dedupeEvidence(out)
+}
+
 func delegationEvidence(c model.Collection) []model.ZeroTrustEvidence {
 	var out []model.ZeroTrustEvidence
 	for _, surface := range c.Surfaces {
@@ -2170,6 +2317,16 @@ func toolIntegrityEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func supplyChainEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "verifies" && supplyChainControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func toolIntegrityControlID(id string) bool {
 	switch id {
 	case "control:tool-allowlist",
@@ -2179,6 +2336,22 @@ func toolIntegrityControlID(id string) bool {
 		"control:tool-auth-required",
 		"control:signed-tool-artifacts",
 		"control:tool-deployment-verification":
+		return true
+	default:
+		return false
+	}
+}
+
+func supplyChainControlID(id string) bool {
+	switch id {
+	case "control:ai-bom",
+		"control:model-provenance",
+		"control:training-data-lineage",
+		"control:dependency-health-scan",
+		"control:provider-risk-review",
+		"control:signed-ai-artifacts",
+		"control:runtime-component-validation",
+		"control:dependency-reachability-analysis":
 		return true
 	default:
 		return false

@@ -549,6 +549,19 @@ func BuildGraph(c model.Collection) model.Graph {
 				addEdge(model.Edge{From: control.ID, Type: "governs", To: authority.ID})
 			}
 		}
+		if controlVerifiesSupplyChain(control.ID) {
+			for _, runtime := range c.Runtimes {
+				addEdge(model.Edge{From: control.ID, Type: "verifies", To: runtime.ID})
+			}
+			for _, tool := range c.Tools {
+				addEdge(model.Edge{From: control.ID, Type: "verifies", To: tool.ID})
+			}
+			for _, surface := range c.Surfaces {
+				if supplyChainSurface(surface) {
+					addEdge(model.Edge{From: control.ID, Type: "verifies", To: surface.ID})
+				}
+			}
+		}
 		if controlRestrictsConfig(control.ID) {
 			for _, runtime := range c.Runtimes {
 				if runtime.Scope == "" {
@@ -621,6 +634,31 @@ func controlGovernsDeployment(controlID string) bool {
 		"control:risk-assessment",
 		"control:governance-audit",
 		"control:shadow-ai-discovery":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlVerifiesSupplyChain(controlID string) bool {
+	switch controlID {
+	case "control:ai-bom",
+		"control:model-provenance",
+		"control:training-data-lineage",
+		"control:dependency-health-scan",
+		"control:provider-risk-review",
+		"control:signed-ai-artifacts",
+		"control:runtime-component-validation",
+		"control:dependency-reachability-analysis":
+		return true
+	default:
+		return false
+	}
+}
+
+func supplyChainSurface(surface model.Surface) bool {
+	switch surface.Category {
+	case "mcp-tool-config", "plugin-skill", "supply-chain-bom":
 		return true
 	default:
 		return false

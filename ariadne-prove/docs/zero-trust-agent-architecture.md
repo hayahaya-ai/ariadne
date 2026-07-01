@@ -6,7 +6,7 @@ The goal is not to certify that an environment is safe. The goal is to expose wh
 
 ## Core Question
 
-> Where can untrusted influence, agent authority, sensitive boundaries, missing controls, weak identity, persistent context, or missing observability combine into exposure?
+> Where can untrusted influence, agent authority, sensitive boundaries, unverified agent components, missing controls, weak identity, persistent context, or missing observability combine into exposure?
 
 ## Status Vocabulary
 
@@ -25,6 +25,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - External egress boundary: whether external communication is constrained by network restrictions, destination allowlists, webhook allowlists, or per-tool network scope.
 - Tool and MCP boundary: whether model-callable tools can expand capability through mutable launch paths.
 - Tool integrity boundary: whether model-callable tools are approved, provenance-bound, descriptor-validated, authenticated, and argument-validated.
+- AI supply-chain boundary: whether model, dataset, framework, MCP, plugin, tool, and provider components have AI-BOM, provenance, dependency-health, signing, and runtime-validation evidence.
 - Agent delegation boundary: whether delegated or sub-agent work has explicit scope, agent-to-agent authorization, original-intent verification, and delegated credential controls.
 - Memory and context boundary: whether persisted context can be reached or needs isolation evidence.
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
@@ -45,6 +46,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Agent has broad standing authority instead of least agency | Authority boundary and Foundation maturity | Modeled today through Claude/Codex permission posture, deny-by-default evidence, broad local authority, and scoped permission controls. |
 | MCP/tooling expands capability through mutable or unpinned launch paths | Tool and MCP boundary | Modeled today for package launchers, reviewed/pinned controls, plugin surfaces, and shell-capable command surfaces. |
 | Tool descriptors, schemas, metadata, or remote tool auth can change underneath the agent | Tool integrity boundary | Modeled today through approved tool/MCP allowlists, MCP review and pinning, descriptor integrity, argument validation, tool authentication, signed artifacts, and deployment verification declarations. |
+| Agent tools, frameworks, model components, or providers are unknown, mutable, or unverified | AI supply-chain boundary and Foundation maturity | Modeled today through AI-BOM or ML-BOM surfaces, supply-chain policy, model provenance, training-data lineage, dependency health, provider review, signed AI artifacts, runtime component validation, and reachability analysis declarations. |
 | A lower-trust delegated or sub-agent path can inherit parent authority | Agent delegation boundary | Modeled today through Claude subagent definitions, delegation language in instruction surfaces, delegation scope, delegate allowlists, agent-to-agent authorization, original-intent verification, delegated credential scoping, context isolation, and delegation audit declarations. |
 | Data can leave through arbitrary destinations | External egress boundary | Modeled today through external communication authority, destination allowlists, webhook allowlists, per-tool network scope, and network restriction evidence. |
 | Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
@@ -77,6 +79,8 @@ Examples of controls Ariadne can model today:
 - authenticated tool access declarations
 - signed tool artifacts and deployment verification declarations
 - sandboxed tool execution and circuit-breaker declarations
+- AI-BOM or ML-BOM declarations
+- model provenance, training-data lineage, dependency health, provider review, signed AI artifact, runtime component validation, and dependency reachability declarations
 - delegation scope, delegate allowlist, agent-to-agent authorization, original-intent verification, delegated credential scoping, subagent context isolation, and delegation audit declarations
 - input isolation or trusted-source controls for instruction inputs
 - instruction provenance, untrusted-content delimiting, spotlighting, or prompt-injection filter declarations
@@ -108,6 +112,7 @@ Examples Ariadne reports as `unknown` today:
 - input validation, filtering, provenance, or delimiting evidence without input isolation or trusted-source gating
 - egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
 - tool sandboxing, rate limits, or circuit breakers without allowlist, provenance, authentication, descriptor integrity, or argument-validation evidence
+- AI-BOM evidence without dependency health, model provenance or provider review, and artifact signing or runtime validation evidence
 - delegation audit or subagent context isolation without explicit delegation scope, agent-to-agent authorization, original-intent verification, or delegated credential scoping
 - sandbox or network restriction evidence without identity-aware workload authorization evidence
 - tamper-resistant audit logs without immutable-log or equivalent evidence
@@ -122,6 +127,7 @@ Examples Ariadne reports as `breaking` when observed:
 - authority paths that reach private context without an observed break-path control
 - risk-bearing agent configuration without observed hard integrity controls
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
+- risk-bearing agent supply-chain surfaces without observed AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence
 - delegated or sub-agent authority inheritance without observed hard delegation controls
 - supported exposed paths without observed automated containment controls
 - risk-bearing agent surfaces without observed registration, owner, approval, risk assessment, and review evidence
@@ -138,6 +144,7 @@ Foundation requirements currently modeled:
 - Short-lived, JIT, or token-limited identity-provider-issued credentials.
 - Deny-by-default least-agency permissions.
 - Tool allowlisting, provenance, and invocation validation.
+- AI-BOM, model provenance, dependency health, and artifact validation.
 - Identity-based workload isolation with ABAC, named callers, segmentation, or tool scope.
 - Comprehensive logs of agent actions with request context.
 - Input isolation, trusted-source gating, and validation for untrusted agent context.
@@ -217,6 +224,32 @@ Repositories can declare focused tool integrity controls in `.ariadne/tool-polic
 ```
 
 Ariadne treats allowlist plus MCP/package pinning, signed tool artifacts plus deployment verification, descriptor integrity plus argument validation, or authenticated tool access plus short-lived/JIT credential evidence as hard tool integrity evidence. Sandboxed tool execution and circuit breakers are reported as evidence, but they do not by themselves prove tool provenance or invocation integrity.
+
+Repositories can declare focused AI supply-chain controls in `.ariadne/supply-chain-policy.json`:
+
+```json
+{
+  "ai_bom": true,
+  "model_provenance": {
+    "model_provider": "approved-provider",
+    "model_version": "stable"
+  },
+  "training_data_lineage": {
+    "dataset_lineage": "provider-attested"
+  },
+  "dependency_health": {
+    "openssf_scorecard": true,
+    "dependency_scan": true,
+    "signed_releases": true
+  },
+  "provider_risk_review": true,
+  "signed_ai_artifacts": true,
+  "runtime_component_validation": true,
+  "reachability_analysis": true
+}
+```
+
+Ariadne also discovers AI-BOM and ML-BOM files such as `.ariadne/ai-bom.json`, `.ariadne/ml-bom.json`, `ai-bom.json`, `ml-bom.json`, and CycloneDX-style `bom.json` or `cyclonedx.json` surfaces. It treats BOM plus dependency health plus model provenance, training-data lineage, or provider review plus signed artifacts or runtime validation as hard supply-chain evidence. A BOM alone is partial evidence, not a controlled boundary.
 
 Repositories can declare focused delegation controls in `.ariadne/delegation-policy.json`:
 

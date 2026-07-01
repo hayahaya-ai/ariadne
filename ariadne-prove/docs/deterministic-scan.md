@@ -42,7 +42,7 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 
 ## Zero Trust Control Evidence
 
-Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/tool-policy.json`, `.ariadne/delegation-policy.json`, `.ariadne/input-policy.json`, `.ariadne/identity-policy.json`, `.ariadne/workload-policy.json`, `.ariadne/egress-policy.json`, `.ariadne/response-policy.json`, `.ariadne/governance-policy.json`, and `.ariadne/integrity-policy.json`.
+Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/tool-policy.json`, `.ariadne/delegation-policy.json`, `.ariadne/input-policy.json`, `.ariadne/identity-policy.json`, `.ariadne/workload-policy.json`, `.ariadne/egress-policy.json`, `.ariadne/response-policy.json`, `.ariadne/governance-policy.json`, `.ariadne/integrity-policy.json`, and `.ariadne/supply-chain-policy.json`.
 
 Supported control signals include:
 
@@ -56,6 +56,7 @@ Supported control signals include:
 - ABAC, attribute condition, claim, subject-attribute, resource-attribute, or context-attribute indicators
 - per-tool scope, allowed-tool, tool allowlist, MCP allowlist, or permission-scope indicators
 - approved tool or MCP server allowlists, MCP review and pinning, descriptor/schema integrity, tool argument validation, tool authentication, signed tool artifacts, deployment verification, sandboxed tool execution, and circuit breakers
+- AI-BOM or ML-BOM, model provenance, training-data lineage, dependency health, provider review, signed AI artifacts, runtime component validation, and dependency reachability analysis
 - delegation scope, delegate allowlist, agent-to-agent authorization, original-intent verification, delegated credential scoping, subagent context isolation, and delegation audit indicators
 - egress destination allowlists, webhook allowlists, per-tool network scope, output filtering, and egress audit indicators
 - approval-required posture
