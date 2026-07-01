@@ -142,6 +142,14 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `closure_plan`, aggregated across targets
 - `targets`
 
+`ariadne controls --format json` emits a focused control evidence catalog with:
+
+- `summary`, counting missing hard-barrier controls by severity, affected targets, and affected flaws
+- `controls`, where each missing hard barrier includes the flaws it closes, target coverage, evidence anchors, proof surfaces, and concrete actions
+- `families`, where related controls are grouped into Zero Trust capability areas such as identity, least agency, egress, observability, response, and governance
+
+This catalog is derived from the architecture closure plan. It does not create a separate classification; it makes the proof request easier to act on.
+
 LLM review mode uses two JSON payloads:
 
 - request packet: `ariadne.llm_review_request/v1`
@@ -184,3 +192,4 @@ Draft schemas are available in:
 - [schema/ariadne-scan-v1.schema.json](../schema/ariadne-scan-v1.schema.json)
 - [schema/ariadne-architecture-v1.schema.json](../schema/ariadne-architecture-v1.schema.json)
 - [schema/ariadne-architecture-scan-v1.schema.json](../schema/ariadne-architecture-scan-v1.schema.json)
+- [schema/ariadne-control-catalog-v1.schema.json](../schema/ariadne-control-catalog-v1.schema.json)

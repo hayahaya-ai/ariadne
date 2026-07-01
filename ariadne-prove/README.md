@@ -107,6 +107,7 @@ Inspect the current repository:
 ./bin/ariadne inventory --path .
 ./bin/ariadne prove --path .
 ./bin/ariadne architecture --path . --format html --out architecture-dashboard.html
+./bin/ariadne controls --path .
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
 ./bin/ariadne prove --path . --llm-request-out llm-request.json
 ```
@@ -116,6 +117,7 @@ Emit JSON:
 ```bash
 ./bin/ariadne inventory --path . --format json --out inventory.json
 ./bin/ariadne prove --path . --format json --out exposure.json
+./bin/ariadne controls --path . --format json --out controls.json
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json
 ```
 
@@ -150,6 +152,8 @@ repo-only,/srv/repos/example
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
 | `ariadne architecture --path <dir>` | Show focused Zero Trust architecture flaws for one target. |
 | `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets. |
+| `ariadne controls --path <dir>` | Show missing hard-barrier controls, proof surfaces, and the flaws they close. |
+| `ariadne controls --targets <file>` | Group missing hard-barrier controls across many targets. |
 | `ariadne scan --targets <file>` | Run `prove` across many local or mounted targets and aggregate the results. |
 | `ariadne dashboard --path <dir>` | Write a local HTML issue dashboard for one target. |
 | `ariadne dashboard --targets <file>` | Write a local HTML issue dashboard across many targets. |
@@ -238,6 +242,8 @@ Prove output adds:
 - deterministic interpretation with issue priority, severity, disposition, evidence signals, and actions
 - optional LLM review interpretation when `--interpret llm` is used
 - limitations
+
+Controls output is a focused operator view of the architecture closure plan. It answers which hard barriers are missing, which flaws each one closes, where evidence should be supplied, and which observed anchors caused Ariadne to ask for that proof.
 
 Dashboard output adds:
 

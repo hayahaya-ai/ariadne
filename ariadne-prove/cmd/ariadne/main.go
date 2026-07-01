@@ -25,6 +25,8 @@ func main() {
 		runProve(os.Args[2:])
 	case "architecture":
 		runArchitecture(os.Args[2:])
+	case "controls":
+		runControls(os.Args[2:])
 	case "inventory":
 		runInventory(os.Args[2:])
 	case "scan":
@@ -39,6 +41,56 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		usage(os.Stderr)
 		os.Exit(2)
+	}
+}
+
+func runControls(args []string) {
+	fs := flag.NewFlagSet("controls", flag.ExitOnError)
+	targetsFile := fs.String("targets", "", "file of control catalog targets, one path per line or id,path")
+	path := fs.String("path", ".", "repo or workspace path to inspect")
+	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
+	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
+	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
+	format := fs.String("format", "table", "output format: table, json")
+	outPath := fs.String("out", "", "write output to file")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	if *targetsFile != "" {
+		r, err := prove.RunScan(prove.Options{
+			TargetsFile:           *targetsFile,
+			Agent:                 *agent,
+			Mode:                  *mode,
+			IncludeSensitivePaths: *includeSensitive,
+		})
+		if err != nil {
+			fatal(err)
+		}
+		writer, closeFn, err := outputWriter(*outPath)
+		if err != nil {
+			fatal(err)
+		}
+		defer closeFn()
+		if err := report.RenderControlsScan(writer, r, *format, *status); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	r, err := prove.RunPath(prove.Options{
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		IncludeSensitivePaths: *includeSensitive,
+	})
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	if err := report.RenderControls(writer, r, *format, *status); err != nil {
+		fatal(err)
 	}
 }
 
@@ -309,6 +361,7 @@ func usage(w io.Writer) {
 
 Commands:
   architecture   Show Zero Trust agent architecture flaws, filtered to breaking by default
+  controls       Show missing hard-barrier controls and where to prove them
   inventory      Collect deterministic AI surface facts without classifying exposure
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
@@ -322,6 +375,9 @@ Examples:
   ariadne architecture --path . --mode endpoint --include-sensitive-paths
   ariadne architecture --path . --status all --format json
   ariadne architecture --path . --format html --out architecture-dashboard.html
+  ariadne controls --path .
+  ariadne controls --path . --format json
+  ariadne controls --targets targets.txt
   ariadne inventory --path .
   ariadne inventory --path . --mode endpoint --format json
   ariadne inventory --path . --format mermaid --out graph.mmd

@@ -137,6 +137,32 @@ type ArchitectureScanSummary struct {
 	NotObserved   int `json:"not_observed"`
 }
 
+type ControlCatalogReport struct {
+	SchemaVersion string                      `json:"schema_version"`
+	RunID         string                      `json:"run_id"`
+	GeneratedAt   time.Time                   `json:"generated_at"`
+	RunKind       string                      `json:"run_kind"`
+	TargetPath    string                      `json:"target_path,omitempty"`
+	Mode          string                      `json:"mode"`
+	Agent         string                      `json:"agent"`
+	StatusFilter  string                      `json:"status_filter"`
+	Summary       ControlCatalogSummary       `json:"summary"`
+	Controls      []ArchitectureClosure       `json:"controls"`
+	Families      []ArchitectureClosureFamily `json:"families"`
+	Redaction     RedactionInfo               `json:"redaction"`
+	Limitations   []string                    `json:"limitations"`
+}
+
+type ControlCatalogSummary struct {
+	Controls int `json:"controls"`
+	Critical int `json:"critical"`
+	High     int `json:"high"`
+	Medium   int `json:"medium"`
+	Low      int `json:"low"`
+	Targets  int `json:"targets"`
+	Flaws    int `json:"flaws"`
+}
+
 type ArchitectureTargetReport struct {
 	Target  ScanTarget              `json:"target"`
 	Summary ZeroTrustSummary        `json:"summary"`

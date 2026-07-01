@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-control-catalog-v1.schema.json",
+  "title": "Ariadne Control Catalog v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "mode",
+    "agent",
+    "status_filter",
+    "summary",
+    "controls",
+    "families",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "type": "string", "enum": ["control_catalog", "control_catalog_scan"] },
+    "target_path": { "type": "string" },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "summary": { "$ref": "#/$defs/control_catalog_summary" },
+    "controls": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure" }
+    },
+    "families": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure_family" }
+    },
+    "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "control_catalog_summary": {
+      "type": "object",
+      "required": ["controls", "critical", "high", "medium", "low", "targets", "flaws"],
+      "properties": {
+        "controls": { "type": "integer" },
+        "critical": { "type": "integer" },
+        "high": { "type": "integer" },
+        "medium": { "type": "integer" },
+        "low": { "type": "integer" },
+        "targets": { "type": "integer" },
+        "flaws": { "type": "integer" }
+      }
+    }
+  }
+}

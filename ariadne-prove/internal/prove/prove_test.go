@@ -2748,6 +2748,89 @@ func TestArchitectureReportRejectsUnknownStatusFilter(t *testing.T) {
 	}
 }
 
+func TestControlCatalogShowsProofSurfaces(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderControls(&table, r, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne control evidence catalog:",
+		"Missing hard barriers:",
+		"Control families:",
+		"Where to prove this:",
+		"What would prove it:",
+		"control:input-isolation",
+		".ariadne/input-policy.json",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("control catalog table missing %q:\n%s", want, out)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderControls(&jsonOut, r, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ControlCatalogReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "control_catalog" || decoded.StatusFilter != "breaking" {
+		t.Fatalf("unexpected control catalog metadata: %+v", decoded)
+	}
+	if decoded.Summary.Controls == 0 || decoded.Summary.Targets == 0 || decoded.Summary.Flaws == 0 || decoded.Summary.Critical == 0 {
+		t.Fatalf("control catalog should summarize missing hard barriers: %+v", decoded.Summary)
+	}
+	if len(decoded.Controls) == 0 || len(decoded.Families) == 0 {
+		t.Fatalf("control catalog should include controls and families: %+v", decoded)
+	}
+	if !hasClosureEvidenceSurface(decoded.Controls, ".ariadne/input-policy.json") {
+		t.Fatalf("control catalog should retain proof surfaces: %+v", decoded.Controls)
+	}
+}
+
+func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
+	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderControlsScan(&table, scan, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne control evidence catalog:",
+		"Run: control_catalog_scan",
+		"Targets:",
+		"Where to prove this:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("control catalog scan table missing %q:\n%s", want, out)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderControlsScan(&jsonOut, scan, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ControlCatalogReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "control_catalog_scan" {
+		t.Fatalf("unexpected run kind: %+v", decoded)
+	}
+	if !hasClosureTarget(decoded.Controls, "combined") {
+		t.Fatalf("expected fleet control catalog to retain target coverage: %+v", decoded.Controls)
+	}
+}
+
 func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
@@ -3030,6 +3113,24 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"evidence_sources",
 		"actions",
 	)
+
+	controlCatalogSchema := loadSchema(t, "ariadne-control-catalog-v1.schema.json")
+	assertRequiredKeys(t, controlCatalogSchema,
+		"schema_version",
+		"run_id",
+		"generated_at",
+		"run_kind",
+		"mode",
+		"agent",
+		"status_filter",
+		"summary",
+		"controls",
+		"families",
+		"redaction",
+		"limitations",
+	)
+	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
+	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
@@ -3042,6 +3143,8 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-v1.schema.json", architecture)
+	controlCatalog := report.BuildControlCatalogReport(architecture)
+	assertJSONHasSchemaRequiredFields(t, "ariadne-control-catalog-v1.schema.json", controlCatalog)
 
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
@@ -3052,6 +3155,8 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-scan-v1.schema.json", architectureScan)
+	controlCatalogScan := report.BuildControlCatalogScanReport(architectureScan)
+	assertJSONHasSchemaRequiredFields(t, "ariadne-control-catalog-v1.schema.json", controlCatalogScan)
 }
 
 func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
@@ -3424,6 +3529,17 @@ func hasClosureEvidenceSource(items []model.ArchitectureClosure) bool {
 	for _, item := range items {
 		if len(item.EvidenceSources) > 0 {
 			return true
+		}
+	}
+	return false
+}
+
+func hasClosureEvidenceSurface(items []model.ArchitectureClosure, surface string) bool {
+	for _, item := range items {
+		for _, candidate := range item.EvidenceSurfaces {
+			if candidate == surface {
+				return true
+			}
 		}
 	}
 	return false

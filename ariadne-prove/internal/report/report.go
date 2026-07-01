@@ -67,6 +67,73 @@ func RenderArchitectureScan(w io.Writer, r model.ScanReport, format string, stat
 	}
 }
 
+func RenderControls(w io.Writer, r model.Report, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCatalogReport(architecture)
+	return renderControlCatalog(w, catalog, format)
+}
+
+func RenderControlsScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCatalogScanReport(architecture)
+	return renderControlCatalog(w, catalog, format)
+}
+
+func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogReport {
+	catalog := model.ControlCatalogReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         r.RunID,
+		GeneratedAt:   r.GeneratedAt,
+		RunKind:       "control_catalog",
+		TargetPath:    r.TargetPath,
+		Mode:          r.Mode,
+		Agent:         r.Agent,
+		StatusFilter:  r.StatusFilter,
+		Summary:       summarizeControlCatalog(r.ClosurePlan),
+		Controls:      append([]model.ArchitectureClosure{}, r.ClosurePlan...),
+		Families:      append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		Redaction:     r.Redaction,
+		Limitations:   append([]string{}, r.Limitations...),
+	}
+	if catalog.Controls == nil {
+		catalog.Controls = []model.ArchitectureClosure{}
+	}
+	if catalog.Families == nil {
+		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	return catalog
+}
+
+func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
+	catalog := model.ControlCatalogReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         r.RunID,
+		GeneratedAt:   r.GeneratedAt,
+		RunKind:       "control_catalog_scan",
+		Mode:          r.Mode,
+		Agent:         r.Agent,
+		StatusFilter:  r.StatusFilter,
+		Summary:       summarizeControlCatalog(r.ClosurePlan),
+		Controls:      append([]model.ArchitectureClosure{}, r.ClosurePlan...),
+		Families:      append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		Redaction:     r.Redaction,
+		Limitations:   append([]string{}, r.Limitations...),
+	}
+	if catalog.Controls == nil {
+		catalog.Controls = []model.ArchitectureClosure{}
+	}
+	if catalog.Families == nil {
+		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	return catalog
+}
+
 func BuildArchitectureReport(r model.Report, statusFilter string) (model.ArchitectureReport, error) {
 	filter := strings.ToLower(strings.TrimSpace(statusFilter))
 	if filter == "" {
@@ -803,6 +870,98 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 	return nil
 }
 
+func renderControlCatalog(w io.Writer, r model.ControlCatalogReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderControlCatalogTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	default:
+		return fmt.Errorf("unknown controls format: %s", format)
+	}
+}
+
+func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error {
+	fmt.Fprintf(w, "Ariadne control evidence catalog:\n")
+	if r.TargetPath != "" {
+		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "  Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "control_catalog"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	fmt.Fprintf(w, "  Missing hard barriers: %d controls; %d critical, %d high, %d medium, %d low; %d target(s); %d flaw(s)\n",
+		r.Summary.Controls,
+		r.Summary.Critical,
+		r.Summary.High,
+		r.Summary.Medium,
+		r.Summary.Low,
+		r.Summary.Targets,
+		r.Summary.Flaws,
+	)
+	if len(r.Families) > 0 {
+		fmt.Fprintf(w, "  Control families:\n")
+		limit := len(r.Families)
+		if limit > 8 {
+			limit = 8
+		}
+		for _, family := range r.Families[:limit] {
+			fmt.Fprintf(w, "    - %s %s: %d control(s), %d flaw(s), %d target(s)\n",
+				strings.ToUpper(family.Severity),
+				family.Title,
+				family.ControlCount,
+				family.FlawCount,
+				family.TargetCount,
+			)
+			if len(family.Controls) > 0 {
+				fmt.Fprintf(w, "      Controls: %s\n", strings.Join(limitStrings(family.Controls, 6), "; "))
+			}
+			if len(family.EvidenceSurfaces) > 0 {
+				fmt.Fprintf(w, "      Where to prove this: %s\n", strings.Join(limitStrings(family.EvidenceSurfaces, 5), "; "))
+			}
+		}
+		if len(r.Families) > limit {
+			fmt.Fprintf(w, "    - %d more control families in JSON output\n", len(r.Families)-limit)
+		}
+	}
+	if len(r.Controls) == 0 {
+		fmt.Fprintf(w, "  - no missing hard-barrier controls matched status filter %q\n\n", r.StatusFilter)
+		return nil
+	}
+	fmt.Fprintf(w, "  Controls:\n")
+	limit := len(r.Controls)
+	if limit > 12 {
+		limit = 12
+	}
+	for _, item := range r.Controls[:limit] {
+		fmt.Fprintf(w, "    - %s %s: %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Control,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if len(item.Flaws) > 0 {
+			fmt.Fprintf(w, "      Closes flaws: %s\n", strings.Join(limitStrings(item.Flaws, 4), "; "))
+		}
+		if len(item.Targets) > 0 {
+			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 6), "; "))
+		}
+		if len(item.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence anchors: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
+		}
+		if len(item.EvidenceSurfaces) > 0 {
+			fmt.Fprintf(w, "      Where to prove this: %s\n", strings.Join(limitStrings(item.EvidenceSurfaces, 5), "; "))
+		}
+		if len(item.Actions) > 0 {
+			fmt.Fprintf(w, "      What would prove it: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
+		}
+	}
+	if len(r.Controls) > limit {
+		fmt.Fprintf(w, "    - %d more controls in JSON output\n", len(r.Controls)-limit)
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
 func renderArchitectureBoundarySummary(w io.Writer, boundaries []model.ArchitectureBoundary, coverage model.ZeroTrustCoverage) {
 	if len(boundaries) == 0 {
 		return
@@ -1020,6 +1179,38 @@ func summarizeArchitectureFlaws(flaws []model.ZeroTrustArchitecture) model.ZeroT
 			summary.NotObserved++
 		}
 	}
+	return summary
+}
+
+func summarizeControlCatalog(items []model.ArchitectureClosure) model.ControlCatalogSummary {
+	var summary model.ControlCatalogSummary
+	targets := map[string]bool{}
+	flaws := map[string]bool{}
+	for _, item := range items {
+		summary.Controls++
+		switch strings.ToLower(item.Severity) {
+		case "critical":
+			summary.Critical++
+		case "high":
+			summary.High++
+		case "medium":
+			summary.Medium++
+		case "low":
+			summary.Low++
+		}
+		for _, target := range item.Targets {
+			if target != "" {
+				targets[target] = true
+			}
+		}
+		for _, flaw := range item.Flaws {
+			if flaw != "" {
+				flaws[flaw] = true
+			}
+		}
+	}
+	summary.Targets = len(targets)
+	summary.Flaws = len(flaws)
 	return summary
 }
 
