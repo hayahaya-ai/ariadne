@@ -25,6 +25,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - External egress boundary: whether external communication is constrained by network restrictions, destination allowlists, webhook allowlists, or per-tool network scope.
 - Tool and MCP boundary: whether model-callable tools can expand capability through mutable launch paths.
 - Tool integrity boundary: whether model-callable tools are approved, provenance-bound, descriptor-validated, authenticated, and argument-validated.
+- Agent delegation boundary: whether delegated or sub-agent work has explicit scope, agent-to-agent authorization, original-intent verification, and delegated credential controls.
 - Memory and context boundary: whether persisted context can be reached or needs isolation evidence.
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
 - Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
@@ -42,6 +43,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Agent has broad standing authority instead of least agency | Authority boundary and Foundation maturity | Modeled today through Claude/Codex permission posture, deny-by-default evidence, broad local authority, and scoped permission controls. |
 | MCP/tooling expands capability through mutable or unpinned launch paths | Tool and MCP boundary | Modeled today for package launchers, reviewed/pinned controls, plugin surfaces, and shell-capable command surfaces. |
 | Tool descriptors, schemas, metadata, or remote tool auth can change underneath the agent | Tool integrity boundary | Modeled today through approved tool/MCP allowlists, MCP review and pinning, descriptor integrity, argument validation, tool authentication, signed artifacts, and deployment verification declarations. |
+| A lower-trust delegated or sub-agent path can inherit parent authority | Agent delegation boundary | Modeled today through Claude subagent definitions, delegation language in instruction surfaces, delegation scope, delegate allowlists, agent-to-agent authorization, original-intent verification, delegated credential scoping, context isolation, and delegation audit declarations. |
 | Data can leave through arbitrary destinations | External egress boundary | Modeled today through external communication authority, destination allowlists, webhook allowlists, per-tool network scope, and network restriction evidence. |
 | Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
@@ -71,6 +73,7 @@ Examples of controls Ariadne can model today:
 - authenticated tool access declarations
 - signed tool artifacts and deployment verification declarations
 - sandboxed tool execution and circuit-breaker declarations
+- delegation scope, delegate allowlist, agent-to-agent authorization, original-intent verification, delegated credential scoping, subagent context isolation, and delegation audit declarations
 - input isolation or trusted-source controls for instruction inputs
 - instruction provenance, untrusted-content delimiting, spotlighting, or prompt-injection filter declarations
 - managed runtime settings surfaces
@@ -99,6 +102,7 @@ Examples Ariadne reports as `unknown` today:
 - input validation, filtering, provenance, or delimiting evidence without input isolation or trusted-source gating
 - egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
 - tool sandboxing, rate limits, or circuit breakers without allowlist, provenance, authentication, descriptor integrity, or argument-validation evidence
+- delegation audit or subagent context isolation without explicit delegation scope, agent-to-agent authorization, original-intent verification, or delegated credential scoping
 - sandbox or network restriction evidence without identity-aware workload authorization evidence
 - tamper-resistant audit logs without immutable-log or equivalent evidence
 - configuration version-control evidence without review, or signed-config evidence without deployment verification
@@ -110,6 +114,7 @@ Examples Ariadne reports as `breaking` when observed:
 - authority paths that reach private context without an observed break-path control
 - risk-bearing agent configuration without observed hard integrity controls
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
+- delegated or sub-agent authority inheritance without observed hard delegation controls
 
 ## Foundation Maturity
 
@@ -201,6 +206,22 @@ Repositories can declare focused tool integrity controls in `.ariadne/tool-polic
 ```
 
 Ariadne treats allowlist plus MCP/package pinning, signed tool artifacts plus deployment verification, descriptor integrity plus argument validation, or authenticated tool access plus short-lived/JIT credential evidence as hard tool integrity evidence. Sandboxed tool execution and circuit breakers are reported as evidence, but they do not by themselves prove tool provenance or invocation integrity.
+
+Repositories can declare focused delegation controls in `.ariadne/delegation-policy.json`:
+
+```json
+{
+  "delegation_scope": true,
+  "allowed_delegate_agents": ["security-reviewer"],
+  "agent_to_agent_authorization": true,
+  "origin_intent_verification": true,
+  "delegated_credential_scope": true,
+  "subagent_context_isolation": true,
+  "delegation_audit": true
+}
+```
+
+Ariadne treats delegation scope plus agent-to-agent authorization or delegate allowlists, and original-intent verification plus delegated credential scoping, as hard delegation trust-boundary evidence. Subagent context isolation and delegation audit are reported as important evidence, but they do not by themselves prove that a delegated agent cannot inherit parent authority.
 
 Repositories can declare focused input controls in `.ariadne/input-policy.json`:
 

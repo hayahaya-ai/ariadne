@@ -505,6 +505,9 @@ func BuildGraph(c model.Collection) model.Graph {
 		if tool.ID == "tool:agent-command-shell" {
 			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:local-code-execution", EvidenceID: "evidence:" + tool.ID})
 		}
+		if tool.ID == "tool:agent-delegation" {
+			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:delegated-agent-authority", EvidenceID: "evidence:" + tool.ID})
+		}
 	}
 	for _, authority := range c.Authorities {
 		addNode(model.Node{ID: authority.ID, Type: "authority", Label: authority.Kind})
@@ -569,6 +572,8 @@ func controlRestrictsBoundary(controlID, boundaryID string) bool {
 		return boundaryID == "boundary:external-destination"
 	case "control:mcp-reviewed-pinned":
 		return boundaryID == "boundary:developer-execution-boundary"
+	case "control:delegation-scope", "control:delegation-allowlist", "control:agent-to-agent-authorization", "control:origin-intent-verification", "control:delegated-credential-scope", "control:subagent-context-isolation":
+		return boundaryID == "boundary:agent-delegation-boundary"
 	default:
 		return false
 	}
@@ -602,6 +607,13 @@ func controlRestrictsTool(controlID, toolID string) bool {
 		"control:tool-deployment-verification",
 		"control:tool-scope-policy":
 		return true
+	case "control:delegation-scope",
+		"control:delegation-allowlist",
+		"control:agent-to-agent-authorization",
+		"control:origin-intent-verification",
+		"control:delegated-credential-scope",
+		"control:subagent-context-isolation":
+		return toolID == "tool:agent-delegation"
 	default:
 		return false
 	}
@@ -640,6 +652,8 @@ func authorityReachesBoundary(authorityID, boundaryID string) bool {
 		return authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
 	case "boundary:external-destination":
 		return authorityID == "authority:external-communication" || authorityID == "authority:broad-local"
+	case "boundary:agent-delegation-boundary":
+		return authorityID == "authority:delegated-agent-authority"
 	default:
 		return false
 	}

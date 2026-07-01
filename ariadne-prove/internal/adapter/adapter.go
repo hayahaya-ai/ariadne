@@ -25,8 +25,9 @@ type Options struct {
 }
 
 var (
-	riskyInstructionPattern = regexp.MustCompile(`(?i)(read\s+\.env|read\s+.*secret|secret|token|always approve|ignore security|bypass|send\s+.*secret|send\s+.*token|private key|\.ssh|\.aws)`)
-	inlineCredentialPattern = regexp.MustCompile(`(?i)(api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|password)\s*[:=]`)
+	riskyInstructionPattern      = regexp.MustCompile(`(?i)(read\s+\.env|read\s+.*secret|secret|token|always approve|ignore security|bypass|send\s+.*secret|send\s+.*token|private key|\.ssh|\.aws)`)
+	delegationInstructionPattern = regexp.MustCompile(`(?i)(sub[- ]?agent|delegate\s+to|handoff\s+to|worker\s+agent|manager\s+agent|spawn\s+agent|parallel\s+agents|task\s+tool|agent\s+team)`)
+	inlineCredentialPattern      = regexp.MustCompile(`(?i)(api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|password)\s*[:=]`)
 )
 
 func Collect(opts Options) model.Collection {
@@ -96,6 +97,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 	switch s.Kind {
 	case "claude-md", "agents-md", "nested-agents-md", "cursor-rules", "windsurf-rules", "codex-agents-md", "claude-command", "claude-project-memory":
 		collectInstruction(c, s)
+	case "claude-subagent":
+		collectDelegationSurface(c, s)
 	case "codex-config", "codex-requirements":
 		collectCodexConfig(c, s)
 	case "claude-settings", "claude-local-settings":
@@ -112,6 +115,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectAgentPolicy(c, s)
 	case "tool-policy":
 		collectToolPolicy(c, s)
+	case "delegation-policy":
+		collectDelegationPolicy(c, s)
 	case "input-policy":
 		collectInputPolicy(c, s)
 	case "identity-policy":
@@ -175,6 +180,56 @@ func collectInstruction(c *model.Collection, s model.Surface) {
 	if s.Kind == "claude-command" && containsExternalCommunication(lower) {
 		addExternalCommunication(c, "claude", s.Source, "Claude command surface contains external communication indicators.")
 	}
+	if delegationInstructionPattern.MatchString(lower) {
+		addDelegationSurface(c, runtimeForTrustInput(s), s.Source, "Agent instruction surface includes delegation, subagent, handoff, or worker-agent language.")
+	}
+}
+
+func collectDelegationSurface(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	summary := "Claude subagent definition can receive delegated work from the parent agent context."
+	if riskyInstructionPattern.Match(data) {
+		summary = "Claude subagent definition contains secret-seeking or permission-bypass guidance."
+	}
+	addDelegationSurface(c, "claude", s.Source, summary)
+	c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
+		ID:      "trustinput:agent-delegation",
+		Kind:    "agent-delegation",
+		Runtime: "claude",
+		Source:  s.Source,
+		Risky:   riskyInstructionPattern.Match(data),
+		Summary: "Subagent definition can influence delegated agent behavior.",
+	})
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:agent-delegation", "trust-input", s.Source, "declared", "Subagent definition was parsed without emitting raw content."))
+}
+
+func addDelegationSurface(c *model.Collection, runtime, source, summary string) {
+	c.Tools = appendUniqueTool(c.Tools, model.Tool{
+		ID:      "tool:agent-delegation",
+		Kind:    "agent-delegation",
+		Runtime: runtime,
+		Source:  source,
+		Risky:   true,
+		Summary: summary,
+	})
+	c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+		ID:      "authority:delegated-agent-authority",
+		Kind:    "delegated-agent-authority",
+		Runtime: runtime,
+		Source:  source,
+		Summary: "Delegated or sub-agent work can inherit parent agent authority unless scoped.",
+	})
+	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+		ID:       "boundary:agent-delegation-boundary",
+		Kind:     "agent-delegation-boundary",
+		Source:   source,
+		Abstract: true,
+		Summary:  "Trust boundary between initiating agent, delegated agent, and original user intent.",
+	})
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:agent-delegation", "tool", source, "declared", "Agent delegation surface was collected without invoking delegated agents."))
 }
 
 func runtimeForTrustInput(s model.Surface) string {
@@ -445,6 +500,34 @@ func collectToolIntegrityControls(c *model.Collection, runtime, source, text str
 	}
 }
 
+func collectDelegationControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Delegation policy"
+	if runtime != "" {
+		prefix = runtime + " delegation policy"
+	}
+	if delegationScopeConfigured(text) {
+		addControl(c, "control:delegation-scope", "delegation-scope", runtime, source, prefix+" declares scoped authority for delegated or sub-agent work.")
+	}
+	if delegationAllowlistConfigured(text) {
+		addControl(c, "control:delegation-allowlist", "delegation-allowlist", runtime, source, prefix+" declares approved delegate agents or permitted handoff targets.")
+	}
+	if agentToAgentAuthorizationConfigured(text) {
+		addControl(c, "control:agent-to-agent-authorization", "agent-to-agent-authorization", runtime, source, prefix+" declares authorization checks for agent-to-agent delegation.")
+	}
+	if originIntentVerificationConfigured(text) {
+		addControl(c, "control:origin-intent-verification", "origin-intent-verification", runtime, source, prefix+" requires delegated work to verify original user intent and request provenance.")
+	}
+	if delegatedCredentialScopeConfigured(text) {
+		addControl(c, "control:delegated-credential-scope", "delegated-credential-scope", runtime, source, prefix+" declares reduced or separately scoped credentials for delegated agents.")
+	}
+	if subagentContextIsolationConfigured(text) {
+		addControl(c, "control:subagent-context-isolation", "subagent-context-isolation", runtime, source, prefix+" declares isolated context windows or memory boundaries for delegated agents.")
+	}
+	if delegationAuditConfigured(text) {
+		addControl(c, "control:delegation-audit", "delegation-audit", runtime, source, prefix+" declares logging for delegation, handoff, and agent-to-agent communication.")
+	}
+}
+
 func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -551,6 +634,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Agent policy declares source attribution or provenance metadata for context.")
 	}
 	collectToolIntegrityControls(c, "", s.Source, text)
+	collectDelegationControls(c, "", s.Source, text)
 	collectConfigIntegrityControls(c, "", s.Source, text)
 	collectEgressControls(c, s.Source, text)
 }
@@ -562,6 +646,15 @@ func collectToolPolicy(c *model.Collection, s model.Surface) {
 	}
 	text := strings.ToLower(string(data))
 	collectToolIntegrityControls(c, "", s.Source, text)
+}
+
+func collectDelegationPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	collectDelegationControls(c, "", s.Source, text)
 }
 
 func collectInputPolicy(c *model.Collection, s model.Surface) {
@@ -643,6 +736,7 @@ func collectWorkloadPolicy(c *model.Collection, s model.Surface) {
 	if toolScopePolicyConfigured(text) {
 		addControl(c, "control:tool-scope-policy", "tool-scope-policy", "", s.Source, "Workload policy declares per-tool scope, allowlist, or permission scope controls.")
 	}
+	collectDelegationControls(c, "", s.Source, text)
 }
 
 func collectMemoryPolicy(c *model.Collection, s model.Surface) {
@@ -833,6 +927,7 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 		addControl(c, "control:context-provenance", "context-provenance", runtime, source, runtime+" config declares context source attribution or provenance metadata.")
 	}
 	collectToolIntegrityControls(c, runtime, source, text)
+	collectDelegationControls(c, runtime, source, text)
 	collectConfigIntegrityControls(c, runtime, source, text)
 	if inlineCredentialConfigured(text) {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
@@ -1245,6 +1340,70 @@ func toolScopePolicyConfigured(text string) bool {
 		strings.Contains(text, "tool_allowlist") ||
 		strings.Contains(text, "mcp_allowlist") ||
 		strings.Contains(text, "permission_scope")
+}
+
+func delegationScopeConfigured(text string) bool {
+	return strings.Contains(text, "delegation_scope") ||
+		strings.Contains(text, "delegated_scope") ||
+		strings.Contains(text, "subagent_scope") ||
+		strings.Contains(text, "least_privilege_delegation") ||
+		strings.Contains(text, "scoped_delegation") ||
+		strings.Contains(text, "delegate_permissions") ||
+		strings.Contains(text, "subagent_permissions")
+}
+
+func delegationAllowlistConfigured(text string) bool {
+	return strings.Contains(text, "allowed_delegate_agents") ||
+		strings.Contains(text, "delegation_allowlist") ||
+		strings.Contains(text, "delegate_allowlist") ||
+		strings.Contains(text, "approved_delegates") ||
+		strings.Contains(text, "approved_subagents") ||
+		strings.Contains(text, "allowed_subagents")
+}
+
+func agentToAgentAuthorizationConfigured(text string) bool {
+	return strings.Contains(text, "agent_to_agent_authorization") ||
+		strings.Contains(text, "agent-to-agent authorization") ||
+		strings.Contains(text, "delegate_authorization") ||
+		strings.Contains(text, "delegation_authorization") ||
+		strings.Contains(text, "handoff_authorization") ||
+		strings.Contains(text, "verify_delegate_identity") ||
+		strings.Contains(text, "authorized_delegation")
+}
+
+func originIntentVerificationConfigured(text string) bool {
+	return strings.Contains(text, "origin_intent_verification") ||
+		strings.Contains(text, "original_user_intent") ||
+		strings.Contains(text, "request_provenance") ||
+		strings.Contains(text, "delegation_provenance") ||
+		strings.Contains(text, "intent_verification") ||
+		strings.Contains(text, "verify_user_intent")
+}
+
+func delegatedCredentialScopeConfigured(text string) bool {
+	return strings.Contains(text, "delegated_credential_scope") ||
+		strings.Contains(text, "delegated_credentials") ||
+		strings.Contains(text, "subagent_credentials") ||
+		strings.Contains(text, "reduced_delegate_credentials") ||
+		strings.Contains(text, "no_inherited_credentials") ||
+		strings.Contains(text, "credential_downscoping")
+}
+
+func subagentContextIsolationConfigured(text string) bool {
+	return strings.Contains(text, "subagent_context_isolation") ||
+		strings.Contains(text, "delegated_context_isolation") ||
+		strings.Contains(text, "isolated_subagent_context") ||
+		strings.Contains(text, "subagent_memory_isolation") ||
+		strings.Contains(text, "separate_context_window")
+}
+
+func delegationAuditConfigured(text string) bool {
+	return strings.Contains(text, "delegation_audit") ||
+		strings.Contains(text, "handoff_audit") ||
+		strings.Contains(text, "agent_to_agent_logging") ||
+		strings.Contains(text, "inter_agent_logging") ||
+		strings.Contains(text, "delegation_trace") ||
+		strings.Contains(text, "handoff_trace")
 }
 
 func toolAllowlistConfigured(text string) bool {

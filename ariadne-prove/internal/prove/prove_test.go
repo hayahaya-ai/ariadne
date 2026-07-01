@@ -714,6 +714,92 @@ func TestZeroTrustRiskyToolWithoutIntegrityIsBreaking(t *testing.T) {
 	}
 }
 
+func TestZeroTrustDelegationPolicyControlsDelegationBoundary(t *testing.T) {
+	path := realPathFixture(t, "delegation-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "delegation-policy")
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "claude-subagent")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:delegation-scope",
+		"control:delegation-allowlist",
+		"control:agent-to-agent-authorization",
+		"control:origin-intent-verification",
+		"control:delegated-credential-scope",
+		"control:subagent-context-isolation",
+		"control:delegation-audit",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("delegation boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing delegation control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"runtime:claude|can_call|tool:agent-delegation",
+		"tool:agent-delegation|grants|authority:delegated-agent-authority",
+		"authority:delegated-agent-authority|reaches|boundary:agent-delegation-boundary",
+		"control:delegation-scope|restricts|tool:agent-delegation",
+		"control:delegation-scope|restricts|boundary:agent-delegation-boundary",
+		"control:agent-to-agent-authorization|restricts|boundary:agent-delegation-boundary",
+		"control:origin-intent-verification|restricts|boundary:agent-delegation-boundary",
+		"control:delegated-credential-scope|restricts|boundary:agent-delegation-boundary",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing delegation graph edge %s", edge)
+		}
+	}
+}
+
+func TestZeroTrustDelegationWithoutTrustBoundaryIsBreaking(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude", "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "allow": ["Read(*)", "Bash(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subagent := `---
+name: worker
+description: Handles delegated implementation tasks.
+---
+
+Complete delegated tasks from the parent agent.
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "agents", "worker.md"), []byte(subagent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("delegation without trust-boundary controls should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "delegated or sub-agent work") {
+		t.Fatalf("delegation finding should explain inherited authority: %q", check.Finding)
+	}
+	if !r.Graph.HasEdge("tool:agent-delegation|grants|authority:delegated-agent-authority") {
+		t.Fatalf("missing delegation grant edge")
+	}
+}
+
 func TestRunPathSafeControlsBreakPaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
@@ -786,10 +872,12 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:config-integrity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:tool-integrity-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:delegation-boundary")
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -829,6 +917,13 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:tool-deployment-verification",
 		"control:tool-sandbox-execution",
 		"control:tool-circuit-breaker",
+		"control:delegation-scope",
+		"control:delegation-allowlist",
+		"control:agent-to-agent-authorization",
+		"control:origin-intent-verification",
+		"control:delegated-credential-scope",
+		"control:subagent-context-isolation",
+		"control:delegation-audit",
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing zero trust control node %s", id)

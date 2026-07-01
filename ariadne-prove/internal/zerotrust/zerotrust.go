@@ -17,6 +17,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		egressBoundary(c, g, exposures),
 		toolBoundary(c, g, exposures),
 		toolIntegrityBoundary(c, g),
+		delegationBoundary(c, g),
 		memoryBoundary(c, g),
 		identityBoundary(c, g),
 		workloadAuthorizationBoundary(c, g),
@@ -197,7 +198,7 @@ func egressBoundary(c model.Collection, g model.Graph, exposures []model.Exposur
 func toolBoundary(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrustCheck {
 	status := model.ZeroTrustNotObserved
 	finding := "No supported agent-callable tool or MCP surface was modeled."
-	if len(c.Tools) > 0 {
+	if hasToolIntegritySurface(c) {
 		status = statusForExposures(exposures, "mutable-tool-launch-execution")
 		finding = "Agent-callable tool surfaces exist; Ariadne could not prove all tool authority is reviewed and scoped."
 		if status == model.ZeroTrustBreaking {
@@ -215,7 +216,7 @@ func toolBoundary(c model.Collection, g model.Graph, exposures []model.ExposureR
 		Status:     status,
 		DesignTest: "Tools should be allowlisted, pinned, and scoped so the agent cannot gain new capability through mutable launch paths.",
 		Finding:    finding,
-		Evidence:   limitEvidence(toolEvidence(c), 8),
+		Evidence:   limitEvidence(toolIntegrityEvidence(c), 8),
 		GraphEdges: toolBoundaryEdges(g),
 		Controls:   controlsForExposures(exposures, "mutable-tool-launch-execution"),
 		Actions: []string{
@@ -230,11 +231,11 @@ func toolIntegrityBoundary(c model.Collection, g model.Graph) model.ZeroTrustChe
 	controlEvidence := controlsEvidence(c, toolIntegrityControlIDs()...)
 	status := model.ZeroTrustNotObserved
 	finding := "No supported agent-callable tool surface was observed."
-	if len(c.Tools) > 0 {
+	if hasToolIntegritySurface(c) {
 		status = model.ZeroTrustUnknown
 		finding = "Agent-callable tool surfaces exist, but Ariadne did not observe hard tool provenance, descriptor integrity, authentication, or invocation validation evidence."
 	}
-	if len(controlEvidence) > 0 && len(c.Tools) > 0 {
+	if len(controlEvidence) > 0 && hasToolIntegritySurface(c) {
 		status = model.ZeroTrustUnknown
 		finding = "Ariadne observed tool security evidence, but not enough to prove a hard tool integrity boundary."
 	}
@@ -242,7 +243,7 @@ func toolIntegrityBoundary(c model.Collection, g model.Graph) model.ZeroTrustChe
 		status = model.ZeroTrustBreaking
 		finding = "Risk-bearing model-callable tool surfaces exist without observed hard provenance, allowlist, descriptor-integrity, authentication, or argument-validation controls."
 	}
-	if len(c.Tools) > 0 && hasHardToolIntegrity(c) {
+	if hasToolIntegritySurface(c) && hasHardToolIntegrity(c) {
 		status = model.ZeroTrustControlled
 		finding = "Ariadne observed hard tool integrity evidence such as allowlist plus pinning, signed deployment verification, descriptor validation, or authenticated short-lived tool access."
 	}
@@ -254,7 +255,7 @@ func toolIntegrityBoundary(c model.Collection, g model.Graph) model.ZeroTrustChe
 		Status:     status,
 		DesignTest: "Model-callable tools should be approved, provenance-bound, descriptor-validated, authenticated, and argument-validated before they can extend agent capability.",
 		Finding:    finding,
-		Evidence:   limitEvidence(firstEvidence(controlEvidence, toolEvidence(c)), 8),
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, toolIntegrityEvidence(c)), 8),
 		GraphEdges: toolIntegrityEdges(g),
 		Controls:   controls,
 		Actions: []string{
@@ -263,6 +264,47 @@ func toolIntegrityBoundary(c model.Collection, g model.Graph) model.ZeroTrustChe
 			"Require authenticated, short-lived tool access for sensitive or remote tools.",
 		},
 		Limitations: []string{"Ariadne detects declared tool integrity controls and static tool surfaces, but does not execute tools, resolve registries, validate signatures, inspect live MCP descriptors, or prove runtime enforcement."},
+	}
+}
+
+func delegationBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	controls := controlIDs(c, delegationControlIDs()...)
+	controlEvidence := controlsEvidence(c, delegationControlIDs()...)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent delegation or subagent surface was observed."
+	if hasDelegationSurface(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Agent delegation surfaces exist, but Ariadne did not observe explicit delegation scope, agent-to-agent authorization, or original-intent verification evidence."
+	}
+	if len(controlEvidence) > 0 && hasDelegationSurface(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed delegation control evidence, but not enough to prove a hard delegation trust boundary."
+	}
+	if hasRiskyDelegation(c) && !hasHardDelegationBoundary(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Delegated or sub-agent work can inherit privileged parent authority without observed hard delegation scope or agent-to-agent authorization controls."
+	}
+	if hasDelegationSurface(c) && hasHardDelegationBoundary(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed hard delegation trust-boundary evidence such as scoped delegation plus agent-to-agent authorization, or original-intent verification plus delegated credential scoping."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:delegation-boundary",
+		Principle:  "Never trust, always verify",
+		Boundary:   "Agent delegation boundary",
+		Tier:       "enterprise",
+		Status:     status,
+		DesignTest: "Delegated agents should verify caller identity, original user intent, and delegated authority scope instead of inheriting the parent agent's full authority.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, delegationEvidence(c)), 8),
+		GraphEdges: delegationEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Require explicit allowlists and authorization for agent-to-agent delegation.",
+			"Downscope delegated credentials and permissions to the delegated task.",
+			"Log delegation handoffs with request provenance and original user intent.",
+		},
+		Limitations: []string{"Ariadne detects declared delegation surfaces and controls, but does not validate live inter-agent authorization, runtime credential downscoping, or actual delegated task execution."},
 	}
 }
 
@@ -712,13 +754,13 @@ func requireToolIntegrity(c model.Collection) model.ZeroTrustRequirement {
 	controls := controlIDs(c, toolIntegrityControlIDs()...)
 	evidence := firstEvidence(
 		controlsEvidence(c, toolIntegrityControlIDs()...),
-		toolEvidence(c),
+		toolIntegrityEvidence(c),
 	)
 	status := model.ZeroTrustNotObserved
 	quality := "not_applicable"
 	finding := "No supported model-callable tool surface was observed, so Ariadne did not evaluate tool integrity."
 	missing := []string{"approved tool allowlist", "tool package pinning or signature evidence", "tool descriptor and argument validation evidence"}
-	if len(c.Tools) > 0 {
+	if hasToolIntegritySurface(c) {
 		status = model.ZeroTrustUnknown
 		quality = "evidence_gap"
 		finding = "Model-callable tool surfaces exist, but Ariadne did not observe hard tool provenance or invocation-validation evidence."
@@ -735,7 +777,7 @@ func requireToolIntegrity(c model.Collection) model.ZeroTrustRequirement {
 		finding = "Risk-bearing model-callable tool surfaces exist without hard tool integrity evidence."
 		missing = []string{"approved tool allowlist", "package pinning or signed artifact verification", "tool descriptor and argument validation"}
 	}
-	if len(c.Tools) > 0 && hasHardToolIntegrity(c) {
+	if hasToolIntegritySurface(c) && hasHardToolIntegrity(c) {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
 		finding = "Ariadne observed hard tool integrity evidence for model-callable tools."
@@ -1156,6 +1198,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without tool integrity evidence, a compromised or mutable model-callable tool can change what the agent believes it is calling or what capability it receives."
 		gap.NextCollector = "Collect tool policy, MCP allowlists, descriptor/signature metadata, package digests, tool authentication policy, and PreToolUse or schema validation controls."
+	case "zt:delegation-boundary":
+		gap.MissingEvidence = []string{
+			"delegation scope or delegated permission policy",
+			"agent-to-agent authorization or delegate allowlist",
+			"original-user-intent verification and delegated credential scoping evidence",
+		}
+		gap.WhyItMatters = "Without explicit delegation boundaries, a lower-trust or compromised agent can become a confused deputy by asking a more privileged agent to act with inherited authority."
+		gap.NextCollector = "Collect delegation policy, subagent definitions, delegated credential scope, original-intent provenance, agent-to-agent authorization, and delegation audit evidence."
 	case "zt:memory-boundary":
 		gap.MissingEvidence = []string{
 			"memory isolation policy",
@@ -1378,6 +1428,44 @@ func toolIntegrityControlIDs() []string {
 	}
 }
 
+func delegationControlIDs() []string {
+	return []string{
+		"control:delegation-scope",
+		"control:delegation-allowlist",
+		"control:agent-to-agent-authorization",
+		"control:origin-intent-verification",
+		"control:delegated-credential-scope",
+		"control:subagent-context-isolation",
+		"control:delegation-audit",
+	}
+}
+
+func hasHardDelegationBoundary(c model.Collection) bool {
+	scopedAuthorized := hasAnyControl(c, "control:delegation-scope") &&
+		hasAnyControl(c, "control:agent-to-agent-authorization", "control:delegation-allowlist")
+	intentDownscoped := hasAnyControl(c, "control:origin-intent-verification") &&
+		hasAnyControl(c, "control:delegated-credential-scope")
+	return scopedAuthorized || intentDownscoped
+}
+
+func hasDelegationSurface(c model.Collection) bool {
+	return hasToolID(c, "tool:agent-delegation") ||
+		hasAuthority(c, "authority:delegated-agent-authority") ||
+		hasBoundaryID(c, "boundary:agent-delegation-boundary")
+}
+
+func hasRiskyDelegation(c model.Collection) bool {
+	if !hasDelegationSurface(c) {
+		return false
+	}
+	return hasAuthority(c, "authority:broad-local") ||
+		hasAuthority(c, "authority:file-read") ||
+		hasAuthority(c, "authority:local-code-execution") ||
+		hasAuthority(c, "authority:external-communication") ||
+		hasToolID(c, "tool:mcp-package-launch") ||
+		hasToolID(c, "tool:agent-command-shell")
+}
+
 func hasHardToolIntegrity(c model.Collection) bool {
 	reviewedPinnedAllowlist := hasAnyControl(c, "control:tool-allowlist") && hasAnyControl(c, "control:mcp-reviewed-pinned")
 	signedVerified := hasAnyControl(c, "control:signed-tool-artifacts") && hasAnyControl(c, "control:tool-deployment-verification")
@@ -1386,8 +1474,20 @@ func hasHardToolIntegrity(c model.Collection) bool {
 	return reviewedPinnedAllowlist || signedVerified || descriptorValidated || authenticatedScoped
 }
 
+func hasToolIntegritySurface(c model.Collection) bool {
+	for _, tool := range c.Tools {
+		if tool.ID != "tool:agent-delegation" {
+			return true
+		}
+	}
+	return false
+}
+
 func hasRiskyToolSurface(c model.Collection) bool {
 	for _, tool := range c.Tools {
+		if tool.ID == "tool:agent-delegation" {
+			continue
+		}
 		if tool.Risky || tool.ID == "tool:agent-command-shell" {
 			return true
 		}
@@ -1636,6 +1736,42 @@ func toolEvidence(c model.Collection) []model.ZeroTrustEvidence {
 	return dedupeEvidence(out)
 }
 
+func toolIntegrityEvidence(c model.Collection) []model.ZeroTrustEvidence {
+	var out []model.ZeroTrustEvidence
+	for _, tool := range c.Tools {
+		if tool.ID == "tool:agent-delegation" {
+			continue
+		}
+		out = append(out, model.ZeroTrustEvidence{ID: tool.ID, Kind: "tool", Source: tool.Source, Summary: tool.Summary})
+	}
+	return dedupeEvidence(out)
+}
+
+func delegationEvidence(c model.Collection) []model.ZeroTrustEvidence {
+	var out []model.ZeroTrustEvidence
+	for _, surface := range c.Surfaces {
+		if surface.Category == "agent-delegation" {
+			out = append(out, model.ZeroTrustEvidence{ID: surface.ID, Kind: surface.Category, Source: surface.Source, Summary: surface.Summary})
+		}
+	}
+	for _, tool := range c.Tools {
+		if tool.ID == "tool:agent-delegation" {
+			out = append(out, model.ZeroTrustEvidence{ID: tool.ID, Kind: "tool", Source: tool.Source, Summary: tool.Summary})
+		}
+	}
+	for _, authority := range c.Authorities {
+		if authority.ID == "authority:delegated-agent-authority" {
+			out = append(out, model.ZeroTrustEvidence{ID: authority.ID, Kind: "authority", Source: authority.Source, Summary: authority.Summary})
+		}
+	}
+	for _, boundary := range c.Boundaries {
+		if boundary.ID == "boundary:agent-delegation-boundary" {
+			out = append(out, model.ZeroTrustEvidence{ID: boundary.ID, Kind: "boundary", Source: boundary.Source, Summary: boundary.Summary})
+		}
+	}
+	return dedupeEvidence(out)
+}
+
 func controlEvidence(c model.Collection) []model.ZeroTrustEvidence {
 	var out []model.ZeroTrustEvidence
 	for _, control := range c.Controls {
@@ -1786,6 +1922,12 @@ func toolBoundaryEdges(g model.Graph) []string {
 func toolIntegrityEdges(g model.Graph) []string {
 	out := []string{}
 	for _, edge := range g.Edges {
+		if edge.From == "tool:agent-delegation" ||
+			edge.To == "tool:agent-delegation" ||
+			edge.From == "authority:delegated-agent-authority" ||
+			edge.To == "authority:delegated-agent-authority" {
+			continue
+		}
 		if edge.Type == "can_call" || edge.Type == "grants" || (edge.Type == "restricts" && toolIntegrityControlID(edge.From)) {
 			out = append(out, edge.Key())
 		}
@@ -1802,6 +1944,36 @@ func toolIntegrityControlID(id string) bool {
 		"control:tool-auth-required",
 		"control:signed-tool-artifacts",
 		"control:tool-deployment-verification":
+		return true
+	default:
+		return false
+	}
+}
+
+func delegationEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.From == "tool:agent-delegation" ||
+			edge.To == "tool:agent-delegation" ||
+			edge.From == "authority:delegated-agent-authority" ||
+			edge.To == "authority:delegated-agent-authority" ||
+			edge.From == "boundary:agent-delegation-boundary" ||
+			edge.To == "boundary:agent-delegation-boundary" ||
+			(edge.Type == "restricts" && delegationControlID(edge.From)) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func delegationControlID(id string) bool {
+	switch id {
+	case "control:delegation-scope",
+		"control:delegation-allowlist",
+		"control:agent-to-agent-authorization",
+		"control:origin-intent-verification",
+		"control:delegated-credential-scope",
+		"control:subagent-context-isolation":
 		return true
 	default:
 		return false

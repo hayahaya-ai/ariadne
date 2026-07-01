@@ -42,6 +42,7 @@ Current checks cover:
 - external egress boundary
 - tool and MCP boundary
 - tool integrity boundary
+- agent delegation boundary
 - memory and context boundary
 - agent identity boundary
 - workload authorization boundary
@@ -171,12 +172,14 @@ Current deterministic discovery covers:
 - MCP configuration
 - plugin/config surfaces
 - command files
+- Claude subagent definitions under `.claude/agents/*.md`
 - project memory
 - private context summaries such as paste caches or history directories
 - secret-like boundary indicators such as `.env*`, key files, and credential files
 - `.ariadne/agent-policy.json` declarations for approval, sandbox, credential, audit, and retention controls
 - `.ariadne/agent-policy.json` declarations for cryptographic identity, least agency, identity-based isolation, traceability, input validation, and automated triage controls
 - `.ariadne/tool-policy.json` declarations for approved tools, MCP review and pinning, descriptor integrity, argument validation, tool authentication, signed artifacts, deployment verification, sandboxed tool execution, and circuit breakers
+- `.ariadne/delegation-policy.json` declarations for delegation scope, delegate allowlists, agent-to-agent authorization, original-intent verification, delegated credential scoping, subagent context isolation, and delegation audit controls
 - `.ariadne/input-policy.json` declarations for input isolation, trusted instruction sources, instruction provenance, untrusted-content delimiting, and prompt-injection filtering
 - `.ariadne/identity-policy.json` declarations for credential isolation, credential helpers, JIT access, token lifetime, hardware-bound credentials, and identity lifecycle controls
 - `.ariadne/workload-policy.json` declarations for ABAC, named callers, network segmentation, and tool-scope controls
