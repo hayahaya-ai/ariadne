@@ -29,6 +29,57 @@ func Render(w io.Writer, r model.Report, format string) error {
 	}
 }
 
+func RenderArchitecture(w io.Writer, r model.Report, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderArchitectureTable(w, architecture)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(architecture)
+	default:
+		return fmt.Errorf("unknown architecture format: %s", format)
+	}
+}
+
+func BuildArchitectureReport(r model.Report, statusFilter string) (model.ArchitectureReport, error) {
+	filter := strings.ToLower(strings.TrimSpace(statusFilter))
+	if filter == "" {
+		filter = "breaking"
+	}
+	if !validArchitectureStatusFilter(filter) {
+		return model.ArchitectureReport{}, fmt.Errorf("unknown architecture status filter: %s", statusFilter)
+	}
+	flaws := make([]model.ZeroTrustArchitecture, 0, len(r.ZeroTrust.ArchitectureFlaws))
+	for _, flaw := range r.ZeroTrust.ArchitectureFlaws {
+		if architectureStatusAllowed(flaw.Status, filter) {
+			flaws = append(flaws, flaw)
+		}
+	}
+	if flaws == nil {
+		flaws = []model.ZeroTrustArchitecture{}
+	}
+	return model.ArchitectureReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            r.RunID,
+		GeneratedAt:      r.GeneratedAt,
+		TargetPath:       r.TargetPath,
+		Mode:             r.Story.Mode,
+		Agent:            r.Story.Runtime,
+		FrameworkVersion: r.ZeroTrust.FrameworkVersion,
+		StatusFilter:     filter,
+		Summary:          summarizeArchitectureFlaws(flaws),
+		OverallSummary:   r.ZeroTrust.ArchitectureSummary,
+		Flaws:            flaws,
+		Redaction:        r.Redaction,
+		Limitations:      append([]string{}, r.Limitations...),
+	}, nil
+}
+
 func RenderInventory(w io.Writer, r model.InventoryReport, format string) error {
 	switch strings.ToLower(format) {
 	case "", "table":
@@ -449,6 +500,93 @@ func countObservedArchitectureFlaws(flaws []model.ZeroTrustArchitecture) int {
 		}
 	}
 	return count
+}
+
+func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
+	fmt.Fprintf(w, "Ariadne Zero Trust architecture:\n")
+	if r.TargetPath != "" {
+		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "  Mode: %s  Agent: %s  Filter: %s\n", empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	fmt.Fprintf(w, "  Matching flaws: %d total, %d breaking, %d controlled, %d unknown, %d not observed\n",
+		r.Summary.Total,
+		r.Summary.Breaking,
+		r.Summary.Controlled,
+		r.Summary.Unknown,
+		r.Summary.NotObserved,
+	)
+	fmt.Fprintf(w, "  Overall flaws: %d total, %d breaking, %d controlled, %d unknown, %d not observed\n",
+		r.OverallSummary.Total,
+		r.OverallSummary.Breaking,
+		r.OverallSummary.Controlled,
+		r.OverallSummary.Unknown,
+		r.OverallSummary.NotObserved,
+	)
+	if len(r.Flaws) == 0 {
+		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
+		return nil
+	}
+	for _, flaw := range r.Flaws {
+		fmt.Fprintf(w, "  - %s %s %s: %s\n", statusLabel(string(flaw.Status)), strings.ToUpper(flaw.Severity), flaw.Title, flaw.Finding)
+		if len(flaw.Evidence) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", zeroTrustEvidenceLine(flaw.Evidence, 4))
+		}
+		if len(flaw.GraphEdges) > 0 {
+			fmt.Fprintf(w, "    Graph: %s\n", strings.Join(limitStrings(flaw.GraphEdges, 4), "; "))
+		}
+		if len(flaw.Controls) > 0 {
+			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(flaw.Controls, "; "))
+		}
+		if flaw.WhyItMatters != "" {
+			fmt.Fprintf(w, "    Why: %s\n", flaw.WhyItMatters)
+		}
+		if len(flaw.Actions) > 0 {
+			fmt.Fprintf(w, "    Next: %s\n", strings.Join(limitStrings(flaw.Actions, 3), "; "))
+		}
+		if len(flaw.Limitations) > 0 {
+			fmt.Fprintf(w, "    Limits: %s\n", strings.Join(limitStrings(flaw.Limitations, 2), "; "))
+		}
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func summarizeArchitectureFlaws(flaws []model.ZeroTrustArchitecture) model.ZeroTrustSummary {
+	var summary model.ZeroTrustSummary
+	summary.Total = len(flaws)
+	for _, flaw := range flaws {
+		switch flaw.Status {
+		case model.ZeroTrustBreaking:
+			summary.Breaking++
+		case model.ZeroTrustControlled:
+			summary.Controlled++
+		case model.ZeroTrustUnknown:
+			summary.Unknown++
+		default:
+			summary.NotObserved++
+		}
+	}
+	return summary
+}
+
+func validArchitectureStatusFilter(filter string) bool {
+	switch filter {
+	case "all", "breaking", "controlled", "unknown", "not_observed", "observed":
+		return true
+	default:
+		return false
+	}
+}
+
+func architectureStatusAllowed(status model.ZeroTrustStatus, filter string) bool {
+	switch filter {
+	case "all":
+		return true
+	case "observed":
+		return status != model.ZeroTrustNotObserved
+	default:
+		return string(status) == filter
+	}
 }
 
 func zeroTrustEvidenceLine(evidence []model.ZeroTrustEvidence, limit int) string {

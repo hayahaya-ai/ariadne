@@ -23,6 +23,8 @@ func main() {
 	switch os.Args[1] {
 	case "prove":
 		runProve(os.Args[2:])
+	case "architecture":
+		runArchitecture(os.Args[2:])
 	case "inventory":
 		runInventory(os.Args[2:])
 	case "scan":
@@ -37,6 +39,35 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		usage(os.Stderr)
 		os.Exit(2)
+	}
+}
+
+func runArchitecture(args []string) {
+	fs := flag.NewFlagSet("architecture", flag.ExitOnError)
+	path := fs.String("path", ".", "repo or workspace path to inspect")
+	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
+	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
+	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
+	format := fs.String("format", "table", "output format: table, json")
+	outPath := fs.String("out", "", "write output to file")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	r, err := prove.RunPath(prove.Options{
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		IncludeSensitivePaths: *includeSensitive,
+	})
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	if err := report.RenderArchitecture(writer, r, *format, *status); err != nil {
+		fatal(err)
 	}
 }
 
@@ -256,6 +287,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, strings.TrimSpace(`ariadne: local agent exposure prover
 
 Commands:
+  architecture   Show Zero Trust agent architecture flaws, filtered to breaking by default
   inventory      Collect deterministic AI surface facts without classifying exposure
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
@@ -264,6 +296,9 @@ Commands:
 
 Examples:
   ariadne stories list
+  ariadne architecture --path .
+  ariadne architecture --path . --mode endpoint --include-sensitive-paths
+  ariadne architecture --path . --status all --format json
   ariadne inventory --path .
   ariadne inventory --path . --mode endpoint --format json
   ariadne inventory --path . --format mermaid --out graph.mmd

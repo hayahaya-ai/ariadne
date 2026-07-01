@@ -68,6 +68,9 @@ make scan
 From `ariadne-prove/`:
 
 ```bash
+./bin/ariadne architecture --path .
+./bin/ariadne architecture --path . --mode endpoint --include-sensitive-paths
+./bin/ariadne architecture --path . --status all --format json
 ./bin/ariadne inventory --path .
 ./bin/ariadne prove --path .
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json

@@ -2594,6 +2594,67 @@ func TestTableReportIsFactFirst(t *testing.T) {
 	}
 }
 
+func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderArchitecture(&table, r, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne Zero Trust architecture:",
+		"Filter: breaking",
+		"Untrusted instructions can steer privileged tools",
+		"Agent has broad standing authority instead of least agency",
+		"Evidence:",
+		"Next:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("architecture table missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "NOT OBSERVED") {
+		t.Fatalf("breaking architecture table should not include not-observed flaws:\n%s", out)
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderArchitecture(&jsonOut, r, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ArchitectureReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.StatusFilter != "breaking" {
+		t.Fatalf("status filter = %q", decoded.StatusFilter)
+	}
+	if decoded.Summary.Total == 0 || decoded.Summary.Total != decoded.Summary.Breaking {
+		t.Fatalf("expected only breaking flaws in summary: %+v", decoded.Summary)
+	}
+	for _, flaw := range decoded.Flaws {
+		if flaw.Status != model.ZeroTrustBreaking {
+			t.Fatalf("filtered architecture JSON included non-breaking flaw: %+v", flaw)
+		}
+		if flaw.Finding == "" || flaw.WhyItMatters == "" || len(flaw.Actions) == 0 {
+			t.Fatalf("breaking flaw should include finding, why-it-matters, and actions: %+v", flaw)
+		}
+	}
+}
+
+func TestArchitectureReportRejectsUnknownStatusFilter(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := report.RenderArchitecture(&out, r, "table", "maybe"); err == nil {
+		t.Fatalf("expected architecture renderer to reject unknown status filter")
+	}
+}
+
 func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {

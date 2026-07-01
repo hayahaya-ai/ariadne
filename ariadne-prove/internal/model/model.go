@@ -82,6 +82,22 @@ type Report struct {
 	Limitations    []string         `json:"limitations"`
 }
 
+type ArchitectureReport struct {
+	SchemaVersion    string                  `json:"schema_version"`
+	RunID            string                  `json:"run_id"`
+	GeneratedAt      time.Time               `json:"generated_at"`
+	TargetPath       string                  `json:"target_path,omitempty"`
+	Mode             string                  `json:"mode"`
+	Agent            string                  `json:"agent"`
+	FrameworkVersion string                  `json:"framework_version"`
+	StatusFilter     string                  `json:"status_filter"`
+	Summary          ZeroTrustSummary        `json:"summary"`
+	OverallSummary   ZeroTrustSummary        `json:"overall_summary"`
+	Flaws            []ZeroTrustArchitecture `json:"flaws"`
+	Redaction        RedactionInfo           `json:"redaction"`
+	Limitations      []string                `json:"limitations"`
+}
+
 type StorySummary struct {
 	ID           string `json:"id"`
 	Title        string `json:"title"`

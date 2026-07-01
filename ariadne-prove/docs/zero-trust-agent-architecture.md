@@ -569,6 +569,16 @@ Ariadne treats reviewed version-controlled configuration, signed configuration w
 
 Zero Trust architecture results are emitted under `zero_trust` in `prove` JSON and rendered in the local dashboard.
 
+For the shortest CLI readout, use:
+
+```bash
+ariadne architecture --path .
+ariadne architecture --path . --status all --format json
+ariadne architecture --path . --mode endpoint --include-sensitive-paths
+```
+
+`ariadne architecture` defaults to `--status breaking`, so the first output answers where the architecture is currently breaking. Use `--status unknown`, `--status controlled`, `--status observed`, or `--status all` when triaging evidence gaps or validating controls.
+
 Start with:
 
 - `architecture_summary`: counts architecture flaw categories by status
