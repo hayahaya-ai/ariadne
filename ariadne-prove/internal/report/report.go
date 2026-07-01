@@ -85,6 +85,24 @@ func RenderControlsScan(w io.Writer, r model.ScanReport, format string, statusFi
 	return renderControlCatalog(w, catalog, format)
 }
 
+func RenderCases(w io.Writer, r model.Report, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCaseBoardReport(architecture)
+	return renderControlCaseBoard(w, catalog, format)
+}
+
+func RenderCasesScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCaseBoardScanReport(architecture)
+	return renderControlCaseBoard(w, catalog, format)
+}
+
 func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
 	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
@@ -129,6 +147,13 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 	return catalog
 }
 
+func BuildControlCaseBoardReport(r model.ArchitectureReport) model.ControlCatalogReport {
+	catalog := BuildControlCatalogReport(r)
+	catalog.RunKind = "case_board"
+	rewriteControlCatalogAsCaseBoard(&catalog)
+	return catalog
+}
+
 func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
 	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
@@ -169,6 +194,13 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 	if catalog.VerificationTasks == nil {
 		catalog.VerificationTasks = []model.ControlVerificationTask{}
 	}
+	return catalog
+}
+
+func BuildControlCaseBoardScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
+	catalog := BuildControlCatalogScanReport(r)
+	catalog.RunKind = "case_board_scan"
+	rewriteControlCatalogAsCaseBoard(&catalog)
 	return catalog
 }
 
@@ -923,6 +955,49 @@ func renderControlCatalog(w io.Writer, r model.ControlCatalogReport, format stri
 	}
 }
 
+func renderControlCaseBoard(w io.Writer, r model.ControlCatalogReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderControlCaseBoardTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderControlCaseBoardDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown cases format: %s", format)
+	}
+}
+
+func renderControlCaseBoardTable(w io.Writer, r model.ControlCatalogReport) error {
+	fmt.Fprintf(w, "Ariadne operator case board:\n")
+	if r.TargetPath != "" {
+		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "  Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "case_board"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	fmt.Fprintf(w, "  Case queue: %d case(s); %d missing hard-barrier controls; %d critical, %d high, %d medium, %d low; %d target(s); %d flaw(s)\n",
+		len(r.OperatorCases),
+		r.Summary.Controls,
+		r.Summary.Critical,
+		r.Summary.High,
+		r.Summary.Medium,
+		r.Summary.Low,
+		r.Summary.Targets,
+		r.Summary.Flaws,
+	)
+	if len(r.OperatorCases) == 0 {
+		fmt.Fprintf(w, "  - no operator cases matched status filter %q\n\n", r.StatusFilter)
+		return nil
+	}
+	renderControlOperatorCases(w, r.OperatorCases, 10)
+	fmt.Fprintf(w, "  Evidence model:\n")
+	fmt.Fprintf(w, "    - Cases are derived from deterministic facts, graph edges, architecture flaws, and missing hard-barrier controls.\n")
+	fmt.Fprintf(w, "    - Use `ariadne controls --format json` for the full control catalog and lower-level verification tasks.\n")
+	fmt.Fprintln(w)
+	return nil
+}
+
 func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error {
 	fmt.Fprintf(w, "Ariadne control evidence catalog:\n")
 	if r.TargetPath != "" {
@@ -1010,6 +1085,38 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func rewriteControlCatalogAsCaseBoard(catalog *model.ControlCatalogReport) {
+	for i := range catalog.OperatorCases {
+		catalog.OperatorCases[i].RerunCommands = caseBoardRerunCommands(catalog.OperatorCases[i].RerunCommands)
+		catalog.OperatorCases[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.OperatorCases[i].SuccessCriteria)
+	}
+	for i := range catalog.Workstreams {
+		catalog.Workstreams[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.Workstreams[i].SuccessCriteria)
+	}
+	for i := range catalog.VerificationTasks {
+		catalog.VerificationTasks[i].RerunCommands = caseBoardRerunCommands(catalog.VerificationTasks[i].RerunCommands)
+		catalog.VerificationTasks[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.VerificationTasks[i].SuccessCriteria)
+	}
+}
+
+func caseBoardRerunCommands(commands []string) []string {
+	out := make([]string, 0, len(commands))
+	for _, command := range commands {
+		out = append(out, strings.ReplaceAll(command, "ariadne controls", "ariadne cases"))
+	}
+	return out
+}
+
+func caseBoardSuccessCriteria(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.ReplaceAll(item, "control catalog workstreams", "operator case board")
+		item = strings.ReplaceAll(item, "controls output", "case board")
+		out = append(out, item)
+	}
+	return out
 }
 
 func controlProofSpecsByControl(items []model.ControlProofSpec) map[string]model.ControlProofSpec {

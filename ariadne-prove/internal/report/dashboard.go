@@ -148,6 +148,36 @@ func renderControlCatalogDashboard(w io.Writer, r model.ControlCatalogReport) er
 	return nil
 }
 
+func renderControlCaseBoardDashboard(w io.Writer, r model.ControlCatalogReport) error {
+	title := "Ariadne Operator Case Board"
+	if r.RunKind == "case_board_scan" {
+		title = "Ariadne Fleet Operator Case Board"
+	}
+	fmt.Fprintln(w, "<!doctype html>")
+	fmt.Fprintln(w, `<html lang="en">`)
+	renderDashboardHead(w, title)
+	fmt.Fprintln(w, "<body>")
+	fmt.Fprintln(w, `<main class="shell">`)
+	fields := []kv{
+		{"Run kind", firstNonEmpty(r.RunKind, "case_board")},
+		{"Mode", firstNonEmpty(r.Mode, "unknown")},
+		{"Agent", firstNonEmpty(r.Agent, "unknown")},
+		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
+	}
+	if r.TargetPath != "" {
+		fields[0] = kv{"Target", r.TargetPath}
+	}
+	renderDashboardHeader(w, title, fields)
+	renderCaseBoardSummaryDashboard(w, r)
+	renderControlOperatorCasesDashboard(w, r.OperatorCases)
+	renderCaseBoardEvidenceModelDashboard(w)
+	renderRunNotes(w, nil, r.Limitations)
+	fmt.Fprintln(w, "</main>")
+	fmt.Fprintln(w, "</body>")
+	fmt.Fprintln(w, "</html>")
+	return nil
+}
+
 type kv struct {
 	Key   string
 	Value string
@@ -560,6 +590,51 @@ func renderControlCatalogSummaryDashboard(w io.Writer, r model.ControlCatalogRep
 		{"Proof specs", fmt.Sprintf("%d", len(r.ProofSpecs))},
 		{"Verification tasks", fmt.Sprintf("%d", len(r.VerificationTasks))},
 	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderCaseBoardSummaryDashboard(w io.Writer, r model.ControlCatalogReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Case Queue</h2><div class="subtle">Architecture break paths grouped into the smallest useful set of operator decisions.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"Open cases", fmt.Sprintf("%d", len(r.OperatorCases))},
+		{"Missing controls", fmt.Sprintf("%d", r.Summary.Controls)},
+		{"Critical controls", fmt.Sprintf("%d", r.Summary.Critical)},
+		{"High controls", fmt.Sprintf("%d", r.Summary.High)},
+		{"Affected flaws", fmt.Sprintf("%d", r.Summary.Flaws)},
+	})
+	renderMetricRow(w, []kv{
+		{"Affected targets", fmt.Sprintf("%d", r.Summary.Targets)},
+		{"Proof specs", fmt.Sprintf("%d", len(r.ProofSpecs))},
+		{"Verification tasks", fmt.Sprintf("%d", len(r.VerificationTasks))},
+		{"Workstreams", fmt.Sprintf("%d", len(r.Workstreams))},
+		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
+	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderCaseBoardEvidenceModelDashboard(w io.Writer) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Evidence Model</h2><div class="subtle">Why these cases are facts-first and how to move from case to closure.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Layer</th><th>What Ariadne uses</th><th>Operator use</th></tr></thead><tbody>")
+	rows := []struct {
+		layer string
+		fact  string
+		use   string
+	}{
+		{"Evidence", "Observed files, parsed configs, graph edges, evidence references, and redaction metadata.", "Trace a case back to the source facts before deciding whether it matters."},
+		{"Case", "Architecture flaws grouped by break path, affected targets, missing hard barriers, and proof surfaces.", "Pick the case that closes the most important path instead of chasing every control row."},
+		{"Closure", "Parser-recognized indicators, evidence examples, rerun commands, and done criteria.", "Add or verify evidence, rerun Ariadne, and confirm the case disappears or becomes controlled."},
+	}
+	for _, row := range rows {
+		fmt.Fprintf(w, "<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td></tr>", esc(row.layer), esc(row.fact), esc(row.use))
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 

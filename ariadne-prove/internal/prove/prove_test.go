@@ -2869,6 +2869,77 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	}
 }
 
+func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderCases(&table, r, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne operator case board:",
+		"Run: case_board",
+		"Case queue:",
+		"Operator cases:",
+		"case:input-trust-boundary",
+		"Evidence references:",
+		"Start with:",
+		"Prove at:",
+		"Rerun:",
+		"ariadne cases --path",
+		"Done when:",
+		"Evidence model:",
+		"Use `ariadne controls --format json`",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("operator case board table missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "  Controls:\n") {
+		t.Fatalf("operator case board should not render raw control rows by default:\n%s", out)
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderCases(&jsonOut, r, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ControlCatalogReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "case_board" {
+		t.Fatalf("unexpected case board run kind: %+v", decoded)
+	}
+	if !hasControlOperatorCase(decoded.OperatorCases, "case:input-trust-boundary", "control:input-isolation", ".ariadne/input-policy.json", "input_isolation") {
+		t.Fatalf("case board should include actionable input-trust case: %+v", decoded.OperatorCases)
+	}
+	if !operatorCaseHasRerun(decoded.OperatorCases, "case:input-trust-boundary", "ariadne cases --path") {
+		t.Fatalf("case board should point reruns back to ariadne cases: %+v", decoded.OperatorCases)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderCases(&htmlOut, r, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Operator Case Board",
+		"Case Queue",
+		"Operator Cases",
+		"case:input-trust-boundary",
+		"Evidence Model",
+		"Architecture break paths grouped",
+		"ariadne cases --path",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("operator case board dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
@@ -2950,6 +3021,64 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("fleet control catalog dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
+	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderCasesScan(&table, scan, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne operator case board:",
+		"Run: case_board_scan",
+		"Case queue:",
+		"case:input-trust-boundary",
+		"ariadne cases --targets <targets-file>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("operator case board scan table missing %q:\n%s", want, out)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderCasesScan(&jsonOut, scan, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ControlCatalogReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "case_board_scan" {
+		t.Fatalf("unexpected fleet case board run kind: %+v", decoded)
+	}
+	if !hasControlOperatorCase(decoded.OperatorCases, "case:input-trust-boundary", "control:input-isolation", ".ariadne/input-policy.json", "input_isolation") {
+		t.Fatalf("fleet case board should include actionable cases: %+v", decoded.OperatorCases)
+	}
+	if !operatorCaseHasRerun(decoded.OperatorCases, "case:input-trust-boundary", "ariadne cases --targets <targets-file>") {
+		t.Fatalf("fleet case board should point reruns back to ariadne cases: %+v", decoded.OperatorCases)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderCasesScan(&htmlOut, scan, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Fleet Operator Case Board",
+		"Case Queue",
+		"Operator Cases",
+		"case:input-trust-boundary",
+		"ariadne cases --targets &lt;targets-file&gt;",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("fleet operator case board dashboard missing %q:\n%s", want, rendered)
 		}
 	}
 }
@@ -3751,6 +3880,20 @@ func hasControlOperatorCase(items []model.ControlOperatorCase, id string, contro
 		}
 		if hasControl && hasSurface && hasExample && len(item.EvidenceReferences) > 0 && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
 			return true
+		}
+	}
+	return false
+}
+
+func operatorCaseHasRerun(items []model.ControlOperatorCase, id string, commandPrefix string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		for _, command := range item.RerunCommands {
+			if strings.Contains(command, commandPrefix) {
+				return true
+			}
 		}
 	}
 	return false

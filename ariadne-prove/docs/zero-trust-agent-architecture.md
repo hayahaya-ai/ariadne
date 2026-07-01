@@ -582,13 +582,18 @@ For the shortest CLI readout, use:
 ```bash
 ariadne architecture --path .
 ariadne architecture --targets targets.txt
+ariadne cases --path .
+ariadne cases --targets targets.txt
 ariadne architecture --path . --status all --format json
 ariadne architecture --path . --format html --out architecture-dashboard.html
+ariadne cases --path . --format html --out cases-dashboard.html
 ariadne architecture --targets targets.txt --format html --out fleet-architecture.html
 ariadne architecture --path . --mode endpoint --include-sensitive-paths
 ```
 
 `ariadne architecture` defaults to `--status breaking`, so the first output answers where the architecture is currently breaking. Use `--format html` for a focused local operator dashboard. Use `--targets` to group the same architecture flaws across a fleet target list. Use `--status unknown`, `--status controlled`, `--status observed`, or `--status all` when triaging evidence gaps or validating controls.
+
+`ariadne cases` is the case-first operator view. Use it after `architecture` when the question is "what should I close first, where is the evidence, and how do I prove the path is broken?" It uses the same deterministic architecture and control evidence, but leads with operator cases instead of raw control rows.
 
 Start with:
 
