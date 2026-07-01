@@ -60,10 +60,15 @@
     },
     "zero_trust": {
       "type": "object",
-      "required": ["framework_version", "summary", "coverage", "maturity", "checks"],
+      "required": ["framework_version", "summary", "architecture_summary", "architecture_flaws", "coverage", "maturity", "checks"],
       "properties": {
         "framework_version": { "const": "ariadne.zero_trust_agent/v1" },
         "summary": { "$ref": "#/$defs/zero_trust_summary" },
+        "architecture_summary": { "$ref": "#/$defs/zero_trust_summary" },
+        "architecture_flaws": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_architecture" }
+        },
         "coverage": { "$ref": "#/$defs/zero_trust_coverage" },
         "maturity": { "$ref": "#/$defs/zero_trust_maturity" },
         "checks": {
@@ -171,6 +176,32 @@
         },
         "graph_edges": { "type": "array", "items": { "type": "string" } },
         "controls": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "zero_trust_architecture": {
+      "type": "object",
+      "required": ["id", "title", "status", "severity", "principle", "tier", "boundaries", "check_ids", "finding", "why_it_matters", "evidence", "graph_edges", "control_evidence_needed", "evidence_surfaces", "actions"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["breaking", "controlled", "unknown", "not_observed"] },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+        "principle": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "boundaries": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "finding": { "type": "string" },
+        "why_it_matters": { "type": "string" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_evidence" }
+        },
+        "graph_edges": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "control_evidence_needed": { "type": "array", "items": { "type": "string" } },
+        "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
         "actions": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
       }

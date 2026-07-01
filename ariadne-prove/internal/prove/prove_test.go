@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -2764,6 +2765,97 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	}
 }
 
+func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
+	reportSchema := loadSchema(t, "ariadne-report-v1.schema.json")
+	zeroTrust := schemaMap(t, reportSchema, "$defs", "zero_trust")
+	assertRequiredKeys(t, zeroTrust, "architecture_summary", "architecture_flaws")
+	assertSchemaProperty(t, zeroTrust, "architecture_summary")
+	assertSchemaProperty(t, zeroTrust, "architecture_flaws")
+
+	architectureSchema := loadSchema(t, "ariadne-architecture-v1.schema.json")
+	assertRequiredKeys(t, architectureSchema,
+		"schema_version",
+		"run_id",
+		"generated_at",
+		"mode",
+		"agent",
+		"framework_version",
+		"status_filter",
+		"summary",
+		"overall_summary",
+		"evidence_coverage",
+		"maturity",
+		"boundary_coverage",
+		"flaws",
+		"redaction",
+		"limitations",
+	)
+	boundary := schemaMap(t, architectureSchema, "$defs", "architecture_boundary")
+	assertRequiredKeys(t, boundary,
+		"check_id",
+		"boundary",
+		"status_counts",
+		"target_count",
+		"evidence_sources",
+		"controls",
+		"control_evidence_needed",
+		"evidence_surfaces",
+		"missing_evidence",
+		"next_collectors",
+	)
+
+	architectureScanSchema := loadSchema(t, "ariadne-architecture-scan-v1.schema.json")
+	assertRequiredKeys(t, architectureScanSchema,
+		"schema_version",
+		"run_id",
+		"generated_at",
+		"run_kind",
+		"mode",
+		"agent",
+		"status_filter",
+		"summary",
+		"boundary_coverage",
+		"groups",
+		"targets",
+		"redaction",
+		"limitations",
+	)
+	group := schemaMap(t, architectureScanSchema, "$defs", "architecture_flaw_group")
+	assertRequiredKeys(t, group,
+		"id",
+		"title",
+		"status_counts",
+		"target_count",
+		"targets",
+		"control_evidence_needed",
+		"evidence_surfaces",
+		"evidence_sources",
+		"actions",
+	)
+}
+
+func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	architecture, err := report.BuildArchitectureReport(r, "breaking")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-v1.schema.json", architecture)
+
+	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	architectureScan, err := report.BuildArchitectureScanReport(scan, "breaking")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-scan-v1.schema.json", architectureScan)
+}
+
 func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {
@@ -2985,6 +3077,116 @@ func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {
 func hasGraphNodeType(g model.Graph, nodeType string) bool {
 	for _, node := range g.Nodes {
 		if node.Type == nodeType {
+			return true
+		}
+	}
+	return false
+}
+
+func loadSchema(t *testing.T, name string) map[string]any {
+	t.Helper()
+	path, err := filepath.Abs(filepath.Join("..", "..", "schema", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(blob, &schema); err != nil {
+		t.Fatalf("invalid schema JSON %s: %v", name, err)
+	}
+	return schema
+}
+
+func schemaMap(t *testing.T, root map[string]any, keys ...string) map[string]any {
+	t.Helper()
+	var current any = root
+	for _, key := range keys {
+		obj, ok := current.(map[string]any)
+		if !ok {
+			t.Fatalf("schema path %v reached non-object %T", keys, current)
+		}
+		current, ok = obj[key]
+		if !ok {
+			t.Fatalf("schema path missing %q in %v", key, keys)
+		}
+	}
+	obj, ok := current.(map[string]any)
+	if !ok {
+		t.Fatalf("schema path %v = %T, want object", keys, current)
+	}
+	return obj
+}
+
+func assertSchemaProperty(t *testing.T, schema map[string]any, property string) {
+	t.Helper()
+	properties := schemaMap(t, schema, "properties")
+	if _, ok := properties[property]; !ok {
+		t.Fatalf("schema missing property %q", property)
+	}
+}
+
+func assertRequiredKeys(t *testing.T, schema map[string]any, keys ...string) {
+	t.Helper()
+	raw, ok := schema["required"].([]any)
+	if !ok {
+		t.Fatalf("schema missing required array")
+	}
+	required := make([]string, 0, len(raw))
+	for _, item := range raw {
+		value, ok := item.(string)
+		if !ok {
+			t.Fatalf("schema required item has type %T", item)
+		}
+		required = append(required, value)
+	}
+	for _, key := range keys {
+		if !containsExactString(required, key) {
+			t.Fatalf("schema required keys missing %q in %v", key, required)
+		}
+	}
+}
+
+func assertJSONHasSchemaRequiredFields(t *testing.T, schemaName string, value any) {
+	t.Helper()
+	schema := loadSchema(t, schemaName)
+	blob, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(blob, &doc); err != nil {
+		t.Fatal(err)
+	}
+	raw, ok := schema["required"].([]any)
+	if !ok {
+		t.Fatalf("schema %s missing required array", schemaName)
+	}
+	for _, item := range raw {
+		key, ok := item.(string)
+		if !ok {
+			t.Fatalf("schema %s required item has type %T", schemaName, item)
+		}
+		if _, ok := doc[key]; !ok {
+			t.Fatalf("JSON for %s missing required field %q; keys=%v", schemaName, key, sortedMapKeys(doc))
+		}
+	}
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func containsExactString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
 			return true
 		}
 	}

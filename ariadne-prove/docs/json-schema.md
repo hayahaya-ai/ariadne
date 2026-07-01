@@ -119,6 +119,21 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 
 `breaking` is reserved for graph-backed paths or missing break-path controls. Missing input isolation, identity, credential, workload authorization, or telemetry evidence is reported as `unknown` until Ariadne collects deterministic facts that prove the boundary.
 
+`ariadne architecture --format json` emits a focused architecture contract with:
+
+- `summary` and `overall_summary`
+- `evidence_coverage`
+- `maturity`
+- `boundary_coverage`
+- `flaws`
+
+`ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
+
+- `summary`
+- `boundary_coverage`
+- `groups`
+- `targets`
+
 LLM review mode uses two JSON payloads:
 
 - request packet: `ariadne.llm_review_request/v1`
@@ -159,3 +174,5 @@ Draft schemas are available in:
 
 - [schema/ariadne-report-v1.schema.json](../schema/ariadne-report-v1.schema.json)
 - [schema/ariadne-scan-v1.schema.json](../schema/ariadne-scan-v1.schema.json)
+- [schema/ariadne-architecture-v1.schema.json](../schema/ariadne-architecture-v1.schema.json)
+- [schema/ariadne-architecture-scan-v1.schema.json](../schema/ariadne-architecture-scan-v1.schema.json)
