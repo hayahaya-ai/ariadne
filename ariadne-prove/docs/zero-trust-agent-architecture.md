@@ -31,6 +31,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
 - Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
 - Response and containment boundary: whether suspicious agent behavior can trigger containment that terminates sessions, revokes credentials, quarantines workloads, or reduces authority.
+- Deployment governance boundary: whether observed agent deployments are registered, owned, approved, risk-assessed, and reviewed instead of unmanaged Shadow AI.
 - Configuration integrity boundary: whether agent settings, MCP definitions, and policy files are reviewable, tamper-evident, centrally enforced, or immutable.
 - Control boundary: whether controls remove a path or only add friction.
 
@@ -50,6 +51,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
 | Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
 | A compromised agent keeps operating while humans investigate | Response and containment boundary | Modeled today through behavioral monitoring, automated triage, session termination, credential revocation, quarantine, dynamic access reduction, and response escalation declarations. |
+| Employees or teams run agents outside accountable governance | Deployment governance boundary | Modeled today through agent inventory, accountable owner, deployment approval, risk assessment, governance review, and Shadow AI discovery declarations. |
 | Memory or context persists across sessions without isolation or provenance | Memory and context boundary | Modeled today through private-context surfaces, retention policy, memory isolation, context integrity, and provenance declarations. |
 | Agent config can be silently changed to widen authority or disable controls | Configuration integrity boundary | Modeled today through reviewed version-controlled config, signed deployment verification, managed-settings enforcement, immutable runtime, and rollback evidence. |
 
@@ -94,6 +96,7 @@ Examples of controls Ariadne can model today:
 - observed structured transcript metadata for tool-call events, approval decisions, request IDs, trace IDs, and timestamped action records
 - telemetry export and immutable audit log declarations from observability policy or OpenTelemetry collector config
 - behavioral monitoring, automated triage, session termination, credential revocation, containment quarantine, dynamic access reduction, and response escalation declarations
+- agent inventory, accountable owner, deployment approval, risk assessment, governance review, and Shadow AI discovery declarations
 - memory, transcript, or context retention declarations
 - memory isolation, context integrity, and context provenance declarations
 - version-controlled config, config review, signed config, deployment verification, managed-settings enforcement, immutable runtime, and rollback declarations
@@ -109,6 +112,7 @@ Examples Ariadne reports as `unknown` today:
 - sandbox or network restriction evidence without identity-aware workload authorization evidence
 - tamper-resistant audit logs without immutable-log or equivalent evidence
 - automated triage, behavioral monitoring, or response runbooks without a capability-removing action such as session termination, credential revocation, quarantine, or dynamic access reduction
+- governance inventory or ownership evidence without deployment approval, risk assessment, and review evidence
 - configuration version-control evidence without review, or signed-config evidence without deployment verification
 - live behavioral telemetry
 
@@ -120,6 +124,7 @@ Examples Ariadne reports as `breaking` when observed:
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
 - delegated or sub-agent authority inheritance without observed hard delegation controls
 - supported exposed paths without observed automated containment controls
+- risk-bearing agent surfaces without observed registration, owner, approval, risk assessment, and review evidence
 
 ## Foundation Maturity
 
@@ -139,6 +144,7 @@ Foundation requirements currently modeled:
 - Approval escalation for high-risk actions.
 - Context retention policy for persisted agent memory.
 - Automated first-pass investigation and containment for agent alerts.
+- Registered, owned, approved, risk-assessed, and reviewed agent deployments.
 
 Control quality values are intentionally blunt:
 
@@ -334,6 +340,30 @@ Repositories can declare focused response and containment controls in `.ariadne/
 ```
 
 Ariadne treats response as controlled only when detection or triage evidence is paired with a capability-removing action such as session termination, credential revocation, quarantine, or dynamic access reduction, plus audit, trace, telemetry, or escalation evidence. Triage, monitoring, or runbook evidence alone is reported as partial because it does not stop a compromised agent from continuing to operate.
+
+Repositories can declare focused deployment governance controls in `.ariadne/governance-policy.json`:
+
+```json
+{
+  "agent_inventory": {
+    "registered_agents": ["codex-local-appsec-review"]
+  },
+  "deployment_owner": {
+    "responsible_team": "appsec"
+  },
+  "deployment_approval": true,
+  "risk_assessment": {
+    "risk_tier": "medium",
+    "data_classification": "developer-secrets"
+  },
+  "governance_audit": {
+    "review_cadence": "quarterly"
+  },
+  "shadow_ai_discovery": true
+}
+```
+
+Ariadne treats governance as controlled only when it observes inventory, accountable ownership, deployment approval, risk assessment, and governance review evidence. Shadow AI discovery is reported as useful evidence, but it does not by itself prove the observed deployment is approved or accountable.
 
 Repositories can declare persisted-context controls in `.ariadne/memory-policy.json`:
 

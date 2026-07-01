@@ -538,6 +538,17 @@ func BuildGraph(c model.Collection) model.Graph {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: authority.ID})
 			}
 		}
+		if controlGovernsDeployment(control.ID) {
+			for _, runtime := range c.Runtimes {
+				addEdge(model.Edge{From: control.ID, Type: "governs", To: runtime.ID})
+			}
+			for _, tool := range c.Tools {
+				addEdge(model.Edge{From: control.ID, Type: "governs", To: tool.ID})
+			}
+			for _, authority := range c.Authorities {
+				addEdge(model.Edge{From: control.ID, Type: "governs", To: authority.ID})
+			}
+		}
 		if controlRestrictsConfig(control.ID) {
 			for _, runtime := range c.Runtimes {
 				if runtime.Scope == "" {
@@ -597,6 +608,20 @@ func controlRestrictsAuthority(controlID, authorityID string) bool {
 		return true
 	case "control:containment-quarantine":
 		return authorityID == "authority:external-communication" || authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
+	default:
+		return false
+	}
+}
+
+func controlGovernsDeployment(controlID string) bool {
+	switch controlID {
+	case "control:agent-inventory",
+		"control:deployment-owner",
+		"control:deployment-approval",
+		"control:risk-assessment",
+		"control:governance-audit",
+		"control:shadow-ai-discovery":
+		return true
 	default:
 		return false
 	}

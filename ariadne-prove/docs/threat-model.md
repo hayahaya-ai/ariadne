@@ -20,6 +20,7 @@ Ariadne focuses on local AI-agent exposure management.
 - external destinations
 - policy and control surfaces
 - response and containment controls
+- deployment governance records
 
 ## Supported Exposure Questions
 
@@ -32,6 +33,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation?
 - Does a declared control break a modeled path?
 - Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-aware workload authorization, approval, sandbox, audit, traceability, input isolation, input validation, automated triage, containment, or retention controls?
+- Is the agent deployment registered, owned, approved, risk-assessed, reviewed, or still effectively Shadow AI?
 - Are agent settings, MCP definitions, and policy files protected by review, signatures, managed enforcement, immutable runtime, or rollback controls?
 - Does configuration contain inline credential field indicators?
 
@@ -50,6 +52,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Is persisted memory or context isolated from unrelated sessions and broad local authority?
 - Would operators have enough audit evidence to reconstruct agent actions and approvals?
 - Can suspicious agent behavior trigger containment that terminates sessions, revokes credentials, quarantines the workload, or reduces authority?
+- Is the deployment governed by an inventory, accountable owner, approval process, risk tier, data classification, and review cadence?
 - Can agent configuration be silently changed to widen authority or disable controls?
 
 Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`. It only reports `breaking` when deterministic facts and graph edges support the claim.
@@ -68,6 +71,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - live prompt-injection resistance testing
 - live observability, SIEM, telemetry ingestion, or tamper-resistant audit proof
 - live SOAR execution, session termination, credential revocation, quarantine, or dynamic access-reduction enforcement proof
+- live GRC, CMDB, approval workflow, policy exception, or organization-wide Shadow AI discovery verification
 - Git branch protection, signature verification, MDM enforcement, admission policy, or rollback execution proof
 - runtime enforcement
 

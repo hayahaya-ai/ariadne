@@ -1,0 +1,17 @@
+{
+  "agent_inventory": {
+    "registered_agents": ["codex-local-appsec-review", "claude-local-appsec-review"]
+  },
+  "deployment_owner": {
+    "responsible_team": "appsec"
+  },
+  "deployment_approval": true,
+  "risk_assessment": {
+    "risk_tier": "medium",
+    "data_classification": "developer-secrets"
+  },
+  "governance_audit": {
+    "review_cadence": "quarterly"
+  },
+  "shadow_ai_discovery": true
+}

@@ -131,6 +131,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectObservabilityPolicy(c, s)
 	case "response-policy":
 		collectResponsePolicy(c, s)
+	case "governance-policy":
+		collectGovernancePolicy(c, s)
 	case "opentelemetry-config":
 		collectTelemetryConfig(c, s)
 	case "claude-plugin-config", "claude-installed-plugins":
@@ -558,6 +560,31 @@ func collectResponseControls(c *model.Collection, runtime, source, text string) 
 	}
 }
 
+func collectGovernanceControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Governance policy"
+	if runtime != "" {
+		prefix = runtime + " governance policy"
+	}
+	if agentInventoryConfigured(text) {
+		addControl(c, "control:agent-inventory", "agent-inventory", runtime, source, prefix+" declares registered or cataloged agent deployments.")
+	}
+	if deploymentOwnerConfigured(text) {
+		addControl(c, "control:deployment-owner", "deployment-owner", runtime, source, prefix+" declares accountable owner, service owner, or responsible team for agent deployment.")
+	}
+	if deploymentApprovalConfigured(text) {
+		addControl(c, "control:deployment-approval", "deployment-approval", runtime, source, prefix+" declares an approval process for new or changed agent deployments.")
+	}
+	if riskAssessmentConfigured(text) {
+		addControl(c, "control:risk-assessment", "risk-assessment", runtime, source, prefix+" declares risk tier, impact assessment, or data classification for agent deployment.")
+	}
+	if governanceAuditConfigured(text) {
+		addControl(c, "control:governance-audit", "governance-audit", runtime, source, prefix+" declares governance review, audit trail, or compliance review evidence.")
+	}
+	if shadowAIDiscoveryConfigured(text) {
+		addControl(c, "control:shadow-ai-discovery", "shadow-ai-discovery", runtime, source, prefix+" declares discovery or detection for unmanaged AI or unauthorized agent usage.")
+	}
+}
+
 func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -668,6 +695,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	collectConfigIntegrityControls(c, "", s.Source, text)
 	collectEgressControls(c, s.Source, text)
 	collectResponseControls(c, "", s.Source, text)
+	collectGovernanceControls(c, "", s.Source, text)
 }
 
 func collectToolPolicy(c *model.Collection, s model.Surface) {
@@ -707,6 +735,15 @@ func collectResponsePolicy(c *model.Collection, s model.Surface) {
 		addControl(c, "control:immutable-audit-log", "immutable-audit-log", "", s.Source, "Response policy declares append-only or immutable response logs.")
 	}
 	collectResponseControls(c, "", s.Source, text)
+}
+
+func collectGovernancePolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	collectGovernanceControls(c, "", s.Source, text)
 }
 
 func collectInputPolicy(c *model.Collection, s model.Surface) {
@@ -1909,6 +1946,66 @@ func responseEscalationConfigured(text string) bool {
 		strings.Contains(text, "human_containment_review") ||
 		strings.Contains(text, "human_approval_for_high_impact_response") ||
 		strings.Contains(text, "incident_response_runbook")
+}
+
+func agentInventoryConfigured(text string) bool {
+	return strings.Contains(text, "agent_inventory") ||
+		strings.Contains(text, "agent_registry") ||
+		strings.Contains(text, "registered_agents") ||
+		strings.Contains(text, "approved_agents") ||
+		strings.Contains(text, "deployment_catalog") ||
+		strings.Contains(text, "ai_inventory") ||
+		strings.Contains(text, "llm_inventory")
+}
+
+func deploymentOwnerConfigured(text string) bool {
+	return strings.Contains(text, "deployment_owner") ||
+		strings.Contains(text, "accountable_owner") ||
+		strings.Contains(text, "business_owner") ||
+		strings.Contains(text, "security_owner") ||
+		strings.Contains(text, "service_owner") ||
+		strings.Contains(text, "responsible_team") ||
+		strings.Contains(text, "owning_team")
+}
+
+func deploymentApprovalConfigured(text string) bool {
+	return strings.Contains(text, "deployment_approval") ||
+		strings.Contains(text, "new_agent_approval") ||
+		strings.Contains(text, "agent_approval_process") ||
+		strings.Contains(text, "governance_approval") ||
+		strings.Contains(text, "approved_deployment") ||
+		strings.Contains(text, "approval_process") ||
+		strings.Contains(text, "change_approval_required")
+}
+
+func riskAssessmentConfigured(text string) bool {
+	return strings.Contains(text, "risk_assessment") ||
+		strings.Contains(text, "risk_tier") ||
+		strings.Contains(text, "risk_rating") ||
+		strings.Contains(text, "impact_assessment") ||
+		strings.Contains(text, "data_classification") ||
+		strings.Contains(text, "sensitivity_classification") ||
+		strings.Contains(text, "business_impact")
+}
+
+func governanceAuditConfigured(text string) bool {
+	return strings.Contains(text, "governance_audit") ||
+		strings.Contains(text, "governance_review") ||
+		strings.Contains(text, "policy_review") ||
+		strings.Contains(text, "periodic_review") ||
+		strings.Contains(text, "compliance_review") ||
+		strings.Contains(text, "governance_audit_trail") ||
+		strings.Contains(text, "review_cadence")
+}
+
+func shadowAIDiscoveryConfigured(text string) bool {
+	return strings.Contains(text, "shadow_ai_detection") ||
+		strings.Contains(text, "shadow_ai_discovery") ||
+		strings.Contains(text, "unauthorized_llm_detection") ||
+		strings.Contains(text, "unapproved_ai_detection") ||
+		strings.Contains(text, "unmanaged_agent_detection") ||
+		strings.Contains(text, "ai_usage_discovery") ||
+		strings.Contains(text, "llm_usage_discovery")
 }
 
 func contextRetentionConfigured(text string) bool {

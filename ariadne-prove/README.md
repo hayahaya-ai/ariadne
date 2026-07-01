@@ -48,6 +48,7 @@ Current checks cover:
 - workload authorization boundary
 - observability boundary
 - response and containment boundary
+- deployment governance boundary
 - configuration integrity boundary
 - control strength: impossible versus tedious
 
@@ -63,6 +64,7 @@ The same `zero_trust` object also includes a Foundation maturity evidence readou
 - approval escalation with audit evidence
 - context retention controls
 - automated first-pass investigation and containment for agent alerts
+- registered, owned, approved, risk-assessed, and reviewed agent deployments
 
 Each requirement reports a status, control quality such as `hard_barrier`, `friction_only`, or `evidence_gap`, evidence references, missing evidence, and next actions.
 
@@ -189,6 +191,7 @@ Current deterministic discovery covers:
 - `.ariadne/integrity-policy.json` declarations for reviewed config, signed config, managed settings enforcement, immutable runtime, and rollback controls
 - `.ariadne/observability-policy.json` declarations for audit, trace, telemetry export, and immutable log controls
 - `.ariadne/response-policy.json` declarations for behavioral monitoring, automated triage, session termination, credential revocation, quarantine, dynamic access reduction, and response escalation controls
+- `.ariadne/governance-policy.json` declarations for agent inventory, accountable owner, deployment approval, risk assessment, governance review, and Shadow AI discovery controls
 - OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`
 - scoped runtime permission evidence such as deny-by-default mode, scoped Claude `Read(...)` / `Bash(...)` entries, and Codex read-only or workspace-write sandbox posture
 - structured `.jsonl` transcript or history metadata for tool-call, approval, action-log, request, and trace evidence

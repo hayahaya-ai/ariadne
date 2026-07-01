@@ -23,6 +23,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		workloadAuthorizationBoundary(c, g),
 		observabilityBoundary(c),
 		responseBoundary(c, g, exposures),
+		governanceBoundary(c, g),
 		configIntegrityBoundary(c, g),
 		controlStrengthBoundary(c, g, exposures),
 	}
@@ -512,6 +513,46 @@ func responseBoundary(c model.Collection, g model.Graph, exposures []model.Expos
 	}
 }
 
+func governanceBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	controls := controlIDs(c, governanceControlIDs()...)
+	controlEvidence := controlsEvidence(c, governanceControlIDs()...)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent runtime, tool, or authority surface was observed."
+	if hasGovernanceRelevantSurface(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Agent surfaces exist, but Ariadne did not observe deployment inventory, ownership, approval, risk assessment, or governance review evidence."
+	}
+	if len(controlEvidence) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed governance evidence, but not enough to prove the deployment is registered, owned, approved, risk-assessed, and reviewed."
+	}
+	if hasRiskBearingDeployment(c) && !hasHardGovernanceBoundary(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Risk-bearing agent surfaces exist without observed governance evidence for registration, accountable owner, approval, risk assessment, and review."
+	}
+	if hasGovernanceRelevantSurface(c) && hasHardGovernanceBoundary(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed governance evidence for registered inventory, accountable ownership, deployment approval, risk assessment, and governance review."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:governance-boundary",
+		Principle:  "Never trust, always verify",
+		Boundary:   "Deployment governance boundary",
+		Tier:       "foundation",
+		Status:     status,
+		DesignTest: "Agent deployments should be registered, owned, approved, risk-classified, and reviewable before technical controls can be trusted to match organizational intent.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, configSurfaceEvidence(c), runtimeEvidence(c), toolEvidence(c)), 8),
+		GraphEdges: governanceEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Register agent deployments with owner, purpose, risk tier, data classification, and approval status.",
+			"Review unmanaged local agent usage as Shadow AI until ownership and approval evidence exists.",
+		},
+		Limitations: []string{"Ariadne detects local governance declarations, but does not validate enterprise GRC systems, CMDB records, approval workflows, or organization-wide Shadow AI discovery coverage."},
+	}
+}
+
 func configIntegrityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 	configEvidence := configSurfaceEvidence(c)
 	controls := controlIDs(c, configIntegrityControlIDs()...)
@@ -635,6 +676,7 @@ func maturity(c model.Collection) model.ZeroTrustMaturity {
 		requireApprovalEscalation(c),
 		requireContextRetention(c),
 		requireAutomatedTriage(c),
+		requireDeploymentGovernance(c),
 	}
 	for i := range requirements {
 		requirements[i] = normalizeRequirement(requirements[i])
@@ -1132,6 +1174,60 @@ func requireAutomatedTriage(c model.Collection) model.ZeroTrustRequirement {
 	)
 }
 
+func requireDeploymentGovernance(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, governanceControlIDs()...)
+	evidence := firstEvidence(
+		controlsEvidence(c, governanceControlIDs()...),
+		configSurfaceEvidence(c),
+		runtimeEvidence(c),
+		toolEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported agent deployment surface was observed, so Ariadne did not evaluate deployment governance."
+	missing := []string{"agent inventory evidence", "accountable owner", "deployment approval and risk assessment"}
+	if hasGovernanceRelevantSurface(c) {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent deployment surfaces exist, but Ariadne did not observe inventory, owner, approval, risk assessment, and governance review evidence."
+	}
+	if len(controls) > 0 && !hasHardGovernanceBoundary(c) {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed governance evidence, but not enough to prove registered inventory, accountable owner, deployment approval, risk assessment, and review."
+		missing = []string{"deployment approval evidence", "risk tier or data classification evidence", "governance review evidence"}
+	}
+	if hasRiskBearingDeployment(c) && !hasHardGovernanceBoundary(c) {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "Risk-bearing agent surfaces exist without complete deployment governance evidence."
+		missing = []string{"agent inventory evidence", "accountable owner", "deployment approval", "risk assessment", "governance review"}
+	}
+	if hasGovernanceRelevantSurface(c) && hasHardGovernanceBoundary(c) {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed registered inventory, accountable ownership, deployment approval, risk assessment, and governance review evidence."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:deployment-governance",
+		"foundation",
+		"Never trust, always verify",
+		"Registered, owned, approved, risk-assessed, and reviewed agent deployments",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Register agent deployments with owner, purpose, risk tier, and data classification.",
+			"Require approval and review cadence for new or changed agent deployments.",
+			"Treat unregistered risk-bearing local agents as Shadow AI until governance evidence exists.",
+		},
+	)
+}
+
 func zeroTrustRequirement(id, tier, principle, capability string, status model.ZeroTrustStatus, quality, finding string, evidence []model.ZeroTrustEvidence, controls, missing, actions []string) model.ZeroTrustRequirement {
 	return model.ZeroTrustRequirement{
 		ID:              id,
@@ -1295,6 +1391,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without containment evidence, a compromised agent can keep operating with valid authority while humans investigate."
 		gap.NextCollector = "Collect response policy, SOAR workflow metadata, session termination controls, credential revocation policy, quarantine actions, dynamic access reduction policy, and response audit evidence."
+	case "zt:governance-boundary":
+		gap.MissingEvidence = []string{
+			"agent inventory or registry evidence",
+			"accountable owner or responsible team",
+			"deployment approval, risk assessment, data classification, and governance review evidence",
+		}
+		gap.WhyItMatters = "Without governance evidence, Ariadne cannot tell whether observed agent authority is an approved deployment or unmanaged Shadow AI."
+		gap.NextCollector = "Collect governance policy, agent inventory, owner metadata, deployment approval, risk tier, data classification, review cadence, and Shadow AI discovery evidence."
 	case "zt:config-integrity-boundary":
 		gap.MissingEvidence = []string{
 			"reviewed version-controlled agent configuration",
@@ -1469,6 +1573,17 @@ func responseControlIDs() []string {
 	}
 }
 
+func governanceControlIDs() []string {
+	return []string{
+		"control:agent-inventory",
+		"control:deployment-owner",
+		"control:deployment-approval",
+		"control:risk-assessment",
+		"control:governance-audit",
+		"control:shadow-ai-discovery",
+	}
+}
+
 func hardResponseContainmentControlIDs() []string {
 	return []string{
 		"control:session-termination",
@@ -1586,6 +1701,32 @@ func hasHardResponseBoundary(c model.Collection) bool {
 	containment := hasAnyControl(c, hardResponseContainmentControlIDs()...)
 	auditable := hasAnyControl(c, "control:audit-logging", "control:request-traceability", "control:telemetry-export", "control:immutable-audit-log", "control:response-escalation")
 	return detection && containment && auditable
+}
+
+func hasHardGovernanceBoundary(c model.Collection) bool {
+	return hasAnyControl(c, "control:agent-inventory") &&
+		hasAnyControl(c, "control:deployment-owner") &&
+		hasAnyControl(c, "control:deployment-approval") &&
+		hasAnyControl(c, "control:risk-assessment") &&
+		hasAnyControl(c, "control:governance-audit")
+}
+
+func hasGovernanceRelevantSurface(c model.Collection) bool {
+	return len(c.Runtimes) > 0 ||
+		len(c.Tools) > 0 ||
+		len(c.Authorities) > 0 ||
+		len(configSurfaceEvidence(c)) > 0
+}
+
+func hasRiskBearingDeployment(c model.Collection) bool {
+	return hasAuthority(c, "authority:broad-local") ||
+		hasAuthority(c, "authority:local-code-execution") ||
+		hasAuthority(c, "authority:external-communication") ||
+		hasAuthority(c, "authority:delegated-agent-authority") ||
+		hasToolID(c, "tool:mcp-package-launch") ||
+		hasToolID(c, "tool:agent-plugin-surface") ||
+		hasToolID(c, "tool:agent-command-shell") ||
+		hasToolID(c, "tool:agent-delegation")
 }
 
 func hasExposedPath(exposures []model.ExposureResult) bool {
@@ -2070,6 +2211,16 @@ func responseEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func governanceEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "governs" && governanceControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func responseControlID(id string) bool {
 	switch id {
 	case "control:automated-triage",
@@ -2079,6 +2230,20 @@ func responseControlID(id string) bool {
 		"control:containment-quarantine",
 		"control:dynamic-access-reduction",
 		"control:response-escalation":
+		return true
+	default:
+		return false
+	}
+}
+
+func governanceControlID(id string) bool {
+	switch id {
+	case "control:agent-inventory",
+		"control:deployment-owner",
+		"control:deployment-approval",
+		"control:risk-assessment",
+		"control:governance-audit",
+		"control:shadow-ai-discovery":
 		return true
 	default:
 		return false

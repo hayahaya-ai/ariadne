@@ -907,6 +907,114 @@ func TestZeroTrustTriageWithoutContainmentIsNotControlled(t *testing.T) {
 	}
 }
 
+func TestZeroTrustGovernancePolicyControlsDeploymentBoundary(t *testing.T) {
+	path := realPathFixture(t, "safe-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "governance-policy")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:agent-inventory",
+		"control:deployment-owner",
+		"control:deployment-approval",
+		"control:risk-assessment",
+		"control:governance-audit",
+		"control:shadow-ai-discovery",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("governance boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing governance control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:agent-inventory|governs|runtime:claude",
+		"control:deployment-owner|governs|runtime:codex",
+		"control:deployment-approval|governs|tool:mcp-package-launch",
+		"control:risk-assessment|governs|runtime:claude",
+		"control:governance-audit|governs|runtime:codex",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing governance graph edge %s", edge)
+		}
+	}
+}
+
+func TestZeroTrustRiskyAgentWithoutGovernanceIsBreaking(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "allow": ["Read(*)", "Bash(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("risky agent without governance should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "risk-bearing agent surfaces") {
+		t.Fatalf("governance finding should explain risk-bearing unmanaged deployment: %q", check.Finding)
+	}
+}
+
+func TestZeroTrustPartialGovernanceIsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".ariadne"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "allow": ["Read(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	governancePolicy := `{
+  "agent_inventory": true,
+  "deployment_owner": {
+    "responsible_team": "appsec"
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".ariadne", "governance-policy.json"), []byte(governancePolicy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:agent-inventory") || !containsString(check.Controls, "control:deployment-owner") {
+		t.Fatalf("partial governance should cite observed controls: %+v", check.Controls)
+	}
+	if containsString(check.Controls, "control:deployment-approval") || containsString(check.Controls, "control:risk-assessment") {
+		t.Fatalf("partial governance should not invent approval or risk controls: %+v", check.Controls)
+	}
+}
+
 func TestRunPathSafeControlsBreakPaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
@@ -940,6 +1048,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
 
@@ -982,12 +1091,14 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:config-integrity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:tool-integrity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:delegation-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:response-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:governance-boundary")
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -1040,6 +1151,12 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:containment-quarantine",
 		"control:dynamic-access-reduction",
 		"control:response-escalation",
+		"control:agent-inventory",
+		"control:deployment-owner",
+		"control:deployment-approval",
+		"control:risk-assessment",
+		"control:governance-audit",
+		"control:shadow-ai-discovery",
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing zero trust control node %s", id)
@@ -1072,6 +1189,7 @@ func TestZeroTrustMaturitySafeControlsMeetFoundation(t *testing.T) {
 		"ztf:approval-escalation",
 		"ztf:context-retention",
 		"ztf:automated-first-pass-triage",
+		"ztf:deployment-governance",
 	} {
 		req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, id, model.ZeroTrustControlled)
 		if req.ControlQuality != "hard_barrier" {
@@ -1099,6 +1217,10 @@ func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:tool-integrity", model.ZeroTrustBreaking)
 	if req.ControlQuality != "missing_hard_barrier" {
 		t.Fatalf("tool integrity requirement quality = %q", req.ControlQuality)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:deployment-governance", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("deployment governance requirement quality = %q", req.ControlQuality)
 	}
 }
 
