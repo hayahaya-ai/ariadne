@@ -35,6 +35,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 
 func influenceBoundary(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrustCheck {
 	inputs := trustInputEvidence(c, true)
+	inputControls := controlsEvidence(c, inputControlIDs()...)
 	status := model.ZeroTrustNotObserved
 	finding := "No risky untrusted instruction surface was observed by supported collectors."
 	if len(c.TrustInputs) > 0 {
@@ -51,6 +52,12 @@ func influenceBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 			finding = "Risky instruction input exists, but a graph control breaks the supported exposure path."
 		}
 	}
+	if len(inputs) > 0 && hasHardInputControl(c) {
+		status = model.ZeroTrustControlled
+		finding = "Risky instruction input exists, and Ariadne observed input-isolation or trusted-source controls that break the influence path."
+	}
+	controls := controlsForExposures(exposures, "prompt-injection-to-secret-canary", "data-egress-chain")
+	controls = append(controls, controlIDs(c, inputControlIDs()...)...)
 	return model.ZeroTrustCheck{
 		ID:         "zt:influence-boundary",
 		Principle:  "Never trust, always verify",
@@ -59,9 +66,9 @@ func influenceBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 		Status:     status,
 		DesignTest: "Untrusted natural-language inputs should not directly steer authority without a verifiable break-path control.",
 		Finding:    finding,
-		Evidence:   limitEvidence(firstEvidence(inputs, trustInputEvidence(c, false)), 8),
-		GraphEdges: edgesForTypes(g, "influences"),
-		Controls:   controlsForExposures(exposures, "prompt-injection-to-secret-canary", "data-egress-chain"),
+		Evidence:   limitEvidence(firstEvidence(inputs, inputControls, trustInputEvidence(c, false)), 8),
+		GraphEdges: edgesForTypes(g, "influences", "restricts"),
+		Controls:   uniqueStrings(controls),
 		Actions: []string{
 			"Keep repo and memory instructions outside broad endpoint authority where possible.",
 			"Require explicit controls before untrusted instructions can reach file, tool, or network authority.",
@@ -674,9 +681,9 @@ func requireComprehensiveLogs(c model.Collection) model.ZeroTrustRequirement {
 }
 
 func requireInputValidation(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:input-validation")
+	controls := controlIDs(c, inputControlIDs()...)
 	evidence := firstEvidence(
-		controlsEvidence(c, "control:input-validation"),
+		controlsEvidence(c, inputControlIDs()...),
 		trustInputEvidence(c, true),
 		trustInputEvidence(c, false),
 	)
@@ -694,10 +701,16 @@ func requireInputValidation(c model.Collection) model.ZeroTrustRequirement {
 		quality = "missing_hard_barrier"
 		finding = "Risky untrusted instruction input exists without observed input validation or prompt-injection filtering evidence."
 	}
-	if len(controls) > 0 {
+	if len(controls) > 0 && !hasHardInputControl(c) {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed input validation, provenance, delimiting, or filtering evidence, but not input-isolation or trusted-source controls that break the influence path."
+		missing = []string{"input isolation policy", "trusted source gate for instruction inputs"}
+	}
+	if hasHardInputControl(c) {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
-		finding = "Ariadne observed declared input validation, schema, or prompt-injection filtering controls."
+		finding = "Ariadne observed input-isolation or trusted-source controls for untrusted instruction inputs."
 		missing = nil
 	}
 	return zeroTrustRequirement(
@@ -712,8 +725,8 @@ func requireInputValidation(c model.Collection) model.ZeroTrustRequirement {
 		controls,
 		missing,
 		[]string{
-			"Validate schemas and lengths before untrusted content reaches an agent.",
-			"Use prompt-injection filtering or explicit untrusted-content delimiting for repo, web, email, and document inputs.",
+			"Isolate untrusted instructions from authority-bearing runtime behavior.",
+			"Use trusted-source gates, provenance, validation, and explicit untrusted-content delimiting for repo, web, email, and document inputs.",
 		},
 	)
 }
@@ -1161,6 +1174,28 @@ func scopedCredentialControlIDs() []string {
 		"control:jit-access",
 		"control:token-lifetime-policy",
 	}
+}
+
+func inputControlIDs() []string {
+	return []string{
+		"control:input-isolation",
+		"control:trusted-source-policy",
+		"control:instruction-provenance",
+		"control:untrusted-input-delimiting",
+		"control:prompt-injection-filter",
+		"control:input-validation",
+	}
+}
+
+func hardInputControlIDs() []string {
+	return []string{
+		"control:input-isolation",
+		"control:trusted-source-policy",
+	}
+}
+
+func hasHardInputControl(c model.Collection) bool {
+	return hasAnyControl(c, hardInputControlIDs()...)
 }
 
 func workloadControlIDs() []string {

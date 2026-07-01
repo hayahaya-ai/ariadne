@@ -42,7 +42,7 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 
 ## Zero Trust Control Evidence
 
-Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/identity-policy.json` and `.ariadne/workload-policy.json`.
+Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/input-policy.json`, `.ariadne/identity-policy.json`, and `.ariadne/workload-policy.json`.
 
 Supported control signals include:
 
@@ -62,7 +62,7 @@ Supported control signals include:
 - credential rotation, revocation, or identity lifecycle indicators
 - audit, tool-call, approval, telemetry, or trace logging indicators
 - request ID, trace ID, correlation ID, distributed tracing, or provenance indicators
-- input validation, schema validation, prompt-injection filtering, or maximum input length indicators
+- input isolation, trusted instruction source, instruction provenance, schema validation, prompt-injection filtering, untrusted-content delimiting, spotlighting, or maximum input length indicators
 - automated first-pass investigation or alert triage indicators
 - transcript, memory, or context retention indicators
 - memory isolation, context integrity, and context provenance indicators

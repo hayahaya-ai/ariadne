@@ -530,6 +530,11 @@ func BuildGraph(c model.Collection) model.Graph {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: boundary.ID})
 			}
 		}
+		for _, input := range c.TrustInputs {
+			if controlRestrictsTrustInput(control.ID, input.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: input.ID})
+			}
+		}
 	}
 	sort.Slice(g.Nodes, func(i, j int) bool { return g.Nodes[i].ID < g.Nodes[j].ID })
 	sort.Slice(g.Edges, func(i, j int) bool { return g.Edges[i].Key() < g.Edges[j].Key() })
@@ -546,6 +551,18 @@ func controlRestrictsBoundary(controlID, boundaryID string) bool {
 		return boundaryID == "boundary:external-destination"
 	case "control:mcp-reviewed-pinned":
 		return boundaryID == "boundary:developer-execution-boundary"
+	default:
+		return false
+	}
+}
+
+func controlRestrictsTrustInput(controlID, inputID string) bool {
+	if inputID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:input-isolation", "control:trusted-source-policy":
+		return true
 	default:
 		return false
 	}
@@ -644,6 +661,7 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 	hasBroadLocal := hasAuthority(c, "authority:broad-local")
 	hasBoundary := len(c.Boundaries) > 0
 	hasDeny := hasControl(c, "control:deny-secret-read")
+	hasInputBreak := hasHardInputBreak(c)
 
 	result := model.ExposureResult{
 		ID:            "prompt-injection-to-secret-canary",
@@ -663,6 +681,14 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 		result.Status = model.StatusExposed
 		result.ProofMode = model.ProofInferred
 		result.Observation = model.Observation{Status: model.ObservationNotAttempted, Summary: "Endpoint config declares broad local authority; no live behavior was executed."}
+	case hasTrustInput && hasFileRead && hasBoundary && hasInputBreak:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The deterministic path reaches an input-isolation or trusted-source control before runtime authority."}
+		result.ControlsBreakPath = []string{"isolate or trust-gate untrusted instructions"}
+		if hasDeny {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "deny-read secret-like paths")
+		}
 	case hasTrustInput && hasFileRead && hasBoundary && hasDeny:
 		result.Status = model.StatusProtected
 		result.ProofMode = model.ProofSimulated
@@ -736,6 +762,7 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	hasExternalDestination := hasBoundary(c, "boundary:external-destination")
 	hasNetworkControl := hasControl(c, "control:network-restricted")
 	hasDenyRead := hasControl(c, "control:deny-secret-read")
+	hasInputBreak := hasHardInputBreak(c)
 
 	result := model.ExposureResult{
 		ID:            "data-egress-chain",
@@ -751,10 +778,13 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	}
 
 	switch {
-	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && (hasNetworkControl || hasDenyRead):
+	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && (hasInputBreak || hasNetworkControl || hasDenyRead):
 		result.Status = model.StatusProtected
 		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The graph contains data-egress ingredients, but a control breaks private-data or external-communication reachability."}
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The graph contains data-egress ingredients, but a control breaks influence, private-data, or external-communication reachability."}
+		if hasInputBreak {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "isolate or trust-gate untrusted instructions")
+		}
 		if hasNetworkControl {
 			result.ControlsBreakPath = append(result.ControlsBreakPath, "restrict external network communication")
 		}
@@ -867,6 +897,19 @@ func hasBoundary(c model.Collection, id string) bool {
 	return false
 }
 
+func hasAnyControl(c model.Collection, ids ...string) bool {
+	for _, id := range ids {
+		if hasControl(c, id) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasHardInputBreak(c model.Collection) bool {
+	return hasAnyControl(c, "control:input-isolation", "control:trusted-source-policy")
+}
+
 func secretPathEdges(g model.Graph, mode string) []string {
 	var candidates []string
 	if mode == "endpoint" {
@@ -885,6 +928,8 @@ func secretPathEdges(g model.Graph, mode string) []string {
 			"runtime:codex|has_authority|authority:file-read",
 			"runtime:claude|has_authority|authority:file-read",
 			"authority:file-read|reaches|boundary:secret-like-file",
+			"control:input-isolation|restricts|trustinput:repo-instruction",
+			"control:trusted-source-policy|restricts|trustinput:repo-instruction",
 			"control:deny-secret-read|restricts|boundary:secret-like-file",
 		}
 	}
@@ -920,6 +965,8 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"runtime:claude|has_authority|authority:external-communication",
 		"authority:external-communication|reaches|boundary:external-destination",
 		"authority:broad-local|reaches|boundary:external-destination",
+		"control:input-isolation|restricts|trustinput:repo-instruction",
+		"control:trusted-source-policy|restricts|trustinput:repo-instruction",
 		"control:network-restricted|restricts|boundary:external-destination",
 		"control:deny-secret-read|restricts|boundary:secret-like-file",
 		"control:deny-secret-read|restricts|boundary:developer-secret-boundary",

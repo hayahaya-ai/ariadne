@@ -108,6 +108,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectNetworkPolicy(c, s)
 	case "agent-policy":
 		collectAgentPolicy(c, s)
+	case "input-policy":
+		collectInputPolicy(c, s)
 	case "identity-policy":
 		collectIdentityPolicy(c, s)
 	case "workload-policy":
@@ -415,6 +417,21 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if inputValidationConfigured(text) {
 		addControl(c, "control:input-validation", "input-validation", "", s.Source, "Agent policy requires schema, length, or prompt-injection validation for untrusted inputs.")
 	}
+	if inputIsolationConfigured(text) {
+		addControl(c, "control:input-isolation", "input-isolation", "", s.Source, "Agent policy declares isolation between untrusted instructions and authority-bearing runtime behavior.")
+	}
+	if trustedSourcePolicyConfigured(text) {
+		addControl(c, "control:trusted-source-policy", "trusted-source-policy", "", s.Source, "Agent policy declares trusted source or allowlist controls for instruction inputs.")
+	}
+	if instructionProvenanceConfigured(text) {
+		addControl(c, "control:instruction-provenance", "instruction-provenance", "", s.Source, "Agent policy declares instruction provenance, signature, or source attribution controls.")
+	}
+	if untrustedInputDelimitingConfigured(text) {
+		addControl(c, "control:untrusted-input-delimiting", "untrusted-input-delimiting", "", s.Source, "Agent policy declares explicit delimiting or spotlighting for untrusted content.")
+	}
+	if promptInjectionFilterConfigured(text) {
+		addControl(c, "control:prompt-injection-filter", "prompt-injection-filter", "", s.Source, "Agent policy declares prompt-injection filtering controls.")
+	}
 	if automatedTriageConfigured(text) {
 		addControl(c, "control:automated-triage", "automated-triage", "", s.Source, "Agent policy declares automated first-pass investigation or alert triage.")
 	}
@@ -429,6 +446,32 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	}
 	if contextProvenanceConfigured(text) {
 		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Agent policy declares source attribution or provenance metadata for context.")
+	}
+}
+
+func collectInputPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if inputValidationConfigured(text) {
+		addControl(c, "control:input-validation", "input-validation", "", s.Source, "Input policy declares schema, length, or prompt-injection validation for untrusted inputs.")
+	}
+	if inputIsolationConfigured(text) {
+		addControl(c, "control:input-isolation", "input-isolation", "", s.Source, "Input policy declares isolation between untrusted instructions and authority-bearing runtime behavior.")
+	}
+	if trustedSourcePolicyConfigured(text) {
+		addControl(c, "control:trusted-source-policy", "trusted-source-policy", "", s.Source, "Input policy declares trusted source or allowlist controls for instruction inputs.")
+	}
+	if instructionProvenanceConfigured(text) {
+		addControl(c, "control:instruction-provenance", "instruction-provenance", "", s.Source, "Input policy declares instruction provenance, signature, or source attribution controls.")
+	}
+	if untrustedInputDelimitingConfigured(text) {
+		addControl(c, "control:untrusted-input-delimiting", "untrusted-input-delimiting", "", s.Source, "Input policy declares explicit delimiting or spotlighting for untrusted content.")
+	}
+	if promptInjectionFilterConfigured(text) {
+		addControl(c, "control:prompt-injection-filter", "prompt-injection-filter", "", s.Source, "Input policy declares prompt-injection filtering controls.")
 	}
 }
 
@@ -629,6 +672,21 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	}
 	if inputValidationConfigured(text) {
 		addControl(c, "control:input-validation", "input-validation", runtime, source, runtime+" config declares schema, length, or prompt-injection validation.")
+	}
+	if inputIsolationConfigured(text) {
+		addControl(c, "control:input-isolation", "input-isolation", runtime, source, runtime+" config declares isolation between untrusted instructions and authority-bearing runtime behavior.")
+	}
+	if trustedSourcePolicyConfigured(text) {
+		addControl(c, "control:trusted-source-policy", "trusted-source-policy", runtime, source, runtime+" config declares trusted source or allowlist controls for instruction inputs.")
+	}
+	if instructionProvenanceConfigured(text) {
+		addControl(c, "control:instruction-provenance", "instruction-provenance", runtime, source, runtime+" config declares instruction provenance, signature, or source attribution controls.")
+	}
+	if untrustedInputDelimitingConfigured(text) {
+		addControl(c, "control:untrusted-input-delimiting", "untrusted-input-delimiting", runtime, source, runtime+" config declares explicit delimiting or spotlighting for untrusted content.")
+	}
+	if promptInjectionFilterConfigured(text) {
+		addControl(c, "control:prompt-injection-filter", "prompt-injection-filter", runtime, source, runtime+" config declares prompt-injection filtering controls.")
 	}
 	if automatedTriageConfigured(text) {
 		addControl(c, "control:automated-triage", "automated-triage", runtime, source, runtime+" config declares automated first-pass investigation or alert triage.")
@@ -1174,6 +1232,59 @@ func inputValidationConfigured(text string) bool {
 		strings.Contains(text, "payload_filter") ||
 		strings.Contains(text, "content_filter") ||
 		strings.Contains(text, "spotlighting")
+}
+
+func inputIsolationConfigured(text string) bool {
+	return strings.Contains(text, "input_isolation") ||
+		strings.Contains(text, "input-isolation") ||
+		strings.Contains(text, "instruction_isolation") ||
+		strings.Contains(text, "instruction-isolation") ||
+		strings.Contains(text, "untrusted_instruction_isolation") ||
+		strings.Contains(text, "untrusted-instruction isolation") ||
+		strings.Contains(text, "treat_untrusted_as_data") ||
+		strings.Contains(text, "instructions_as_data") ||
+		strings.Contains(text, "data_only_context")
+}
+
+func trustedSourcePolicyConfigured(text string) bool {
+	return strings.Contains(text, "trusted_sources") ||
+		strings.Contains(text, "trusted_instruction_sources") ||
+		strings.Contains(text, "trusted_repo_sources") ||
+		strings.Contains(text, "trusted_source_policy") ||
+		strings.Contains(text, "instruction_allowlist") ||
+		strings.Contains(text, "allowed_instruction_sources") ||
+		strings.Contains(text, "allow_untrusted_instructions = false") ||
+		strings.Contains(text, "allow_untrusted_instructions=false") ||
+		strings.Contains(text, "\"allow_untrusted_instructions\": false") ||
+		strings.Contains(text, "\"allow_untrusted_instructions\":false")
+}
+
+func instructionProvenanceConfigured(text string) bool {
+	return strings.Contains(text, "instruction_provenance") ||
+		strings.Contains(text, "instruction-provenance") ||
+		strings.Contains(text, "source_provenance") ||
+		strings.Contains(text, "source_attribution") ||
+		strings.Contains(text, "signed_instructions") ||
+		strings.Contains(text, "instruction_signature") ||
+		strings.Contains(text, "instruction_hash") ||
+		strings.Contains(text, "source_digest")
+}
+
+func untrustedInputDelimitingConfigured(text string) bool {
+	return strings.Contains(text, "untrusted_input_delimiting") ||
+		strings.Contains(text, "untrusted-content delimiting") ||
+		strings.Contains(text, "explicit_delimiters") ||
+		strings.Contains(text, "spotlighting") ||
+		strings.Contains(text, "quote_untrusted") ||
+		strings.Contains(text, "mark_untrusted_content")
+}
+
+func promptInjectionFilterConfigured(text string) bool {
+	return strings.Contains(text, "prompt_injection_filter") ||
+		strings.Contains(text, "prompt-injection filter") ||
+		strings.Contains(text, "injection_filter") ||
+		strings.Contains(text, "jailbreak_filter") ||
+		strings.Contains(text, "instruction_override_filter")
 }
 
 func automatedTriageConfigured(text string) bool {

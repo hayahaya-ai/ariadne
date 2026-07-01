@@ -1,0 +1,11 @@
+{
+  "input_isolation": true,
+  "trusted_instruction_sources": ["org/security-reviewed"],
+  "instruction_provenance": {
+    "signed_instructions": true,
+    "source_digest": true
+  },
+  "untrusted_input_delimiting": true,
+  "prompt_injection_filter": true,
+  "schema_validation": true
+}

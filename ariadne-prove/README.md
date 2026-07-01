@@ -53,7 +53,7 @@ The same `zero_trust` object also includes a Foundation maturity evidence readou
 - deny-by-default least-agency permissions
 - identity-based workload isolation with ABAC, named callers, segmentation, or tool scope
 - comprehensive action logs with request context
-- input validation for untrusted agent context
+- input isolation, trusted-source gating, and validation for untrusted agent context
 - approval escalation with audit evidence
 - context retention controls
 - automated first-pass investigation for agent alerts
@@ -172,6 +172,7 @@ Current deterministic discovery covers:
 - secret-like boundary indicators such as `.env*`, key files, and credential files
 - `.ariadne/agent-policy.json` declarations for approval, sandbox, credential, audit, and retention controls
 - `.ariadne/agent-policy.json` declarations for cryptographic identity, least agency, identity-based isolation, traceability, input validation, and automated triage controls
+- `.ariadne/input-policy.json` declarations for input isolation, trusted instruction sources, instruction provenance, untrusted-content delimiting, and prompt-injection filtering
 - `.ariadne/identity-policy.json` declarations for credential isolation, credential helpers, JIT access, token lifetime, hardware-bound credentials, and identity lifecycle controls
 - `.ariadne/workload-policy.json` declarations for ABAC, named callers, network segmentation, and tool-scope controls
 - `.ariadne/memory-policy.json` declarations for context retention, memory isolation, integrity validation, and provenance metadata

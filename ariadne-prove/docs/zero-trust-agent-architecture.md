@@ -19,7 +19,7 @@ The goal is not to certify that an environment is safe. The goal is to expose wh
 
 Ariadne currently evaluates these Zero Trust checks:
 
-- Influence boundary: whether untrusted instructions can steer an agent runtime.
+- Influence boundary: whether untrusted instructions can steer an agent runtime or are broken by input isolation or trusted-source gates.
 - Authority boundary: whether agent authority is scoped to least agency.
 - Sensitive data boundary: whether authority reaches secrets, private context, or external destinations.
 - Tool and MCP boundary: whether model-callable tools can expand capability through mutable launch paths.
@@ -42,6 +42,8 @@ Examples of controls Ariadne can model today:
 - deny-by-default runtime permission posture
 - network restrictions for external destinations
 - reviewed or pinned MCP server launchers
+- input isolation or trusted-source controls for instruction inputs
+- instruction provenance, untrusted-content delimiting, spotlighting, or prompt-injection filter declarations
 - managed runtime settings surfaces
 - approval-required posture
 - sandbox or filesystem isolation posture
@@ -64,6 +66,7 @@ Examples Ariadne reports as `unknown` today:
 
 - credential helper evidence without cryptographic, hardware-bound, or per-agent identity evidence
 - strong identity evidence without scoped or ephemeral credential issuance evidence
+- input validation, filtering, provenance, or delimiting evidence without input isolation or trusted-source gating
 - sandbox or network restriction evidence without identity-aware workload authorization evidence
 - tamper-resistant audit logs without immutable-log or equivalent evidence
 - live behavioral telemetry
@@ -86,7 +89,7 @@ Foundation requirements currently modeled:
 - Deny-by-default least-agency permissions.
 - Identity-based workload isolation with ABAC, named callers, segmentation, or tool scope.
 - Comprehensive logs of agent actions with request context.
-- Input validation for untrusted agent context.
+- Input isolation, trusted-source gating, and validation for untrusted agent context.
 - Approval escalation for high-risk actions.
 - Context retention policy for persisted agent memory.
 - Automated first-pass investigation for agent alerts.
@@ -143,6 +146,24 @@ Example:
 ```
 
 The policy is treated as declared evidence. Ariadne does not execute the policy or prove live enforcement.
+
+Repositories can declare focused input controls in `.ariadne/input-policy.json`:
+
+```json
+{
+  "input_isolation": true,
+  "trusted_instruction_sources": ["org/security-reviewed"],
+  "instruction_provenance": {
+    "signed_instructions": true,
+    "source_digest": true
+  },
+  "untrusted_input_delimiting": true,
+  "prompt_injection_filter": true,
+  "schema_validation": true
+}
+```
+
+Ariadne treats input isolation and trusted-source policy as graph break controls for untrusted instruction influence. Validation, provenance, delimiting, and filtering are still reported as evidence, but they are partial unless Ariadne also observes an input-isolation or trusted-source gate.
 
 Repositories can declare focused identity controls in `.ariadne/identity-policy.json`:
 
