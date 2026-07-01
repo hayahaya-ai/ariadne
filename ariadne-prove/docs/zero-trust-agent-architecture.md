@@ -31,7 +31,7 @@ This is the user-centered map of architecture flaw categories Ariadne is trying 
 - unsafe persistent memory or context
 - controls that add friction instead of removing the risky path
 
-Each flaw carries a status, severity, underlying check IDs, evidence references, graph edges, controls, actions, and limitations. The flaw map is derived from the lower-level `zero_trust.checks`; it does not introduce a second opinion layer.
+Each flaw carries a status, severity, underlying check IDs, evidence references, graph edges, observed controls, `control_evidence_needed`, `evidence_surfaces`, actions, and limitations. The flaw map is derived from the lower-level `zero_trust.checks`; it does not introduce a second opinion layer.
 
 ## Architecture Boundaries
 
@@ -582,7 +582,7 @@ ariadne architecture --path . --mode endpoint --include-sensitive-paths
 Start with:
 
 - `architecture_summary`: counts architecture flaw categories by status
-- `architecture_flaws`: user-centered flaw categories with evidence, graph edges, controls, and next actions
+- `architecture_flaws`: user-centered flaw categories with evidence, graph edges, observed controls, control evidence needed, evidence surfaces, and next actions
 - `checks`: lower-level boundary evaluations that support the flaw map
 
 Each check includes:

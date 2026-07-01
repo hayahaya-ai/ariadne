@@ -422,6 +422,9 @@ func renderZeroTrustTable(w io.Writer, z model.ZeroTrust) {
 			if len(flaw.Controls) > 0 {
 				fmt.Fprintf(w, "      Controls: %s\n", strings.Join(flaw.Controls, "; "))
 			}
+			if len(flaw.ControlEvidenceNeeded) > 0 {
+				fmt.Fprintf(w, "      Breaks when: %s\n", strings.Join(limitStrings(flaw.ControlEvidenceNeeded, 5), "; "))
+			}
 			if len(flaw.Actions) > 0 {
 				fmt.Fprintf(w, "      Next: %s\n", flaw.Actions[0])
 			}
@@ -536,6 +539,12 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 		}
 		if len(flaw.Controls) > 0 {
 			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(flaw.Controls, "; "))
+		}
+		if len(flaw.ControlEvidenceNeeded) > 0 {
+			fmt.Fprintf(w, "    Breaks when: %s\n", strings.Join(limitStrings(flaw.ControlEvidenceNeeded, 6), "; "))
+		}
+		if len(flaw.EvidenceSurfaces) > 0 {
+			fmt.Fprintf(w, "    Evidence surfaces: %s\n", strings.Join(limitStrings(flaw.EvidenceSurfaces, 5), "; "))
 		}
 		if flaw.WhyItMatters != "" {
 			fmt.Fprintf(w, "    Why: %s\n", flaw.WhyItMatters)

@@ -339,7 +339,7 @@ func renderArchitectureFlawsDashboard(w io.Writer, z model.ZeroTrust) {
 		{"Flaw categories", fmt.Sprintf("%d", z.ArchitectureSummary.Total)},
 	})
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Architecture flaw</th><th>Why it matters</th><th>Evidence</th><th>Graph / Control</th><th>Next action</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Architecture flaw</th><th>Why it matters</th><th>Evidence</th><th>Graph / Observed control</th><th>Breaks when</th><th>Evidence surfaces / Next action</th></tr></thead><tbody>")
 	for _, flaw := range z.ArchitectureFlaws {
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><div class="pill %s">%s</div></td>`, cssClass(string(flaw.Status)), esc(statusLabel(string(flaw.Status))), cssClass(flaw.Severity), esc(strings.ToUpper(flaw.Severity)))
@@ -347,7 +347,8 @@ func renderArchitectureFlawsDashboard(w io.Writer, z model.ZeroTrust) {
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(flaw.Finding), esc(flaw.WhyItMatters))
 		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(flaw.Evidence))
 		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(flaw.GraphEdges, 4)), renderControlLine(flaw.Controls))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(flaw.Actions, 3)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(flaw.ControlEvidenceNeeded, 6)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Next action</h3>%s</td>`, renderSmallList(limitStrings(flaw.EvidenceSurfaces, 4)), renderSmallList(limitStrings(flaw.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")

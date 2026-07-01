@@ -76,14 +76,16 @@ func architectureFlaws(checks []model.ZeroTrustCheck) []model.ZeroTrustArchitect
 		}
 		primary := primaryArchitectureCheck(linked)
 		flaw := model.ZeroTrustArchitecture{
-			ID:           def.ID,
-			Title:        def.Title,
-			Status:       aggregateArchitectureStatus(linked),
-			Severity:     def.Severity,
-			Principle:    def.Principle,
-			Tier:         def.Tier,
-			CheckIDs:     append([]string{}, def.CheckIDs...),
-			WhyItMatters: def.WhyItMatters,
+			ID:                    def.ID,
+			Title:                 def.Title,
+			Status:                aggregateArchitectureStatus(linked),
+			Severity:              def.Severity,
+			Principle:             def.Principle,
+			Tier:                  def.Tier,
+			CheckIDs:              append([]string{}, def.CheckIDs...),
+			WhyItMatters:          def.WhyItMatters,
+			ControlEvidenceNeeded: architectureControlEvidenceNeeded(def.CheckIDs),
+			EvidenceSurfaces:      architectureEvidenceSurfaces(def.CheckIDs),
 		}
 		for _, check := range linked {
 			flaw.Boundaries = append(flaw.Boundaries, check.Boundary)
@@ -121,6 +123,12 @@ func normalizeArchitectureFlaw(flaw model.ZeroTrustArchitecture) model.ZeroTrust
 	if flaw.Controls == nil {
 		flaw.Controls = []string{}
 	}
+	if flaw.ControlEvidenceNeeded == nil {
+		flaw.ControlEvidenceNeeded = []string{}
+	}
+	if flaw.EvidenceSurfaces == nil {
+		flaw.EvidenceSurfaces = []string{}
+	}
 	if flaw.Actions == nil {
 		flaw.Actions = []string{}
 	}
@@ -128,6 +136,98 @@ func normalizeArchitectureFlaw(flaw model.ZeroTrustArchitecture) model.ZeroTrust
 		flaw.Limitations = []string{}
 	}
 	return flaw
+}
+
+func architectureControlEvidenceNeeded(checkIDs []string) []string {
+	var out []string
+	for _, id := range checkIDs {
+		switch id {
+		case "zt:influence-boundary":
+			out = append(out, "control:input-isolation", "control:trusted-source-policy")
+		case "zt:authority-boundary":
+			out = append(out, "control:deny-by-default", "control:scoped-permissions")
+		case "zt:tool-boundary":
+			out = append(out, "control:mcp-reviewed-pinned", "control:tool-allowlist")
+		case "zt:tool-integrity-boundary":
+			out = append(out, "control:tool-allowlist", "control:mcp-reviewed-pinned", "control:tool-descriptor-integrity", "control:tool-argument-validation", "control:tool-auth-required", "control:signed-tool-artifacts", "control:tool-deployment-verification")
+		case "zt:supply-chain-boundary":
+			out = append(out, "control:ai-bom", "control:model-provenance", "control:training-data-lineage", "control:dependency-health-scan", "control:provider-risk-review", "control:signed-ai-artifacts", "control:runtime-component-validation", "control:dependency-reachability-analysis")
+		case "zt:delegation-boundary":
+			out = append(out, "control:delegation-scope", "control:delegation-allowlist", "control:agent-to-agent-authorization", "control:origin-intent-verification", "control:delegated-credential-scope")
+		case "zt:egress-boundary":
+			out = append(out, "control:network-restricted", "control:egress-destination-allowlist", "control:webhook-allowlist", "control:per-tool-network-scope")
+		case "zt:output-boundary":
+			out = append(out, "control:output-sensitive-data-filter", "control:output-redaction", "control:output-filter-logging")
+		case "zt:identity-boundary":
+			out = append(out, "control:cryptographic-identity", "control:credential-isolation", "control:short-lived-credential", "control:hardware-bound-credential", "control:jit-access")
+		case "zt:workload-authorization-boundary":
+			out = append(out, "control:identity-based-isolation", "control:named-caller-allowlist", "control:abac-policy", "control:network-segmentation", "control:tool-scope-policy")
+		case "zt:continuous-authorization-boundary":
+			out = append(out, "control:per-action-authorization", "control:continuous-authorization", "control:dynamic-privilege-scoping", "control:jit-elevation", "control:automatic-access-revocation")
+		case "zt:approval-boundary":
+			out = append(out, "control:approval-required", "control:approval-log-evidence")
+		case "zt:resource-exhaustion-boundary":
+			out = append(out, "control:tool-rate-limit", "control:spend-limit", "control:loop-guard", "control:tool-timeout", "control:concurrency-limit", "control:tool-circuit-breaker", "control:resource-usage-audit")
+		case "zt:observability-boundary":
+			out = append(out, "control:agent-action-log-evidence", "control:tool-call-audit-evidence", "control:approval-log-evidence", "control:observed-request-traceability", "control:telemetry-export", "control:immutable-audit-log")
+		case "zt:response-boundary":
+			out = append(out, "control:automated-triage", "control:behavioral-monitoring", "control:session-termination", "control:credential-revocation", "control:containment-quarantine", "control:dynamic-access-reduction")
+		case "zt:governance-boundary":
+			out = append(out, "control:agent-inventory", "control:accountable-owner", "control:deployment-approval", "control:risk-assessment", "control:governance-review")
+		case "zt:memory-boundary":
+			out = append(out, "control:context-retention", "control:memory-isolation", "control:context-integrity", "control:context-provenance", "control:credential-isolation")
+		case "zt:config-integrity-boundary":
+			out = append(out, "control:config-version-control", "control:config-review-required", "control:signed-config", "control:config-deployment-verification", "control:managed-settings-enforced", "control:immutable-agent-runtime")
+		case "zt:control-strength":
+			out = append(out, "deny rules", "allowlists", "isolation controls", "scoped credentials", "capability-removing break controls")
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func architectureEvidenceSurfaces(checkIDs []string) []string {
+	var out []string
+	for _, id := range checkIDs {
+		switch id {
+		case "zt:influence-boundary":
+			out = append(out, ".ariadne/input-policy.json", ".ariadne/agent-policy.json", "runtime input isolation settings")
+		case "zt:authority-boundary":
+			out = append(out, ".claude/settings.json", ".claude/settings.local.json", ".codex/config.toml", ".ariadne/agent-policy.json")
+		case "zt:tool-boundary", "zt:tool-integrity-boundary":
+			out = append(out, ".ariadne/tool-policy.json", ".claude/.mcp.json", ".codex/config.toml", "mcp.json", ".mcp.json")
+		case "zt:supply-chain-boundary":
+			out = append(out, ".ariadne/supply-chain-policy.json", ".ariadne/ai-bom.json", ".ariadne/ml-bom.json", "cyclonedx.json", "bom.json")
+		case "zt:delegation-boundary":
+			out = append(out, ".ariadne/delegation-policy.json", ".claude/agents/**", ".claude/commands/**")
+		case "zt:egress-boundary":
+			out = append(out, ".ariadne/egress-policy.json", ".ariadne/agent-policy.json", ".claude/settings.json", ".codex/config.toml")
+		case "zt:output-boundary":
+			out = append(out, ".ariadne/output-policy.json", ".ariadne/egress-policy.json")
+		case "zt:identity-boundary":
+			out = append(out, ".ariadne/identity-policy.json", ".ariadne/agent-policy.json", "runtime credential helper or workload identity config")
+		case "zt:workload-authorization-boundary":
+			out = append(out, ".ariadne/workload-policy.json", ".ariadne/authorization-policy.json", "identity provider and workload policy evidence")
+		case "zt:continuous-authorization-boundary":
+			out = append(out, ".ariadne/authorization-policy.json", ".ariadne/agent-policy.json")
+		case "zt:approval-boundary":
+			out = append(out, ".ariadne/agent-policy.json", ".claude/settings.json", ".codex/config.toml", "structured approval logs")
+		case "zt:resource-exhaustion-boundary":
+			out = append(out, ".ariadne/resource-policy.json", ".ariadne/agent-policy.json", "runtime quota and circuit-breaker config")
+		case "zt:observability-boundary":
+			out = append(out, ".ariadne/observability-policy.json", ".ariadne/otel-collector.yaml", "structured transcript or tool-call audit metadata")
+		case "zt:response-boundary":
+			out = append(out, ".ariadne/response-policy.json", "SIEM/SOAR containment policy evidence")
+		case "zt:governance-boundary":
+			out = append(out, ".ariadne/governance-policy.json", "agent inventory and ownership records")
+		case "zt:memory-boundary":
+			out = append(out, ".ariadne/memory-policy.json", ".claude/projects/**/memory/*.md", "runtime memory or retention settings")
+		case "zt:config-integrity-boundary":
+			out = append(out, ".ariadne/integrity-policy.json", ".ariadne/agent-policy.json", "signed or managed runtime configuration evidence")
+		case "zt:control-strength":
+			out = append(out, "graph restricts edges", "hard policy files", "runtime-enforced controls")
+		}
+	}
+	return uniqueStrings(out)
 }
 
 func architectureDefinitions() []architectureDefinition {

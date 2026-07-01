@@ -1356,10 +1356,22 @@ func TestZeroTrustArchitectureFlawsSummarizeBreakingBoundaries(t *testing.T) {
 		if len(flaw.Actions) == 0 {
 			t.Fatalf("architecture flaw %s missing next actions: %+v", id, flaw)
 		}
+		if len(flaw.ControlEvidenceNeeded) == 0 {
+			t.Fatalf("architecture flaw %s missing control evidence needed: %+v", id, flaw)
+		}
+		if len(flaw.EvidenceSurfaces) == 0 {
+			t.Fatalf("architecture flaw %s missing evidence surfaces: %+v", id, flaw)
+		}
 	}
 	flaw := assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:untrusted-instructions-steer-privileged-tools", model.ZeroTrustBreaking)
 	if !containsString(flaw.CheckIDs, "zt:influence-boundary") {
 		t.Fatalf("influence architecture flaw should cite boundary check: %+v", flaw.CheckIDs)
+	}
+	if !containsString(flaw.ControlEvidenceNeeded, "control:input-isolation") {
+		t.Fatalf("influence architecture flaw should name input isolation as control evidence: %+v", flaw.ControlEvidenceNeeded)
+	}
+	if !containsString(flaw.EvidenceSurfaces, ".ariadne/input-policy.json") {
+		t.Fatalf("influence architecture flaw should name input policy surface: %+v", flaw.EvidenceSurfaces)
 	}
 	if len(flaw.Evidence) == 0 {
 		t.Fatalf("influence architecture flaw should cite evidence: %+v", flaw)
@@ -2610,6 +2622,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		"Untrusted instructions can steer privileged tools",
 		"Agent has broad standing authority instead of least agency",
 		"Evidence:",
+		"Breaks when:",
+		"Evidence surfaces:",
 		"Next:",
 	} {
 		if !strings.Contains(out, want) {
@@ -2638,8 +2652,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		if flaw.Status != model.ZeroTrustBreaking {
 			t.Fatalf("filtered architecture JSON included non-breaking flaw: %+v", flaw)
 		}
-		if flaw.Finding == "" || flaw.WhyItMatters == "" || len(flaw.Actions) == 0 {
-			t.Fatalf("breaking flaw should include finding, why-it-matters, and actions: %+v", flaw)
+		if flaw.Finding == "" || flaw.WhyItMatters == "" || len(flaw.Actions) == 0 || len(flaw.ControlEvidenceNeeded) == 0 || len(flaw.EvidenceSurfaces) == 0 {
+			t.Fatalf("breaking flaw should include finding, why-it-matters, control evidence, evidence surfaces, and actions: %+v", flaw)
 		}
 	}
 }
@@ -2670,6 +2684,8 @@ func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 		"Zero Trust Architecture",
 		"Architecture Failure Map",
 		"Untrusted instructions can steer privileged tools",
+		"Breaks when",
+		"Evidence surfaces",
 		"Foundation Maturity Requirements",
 		"Evidence Coverage Gaps",
 		"Influence boundary",
