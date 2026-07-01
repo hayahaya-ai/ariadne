@@ -98,6 +98,55 @@ type ArchitectureReport struct {
 	Limitations      []string                `json:"limitations"`
 }
 
+type ArchitectureScanReport struct {
+	SchemaVersion string                     `json:"schema_version"`
+	RunID         string                     `json:"run_id"`
+	GeneratedAt   time.Time                  `json:"generated_at"`
+	RunKind       string                     `json:"run_kind"`
+	Mode          string                     `json:"mode"`
+	Agent         string                     `json:"agent"`
+	StatusFilter  string                     `json:"status_filter"`
+	Summary       ArchitectureScanSummary    `json:"summary"`
+	Groups        []ArchitectureFlawGroup    `json:"groups"`
+	Targets       []ArchitectureTargetReport `json:"targets"`
+	Redaction     RedactionInfo              `json:"redaction"`
+	Limitations   []string                   `json:"limitations"`
+}
+
+type ArchitectureScanSummary struct {
+	Targets       int `json:"targets"`
+	Completed     int `json:"completed"`
+	Errors        int `json:"errors"`
+	MatchingFlaws int `json:"matching_flaws"`
+	DistinctFlaws int `json:"distinct_flaws"`
+	Breaking      int `json:"breaking"`
+	Controlled    int `json:"controlled"`
+	Unknown       int `json:"unknown"`
+	NotObserved   int `json:"not_observed"`
+}
+
+type ArchitectureTargetReport struct {
+	Target  ScanTarget              `json:"target"`
+	Summary ZeroTrustSummary        `json:"summary"`
+	Flaws   []ZeroTrustArchitecture `json:"flaws"`
+	Error   string                  `json:"error,omitempty"`
+}
+
+type ArchitectureFlawGroup struct {
+	ID                    string           `json:"id"`
+	Title                 string           `json:"title"`
+	Severity              string           `json:"severity"`
+	Principle             string           `json:"principle"`
+	Tier                  string           `json:"tier"`
+	StatusCounts          ZeroTrustSummary `json:"status_counts"`
+	TargetCount           int              `json:"target_count"`
+	Targets               []string         `json:"targets"`
+	ControlEvidenceNeeded []string         `json:"control_evidence_needed"`
+	EvidenceSurfaces      []string         `json:"evidence_surfaces"`
+	EvidenceSources       []string         `json:"evidence_sources"`
+	Actions               []string         `json:"actions"`
+}
+
 type StorySummary struct {
 	ID           string `json:"id"`
 	Title        string `json:"title"`

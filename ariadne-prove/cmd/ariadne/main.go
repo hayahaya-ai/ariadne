@@ -44,6 +44,7 @@ func main() {
 
 func runArchitecture(args []string) {
 	fs := flag.NewFlagSet("architecture", flag.ExitOnError)
+	targetsFile := fs.String("targets", "", "file of architecture scan targets, one path per line or id,path")
 	path := fs.String("path", ".", "repo or workspace path to inspect")
 	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
@@ -52,6 +53,26 @@ func runArchitecture(args []string) {
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
+	if *targetsFile != "" {
+		r, err := prove.RunScan(prove.Options{
+			TargetsFile:           *targetsFile,
+			Agent:                 *agent,
+			Mode:                  *mode,
+			IncludeSensitivePaths: *includeSensitive,
+		})
+		if err != nil {
+			fatal(err)
+		}
+		writer, closeFn, err := outputWriter(*outPath)
+		if err != nil {
+			fatal(err)
+		}
+		defer closeFn()
+		if err := report.RenderArchitectureScan(writer, r, *format, *status); err != nil {
+			fatal(err)
+		}
+		return
+	}
 	r, err := prove.RunPath(prove.Options{
 		Path:                  *path,
 		Agent:                 *agent,
@@ -297,6 +318,7 @@ Commands:
 Examples:
   ariadne stories list
   ariadne architecture --path .
+  ariadne architecture --targets targets.txt
   ariadne architecture --path . --mode endpoint --include-sensitive-paths
   ariadne architecture --path . --status all --format json
   ariadne inventory --path .

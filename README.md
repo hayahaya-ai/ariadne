@@ -69,6 +69,7 @@ From `ariadne-prove/`:
 
 ```bash
 ./bin/ariadne architecture --path .
+./bin/ariadne architecture --targets targets.txt
 ./bin/ariadne architecture --path . --mode endpoint --include-sensitive-paths
 ./bin/ariadne architecture --path . --status all --format json
 ./bin/ariadne inventory --path .

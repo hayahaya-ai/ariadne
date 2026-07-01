@@ -2669,6 +2669,77 @@ func TestArchitectureReportRejectsUnknownStatusFilter(t *testing.T) {
 	}
 }
 
+func TestArchitectureScanReportGroupsTargets(t *testing.T) {
+	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderArchitectureScan(&table, scan, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne Zero Trust architecture fleet:",
+		"Filter: breaking",
+		"Flaws by target coverage:",
+		"combined",
+		"Evidence:",
+		"Breaks when:",
+		"Evidence surfaces:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("architecture scan table missing %q:\n%s", want, out)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderArchitectureScan(&jsonOut, scan, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ArchitectureScanReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "architecture_scan" {
+		t.Fatalf("run kind = %q", decoded.RunKind)
+	}
+	if decoded.StatusFilter != "breaking" {
+		t.Fatalf("status filter = %q", decoded.StatusFilter)
+	}
+	if decoded.Summary.Targets != 3 || decoded.Summary.Completed != 3 {
+		t.Fatalf("unexpected target summary: %+v", decoded.Summary)
+	}
+	if decoded.Summary.MatchingFlaws == 0 || decoded.Summary.DistinctFlaws == 0 || len(decoded.Groups) == 0 {
+		t.Fatalf("expected grouped matching flaws: %+v groups=%d", decoded.Summary, len(decoded.Groups))
+	}
+	hasEvidenceSources := false
+	for _, group := range decoded.Groups {
+		if group.TargetCount == 0 || len(group.Targets) == 0 {
+			t.Fatalf("group should record target coverage: %+v", group)
+		}
+		if group.StatusCounts.Total == 0 || group.StatusCounts.Total != group.StatusCounts.Breaking {
+			t.Fatalf("breaking group should include only breaking counts: %+v", group.StatusCounts)
+		}
+		if len(group.ControlEvidenceNeeded) == 0 || len(group.EvidenceSurfaces) == 0 {
+			t.Fatalf("group should retain evidence contract fields: %+v", group)
+		}
+		if len(group.EvidenceSources) > 0 {
+			hasEvidenceSources = true
+		}
+	}
+	if !hasEvidenceSources {
+		t.Fatalf("architecture scan should retain at least one evidence source reference")
+	}
+	for _, target := range decoded.Targets {
+		for _, flaw := range target.Flaws {
+			if flaw.Status != model.ZeroTrustBreaking {
+				t.Fatalf("filtered architecture scan included non-breaking flaw: %+v", flaw)
+			}
+		}
+	}
+}
+
 func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {

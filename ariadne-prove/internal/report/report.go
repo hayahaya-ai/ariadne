@@ -46,6 +46,23 @@ func RenderArchitecture(w io.Writer, r model.Report, format string, statusFilter
 	}
 }
 
+func RenderArchitectureScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderArchitectureScanTable(w, architecture)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(architecture)
+	default:
+		return fmt.Errorf("unknown architecture format: %s", format)
+	}
+}
+
 func BuildArchitectureReport(r model.Report, statusFilter string) (model.ArchitectureReport, error) {
 	filter := strings.ToLower(strings.TrimSpace(statusFilter))
 	if filter == "" {
@@ -78,6 +95,92 @@ func BuildArchitectureReport(r model.Report, statusFilter string) (model.Archite
 		Redaction:        r.Redaction,
 		Limitations:      append([]string{}, r.Limitations...),
 	}, nil
+}
+
+func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model.ArchitectureScanReport, error) {
+	filter := strings.ToLower(strings.TrimSpace(statusFilter))
+	if filter == "" {
+		filter = "breaking"
+	}
+	if !validArchitectureStatusFilter(filter) {
+		return model.ArchitectureScanReport{}, fmt.Errorf("unknown architecture status filter: %s", statusFilter)
+	}
+	out := model.ArchitectureScanReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         r.RunID,
+		GeneratedAt:   r.GeneratedAt,
+		RunKind:       "architecture_scan",
+		Mode:          r.Mode,
+		Agent:         r.Agent,
+		StatusFilter:  filter,
+		Redaction:     r.Redaction,
+		Limitations:   append([]string{}, r.Limitations...),
+	}
+	out.Summary.Targets = r.Summary.Targets
+	groups := map[string]*model.ArchitectureFlawGroup{}
+	for _, target := range r.Targets {
+		targetReport := model.ArchitectureTargetReport{Target: target.Target}
+		if target.Error != "" {
+			targetReport.Error = target.Error
+			out.Summary.Errors++
+			out.Targets = append(out.Targets, targetReport)
+			continue
+		}
+		out.Summary.Completed++
+		for _, flaw := range target.Report.ZeroTrust.ArchitectureFlaws {
+			if !architectureStatusAllowed(flaw.Status, filter) {
+				continue
+			}
+			targetReport.Flaws = append(targetReport.Flaws, flaw)
+			incrementZeroTrustSummary(&targetReport.Summary, flaw.Status)
+			incrementArchitectureScanSummary(&out.Summary, flaw.Status)
+			group := groups[flaw.ID]
+			if group == nil {
+				group = &model.ArchitectureFlawGroup{
+					ID:                    flaw.ID,
+					Title:                 flaw.Title,
+					Severity:              flaw.Severity,
+					Principle:             flaw.Principle,
+					Tier:                  flaw.Tier,
+					ControlEvidenceNeeded: append([]string{}, flaw.ControlEvidenceNeeded...),
+					EvidenceSurfaces:      append([]string{}, flaw.EvidenceSurfaces...),
+					Actions:               append([]string{}, flaw.Actions...),
+				}
+				groups[flaw.ID] = group
+			}
+			incrementZeroTrustSummary(&group.StatusCounts, flaw.Status)
+			group.Targets = append(group.Targets, target.Target.ID)
+			group.EvidenceSources = append(group.EvidenceSources, zeroTrustEvidenceSources(flaw.Evidence)...)
+		}
+		targetReport.Summary.Total = len(targetReport.Flaws)
+		if targetReport.Flaws == nil {
+			targetReport.Flaws = []model.ZeroTrustArchitecture{}
+		}
+		out.Targets = append(out.Targets, targetReport)
+	}
+	out.Summary.DistinctFlaws = len(groups)
+	for _, group := range groups {
+		group.Targets = uniqueSortedStrings(group.Targets)
+		group.TargetCount = len(group.Targets)
+		group.ControlEvidenceNeeded = uniqueSortedStrings(group.ControlEvidenceNeeded)
+		group.EvidenceSurfaces = uniqueSortedStrings(group.EvidenceSurfaces)
+		group.EvidenceSources = uniqueSortedStrings(group.EvidenceSources)
+		group.Actions = uniqueSortedStrings(group.Actions)
+		out.Groups = append(out.Groups, *group)
+	}
+	sort.Slice(out.Groups, func(i, j int) bool {
+		if out.Groups[i].Severity == out.Groups[j].Severity {
+			return out.Groups[i].Title < out.Groups[j].Title
+		}
+		return severityRank(out.Groups[i].Severity) > severityRank(out.Groups[j].Severity)
+	})
+	if out.Groups == nil {
+		out.Groups = []model.ArchitectureFlawGroup{}
+	}
+	if out.Targets == nil {
+		out.Targets = []model.ArchitectureTargetReport{}
+	}
+	return out, nil
 }
 
 func RenderInventory(w io.Writer, r model.InventoryReport, format string) error {
@@ -560,6 +663,63 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 	return nil
 }
 
+func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) error {
+	fmt.Fprintf(w, "Ariadne Zero Trust architecture fleet:\n")
+	fmt.Fprintf(w, "  Mode: %s  Agent: %s  Filter: %s\n", empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	fmt.Fprintf(w, "  Targets: %d total, %d completed, %d errors\n", r.Summary.Targets, r.Summary.Completed, r.Summary.Errors)
+	fmt.Fprintf(w, "  Matching flaws: %d total across targets, %d distinct, %d breaking, %d controlled, %d unknown, %d not observed\n",
+		r.Summary.MatchingFlaws,
+		r.Summary.DistinctFlaws,
+		r.Summary.Breaking,
+		r.Summary.Controlled,
+		r.Summary.Unknown,
+		r.Summary.NotObserved,
+	)
+	if len(r.Groups) == 0 {
+		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
+		return nil
+	}
+	fmt.Fprintf(w, "  Flaws by target coverage:\n")
+	for _, group := range r.Groups {
+		fmt.Fprintf(w, "    - %s %s: %d target(s); %d breaking, %d controlled, %d unknown, %d not observed\n",
+			strings.ToUpper(group.Severity),
+			group.Title,
+			group.TargetCount,
+			group.StatusCounts.Breaking,
+			group.StatusCounts.Controlled,
+			group.StatusCounts.Unknown,
+			group.StatusCounts.NotObserved,
+		)
+		fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(group.Targets, 6), "; "))
+		if len(group.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(group.EvidenceSources, 5), "; "))
+		}
+		if len(group.ControlEvidenceNeeded) > 0 {
+			fmt.Fprintf(w, "      Breaks when: %s\n", strings.Join(limitStrings(group.ControlEvidenceNeeded, 6), "; "))
+		}
+		if len(group.EvidenceSurfaces) > 0 {
+			fmt.Fprintf(w, "      Evidence surfaces: %s\n", strings.Join(limitStrings(group.EvidenceSurfaces, 5), "; "))
+		}
+	}
+	fmt.Fprintf(w, "  Targets:\n")
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			fmt.Fprintf(w, "    - %s: error: %s\n", target.Target.ID, target.Error)
+			continue
+		}
+		fmt.Fprintf(w, "    - %s: %d matching flaws (%d breaking, %d controlled, %d unknown, %d not observed)\n",
+			target.Target.ID,
+			target.Summary.Total,
+			target.Summary.Breaking,
+			target.Summary.Controlled,
+			target.Summary.Unknown,
+			target.Summary.NotObserved,
+		)
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
 func summarizeArchitectureFlaws(flaws []model.ZeroTrustArchitecture) model.ZeroTrustSummary {
 	var summary model.ZeroTrustSummary
 	summary.Total = len(flaws)
@@ -576,6 +736,83 @@ func summarizeArchitectureFlaws(flaws []model.ZeroTrustArchitecture) model.ZeroT
 		}
 	}
 	return summary
+}
+
+func incrementZeroTrustSummary(summary *model.ZeroTrustSummary, status model.ZeroTrustStatus) {
+	summary.Total++
+	switch status {
+	case model.ZeroTrustBreaking:
+		summary.Breaking++
+	case model.ZeroTrustControlled:
+		summary.Controlled++
+	case model.ZeroTrustUnknown:
+		summary.Unknown++
+	default:
+		summary.NotObserved++
+	}
+}
+
+func incrementArchitectureScanSummary(summary *model.ArchitectureScanSummary, status model.ZeroTrustStatus) {
+	summary.MatchingFlaws++
+	switch status {
+	case model.ZeroTrustBreaking:
+		summary.Breaking++
+	case model.ZeroTrustControlled:
+		summary.Controlled++
+	case model.ZeroTrustUnknown:
+		summary.Unknown++
+	default:
+		summary.NotObserved++
+	}
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func zeroTrustEvidenceSources(evidence []model.ZeroTrustEvidence) []string {
+	var out []string
+	for _, item := range evidence {
+		source := item.Source
+		if source == "" {
+			source = item.ID
+		}
+		if source == "" {
+			source = item.Kind
+		}
+		if source != "" && source != "evidence:omitted" {
+			out = append(out, source)
+		}
+	}
+	return out
+}
+
+func severityRank(value string) int {
+	switch strings.ToLower(value) {
+	case "critical":
+		return 5
+	case "high":
+		return 4
+	case "medium":
+		return 3
+	case "low":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func validArchitectureStatusFilter(filter string) bool {
