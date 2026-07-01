@@ -12,6 +12,7 @@
     "agent",
     "status_filter",
     "summary",
+    "evidence_plan",
     "boundary_coverage",
     "groups",
     "closure_plan",
@@ -29,6 +30,10 @@
     "agent": { "type": "string" },
     "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
     "summary": { "$ref": "#/$defs/architecture_scan_summary" },
+    "evidence_plan": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_evidence_plan" }
+    },
     "boundary_coverage": {
       "type": "array",
       "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_boundary" }

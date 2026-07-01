@@ -14,6 +14,7 @@
     "summary",
     "overall_summary",
     "evidence_coverage",
+    "evidence_plan",
     "maturity",
     "boundary_coverage",
     "flaws",
@@ -34,6 +35,10 @@
     "summary": { "$ref": "#/$defs/zero_trust_summary" },
     "overall_summary": { "$ref": "#/$defs/zero_trust_summary" },
     "evidence_coverage": { "$ref": "#/$defs/zero_trust_coverage" },
+    "evidence_plan": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_evidence_plan" }
+    },
     "maturity": { "$ref": "#/$defs/zero_trust_maturity" },
     "boundary_coverage": {
       "type": "array",
@@ -161,6 +166,21 @@
         "next_collectors": { "type": "array", "items": { "type": "string" } },
         "actions": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_evidence_plan": {
+      "type": "object",
+      "required": ["next_collector", "gap_count", "target_count", "status_counts", "boundaries", "check_ids", "targets", "missing_evidence", "why_it_matters"],
+      "properties": {
+        "next_collector": { "type": "string" },
+        "gap_count": { "type": "integer" },
+        "target_count": { "type": "integer" },
+        "status_counts": { "$ref": "#/$defs/zero_trust_summary" },
+        "boundaries": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "why_it_matters": { "type": "array", "items": { "type": "string" } }
       }
     },
     "zero_trust_architecture": {

@@ -72,6 +72,7 @@ func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error 
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureSummaryDashboard(w, r)
+	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
 	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
 	renderArchitectureClosurePlanDashboard(w, r.ClosurePlan)
 	renderArchitectureFlawTableDashboard(w, r.Flaws)
@@ -99,6 +100,7 @@ func renderArchitectureScanDashboard(w io.Writer, r model.ArchitectureScanReport
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureScanSummaryDashboard(w, r)
+	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
 	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
 	renderArchitectureClosurePlanDashboard(w, r.ClosurePlan)
 	renderZeroTrustBoundaryCoverageDashboard(w, r.BoundaryCoverage, 12)
@@ -470,6 +472,32 @@ func renderArchitectureClosurePlanDashboard(w io.Writer, items []model.Architect
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
 		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureEvidencePlanDashboard(w io.Writer, items []model.ArchitectureEvidencePlan) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Evidence Plan</h2><div class="subtle">Evidence gaps grouped by the next collector needed to prove or clear a Zero Trust boundary.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(items) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No Zero Trust evidence gaps were returned for this run.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Next collector</th><th>Impact</th><th>Status</th><th>Boundaries</th><th>Targets</th><th>Missing evidence / why it matters</th></tr></thead><tbody>")
+	for _, item := range items {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong></td>`, esc(item.NextCollector))
+		fmt.Fprintf(w, `<td>%d gap(s)<br>%d target(s)</td>`, item.GapCount, item.TargetCount)
+		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustSummaryPills(item.StatusCounts))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Boundaries, 5)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
+		fmt.Fprintf(w, `<td><h3>Missing evidence</h3>%s<h3>Why it matters</h3>%s</td>`, renderSmallList(limitStrings(item.MissingEvidence, 6)), renderSmallList(limitStrings(item.WhyItMatters, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")

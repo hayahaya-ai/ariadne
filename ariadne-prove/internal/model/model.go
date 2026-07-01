@@ -94,6 +94,7 @@ type ArchitectureReport struct {
 	Summary          ZeroTrustSummary            `json:"summary"`
 	OverallSummary   ZeroTrustSummary            `json:"overall_summary"`
 	EvidenceCoverage ZeroTrustCoverage           `json:"evidence_coverage"`
+	EvidencePlan     []ArchitectureEvidencePlan  `json:"evidence_plan"`
 	Maturity         ZeroTrustMaturity           `json:"maturity"`
 	BoundaryCoverage []ArchitectureBoundary      `json:"boundary_coverage"`
 	Flaws            []ZeroTrustArchitecture     `json:"flaws"`
@@ -112,6 +113,7 @@ type ArchitectureScanReport struct {
 	Agent            string                      `json:"agent"`
 	StatusFilter     string                      `json:"status_filter"`
 	Summary          ArchitectureScanSummary     `json:"summary"`
+	EvidencePlan     []ArchitectureEvidencePlan  `json:"evidence_plan"`
 	BoundaryCoverage []ArchitectureBoundary      `json:"boundary_coverage"`
 	Groups           []ArchitectureFlawGroup     `json:"groups"`
 	ClosurePlan      []ArchitectureClosure       `json:"closure_plan"`
@@ -191,6 +193,18 @@ type ArchitectureClosureFamily struct {
 	Targets          []string `json:"targets"`
 	EvidenceSurfaces []string `json:"evidence_surfaces"`
 	Actions          []string `json:"actions"`
+}
+
+type ArchitectureEvidencePlan struct {
+	NextCollector   string           `json:"next_collector"`
+	GapCount        int              `json:"gap_count"`
+	TargetCount     int              `json:"target_count"`
+	StatusCounts    ZeroTrustSummary `json:"status_counts"`
+	Boundaries      []string         `json:"boundaries"`
+	CheckIDs        []string         `json:"check_ids"`
+	Targets         []string         `json:"targets"`
+	MissingEvidence []string         `json:"missing_evidence"`
+	WhyItMatters    []string         `json:"why_it_matters"`
 }
 
 type ArchitectureBoundary struct {

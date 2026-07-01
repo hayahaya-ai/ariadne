@@ -97,7 +97,11 @@ func BuildArchitectureReport(r model.Report, statusFilter string) (model.Archite
 		Summary:          summarizeArchitectureFlaws(flaws),
 		OverallSummary:   r.ZeroTrust.ArchitectureSummary,
 		EvidenceCoverage: r.ZeroTrust.Coverage,
-		Maturity:         r.ZeroTrust.Maturity,
+		EvidencePlan: buildArchitectureEvidencePlan([]architectureCoverageInput{{
+			TargetID:  "target",
+			ZeroTrust: r.ZeroTrust,
+		}}),
+		Maturity: r.ZeroTrust.Maturity,
 		BoundaryCoverage: buildArchitectureBoundaryCoverage([]architectureCoverageInput{{
 			TargetID:  "target",
 			ZeroTrust: r.ZeroTrust,
@@ -205,6 +209,7 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 		return severityRank(out.Groups[i].Severity) > severityRank(out.Groups[j].Severity)
 	})
 	out.BoundaryCoverage = buildArchitectureBoundaryCoverage(coverageInputs)
+	out.EvidencePlan = buildArchitectureEvidencePlan(coverageInputs)
 	out.ClosurePlan = buildArchitectureClosurePlan(closureInputs)
 	out.ClosureFamilies = buildArchitectureClosureFamilies(out.ClosurePlan)
 	if out.Groups == nil {
@@ -212,6 +217,9 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 	}
 	if out.BoundaryCoverage == nil {
 		out.BoundaryCoverage = []model.ArchitectureBoundary{}
+	}
+	if out.EvidencePlan == nil {
+		out.EvidencePlan = []model.ArchitectureEvidencePlan{}
 	}
 	if out.ClosurePlan == nil {
 		out.ClosurePlan = []model.ArchitectureClosure{}
@@ -671,6 +679,7 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 		r.OverallSummary.NotObserved,
 	)
 	renderArchitectureBoundarySummary(w, r.BoundaryCoverage, r.EvidenceCoverage)
+	renderArchitectureEvidencePlan(w, r.EvidencePlan, 6)
 	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 8)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 8)
 	if len(r.Flaws) == 0 {
@@ -733,6 +742,7 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 		r.Summary.NotObserved,
 	)
 	renderArchitectureBoundaryCoverage(w, r.BoundaryCoverage, 8)
+	renderArchitectureEvidencePlan(w, r.EvidencePlan, 8)
 	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 10)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 10)
 	if len(r.Groups) == 0 {
@@ -873,6 +883,31 @@ func renderArchitectureClosurePlan(w io.Writer, items []model.ArchitectureClosur
 	}
 	if len(items) > limit {
 		fmt.Fprintf(w, "    - %d more closure items in JSON output\n", len(items)-limit)
+	}
+}
+
+func renderArchitectureEvidencePlan(w io.Writer, items []model.ArchitectureEvidencePlan, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Evidence plan:\n")
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	for _, item := range items[:limit] {
+		fmt.Fprintf(w, "    - %s: %d gap(s), %d target(s)\n", item.NextCollector, item.GapCount, item.TargetCount)
+		if len(item.Boundaries) > 0 {
+			fmt.Fprintf(w, "      Boundaries: %s\n", strings.Join(limitStrings(item.Boundaries, 4), "; "))
+		}
+		if len(item.Targets) > 0 {
+			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 5), "; "))
+		}
+		if len(item.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "      Missing evidence: %s\n", strings.Join(limitStrings(item.MissingEvidence, 5), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "    - %d more evidence-plan rows in JSON output\n", len(items)-limit)
 	}
 }
 
@@ -1030,6 +1065,73 @@ func buildArchitectureBoundaryCoverage(inputs []architectureCoverageInput) []mod
 	})
 	if out == nil {
 		return []model.ArchitectureBoundary{}
+	}
+	return out
+}
+
+func buildArchitectureEvidencePlan(inputs []architectureCoverageInput) []model.ArchitectureEvidencePlan {
+	byCollector := map[string]*architectureEvidencePlanBuilder{}
+	for _, input := range inputs {
+		targetID := input.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		for _, gap := range input.ZeroTrust.Coverage.GapDetails {
+			collector := strings.TrimSpace(gap.NextCollector)
+			if collector == "" {
+				collector = "Collector not mapped"
+			}
+			item := byCollector[collector]
+			if item == nil {
+				item = &architectureEvidencePlanBuilder{
+					NextCollector: collector,
+					targets:       map[string]bool{},
+					boundaries:    map[string]bool{},
+					checkIDs:      map[string]bool{},
+					whyItMatters:  map[string]bool{},
+				}
+				byCollector[collector] = item
+			}
+			item.GapCount++
+			incrementZeroTrustSummary(&item.StatusCounts, gap.Status)
+			item.targets[targetID] = true
+			if gap.Boundary != "" {
+				item.boundaries[gap.Boundary] = true
+			}
+			if gap.CheckID != "" {
+				item.checkIDs[gap.CheckID] = true
+			}
+			if gap.WhyItMatters != "" {
+				item.whyItMatters[gap.WhyItMatters] = true
+			}
+			item.MissingEvidence = append(item.MissingEvidence, gap.MissingEvidence...)
+		}
+	}
+	out := make([]model.ArchitectureEvidencePlan, 0, len(byCollector))
+	for _, item := range byCollector {
+		plan := model.ArchitectureEvidencePlan{
+			NextCollector:   item.NextCollector,
+			GapCount:        item.GapCount,
+			TargetCount:     len(item.targets),
+			StatusCounts:    item.StatusCounts,
+			Boundaries:      mapKeysSorted(item.boundaries),
+			CheckIDs:        mapKeysSorted(item.checkIDs),
+			Targets:         mapKeysSorted(item.targets),
+			MissingEvidence: uniqueSortedStrings(item.MissingEvidence),
+			WhyItMatters:    mapKeysSorted(item.whyItMatters),
+		}
+		out = append(out, plan)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := architectureEvidencePlanRank(out[i])
+		right := architectureEvidencePlanRank(out[j])
+		if left == right {
+			return out[i].NextCollector < out[j].NextCollector
+		}
+		return left > right
+	})
+	if out == nil {
+		return []model.ArchitectureEvidencePlan{}
 	}
 	return out
 }
@@ -1195,6 +1297,17 @@ type architectureClosureBuilder struct {
 	Actions           []string
 }
 
+type architectureEvidencePlanBuilder struct {
+	NextCollector   string
+	GapCount        int
+	StatusCounts    model.ZeroTrustSummary
+	targets         map[string]bool
+	boundaries      map[string]bool
+	checkIDs        map[string]bool
+	MissingEvidence []string
+	whyItMatters    map[string]bool
+}
+
 type architectureClosureFamilyBuilder struct {
 	ID               string
 	Title            string
@@ -1209,6 +1322,10 @@ type architectureClosureFamilyBuilder struct {
 
 func architectureClosureRank(item model.ArchitectureClosure) int {
 	return severityRank(item.Severity)*100000 + item.TargetCount*1000 + item.FlawCount
+}
+
+func architectureEvidencePlanRank(item model.ArchitectureEvidencePlan) int {
+	return item.TargetCount*100000 + item.GapCount*1000 + item.StatusCounts.Unknown*100 + item.StatusCounts.NotObserved*10
 }
 
 func architectureClosureFamilyRank(item model.ArchitectureClosureFamily) int {
