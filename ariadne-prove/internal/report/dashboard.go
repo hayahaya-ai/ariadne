@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
@@ -51,6 +52,55 @@ func renderScanDashboard(w io.Writer, r model.ScanReport) error {
 	renderIssueDashboard(w, r.Interpretation, model.Graph{}, nil, r.Redaction)
 	renderScanTargetSection(w, r)
 	renderScanFactsDive(w, r)
+	fmt.Fprintln(w, "</main>")
+	fmt.Fprintln(w, "</body>")
+	fmt.Fprintln(w, "</html>")
+	return nil
+}
+
+func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error {
+	title := "Ariadne Zero Trust Architecture"
+	fmt.Fprintln(w, "<!doctype html>")
+	fmt.Fprintln(w, `<html lang="en">`)
+	renderDashboardHead(w, title)
+	fmt.Fprintln(w, "<body>")
+	fmt.Fprintln(w, `<main class="shell">`)
+	renderDashboardHeader(w, title, []kv{
+		{"Target", firstNonEmpty(r.TargetPath, "not recorded")},
+		{"Mode", firstNonEmpty(r.Mode, "unknown")},
+		{"Agent", firstNonEmpty(r.Agent, "unknown")},
+		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
+	})
+	renderArchitectureSummaryDashboard(w, r)
+	renderArchitectureFlawTableDashboard(w, r.Flaws)
+	renderZeroTrustBoundaryCoverageDashboard(w, r.BoundaryCoverage, 12)
+	renderZeroTrustMaturity(w, r.Maturity)
+	renderZeroTrustCoverage(w, r.EvidenceCoverage)
+	renderRunNotes(w, nil, r.Limitations)
+	fmt.Fprintln(w, "</main>")
+	fmt.Fprintln(w, "</body>")
+	fmt.Fprintln(w, "</html>")
+	return nil
+}
+
+func renderArchitectureScanDashboard(w io.Writer, r model.ArchitectureScanReport) error {
+	title := "Ariadne Fleet Zero Trust Architecture"
+	fmt.Fprintln(w, "<!doctype html>")
+	fmt.Fprintln(w, `<html lang="en">`)
+	renderDashboardHead(w, title)
+	fmt.Fprintln(w, "<body>")
+	fmt.Fprintln(w, `<main class="shell">`)
+	renderDashboardHeader(w, title, []kv{
+		{"Targets", fmt.Sprintf("%d completed / %d total", r.Summary.Completed, r.Summary.Targets)},
+		{"Mode", firstNonEmpty(r.Mode, "unknown")},
+		{"Agent", firstNonEmpty(r.Agent, "unknown")},
+		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
+	})
+	renderArchitectureScanSummaryDashboard(w, r)
+	renderZeroTrustBoundaryCoverageDashboard(w, r.BoundaryCoverage, 12)
+	renderArchitectureFlawGroupsDashboard(w, r.Groups)
+	renderArchitectureTargetsDashboard(w, r.Targets)
+	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
 	fmt.Fprintln(w, "</body>")
 	fmt.Fprintln(w, "</html>")
@@ -359,6 +409,60 @@ func renderArchitectureFlawsDashboard(w io.Writer, z model.ZeroTrust) {
 	fmt.Fprintln(w, "</tbody></table></div>")
 }
 
+func renderArchitectureSummaryDashboard(w io.Writer, r model.ArchitectureReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Architecture Readout</h2><div class="subtle">Focused Zero Trust agent architecture results from deterministic facts, graph edges, and control evidence.</div></div>`)
+	fmt.Fprintf(w, `<div class="subtle">%s</div>`, esc(r.FrameworkVersion))
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"Matching flaws", fmt.Sprintf("%d", r.Summary.Total)},
+		{"Breaking", fmt.Sprintf("%d", r.Summary.Breaking)},
+		{"Controlled", fmt.Sprintf("%d", r.Summary.Controlled)},
+		{"Unknown", fmt.Sprintf("%d", r.Summary.Unknown)},
+		{"Evidence gaps", fmt.Sprintf("%d", r.EvidenceCoverage.Gaps)},
+	})
+	renderMetricRow(w, []kv{
+		{"Overall flaws", fmt.Sprintf("%d", r.OverallSummary.Total)},
+		{"Overall breaking", fmt.Sprintf("%d", r.OverallSummary.Breaking)},
+		{"Overall controlled", fmt.Sprintf("%d", r.OverallSummary.Controlled)},
+		{"Overall unknown", fmt.Sprintf("%d", r.OverallSummary.Unknown)},
+		{"Not observed", fmt.Sprintf("%d", r.OverallSummary.NotObserved)},
+	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureFlawTableDashboard(w io.Writer, flaws []model.ZeroTrustArchitecture) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Architecture Failure Map</h2><div class="subtle">Each row states the boundary break, the evidence anchor, and the hard barrier needed to close it.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(flaws) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No architecture flaws matched this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	renderArchitectureFlawTable(w, flaws)
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureFlawTable(w io.Writer, flaws []model.ZeroTrustArchitecture) {
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Architecture flaw</th><th>Control test</th><th>Evidence anchors</th><th>Graph / observed controls</th><th>Breaks when</th><th>Evidence surfaces / next action</th></tr></thead><tbody>")
+	for _, flaw := range flaws {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><div class="pill %s">%s</div></td>`, cssClass(string(flaw.Status)), esc(statusLabel(string(flaw.Status))), cssClass(flaw.Severity), esc(strings.ToUpper(flaw.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div><div class="subtle">%s</div></td>`, esc(flaw.Title), esc(flaw.Principle), esc(flaw.ID), esc(strings.Join(flaw.Boundaries, ", ")), esc(flaw.Finding))
+		fmt.Fprintf(w, `<td>%s</td>`, renderArchitectureControlTest(flaw.ControlTest))
+		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(flaw.Evidence))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(flaw.GraphEdges, 4)), renderControlLine(flaw.Controls))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(flaw.ControlEvidenceNeeded, 6)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Next action</h3>%s</td>`, renderSmallList(limitStrings(flaw.EvidenceSurfaces, 5)), renderSmallList(limitStrings(flaw.Actions, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
 func renderZeroTrustBoundaryCoverageDashboard(w io.Writer, boundaries []model.ArchitectureBoundary, limit int) {
 	if len(boundaries) == 0 {
 		return
@@ -507,6 +611,84 @@ func renderScanZeroTrustDashboard(w io.Writer, r model.ScanReport) {
 	fmt.Fprintln(w, "</section>")
 }
 
+func renderArchitectureScanSummaryDashboard(w io.Writer, r model.ArchitectureScanReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Fleet Architecture Readout</h2><div class="subtle">Grouped Zero Trust architecture breakage across targets.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"Targets", fmt.Sprintf("%d", r.Summary.Targets)},
+		{"Completed", fmt.Sprintf("%d", r.Summary.Completed)},
+		{"Errors", fmt.Sprintf("%d", r.Summary.Errors)},
+		{"Matching flaws", fmt.Sprintf("%d", r.Summary.MatchingFlaws)},
+		{"Distinct flaws", fmt.Sprintf("%d", r.Summary.DistinctFlaws)},
+	})
+	renderMetricRow(w, []kv{
+		{"Breaking", fmt.Sprintf("%d", r.Summary.Breaking)},
+		{"Controlled", fmt.Sprintf("%d", r.Summary.Controlled)},
+		{"Unknown", fmt.Sprintf("%d", r.Summary.Unknown)},
+		{"Not observed", fmt.Sprintf("%d", r.Summary.NotObserved)},
+		{"Boundary rows", fmt.Sprintf("%d", len(r.BoundaryCoverage))},
+	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureFlawGroupsDashboard(w io.Writer, groups []model.ArchitectureFlawGroup) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Flaws By Target Coverage</h2><div class="subtle">Which architecture failure categories recur across the scanned targets.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(groups) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No architecture flaw groups matched this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Architecture flaw</th><th>Status by target</th><th>Control test</th><th>Targets</th><th>Evidence anchors</th><th>Breaks when</th><th>Evidence surfaces / action</th></tr></thead><tbody>")
+	for _, group := range groups {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(group.Severity), esc(strings.ToUpper(group.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(group.Title), esc(group.Principle), esc(group.ID), esc(group.Tier))
+		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustSummaryPills(group.StatusCounts))
+		fmt.Fprintf(w, `<td>%s</td>`, renderControlTestResults(group.ControlTestResults))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.Targets, 8)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.EvidenceSources, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.ControlEvidenceNeeded, 6)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(group.EvidenceSurfaces, 5)), renderSmallList(limitStrings(group.Actions, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureTargetsDashboard(w io.Writer, targets []model.ArchitectureTargetReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Targets</h2><div class="subtle">Filtered architecture flaw counts for each target.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(targets) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No target results were returned.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Target</th><th>Path</th><th>Status</th><th>Matching flaws</th></tr></thead><tbody>")
+	for _, target := range targets {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong></td>`, esc(target.Target.ID))
+		fmt.Fprintf(w, `<td class="mono">%s</td>`, esc(target.Target.Path))
+		if target.Error != "" {
+			fmt.Fprintf(w, `<td><span class="pill critical">ERROR</span><div class="subtle">%s</div></td>`, esc(target.Error))
+		} else {
+			fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustSummaryPills(target.Summary))
+		}
+		fmt.Fprintf(w, `<td>%d</td>`, len(target.Flaws))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
 func renderZeroTrustEvidence(evidence []model.ZeroTrustEvidence) string {
 	if len(evidence) == 0 {
 		return `<span class="subtle">No direct evidence mapped.</span>`
@@ -537,6 +719,52 @@ func renderControlLine(controls []string) string {
 		return ""
 	}
 	return `<h3>Controls</h3>` + renderSmallList(controls)
+}
+
+func renderZeroTrustSummaryPills(summary model.ZeroTrustSummary) string {
+	parts := []string{
+		statusCountPill(model.ZeroTrustBreaking, summary.Breaking),
+		statusCountPill(model.ZeroTrustControlled, summary.Controlled),
+		statusCountPill(model.ZeroTrustUnknown, summary.Unknown),
+		statusCountPill(model.ZeroTrustNotObserved, summary.NotObserved),
+	}
+	var out []string
+	for _, part := range parts {
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	return strings.Join(out, "<br>")
+}
+
+func statusCountPill(status model.ZeroTrustStatus, count int) string {
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf(`<span class="pill %s">%d %s</span>`, cssClass(string(status)), count, esc(statusLabel(string(status))))
+}
+
+func renderControlTestResults(results map[string]int) string {
+	if len(results) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	keys := make([]string, 0, len(results))
+	for key := range results {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(`<ul class="list">`)
+	for _, key := range keys {
+		b.WriteString("<li>")
+		b.WriteString(esc(fmt.Sprintf("%s: %d", strings.ReplaceAll(key, "_", " "), results[key])))
+		b.WriteString("</li>")
+	}
+	b.WriteString("</ul>")
+	return b.String()
 }
 
 func renderArchitectureControlTest(test model.ArchitectureControlTest) string {

@@ -106,6 +106,7 @@ Inspect the current repository:
 ```bash
 ./bin/ariadne inventory --path .
 ./bin/ariadne prove --path .
+./bin/ariadne architecture --path . --format html --out architecture-dashboard.html
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
 ./bin/ariadne prove --path . --llm-request-out llm-request.json
 ```
@@ -129,6 +130,7 @@ Scan multiple local or mounted targets:
 
 ```bash
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json
+./bin/ariadne architecture --targets targets.txt --format html --out fleet-architecture.html
 ./bin/ariadne dashboard --targets targets.txt --out fleet-dashboard.html
 ```
 
@@ -146,6 +148,8 @@ repo-only,/srv/repos/example
 | --- | --- |
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
+| `ariadne architecture --path <dir>` | Show focused Zero Trust architecture flaws for one target. |
+| `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets. |
 | `ariadne scan --targets <file>` | Run `prove` across many local or mounted targets and aggregate the results. |
 | `ariadne dashboard --path <dir>` | Write a local HTML issue dashboard for one target. |
 | `ariadne dashboard --targets <file>` | Write a local HTML issue dashboard across many targets. |

@@ -2780,6 +2780,60 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	}
 }
 
+func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var single bytes.Buffer
+	if err := report.RenderArchitecture(&single, r, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := single.String()
+	for _, want := range []string{
+		"Ariadne Zero Trust Architecture",
+		"Architecture Readout",
+		"Architecture Failure Map",
+		"Control test",
+		"missing hard barrier",
+		"Evidence anchors",
+		"Boundary Coverage Map",
+		"Foundation Maturity Requirements",
+		"Evidence Coverage Gaps",
+		"Untrusted instructions can steer privileged tools",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("architecture dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+
+	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fleet bytes.Buffer
+	if err := report.RenderArchitectureScan(&fleet, scan, "dashboard", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered = fleet.String()
+	for _, want := range []string{
+		"Ariadne Fleet Zero Trust Architecture",
+		"Fleet Architecture Readout",
+		"Boundary Coverage Map",
+		"Flaws By Target Coverage",
+		"Control test",
+		"missing hard barrier",
+		"Targets",
+		"combined",
+		"repo-only",
+		"safe",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("fleet architecture dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	reportSchema := loadSchema(t, "ariadne-report-v1.schema.json")
 	zeroTrust := schemaMap(t, reportSchema, "$defs", "zero_trust")

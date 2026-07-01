@@ -19,10 +19,11 @@ Relative paths are resolved relative to the target file.
 ```bash
 ariadne scan --targets endpoints.txt --format json --out ariadne-scan.json
 ariadne architecture --targets endpoints.txt --format json --out ariadne-architecture.json
+ariadne architecture --targets endpoints.txt --format html --out ariadne-fleet-architecture.html
 ariadne dashboard --targets endpoints.txt --out ariadne-fleet-dashboard.html
 ```
 
-Use `architecture --targets` or the fleet dashboard when the question is not just "which targets have exposure paths?" but "which Zero Trust agent architecture boundaries are breaking, controlled, unknown, or not observed across the fleet?" The architecture fleet report groups flaw categories by target coverage and also emits `boundary_coverage` rows with evidence sources, missing evidence, next collectors, and control evidence needed.
+Use `architecture --targets` or the focused fleet architecture dashboard when the question is not just "which targets have exposure paths?" but "which Zero Trust agent architecture boundaries are breaking, controlled, unknown, or not observed across the fleet?" The architecture fleet report groups flaw categories by target coverage and also emits `boundary_coverage` rows with evidence sources, missing evidence, next collectors, and control evidence needed.
 
 ## Collection Pattern
 

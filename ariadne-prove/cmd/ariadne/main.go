@@ -49,7 +49,7 @@ func runArchitecture(args []string) {
 	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
-	format := fs.String("format", "table", "output format: table, json")
+	format := fs.String("format", "table", "output format: table, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -321,6 +321,7 @@ Examples:
   ariadne architecture --targets targets.txt
   ariadne architecture --path . --mode endpoint --include-sensitive-paths
   ariadne architecture --path . --status all --format json
+  ariadne architecture --path . --format html --out architecture-dashboard.html
   ariadne inventory --path .
   ariadne inventory --path . --mode endpoint --format json
   ariadne inventory --path . --format mermaid --out graph.mmd

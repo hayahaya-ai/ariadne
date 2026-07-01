@@ -583,10 +583,12 @@ For the shortest CLI readout, use:
 ariadne architecture --path .
 ariadne architecture --targets targets.txt
 ariadne architecture --path . --status all --format json
+ariadne architecture --path . --format html --out architecture-dashboard.html
+ariadne architecture --targets targets.txt --format html --out fleet-architecture.html
 ariadne architecture --path . --mode endpoint --include-sensitive-paths
 ```
 
-`ariadne architecture` defaults to `--status breaking`, so the first output answers where the architecture is currently breaking. Use `--targets` to group the same architecture flaws across a fleet target list. Use `--status unknown`, `--status controlled`, `--status observed`, or `--status all` when triaging evidence gaps or validating controls.
+`ariadne architecture` defaults to `--status breaking`, so the first output answers where the architecture is currently breaking. Use `--format html` for a focused local operator dashboard. Use `--targets` to group the same architecture flaws across a fleet target list. Use `--status unknown`, `--status controlled`, `--status observed`, or `--status all` when triaging evidence gaps or validating controls.
 
 Start with:
 

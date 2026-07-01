@@ -41,6 +41,8 @@ func RenderArchitecture(w io.Writer, r model.Report, format string, statusFilter
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(architecture)
+	case "html", "dashboard":
+		return renderArchitectureDashboard(w, architecture)
 	default:
 		return fmt.Errorf("unknown architecture format: %s", format)
 	}
@@ -58,6 +60,8 @@ func RenderArchitectureScan(w io.Writer, r model.ScanReport, format string, stat
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(architecture)
+	case "html", "dashboard":
+		return renderArchitectureScanDashboard(w, architecture)
 	default:
 		return fmt.Errorf("unknown architecture format: %s", format)
 	}
