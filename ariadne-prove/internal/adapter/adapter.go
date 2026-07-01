@@ -228,10 +228,10 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 	if strings.Contains(text, "bypasspermissions") || strings.Contains(text, "dontask") || strings.Contains(text, "bash(*)") {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: "claude", Source: source, Summary: "Claude Code settings declare broad local authority or bypass posture."})
 	}
-	if strings.Contains(text, "read(*)") || strings.Contains(text, "bypasspermissions") || strings.Contains(text, "acceptedits") {
+	if strings.Contains(text, "read(") || strings.Contains(text, "bypasspermissions") || strings.Contains(text, "acceptedits") {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "claude", Source: source, Summary: "Claude Code can read files in the configured workspace."})
 	}
-	if strings.Contains(text, "bash(*)") || strings.Contains(text, "bypasspermissions") {
+	if strings.Contains(text, "bash(") || strings.Contains(text, "bypasspermissions") {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: "claude", Source: source, Summary: "Claude Code settings allow broad shell or local execution posture."})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
 	}
@@ -343,6 +343,12 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if leastAgencyConfigured(text) {
 		addControl(c, "control:least-agency-policy", "least-agency-policy", "", s.Source, "Agent policy declares deny-by-default or least-agency permission scoping.")
 	}
+	if denyByDefaultConfigured(text) {
+		addControl(c, "control:deny-by-default-permissions", "deny-by-default-permissions", "", s.Source, "Agent policy declares deny-by-default permission posture.")
+	}
+	if scopedPermissionConfigured(text) {
+		addControl(c, "control:scoped-permissions", "scoped-permissions", "", s.Source, "Agent policy declares scoped filesystem, shell, network, or tool permissions.")
+	}
 	if identityBasedIsolationConfigured(text) {
 		addControl(c, "control:identity-based-isolation", "identity-based-isolation", "", s.Source, "Agent policy declares identity-based isolation or named-caller network boundaries.")
 	}
@@ -440,6 +446,12 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	}
 	if leastAgencyConfigured(text) {
 		addControl(c, "control:least-agency-policy", "least-agency-policy", runtime, source, runtime+" config declares deny-by-default or least-agency permission scoping.")
+	}
+	if denyByDefaultConfigured(text) {
+		addControl(c, "control:deny-by-default-permissions", "deny-by-default-permissions", runtime, source, runtime+" config declares deny-by-default permission posture.")
+	}
+	if scopedPermissionConfigured(text) {
+		addControl(c, "control:scoped-permissions", "scoped-permissions", runtime, source, runtime+" config declares scoped filesystem, shell, network, or tool permissions.")
 	}
 	if identityBasedIsolationConfigured(text) {
 		addControl(c, "control:identity-based-isolation", "identity-based-isolation", runtime, source, runtime+" config declares identity-based isolation or named-caller boundaries.")
@@ -761,6 +773,39 @@ func leastAgencyConfigured(text string) bool {
 		strings.Contains(text, "tool_scope") ||
 		strings.Contains(text, "permission_scope") ||
 		strings.Contains(text, "scoped_permissions")
+}
+
+func denyByDefaultConfigured(text string) bool {
+	return strings.Contains(text, "deny_by_default") ||
+		strings.Contains(text, "deny-by-default") ||
+		strings.Contains(text, "\"defaultmode\": \"default\"") ||
+		strings.Contains(text, "\"default_mode\": \"default\"") ||
+		strings.Contains(text, "default_mode = \"default\"") ||
+		strings.Contains(text, "default_policy = \"deny\"") ||
+		strings.Contains(text, "default_policy=\"deny\"") ||
+		strings.Contains(text, "default_deny = true") ||
+		strings.Contains(text, "\"default_deny\": true")
+}
+
+func scopedPermissionConfigured(text string) bool {
+	if strings.Contains(text, "bypasspermissions") ||
+		strings.Contains(text, "danger-full-access") ||
+		strings.Contains(text, "dangerously-bypass") ||
+		strings.Contains(text, "bash(*)") {
+		return false
+	}
+	return strings.Contains(text, "sandbox_mode = \"workspace-write\"") ||
+		strings.Contains(text, "sandbox_mode=\"workspace-write\"") ||
+		strings.Contains(text, "sandbox_mode = \"read-only\"") ||
+		strings.Contains(text, "sandbox_mode=\"read-only\"") ||
+		strings.Contains(text, "allowed_sandbox_modes") ||
+		strings.Contains(text, "deny_read") ||
+		strings.Contains(text, "\"deny\"") ||
+		strings.Contains(text, "read(") && !strings.Contains(text, "read(*)") ||
+		strings.Contains(text, "bash(") && !strings.Contains(text, "bash(*)") ||
+		strings.Contains(text, "scoped_permissions") ||
+		strings.Contains(text, "permission_scope") ||
+		strings.Contains(text, "tool_scope")
 }
 
 func identityBasedIsolationConfigured(text string) bool {

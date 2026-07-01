@@ -74,13 +74,23 @@ func authorityBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 	if len(c.Authorities) > 0 {
 		status = statusForAnyExposure(exposures)
 		finding = "Agent authority exists; Ariadne could not prove whether it is least-agency scoped."
-		if status == model.ZeroTrustBreaking {
+		hasBroadLocal := hasAuthority(c, "authority:broad-local")
+		if hasBroadLocal {
+			status = model.ZeroTrustBreaking
+			finding = "Broad local authority was modeled; scoped controls do not satisfy least agency until broad standing authority is removed."
+		} else if status == model.ZeroTrustBreaking {
 			finding = "Agent authority reaches a sensitive boundary without an observed break-path control."
 		}
 		if status == model.ZeroTrustControlled {
 			finding = "Agent authority exists, but controls restrict the supported exposure path."
 		}
+		if !hasBroadLocal && status != model.ZeroTrustBreaking && hasAnyControl(c, leastAgencyControlIDs()...) {
+			status = model.ZeroTrustControlled
+			finding = "Agent authority exists, and Ariadne observed scoped permission or deny-by-default controls for least-agency posture."
+		}
 	}
+	controls := controlsForExposures(exposures)
+	controls = append(controls, controlIDs(c, leastAgencyControlIDs()...)...)
 	return model.ZeroTrustCheck{
 		ID:         "zt:authority-boundary",
 		Principle:  "Least agency",
@@ -91,7 +101,7 @@ func authorityBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 		Finding:    finding,
 		Evidence:   limitEvidence(authorityEvidence(c), 8),
 		GraphEdges: edgesForTypes(g, "has_authority", "reaches"),
-		Controls:   controlsForExposures(exposures),
+		Controls:   uniqueStrings(controls),
 		Actions: []string{
 			"Constrain filesystem, shell, network, and MCP authority to the smallest useful scope.",
 			"Prefer deny-by-default permission posture with explicit allowlists for necessary tools.",
@@ -467,9 +477,9 @@ func requireShortLivedCredentials(c model.Collection) model.ZeroTrustRequirement
 }
 
 func requireLeastAgencyPermissions(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:least-agency-policy", "control:deny-secret-read", "control:mcp-reviewed-pinned", "control:network-restricted")
+	controls := controlIDs(c, leastAgencyControlIDs()...)
 	evidence := firstEvidence(
-		controlsEvidence(c, "control:least-agency-policy", "control:deny-secret-read", "control:mcp-reviewed-pinned", "control:network-restricted"),
+		controlsEvidence(c, leastAgencyControlIDs()...),
 		authorityEvidence(c),
 		toolEvidence(c),
 	)
@@ -482,15 +492,16 @@ func requireLeastAgencyPermissions(c model.Collection) model.ZeroTrustRequiremen
 		quality = "evidence_gap"
 		finding = "Agent authority or tool surfaces exist, but Ariadne did not observe deny-by-default or least-agency scoping evidence."
 	}
-	if hasAuthority(c, "authority:broad-local") && len(controls) == 0 {
+	if hasAuthority(c, "authority:broad-local") {
 		status = model.ZeroTrustBreaking
-		quality = "missing_hard_barrier"
-		finding = "Broad local authority exists without observed least-agency or deny-by-default control evidence."
+		quality = "conflicting_broad_authority"
+		finding = "Broad local authority exists; least-agency evidence is not satisfied until broad standing authority is removed or replaced with scoped permissions."
+		missing = []string{"remove broad local authority", "replace bypass or full-access mode with scoped permissions"}
 	}
-	if hasControlID(c, "control:least-agency-policy") || hasControlID(c, "control:deny-secret-read") || hasControlID(c, "control:mcp-reviewed-pinned") || hasControlID(c, "control:network-restricted") {
+	if !hasAuthority(c, "authority:broad-local") && hasAnyControl(c, leastAgencyControlIDs()...) {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
-		finding = "Ariadne observed least-agency, deny-read, network restriction, or reviewed tool-scoping controls."
+		finding = "Ariadne observed scoped permission, deny-by-default, deny-read, network restriction, or reviewed tool-scoping controls."
 		missing = nil
 	}
 	return zeroTrustRequirement(
@@ -1060,6 +1071,17 @@ func observabilityControlIDs() []string {
 		"control:approval-log-evidence",
 		"control:telemetry-export",
 		"control:immutable-audit-log",
+	}
+}
+
+func leastAgencyControlIDs() []string {
+	return []string{
+		"control:least-agency-policy",
+		"control:deny-by-default-permissions",
+		"control:scoped-permissions",
+		"control:deny-secret-read",
+		"control:mcp-reviewed-pinned",
+		"control:network-restricted",
 	}
 }
 

@@ -595,6 +595,30 @@ func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
 	}
 }
 
+func TestZeroTrustRuntimeScopedPermissionsFeedLeastAgency(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "scoped-runtime-permissions")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:authority-boundary", model.ZeroTrustControlled)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:least-agency-permissions", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:scoped-permissions",
+		"control:deny-by-default-permissions",
+		"control:deny-secret-read",
+	} {
+		if !containsString(req.Controls, id) {
+			t.Fatalf("least-agency requirement missing control %s: %+v", id, req.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing scoped runtime control node %s", id)
+		}
+	}
+	if r.Graph.HasNode("control:least-agency-policy") {
+		t.Fatalf("runtime-scoped fixture should not depend on Ariadne agent policy")
+	}
+}
+
 func TestZeroTrustInlineCredentialMaterialIsBreakingAndRedacted(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o755); err != nil {

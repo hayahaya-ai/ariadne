@@ -173,6 +173,7 @@ Current deterministic discovery covers:
 - `.ariadne/agent-policy.json` declarations for cryptographic identity, least agency, identity-based isolation, traceability, input validation, and automated triage controls
 - `.ariadne/observability-policy.json` declarations for audit, trace, telemetry export, and immutable log controls
 - OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`
+- scoped runtime permission evidence such as deny-by-default mode, scoped Claude `Read(...)` / `Bash(...)` entries, and Codex read-only or workspace-write sandbox posture
 - structured `.jsonl` transcript or history metadata for tool-call, approval, action-log, request, and trace evidence
 - inline credential field indicators in agent configuration without emitting values
 

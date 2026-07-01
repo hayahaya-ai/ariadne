@@ -48,6 +48,7 @@ Supported control signals include:
 
 - cryptographic identity, workload identity, mTLS, X.509, or SPIFFE indicators
 - least agency, least privilege, RBAC, scoped permissions, or deny-by-default indicators
+- runtime-scoped permissions such as Claude `defaultMode: default`, scoped `Read(...)` / `Bash(...)` permissions, Codex `read-only`, or Codex `workspace-write`
 - identity-based isolation, workload isolation, network segmentation, or named-caller indicators
 - approval-required posture
 - sandbox or filesystem isolation posture

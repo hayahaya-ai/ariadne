@@ -37,6 +37,8 @@ Every check uses the same design test:
 Examples of controls Ariadne can model today:
 
 - deny-read rules for secret-like paths
+- scoped runtime permission controls from Claude or Codex settings
+- deny-by-default runtime permission posture
 - network restrictions for external destinations
 - reviewed or pinned MCP server launchers
 - managed runtime settings surfaces
@@ -87,6 +89,7 @@ Control quality values are intentionally blunt:
 - `partial_observed`: Ariadne observed part of the runtime evidence, such as action-log shape without request or trace propagation.
 - `evidence_gap`: relevant agent surfaces exist, but Ariadne lacks the evidence needed to judge the requirement.
 - `missing_hard_barrier`: relevant risky authority exists without observed control evidence.
+- `conflicting_broad_authority`: broad local authority was observed, so least-agency evidence is not satisfied until that authority is removed or replaced with scoped permissions.
 - `broken_static_credential`: inline credential material indicators were observed in agent configuration.
 - `not_applicable`: Ariadne did not observe a supported surface for this requirement in the current run.
 
