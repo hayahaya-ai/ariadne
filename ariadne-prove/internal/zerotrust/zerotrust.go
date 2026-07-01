@@ -26,7 +26,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		continuousAuthorizationBoundary(c, g),
 		approvalBoundary(c, g),
 		resourceExhaustionBoundary(c, g),
-		observabilityBoundary(c),
+		observabilityBoundary(c, g),
 		responseBoundary(c, g, exposures),
 		governanceBoundary(c, g),
 		configIntegrityBoundary(c, g),
@@ -662,25 +662,30 @@ func resourceExhaustionBoundary(c model.Collection, g model.Graph) model.ZeroTru
 	}
 }
 
-func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
+func observabilityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 	status := model.ZeroTrustNotObserved
 	finding := "No supported agent runtime, tool, or authority was observed."
 	auditControls := controlsEvidence(c, observabilityControlIDs()...)
 	evidence := limitEvidence(firstEvidence(auditControls, surfaceEvidenceByCategory(c, "history-cache"), runtimeEvidence(c), toolEvidence(c)), 8)
-	if len(c.Runtimes) > 0 || len(c.Tools) > 0 || len(c.Authorities) > 0 {
+	if hasObservabilityRelevantSurface(c) {
 		status = model.ZeroTrustUnknown
-		finding = "Ariadne observed agent surfaces, but did not verify tamper-resistant action logs, approval logs, or end-to-end tool-call auditability."
+		finding = "Ariadne observed agent surfaces, but did not verify action logging plus request or trace propagation."
 	}
 	if len(surfaceEvidenceByCategory(c, "history-cache")) > 0 {
-		finding = "Local history or cache surfaces exist, but Ariadne treats them as private context, not as verified audit trails."
+		status = model.ZeroTrustUnknown
+		finding = "Local history or cache surfaces exist, but Ariadne treats them as private context, not as verified request-to-action audit trails."
 	}
-	if len(auditControls) > 0 {
-		status = model.ZeroTrustControlled
-		finding = "Ariadne observed declared tool-call, approval, telemetry, or audit logging controls."
+	if len(auditControls) > 0 && !hasHardObservabilityBoundary(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed observability evidence, but not both action logging and request or trace propagation."
 	}
-	if hasAnyControl(c, "control:tool-call-audit-evidence", "control:approval-log-evidence", "control:agent-action-log-evidence", "control:observed-request-traceability", "control:telemetry-export") {
+	if hasObservabilityRisk(c) && !hasAnyControl(c, observabilityControlIDs()...) {
+		status = model.ZeroTrustBreaking
+		finding = "High-risk agent authority or tool surfaces exist without observed action logging or request traceability evidence."
+	}
+	if hasObservabilityRelevantSurface(c) && hasHardObservabilityBoundary(c) {
 		status = model.ZeroTrustControlled
-		finding = "Ariadne observed structured audit, transcript, trace, or telemetry metadata that can support agent action reconstruction."
+		finding = "Ariadne observed action logging and request or trace propagation evidence for request-to-action reconstruction."
 	}
 	return model.ZeroTrustCheck{
 		ID:         "zt:observability-boundary",
@@ -691,12 +696,14 @@ func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
 		DesignTest: "A team should be able to reconstruct what the agent did, why, and which approval or policy allowed it.",
 		Finding:    finding,
 		Evidence:   evidence,
+		GraphEdges: observabilityEdges(g),
 		Controls:   controlIDs(c, observabilityControlIDs()...),
 		Actions: []string{
-			"Collect tool-call, approval, credential, and network audit evidence for agent sessions.",
+			"Collect action, tool-call, approval, credential, and network audit evidence for agent sessions.",
+			"Propagate request, trace, or correlation IDs from input through tool calls and outputs.",
 			"Measure whether critical agent behavior would be visible quickly enough for a human to act.",
 		},
-		Limitations: []string{"Ariadne samples structured audit metadata only; it does not emit transcript content, validate log completeness, or prove tamper resistance unless immutable-log evidence is collected."},
+		Limitations: []string{"Ariadne samples structured audit metadata only; it does not emit transcript content, validate log completeness, replay full reasoning, or prove tamper resistance unless immutable-log evidence is collected."},
 	}
 }
 
@@ -1937,6 +1944,40 @@ func observabilityControlIDs() []string {
 	}
 }
 
+func hasHardObservabilityBoundary(c model.Collection) bool {
+	return hasObservabilityActionLog(c) && hasObservabilityTrace(c)
+}
+
+func hasObservabilityActionLog(c model.Collection) bool {
+	return hasAnyControl(c,
+		"control:audit-logging",
+		"control:agent-action-log-evidence",
+		"control:tool-call-audit-evidence",
+		"control:approval-log-evidence",
+	)
+}
+
+func hasObservabilityTrace(c model.Collection) bool {
+	return hasAnyControl(c,
+		"control:request-traceability",
+		"control:observed-request-traceability",
+	)
+}
+
+func hasObservabilityRelevantSurface(c model.Collection) bool {
+	return len(c.Runtimes) > 0 ||
+		len(c.Tools) > 0 ||
+		len(c.Authorities) > 0 ||
+		len(surfaceEvidenceByCategory(c, "history-cache")) > 0 ||
+		hasAnyControl(c, observabilityControlIDs()...)
+}
+
+func hasObservabilityRisk(c model.Collection) bool {
+	return hasApprovalRelevantSurface(c) ||
+		hasStandingAuthorityRisk(c) ||
+		hasRunawayResourceRisk(c)
+}
+
 func responseControlIDs() []string {
 	return []string{
 		"control:automated-triage",
@@ -2852,6 +2893,16 @@ func approvalEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func observabilityEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if (edge.Type == "observes" || edge.Type == "traces") && observabilityControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func resourceEdges(g model.Graph) []string {
 	out := []string{}
 	for _, edge := range g.Edges {
@@ -2865,6 +2916,22 @@ func resourceEdges(g model.Graph) []string {
 func approvalControlID(id string) bool {
 	switch id {
 	case "control:approval-required":
+		return true
+	default:
+		return false
+	}
+}
+
+func observabilityControlID(id string) bool {
+	switch id {
+	case "control:audit-logging",
+		"control:request-traceability",
+		"control:observed-request-traceability",
+		"control:agent-action-log-evidence",
+		"control:tool-call-audit-evidence",
+		"control:approval-log-evidence",
+		"control:telemetry-export",
+		"control:immutable-audit-log":
 		return true
 	default:
 		return false

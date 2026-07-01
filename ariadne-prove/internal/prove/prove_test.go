@@ -1293,6 +1293,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
 
@@ -2165,7 +2166,7 @@ func TestZeroTrustObservedTranscriptMetadataControlsObservability(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
 	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:comprehensive-agent-logs", model.ZeroTrustControlled)
 	if req.ControlQuality != "hard_barrier" {
 		t.Fatalf("comprehensive logs control quality = %q, want hard_barrier", req.ControlQuality)
@@ -2178,6 +2179,17 @@ func TestZeroTrustObservedTranscriptMetadataControlsObservability(t *testing.T) 
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing observed observability control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:tool-call-audit-evidence|observes|runtime:claude",
+		"control:observed-request-traceability|traces|runtime:claude",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing observability graph edge %s", edge)
+		}
+		if !containsString(check.GraphEdges, edge) {
+			t.Fatalf("observability check does not cite graph edge %s: %+v", edge, check.GraphEdges)
 		}
 	}
 	blob, err := json.Marshal(r)
@@ -2194,7 +2206,7 @@ func TestZeroTrustTelemetryConfigControlsObservability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
 	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:comprehensive-agent-logs", model.ZeroTrustControlled)
 	if !containsString(req.Controls, "control:telemetry-export") {
 		t.Fatalf("expected telemetry export control in comprehensive logs requirement: %+v", req.Controls)
@@ -2207,6 +2219,41 @@ func TestZeroTrustTelemetryConfigControlsObservability(t *testing.T) {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing telemetry config control node %s", id)
 		}
+	}
+	if !containsString(check.GraphEdges, "control:request-traceability|traces|runtime:claude") {
+		t.Fatalf("telemetry observability check missing trace edge: %+v", check.GraphEdges)
+	}
+}
+
+func TestZeroTrustAuditWithoutTraceabilityIsUnknown(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "observability-partial")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:audit-logging") {
+		t.Fatalf("partial observability should cite audit logging: %+v", check.Controls)
+	}
+	if containsString(check.Controls, "control:request-traceability") || containsString(check.Controls, "control:observed-request-traceability") {
+		t.Fatalf("partial observability should not invent traceability controls: %+v", check.Controls)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:comprehensive-agent-logs", model.ZeroTrustUnknown)
+	if req.ControlQuality != "partial_declared" {
+		t.Fatalf("audit-only comprehensive logs quality = %q", req.ControlQuality)
+	}
+}
+
+func TestZeroTrustHighRiskWithoutObservabilityIsBreaking(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("high-risk observability gap without controls should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "traceability") {
+		t.Fatalf("observability finding should explain missing traceability: %q", check.Finding)
 	}
 }
 

@@ -34,7 +34,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Continuous authorization boundary: whether high-risk agent authority is re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes.
 - Human approval boundary: whether high-risk autonomous actions require explicit human approval and approval-decision logging.
 - Resource exhaustion boundary: whether tool/API calls, spend, loops, runtime, and concurrency are bounded and audited before agent automation can run away.
-- Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
+- Observability boundary: whether Ariadne observed action logging plus request or trace propagation evidence to reconstruct request-to-action chains.
 - Response and containment boundary: whether suspicious agent behavior can trigger containment that terminates sessions, revokes credentials, quarantines workloads, or reduces authority.
 - Deployment governance boundary: whether observed agent deployments are registered, owned, approved, risk-assessed, and reviewed instead of unmanaged Shadow AI.
 - Configuration integrity boundary: whether agent settings, MCP definitions, and policy files are reviewable, tamper-evident, centrally enforced, or immutable.
@@ -59,7 +59,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Agent authority is granted at session start and remains usable after task or risk context changes | Continuous authorization boundary | Modeled today through authorization policy, per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access declarations, and automatic revocation controls. |
 | Agent can execute high-risk actions without a human approval gate or approval decision log | Human approval boundary and Foundation maturity | Modeled today through runtime approval policy, ask/PreToolUse posture, approval-required declarations, approval decision logs, audit logging, and trace/request metadata. |
 | Agent automation can loop tool calls, exhaust APIs, spike bills, or deny service | Resource exhaustion boundary | Modeled today through resource policy, tool/API rate limits, spend or token budgets, loop guards, tool timeouts, concurrency limits, circuit breakers, and resource usage audit declarations. |
-| Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
+| Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through action logging evidence, tool-call or approval records, request/trace/correlation IDs, telemetry export, and immutable log declarations. Audit evidence without request-to-action traceability remains partial. |
 | A compromised agent keeps operating while humans investigate | Response and containment boundary | Modeled today through behavioral monitoring, automated triage, session termination, credential revocation, quarantine, dynamic access reduction, and response escalation declarations. |
 | Employees or teams run agents outside accountable governance | Deployment governance boundary | Modeled today through agent inventory, accountable owner, deployment approval, risk assessment, governance review, and Shadow AI discovery declarations. |
 | Memory or context persists across sessions without isolation, provenance, or credential exclusion | Memory and context boundary | Modeled today through private-context surfaces, credential-like filename indicators in summarized context, retention policy, memory isolation, context integrity, context provenance, and credential-isolation declarations. |
@@ -108,6 +108,7 @@ Examples of controls Ariadne can model today:
 - network segmentation or microsegmentation declarations
 - per-tool scope, tool allowlist, MCP allowlist, or permission-scope declarations
 - audit, tool-call, approval, or telemetry logging declarations
+- request ID, trace ID, correlation ID, or distributed tracing declarations that connect a user request to resulting agent actions
 - observed structured transcript metadata for tool-call events, approval decisions, request IDs, trace IDs, and timestamped action records
 - telemetry export and immutable audit log declarations from observability policy or OpenTelemetry collector config
 - behavioral monitoring, automated triage, session termination, credential revocation, containment quarantine, dynamic access reduction, and response escalation declarations
@@ -131,6 +132,8 @@ Examples Ariadne reports as `unknown` today:
 - AI-BOM evidence without dependency health, model provenance or provider review, and artifact signing or runtime validation evidence
 - delegation audit or subagent context isolation without explicit delegation scope, agent-to-agent authorization, original-intent verification, or delegated credential scoping
 - sandbox or network restriction evidence without identity-aware workload authorization evidence
+- audit logging evidence without request, trace, or correlation propagation evidence
+- local history or cache evidence without structured request-to-action audit metadata
 - tamper-resistant audit logs without immutable-log or equivalent evidence
 - automated triage, behavioral monitoring, or response runbooks without a capability-removing action such as session termination, credential revocation, quarantine, or dynamic access reduction
 - governance inventory or ownership evidence without deployment approval, risk assessment, and review evidence
@@ -147,6 +150,7 @@ Examples Ariadne reports as `breaking` when observed:
 - standing high-risk authority without observed continuous authorization, dynamic/JIT scoping, and automatic revocation controls
 - high-risk local execution, external communication, delegation, or sensitive-data access without an observed human approval gate
 - runaway tool, execution, external communication, or delegated authority without resource limits, stop conditions, and usage audit controls
+- high-risk agent authority or tool surfaces without action logging or request traceability evidence
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
 - risk-bearing agent supply-chain surfaces without observed AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence
 - delegated or sub-agent authority inheritance without observed hard delegation controls
@@ -167,7 +171,7 @@ Foundation requirements currently modeled:
 - Tool allowlisting, provenance, and invocation validation.
 - AI-BOM, model provenance, dependency health, and artifact validation.
 - Identity-based workload isolation with ABAC, named callers, segmentation, or tool scope.
-- Comprehensive logs of agent actions with request context.
+- Comprehensive logs of agent actions with request context and traceability.
 - Input isolation, trusted-source gating, and validation for untrusted agent context.
 - Output filtering, redaction, and logging for sensitive agent output.
 - Approval escalation for high-risk actions.
@@ -464,6 +468,8 @@ Ariadne treats destination allowlists, webhook allowlists, per-tool network scop
 Repositories can also declare observability controls in `.ariadne/observability-policy.json`, or provide OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`.
 
 Transcript and history JSONL files are handled differently from policy files. Ariadne samples bounded structured metadata to identify whether event-shape evidence exists for tool calls, approval decisions, request IDs, trace IDs, correlation IDs, session IDs, and timestamps. It does not emit prompt text, tool arguments, tool outputs, or transcript content.
+
+Ariadne treats observability as controlled only when it sees both sides of the request-to-action trail: action evidence such as agent action logs, tool-call audit evidence, or approval logs, and correlation evidence such as request IDs, trace IDs, or observed request traceability. Audit logging by itself is reported as partial or `unknown`. When high-risk authority or tool surfaces exist with no observability controls, Ariadne reports the observability boundary as `breaking`. In the graph, observability controls emit `observes` edges to the runtime, tool, or authority they monitor, and traceability controls emit `traces` edges to the same targets.
 
 Repositories can declare focused response and containment controls in `.ariadne/response-policy.json`:
 

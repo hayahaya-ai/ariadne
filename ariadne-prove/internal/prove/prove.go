@@ -528,9 +528,23 @@ func BuildGraph(c model.Collection) model.Graph {
 		if control.ID == "control:mcp-reviewed-pinned" {
 			addEdge(model.Edge{From: control.ID, Type: "restricts", To: "tool:mcp-package-launch"})
 		}
+		for _, runtime := range c.Runtimes {
+			if controlObservesRuntime(control.ID, runtime.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "observes", To: runtime.ID})
+			}
+			if controlTracesRuntime(control.ID, runtime.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "traces", To: runtime.ID})
+			}
+		}
 		for _, tool := range c.Tools {
 			if controlRestrictsTool(control.ID, tool.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: tool.ID})
+			}
+			if controlObservesTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "observes", To: tool.ID})
+			}
+			if controlTracesTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "traces", To: tool.ID})
 			}
 			if controlRequiresApprovalTool(control.ID, tool.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "requires_approval", To: tool.ID})
@@ -545,6 +559,12 @@ func BuildGraph(c model.Collection) model.Graph {
 			}
 			if controlAuthorizesAuthority(control.ID, authority.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "authorizes", To: authority.ID})
+			}
+			if controlObservesAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "observes", To: authority.ID})
+			}
+			if controlTracesAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "traces", To: authority.ID})
 			}
 			if controlRequiresApprovalAuthority(control.ID, authority.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "requires_approval", To: authority.ID})
@@ -719,6 +739,55 @@ func controlRequiresApprovalAuthority(controlID, authorityID string) bool {
 		"authority:local-code-execution",
 		"authority:external-communication",
 		"authority:delegated-agent-authority":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlObservesRuntime(controlID, runtimeID string) bool {
+	return runtimeID != "" && observabilityLogControl(controlID)
+}
+
+func controlObservesTool(controlID, toolID string) bool {
+	return toolID != "" && observabilityLogControl(controlID)
+}
+
+func controlObservesAuthority(controlID, authorityID string) bool {
+	return authorityID != "" && observabilityLogControl(controlID)
+}
+
+func controlTracesRuntime(controlID, runtimeID string) bool {
+	return runtimeID != "" && observabilityTraceControl(controlID)
+}
+
+func controlTracesTool(controlID, toolID string) bool {
+	return toolID != "" && observabilityTraceControl(controlID)
+}
+
+func controlTracesAuthority(controlID, authorityID string) bool {
+	return authorityID != "" && observabilityTraceControl(controlID)
+}
+
+func observabilityLogControl(controlID string) bool {
+	switch controlID {
+	case "control:audit-logging",
+		"control:agent-action-log-evidence",
+		"control:tool-call-audit-evidence",
+		"control:approval-log-evidence",
+		"control:telemetry-export",
+		"control:immutable-audit-log":
+		return true
+	default:
+		return false
+	}
+}
+
+func observabilityTraceControl(controlID string) bool {
+	switch controlID {
+	case "control:request-traceability",
+		"control:observed-request-traceability",
+		"control:telemetry-export":
 		return true
 	default:
 		return false

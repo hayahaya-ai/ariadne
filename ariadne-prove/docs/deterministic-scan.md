@@ -67,7 +67,7 @@ Supported control signals include:
 - per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access, and automatic access revocation indicators
 - rate limits, spend limits, loop guards, tool timeouts, concurrency limits, circuit breakers, and resource usage audit indicators
 - audit, tool-call, approval, telemetry, or trace logging indicators
-- request ID, trace ID, correlation ID, distributed tracing, or provenance indicators
+- request ID, trace ID, correlation ID, distributed tracing, or provenance indicators that connect the original request to resulting agent actions
 - input isolation, trusted instruction source, instruction provenance, schema validation, prompt-injection filtering, untrusted-content delimiting, spotlighting, or maximum input length indicators
 - sensitive-output filtering, output redaction or blocking, output filter logging, semantic output analysis, and high-risk output review indicators
 - automated first-pass investigation or alert triage indicators
@@ -80,6 +80,8 @@ Supported control signals include:
 - telemetry export and immutable audit log indicators from observability policy or OpenTelemetry collector config
 
 Ariadne also flags inline credential field indicators as `boundary:credential-material` and credential-like filename indicators inside summarized private context as `boundary:memory-credential-retention`. It reports field or filename presence only; values are never emitted.
+
+For the Zero Trust observability boundary, Ariadne separates partial observability from a stronger request-to-action trail. Audit, telemetry, transcript, or cache evidence is useful, but it is not enough by itself. The boundary is treated as controlled only when Ariadne observes action logging evidence plus request, trace, or correlation propagation evidence. High-risk tool or authority surfaces with no observability controls are reported as a breaking architecture path.
 
 ## Redaction
 

@@ -47,6 +47,14 @@ Edge types:
 - `has_authority`
 - `reaches`
 - `restricts`
+- `filters`
+- `requires_approval`
+- `limits`
+- `authorizes`
+- `observes`
+- `traces`
+- `governs`
+- `verifies`
 
 ### Interpretation
 

@@ -65,7 +65,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Are high-risk autonomous actions gated by explicit human approval with decision logs?
 - Are tool/API calls bounded by rate, spend, loop, timeout, concurrency, and usage-audit controls?
 - Is persisted memory or context isolated from unrelated sessions and broad local authority, and does it avoid retaining credential-like material without credential isolation?
-- Would operators have enough audit evidence to reconstruct agent actions and approvals?
+- Would operators have enough action logs and request or trace correlation to reconstruct what request caused each agent action and approval?
 - Can suspicious agent behavior trigger containment that terminates sessions, revokes credentials, quarantines the workload, or reduces authority?
 - Is the deployment governed by an inventory, accountable owner, approval process, risk tier, data classification, and review cadence?
 - Can agent configuration be silently changed to widen authority or disable controls?
@@ -89,7 +89,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - live prompt-injection resistance testing
 - live output DLP, semantic leakage testing, response inspection, or output-control enforcement verification
 - private memory content inspection, live memory quarantine, rollback, or tamper-resistant context-integrity enforcement proof
-- live observability, SIEM, telemetry ingestion, or tamper-resistant audit proof
+- live observability, SIEM, telemetry ingestion, request-to-action replay, or tamper-resistant audit proof
 - live SOAR execution, session termination, credential revocation, quarantine, or dynamic access-reduction enforcement proof
 - live GRC, CMDB, approval workflow, policy exception, or organization-wide Shadow AI discovery verification
 - Git branch protection, signature verification, MDM enforcement, admission policy, or rollback execution proof
