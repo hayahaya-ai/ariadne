@@ -15,6 +15,7 @@
     "overall_summary",
     "evidence_coverage",
     "evidence_plan",
+    "framework_coverage",
     "maturity",
     "boundary_coverage",
     "flaws",
@@ -38,6 +39,10 @@
     "evidence_plan": {
       "type": "array",
       "items": { "$ref": "#/$defs/architecture_evidence_plan" }
+    },
+    "framework_coverage": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_framework_area" }
     },
     "maturity": { "$ref": "#/$defs/zero_trust_maturity" },
     "boundary_coverage": {
@@ -181,6 +186,27 @@
         "targets": { "type": "array", "items": { "type": "string" } },
         "missing_evidence": { "type": "array", "items": { "type": "string" } },
         "why_it_matters": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_framework_area": {
+      "type": "object",
+      "required": ["id", "area", "source", "tier", "status_counts", "target_count", "targets", "check_ids", "flaws", "evidence_sources", "controls", "control_evidence_needed", "missing_evidence", "next_collectors", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "area": { "type": "string" },
+        "source": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "status_counts": { "$ref": "#/$defs/zero_trust_summary" },
+        "target_count": { "type": "integer" },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "control_evidence_needed": { "type": "array", "items": { "type": "string" } },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "next_collectors": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },
     "zero_trust_architecture": {

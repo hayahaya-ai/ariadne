@@ -101,6 +101,10 @@ func BuildArchitectureReport(r model.Report, statusFilter string) (model.Archite
 			TargetID:  "target",
 			ZeroTrust: r.ZeroTrust,
 		}}),
+		FrameworkCoverage: buildArchitectureFrameworkCoverage([]architectureCoverageInput{{
+			TargetID:  "target",
+			ZeroTrust: r.ZeroTrust,
+		}}),
 		Maturity: r.ZeroTrust.Maturity,
 		BoundaryCoverage: buildArchitectureBoundaryCoverage([]architectureCoverageInput{{
 			TargetID:  "target",
@@ -208,8 +212,9 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 		}
 		return severityRank(out.Groups[i].Severity) > severityRank(out.Groups[j].Severity)
 	})
-	out.BoundaryCoverage = buildArchitectureBoundaryCoverage(coverageInputs)
 	out.EvidencePlan = buildArchitectureEvidencePlan(coverageInputs)
+	out.FrameworkCoverage = buildArchitectureFrameworkCoverage(coverageInputs)
+	out.BoundaryCoverage = buildArchitectureBoundaryCoverage(coverageInputs)
 	out.ClosurePlan = buildArchitectureClosurePlan(closureInputs)
 	out.ClosureFamilies = buildArchitectureClosureFamilies(out.ClosurePlan)
 	if out.Groups == nil {
@@ -220,6 +225,9 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 	}
 	if out.EvidencePlan == nil {
 		out.EvidencePlan = []model.ArchitectureEvidencePlan{}
+	}
+	if out.FrameworkCoverage == nil {
+		out.FrameworkCoverage = []model.ArchitectureFrameworkArea{}
 	}
 	if out.ClosurePlan == nil {
 		out.ClosurePlan = []model.ArchitectureClosure{}
@@ -679,6 +687,7 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 		r.OverallSummary.NotObserved,
 	)
 	renderArchitectureBoundarySummary(w, r.BoundaryCoverage, r.EvidenceCoverage)
+	renderArchitectureFrameworkCoverage(w, r.FrameworkCoverage, 8)
 	renderArchitectureEvidencePlan(w, r.EvidencePlan, 6)
 	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 8)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 8)
@@ -742,6 +751,7 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 		r.Summary.NotObserved,
 	)
 	renderArchitectureBoundaryCoverage(w, r.BoundaryCoverage, 8)
+	renderArchitectureFrameworkCoverage(w, r.FrameworkCoverage, 10)
 	renderArchitectureEvidencePlan(w, r.EvidencePlan, 8)
 	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 10)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 10)
@@ -850,6 +860,50 @@ func renderArchitectureBoundaryCoverage(w io.Writer, boundaries []model.Architec
 	}
 	if len(boundaries) > limit {
 		fmt.Fprintf(w, "    - %d more boundary coverage rows in JSON output\n", len(boundaries)-limit)
+	}
+}
+
+func renderArchitectureFrameworkCoverage(w io.Writer, items []model.ArchitectureFrameworkArea, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Framework coverage:\n")
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	for _, item := range items[:limit] {
+		fmt.Fprintf(w, "    - %s: %d target(s); %d breaking, %d controlled, %d unknown, %d not observed\n",
+			item.Area,
+			item.TargetCount,
+			item.StatusCounts.Breaking,
+			item.StatusCounts.Controlled,
+			item.StatusCounts.Unknown,
+			item.StatusCounts.NotObserved,
+		)
+		if item.Source != "" {
+			fmt.Fprintf(w, "      Source: %s\n", item.Source)
+		}
+		if len(item.CheckIDs) > 0 {
+			fmt.Fprintf(w, "      Checks: %s\n", strings.Join(limitStrings(item.CheckIDs, 6), "; "))
+		}
+		if len(item.Flaws) > 0 {
+			fmt.Fprintf(w, "      Flaws: %s\n", strings.Join(limitStrings(item.Flaws, 4), "; "))
+		}
+		if len(item.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
+		}
+		if len(item.ControlEvidenceNeeded) > 0 {
+			fmt.Fprintf(w, "      Control evidence needed: %s\n", strings.Join(limitStrings(item.ControlEvidenceNeeded, 5), "; "))
+		}
+		if len(item.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "      Missing evidence: %s\n", strings.Join(limitStrings(item.MissingEvidence, 4), "; "))
+		}
+		if len(item.NextCollectors) > 0 {
+			fmt.Fprintf(w, "      Next collectors: %s\n", strings.Join(limitStrings(item.NextCollectors, 2), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "    - %d more framework coverage rows in JSON output\n", len(items)-limit)
 	}
 }
 
@@ -1073,6 +1127,228 @@ func buildArchitectureBoundaryCoverage(inputs []architectureCoverageInput) []mod
 		return []model.ArchitectureBoundary{}
 	}
 	return out
+}
+
+type architectureFrameworkDefinition struct {
+	ID          string
+	Area        string
+	Source      string
+	Tier        string
+	CheckIDs    []string
+	Limitations []string
+}
+
+func buildArchitectureFrameworkCoverage(inputs []architectureCoverageInput) []model.ArchitectureFrameworkArea {
+	byID := map[string]*architectureFrameworkAreaBuilder{}
+	for _, def := range architectureFrameworkDefinitions() {
+		byID[def.ID] = &architectureFrameworkAreaBuilder{
+			ID:       def.ID,
+			Area:     def.Area,
+			Source:   def.Source,
+			Tier:     def.Tier,
+			checkIDs: map[string]bool{},
+			targets:  map[string]bool{},
+			flaws:    map[string]bool{},
+		}
+		for _, checkID := range def.CheckIDs {
+			if checkID != "" {
+				byID[def.ID].checkIDs[checkID] = true
+			}
+		}
+		byID[def.ID].Limitations = append(byID[def.ID].Limitations, def.Limitations...)
+	}
+	for _, input := range inputs {
+		targetID := input.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		gapsByCheck := architectureGapsByCheck(input.ZeroTrust.Coverage.GapDetails)
+		controlEvidenceByCheck, _ := architectureContractsByCheck(input.ZeroTrust.ArchitectureFlaws)
+		flawsByCheck := architectureFlawsByCheck(input.ZeroTrust.ArchitectureFlaws)
+		for _, def := range architectureFrameworkDefinitions() {
+			builder := byID[def.ID]
+			if builder == nil {
+				continue
+			}
+			for _, check := range input.ZeroTrust.Checks {
+				if !stringSliceContains(def.CheckIDs, check.ID) {
+					continue
+				}
+				incrementZeroTrustSummary(&builder.StatusCounts, check.Status)
+				builder.targets[targetID] = true
+				builder.EvidenceSources = append(builder.EvidenceSources, zeroTrustEvidenceSources(check.Evidence)...)
+				builder.Controls = append(builder.Controls, check.Controls...)
+				builder.ControlEvidenceNeeded = append(builder.ControlEvidenceNeeded, controlEvidenceByCheck[check.ID]...)
+				builder.Limitations = append(builder.Limitations, check.Limitations...)
+				for _, gap := range gapsByCheck[check.ID] {
+					builder.MissingEvidence = append(builder.MissingEvidence, gap.MissingEvidence...)
+					if gap.NextCollector != "" {
+						builder.NextCollectors = append(builder.NextCollectors, gap.NextCollector)
+					}
+				}
+				for _, flaw := range flawsByCheck[check.ID] {
+					title := flaw.Title
+					if title == "" {
+						title = flaw.ID
+					}
+					if title != "" {
+						builder.flaws[title] = true
+					}
+					builder.EvidenceSources = append(builder.EvidenceSources, zeroTrustEvidenceSources(flaw.Evidence)...)
+					builder.ControlEvidenceNeeded = append(builder.ControlEvidenceNeeded, flaw.ControlEvidenceNeeded...)
+					builder.Limitations = append(builder.Limitations, flaw.Limitations...)
+				}
+			}
+		}
+	}
+	out := make([]model.ArchitectureFrameworkArea, 0, len(byID))
+	for _, def := range architectureFrameworkDefinitions() {
+		builder := byID[def.ID]
+		if builder == nil {
+			continue
+		}
+		area := model.ArchitectureFrameworkArea{
+			ID:                    builder.ID,
+			Area:                  builder.Area,
+			Source:                builder.Source,
+			Tier:                  builder.Tier,
+			StatusCounts:          builder.StatusCounts,
+			TargetCount:           len(builder.targets),
+			Targets:               mapKeysSorted(builder.targets),
+			CheckIDs:              mapKeysSorted(builder.checkIDs),
+			Flaws:                 mapKeysSorted(builder.flaws),
+			EvidenceSources:       uniqueSortedStrings(builder.EvidenceSources),
+			Controls:              uniqueSortedStrings(builder.Controls),
+			ControlEvidenceNeeded: uniqueSortedStrings(builder.ControlEvidenceNeeded),
+			MissingEvidence:       uniqueSortedStrings(builder.MissingEvidence),
+			NextCollectors:        uniqueSortedStrings(builder.NextCollectors),
+			Limitations:           uniqueSortedStrings(builder.Limitations),
+		}
+		out = append(out, area)
+	}
+	if out == nil {
+		return []model.ArchitectureFrameworkArea{}
+	}
+	return out
+}
+
+func architectureFrameworkDefinitions() []architectureFrameworkDefinition {
+	return []architectureFrameworkDefinition{
+		{
+			ID:       "agent-identity-authentication",
+			Area:     "Agent identity and authentication",
+			Source:   "Zero Trust for AI Agents, Part III: Agent identity and authentication",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:identity-boundary"},
+		},
+		{
+			ID:       "access-privilege-management",
+			Area:     "Access control and privilege management",
+			Source:   "Zero Trust for AI Agents, Part III: Access control and privilege management",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:authority-boundary", "zt:workload-authorization-boundary", "zt:continuous-authorization-boundary", "zt:approval-boundary"},
+		},
+		{
+			ID:       "resource-boundaries",
+			Area:     "Resource boundaries",
+			Source:   "Zero Trust for AI Agents, Part III: Resource boundaries",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:workload-authorization-boundary", "zt:egress-boundary", "zt:sensitive-boundary", "zt:resource-exhaustion-boundary"},
+		},
+		{
+			ID:       "observability-auditing",
+			Area:     "Observability and auditing",
+			Source:   "Zero Trust for AI Agents, Part III: Observability and auditing",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:observability-boundary", "zt:approval-boundary"},
+		},
+		{
+			ID:       "behavior-monitoring-response",
+			Area:     "Behavioral monitoring and response",
+			Source:   "Zero Trust for AI Agents, Part III: Behavioral monitoring and response",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:response-boundary", "zt:resource-exhaustion-boundary", "zt:observability-boundary"},
+			Limitations: []string{
+				"Ariadne detects declared monitoring and response controls, but does not compute behavioral baselines or measure dwell-time telemetry from live systems.",
+			},
+		},
+		{
+			ID:       "input-output-controls",
+			Area:     "Input validation and output controls",
+			Source:   "Zero Trust for AI Agents, Part III: Input validation and output controls",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:influence-boundary", "zt:output-boundary", "zt:egress-boundary"},
+		},
+		{
+			ID:       "integrity-recovery",
+			Area:     "Integrity and recovery",
+			Source:   "Zero Trust for AI Agents, Part III: Integrity and recovery",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:config-integrity-boundary", "zt:supply-chain-boundary", "zt:tool-integrity-boundary"},
+			Limitations: []string{
+				"Ariadne detects declared integrity and rollback evidence, but does not validate live signature checks, deployment admission, or recovery execution.",
+			},
+		},
+		{
+			ID:       "governance-policy",
+			Area:     "AI governance policies",
+			Source:   "Zero Trust for AI Agents, Part III: AI governance policies",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:governance-boundary"},
+		},
+		{
+			ID:       "supply-chain-management",
+			Area:     "Supply chain risk management",
+			Source:   "Zero Trust for AI Agents, Part IV: Manage supply chain risks",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:supply-chain-boundary", "zt:tool-integrity-boundary", "zt:tool-boundary"},
+		},
+		{
+			ID:       "agent-boundaries-prompt-injection",
+			Area:     "Agent boundaries and prompt-injection defense",
+			Source:   "Zero Trust for AI Agents, Part IV: Define agent boundaries and defend against prompt injection",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:influence-boundary", "zt:authority-boundary", "zt:control-strength"},
+		},
+		{
+			ID:       "tool-access-security",
+			Area:     "Secure tool access",
+			Source:   "Zero Trust for AI Agents, Part IV: Secure tool access",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:tool-boundary", "zt:tool-integrity-boundary", "zt:approval-boundary", "zt:resource-exhaustion-boundary"},
+		},
+		{
+			ID:       "credential-protection",
+			Area:     "Protect agent credentials",
+			Source:   "Zero Trust for AI Agents, Part IV: Protect agent credentials",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:identity-boundary", "zt:continuous-authorization-boundary", "zt:memory-boundary"},
+		},
+		{
+			ID:       "memory-context-security",
+			Area:     "Safeguard agent memory",
+			Source:   "Zero Trust for AI Agents, Part IV: Safeguard agent memory",
+			Tier:     "enterprise",
+			CheckIDs: []string{"zt:memory-boundary", "zt:influence-boundary"},
+		},
+		{
+			ID:       "multi-agent-delegation",
+			Area:     "Multi-agent delegation boundaries",
+			Source:   "Zero Trust for AI Agents, Part II and Part IV: Multi-agent coordination and explicit trust boundaries",
+			Tier:     "enterprise",
+			CheckIDs: []string{"zt:delegation-boundary", "zt:identity-boundary", "zt:workload-authorization-boundary"},
+		},
+		{
+			ID:       "defensive-operations",
+			Area:     "Defensive operations for autonomous threats",
+			Source:   "Zero Trust for AI Agents, Part V: Defensive operations at autonomous speed",
+			Tier:     "enterprise",
+			CheckIDs: []string{"zt:response-boundary", "zt:observability-boundary", "zt:governance-boundary"},
+			Limitations: []string{
+				"Ariadne reports declared defensive-operation readiness, but does not exercise SOAR workflows, MITRE ATT&CK coverage, or emergency authorization paths.",
+			},
+		},
+	}
 }
 
 func buildArchitectureEvidencePlan(inputs []architectureCoverageInput) []model.ArchitectureEvidencePlan {
@@ -1333,6 +1609,23 @@ type architectureClosureFamilyBuilder struct {
 	Actions          []string
 }
 
+type architectureFrameworkAreaBuilder struct {
+	ID                    string
+	Area                  string
+	Source                string
+	Tier                  string
+	StatusCounts          model.ZeroTrustSummary
+	targets               map[string]bool
+	checkIDs              map[string]bool
+	flaws                 map[string]bool
+	EvidenceSources       []string
+	Controls              []string
+	ControlEvidenceNeeded []string
+	MissingEvidence       []string
+	NextCollectors        []string
+	Limitations           []string
+}
+
 func architectureClosureRank(item model.ArchitectureClosure) int {
 	return severityRank(item.Severity)*100000 + item.TargetCount*1000 + item.FlawCount
 }
@@ -1503,12 +1796,31 @@ func architectureContractsByCheck(flaws []model.ZeroTrustArchitecture) (map[stri
 	return controlEvidenceByCheck, evidenceSurfacesByCheck
 }
 
+func architectureFlawsByCheck(flaws []model.ZeroTrustArchitecture) map[string][]model.ZeroTrustArchitecture {
+	out := map[string][]model.ZeroTrustArchitecture{}
+	for _, flaw := range flaws {
+		for _, checkID := range flaw.CheckIDs {
+			out[checkID] = append(out[checkID], flaw)
+		}
+	}
+	return out
+}
+
 func architectureGapsByCheck(gaps []model.ZeroTrustGap) map[string][]model.ZeroTrustGap {
 	out := map[string][]model.ZeroTrustGap{}
 	for _, gap := range gaps {
 		out[gap.CheckID] = append(out[gap.CheckID], gap)
 	}
 	return out
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func appendArchitectureBoundaryTarget(boundary *model.ArchitectureBoundary, status model.ZeroTrustStatus, targetID string) {

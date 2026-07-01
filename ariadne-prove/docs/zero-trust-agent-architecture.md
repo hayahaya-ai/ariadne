@@ -594,6 +594,7 @@ Start with:
 
 - `architecture_summary`: counts architecture flaw categories by status
 - `architecture_flaws`: user-centered flaw categories with evidence, graph edges, observed controls, control-test result, control evidence needed, evidence surfaces, and next actions
+- `framework_coverage`: Zero Trust for AI Agents source areas mapped to Ariadne checks, target status, evidence anchors, missing evidence, and known limitations
 - `evidence_plan`: unknown or not-observed boundary gaps grouped by the next collector needed
 - `closure_families`: missing hard barriers grouped into Zero Trust capability areas with evidence anchors
 - `closure_plan`: missing hard barriers ranked by affected flaws and targets with evidence anchors
@@ -603,6 +604,8 @@ Start with:
 - `checks`: lower-level boundary evaluations that support the flaw map
 
 Use `evidence_plan` when Ariadne cannot prove or clear a boundary yet. It groups missing evidence by the next collector needed, preserving affected boundaries, check IDs, targets, and rationale.
+
+Use `framework_coverage` when the question is "which parts of the Zero Trust for AI Agents architecture guidance did this run evaluate?" It is a source-aligned map, not a separate scanner: each row is derived from Ariadne's deterministic checks and keeps the evidence anchors, missing controls, next collectors, and limitations attached.
 
 Use `closure_families` to separate signal from noise before drilling into individual controls. It groups the same missing hard barriers into deterministic capability areas such as input trust, least agency, tool and MCP integrity, identity and credentials, observability, response, memory, supply chain, and governance.
 

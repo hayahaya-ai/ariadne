@@ -72,6 +72,7 @@ func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error 
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureSummaryDashboard(w, r)
+	renderArchitectureFrameworkCoverageDashboard(w, r.FrameworkCoverage)
 	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
 	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
 	renderArchitectureClosurePlanDashboard(w, r.ClosurePlan)
@@ -100,6 +101,7 @@ func renderArchitectureScanDashboard(w io.Writer, r model.ArchitectureScanReport
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureScanSummaryDashboard(w, r)
+	renderArchitectureFrameworkCoverageDashboard(w, r.FrameworkCoverage)
 	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
 	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
 	renderArchitectureClosurePlanDashboard(w, r.ClosurePlan)
@@ -435,6 +437,33 @@ func renderArchitectureSummaryDashboard(w io.Writer, r model.ArchitectureReport)
 		{"Overall unknown", fmt.Sprintf("%d", r.OverallSummary.Unknown)},
 		{"Not observed", fmt.Sprintf("%d", r.OverallSummary.NotObserved)},
 	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureFrameworkCoverageDashboard(w io.Writer, items []model.ArchitectureFrameworkArea) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Framework Coverage</h2><div class="subtle">How Ariadne maps the Zero Trust agent architecture guidance to deterministic checks, evidence anchors, and remaining gaps.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(items) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No framework coverage rows were returned for this run.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Framework area</th><th>Status by target</th><th>Checks</th><th>Evidence anchors</th><th>Flaws</th><th>Missing / next collector</th><th>Limitations</th></tr></thead><tbody>")
+	for _, item := range items {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(item.Area), esc(item.Source), esc(item.ID), esc(item.Tier))
+		fmt.Fprintf(w, `<td>%s<div class="subtle">%d target(s)</div>%s</td>`, renderZeroTrustSummaryPills(item.StatusCounts), item.TargetCount, renderSmallList(limitStrings(item.Targets, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.CheckIDs, 8)))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)), renderControlLine(limitStrings(item.Controls, 5)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
+		fmt.Fprintf(w, `<td><h3>Control evidence needed</h3>%s<h3>Missing evidence</h3>%s<h3>Next collectors</h3>%s</td>`, renderSmallList(limitStrings(item.ControlEvidenceNeeded, 6)), renderSmallList(limitStrings(item.MissingEvidence, 5)), renderSmallList(limitStrings(item.NextCollectors, 3)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Limitations, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 

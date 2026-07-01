@@ -13,6 +13,7 @@
     "status_filter",
     "summary",
     "evidence_plan",
+    "framework_coverage",
     "boundary_coverage",
     "groups",
     "closure_plan",
@@ -33,6 +34,10 @@
     "evidence_plan": {
       "type": "array",
       "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_evidence_plan" }
+    },
+    "framework_coverage": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_framework_area" }
     },
     "boundary_coverage": {
       "type": "array",

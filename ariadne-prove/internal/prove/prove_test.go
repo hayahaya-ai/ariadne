@@ -2632,6 +2632,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		"Untrusted instructions can steer privileged tools",
 		"Agent has broad standing authority instead of least agency",
 		"Boundary checks:",
+		"Framework coverage:",
+		"Zero Trust for AI Agents",
 		"Evidence plan:",
 		"Closure families:",
 		"Input Trust Boundary",
@@ -2671,6 +2673,20 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 	}
 	if len(decoded.EvidencePlan) == 0 {
 		t.Fatalf("architecture JSON should include evidence plan")
+	}
+	if len(decoded.FrameworkCoverage) == 0 {
+		t.Fatalf("architecture JSON should include framework coverage")
+	}
+	if !hasFrameworkCoverageArea(decoded.FrameworkCoverage, "input-output-controls") {
+		t.Fatalf("architecture JSON should map Zero Trust source areas to Ariadne checks: %+v", decoded.FrameworkCoverage)
+	}
+	for _, area := range decoded.FrameworkCoverage {
+		if area.ID == "" || area.Area == "" || area.Source == "" || area.Tier == "" || area.TargetCount == 0 || area.StatusCounts.Total == 0 {
+			t.Fatalf("framework coverage area should identify source and target impact: %+v", area)
+		}
+		if len(area.CheckIDs) == 0 {
+			t.Fatalf("framework coverage area should retain mapped check IDs: %+v", area)
+		}
 	}
 	for _, item := range decoded.EvidencePlan {
 		if item.NextCollector == "" || item.GapCount == 0 || item.TargetCount == 0 || item.StatusCounts.Total == 0 {
@@ -2746,6 +2762,8 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 		"Ariadne Zero Trust architecture fleet:",
 		"Filter: breaking",
 		"Boundary coverage:",
+		"Framework coverage:",
+		"Zero Trust for AI Agents",
 		"Evidence plan:",
 		"Closure families:",
 		"Closure plan:",
@@ -2786,6 +2804,12 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	}
 	if len(decoded.EvidencePlan) == 0 {
 		t.Fatalf("expected fleet evidence plan rows")
+	}
+	if len(decoded.FrameworkCoverage) == 0 {
+		t.Fatalf("expected fleet framework coverage rows")
+	}
+	if !hasFrameworkCoverageTarget(decoded.FrameworkCoverage, "combined") {
+		t.Fatalf("expected fleet framework coverage to retain target coverage: %+v", decoded.FrameworkCoverage)
 	}
 	if !hasEvidencePlanTarget(decoded.EvidencePlan, "safe") {
 		t.Fatalf("expected fleet evidence plan to retain target coverage: %+v", decoded.EvidencePlan)
@@ -2861,6 +2885,8 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Zero Trust Architecture",
 		"Architecture Readout",
+		"Framework Coverage",
+		"Zero Trust for AI Agents",
 		"Evidence Plan",
 		"Closure Families",
 		"Closure Plan",
@@ -2890,6 +2916,8 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Fleet Zero Trust Architecture",
 		"Fleet Architecture Readout",
+		"Framework Coverage",
+		"Zero Trust for AI Agents",
 		"Evidence Plan",
 		"Closure Families",
 		"Closure Plan",
@@ -2933,6 +2961,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"overall_summary",
 		"evidence_coverage",
 		"evidence_plan",
+		"framework_coverage",
 		"maturity",
 		"boundary_coverage",
 		"flaws",
@@ -2956,6 +2985,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	)
 	evidencePlan := schemaMap(t, architectureSchema, "$defs", "architecture_evidence_plan")
 	assertRequiredKeys(t, evidencePlan, "next_collector", "gap_count", "target_count", "status_counts", "boundaries", "check_ids", "targets", "missing_evidence", "why_it_matters")
+	frameworkArea := schemaMap(t, architectureSchema, "$defs", "architecture_framework_area")
+	assertRequiredKeys(t, frameworkArea, "id", "area", "source", "tier", "status_counts", "target_count", "targets", "check_ids", "flaws", "evidence_sources", "controls", "control_evidence_needed", "missing_evidence", "next_collectors", "limitations")
 	architectureFlaw := schemaMap(t, architectureSchema, "$defs", "zero_trust_architecture")
 	assertRequiredKeys(t, architectureFlaw, "control_test")
 	assertSchemaProperty(t, architectureFlaw, "control_test")
@@ -2977,6 +3008,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"status_filter",
 		"summary",
 		"evidence_plan",
+		"framework_coverage",
 		"boundary_coverage",
 		"groups",
 		"closure_plan",
@@ -3398,6 +3430,26 @@ func hasClosureEvidenceSource(items []model.ArchitectureClosure) bool {
 }
 
 func hasEvidencePlanTarget(items []model.ArchitectureEvidencePlan, target string) bool {
+	for _, item := range items {
+		for _, candidate := range item.Targets {
+			if candidate == target {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasFrameworkCoverageArea(items []model.ArchitectureFrameworkArea, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFrameworkCoverageTarget(items []model.ArchitectureFrameworkArea, target string) bool {
 	for _, item := range items {
 		for _, candidate := range item.Targets {
 			if candidate == target {

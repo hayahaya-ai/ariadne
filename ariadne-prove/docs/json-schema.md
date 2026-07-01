@@ -124,6 +124,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `summary` and `overall_summary`
 - `evidence_coverage`
 - `evidence_plan`, where unknown or not-observed boundary gaps are grouped by next collector
+- `framework_coverage`, where Zero Trust for AI Agents source areas are mapped to Ariadne checks, evidence anchors, missing evidence, and limitations
 - `maturity`
 - `boundary_coverage`
 - `flaws`, where each flaw includes a `control_test` result for the impossible-vs-tedious design test
@@ -134,6 +135,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 
 - `summary`
 - `evidence_plan`, aggregated across targets
+- `framework_coverage`, aggregated across targets
 - `boundary_coverage`
 - `groups`, including aggregated `control_test_results`
 - `closure_families`, aggregated across targets
