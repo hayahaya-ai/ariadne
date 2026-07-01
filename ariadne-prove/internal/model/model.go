@@ -138,21 +138,22 @@ type ArchitectureScanSummary struct {
 }
 
 type ControlCatalogReport struct {
-	SchemaVersion     string                      `json:"schema_version"`
-	RunID             string                      `json:"run_id"`
-	GeneratedAt       time.Time                   `json:"generated_at"`
-	RunKind           string                      `json:"run_kind"`
-	TargetPath        string                      `json:"target_path,omitempty"`
-	Mode              string                      `json:"mode"`
-	Agent             string                      `json:"agent"`
-	StatusFilter      string                      `json:"status_filter"`
-	Summary           ControlCatalogSummary       `json:"summary"`
-	Controls          []ArchitectureClosure       `json:"controls"`
-	Families          []ArchitectureClosureFamily `json:"families"`
-	ProofSpecs        []ControlProofSpec          `json:"proof_specs"`
-	VerificationTasks []ControlVerificationTask   `json:"verification_tasks"`
-	Redaction         RedactionInfo               `json:"redaction"`
-	Limitations       []string                    `json:"limitations"`
+	SchemaVersion     string                       `json:"schema_version"`
+	RunID             string                       `json:"run_id"`
+	GeneratedAt       time.Time                    `json:"generated_at"`
+	RunKind           string                       `json:"run_kind"`
+	TargetPath        string                       `json:"target_path,omitempty"`
+	Mode              string                       `json:"mode"`
+	Agent             string                       `json:"agent"`
+	StatusFilter      string                       `json:"status_filter"`
+	Summary           ControlCatalogSummary        `json:"summary"`
+	Controls          []ArchitectureClosure        `json:"controls"`
+	Families          []ArchitectureClosureFamily  `json:"families"`
+	Workstreams       []ControlBreakPathWorkstream `json:"workstreams"`
+	ProofSpecs        []ControlProofSpec           `json:"proof_specs"`
+	VerificationTasks []ControlVerificationTask    `json:"verification_tasks"`
+	Redaction         RedactionInfo                `json:"redaction"`
+	Limitations       []string                     `json:"limitations"`
 }
 
 type ControlCatalogSummary struct {
@@ -163,6 +164,25 @@ type ControlCatalogSummary struct {
 	Low      int `json:"low"`
 	Targets  int `json:"targets"`
 	Flaws    int `json:"flaws"`
+}
+
+type ControlBreakPathWorkstream struct {
+	ID                 string              `json:"id"`
+	Title              string              `json:"title"`
+	Severity           string              `json:"severity"`
+	ControlCount       int                 `json:"control_count"`
+	FlawCount          int                 `json:"flaw_count"`
+	TargetCount        int                 `json:"target_count"`
+	Controls           []string            `json:"controls"`
+	Flaws              []string            `json:"flaws"`
+	Targets            []string            `json:"targets"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	ProofSurfaces      []string            `json:"proof_surfaces"`
+	StartingTaskIDs    []string            `json:"starting_task_ids"`
+	StartingControls   []string            `json:"starting_controls"`
+	Rationale          string              `json:"rationale"`
+	SuccessCriteria    []string            `json:"success_criteria"`
+	Limitations        []string            `json:"limitations"`
 }
 
 type ControlProofSpec struct {

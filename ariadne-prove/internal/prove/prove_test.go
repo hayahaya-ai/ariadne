@@ -2763,6 +2763,8 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Ariadne control evidence catalog:",
 		"Missing hard barriers:",
 		"Control families:",
+		"Break-path workstreams:",
+		"Starting controls:",
 		"Verification tasks:",
 		"Where to prove this:",
 		"Evidence references:",
@@ -2797,6 +2799,12 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	if len(decoded.Controls) == 0 || len(decoded.Families) == 0 {
 		t.Fatalf("control catalog should include controls and families: %+v", decoded)
 	}
+	if len(decoded.Workstreams) == 0 {
+		t.Fatalf("control catalog should include break-path workstreams")
+	}
+	if !hasControlWorkstream(decoded.Workstreams, "input-trust-boundary", "verify:control-input-isolation") {
+		t.Fatalf("control catalog should include input trust workstream with starting task: %+v", decoded.Workstreams)
+	}
 	if len(decoded.ProofSpecs) == 0 {
 		t.Fatalf("control catalog should include proof specs")
 	}
@@ -2824,9 +2832,11 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Control Evidence Catalog",
 		"Control Evidence Catalog",
+		"Break-Path Workstreams",
 		"Verification Tasks",
 		"Control Families",
 		"Controls To Prove",
+		"Starting controls",
 		"Where to prove this",
 		"References",
 		"Accepted indicators",
@@ -2857,6 +2867,7 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Ariadne control evidence catalog:",
 		"Run: control_catalog_scan",
 		"Targets:",
+		"Break-path workstreams:",
 		"Verification tasks:",
 		"Where to prove this:",
 		"Evidence references:",
@@ -2882,6 +2893,9 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	if !hasControlProofIndicator(decoded.ProofSpecs, "control:input-isolation", "input_isolation") {
 		t.Fatalf("fleet control catalog should include proof specs: %+v", decoded.ProofSpecs)
 	}
+	if !hasControlWorkstream(decoded.Workstreams, "input-trust-boundary", "verify:control-input-isolation") {
+		t.Fatalf("fleet control catalog should include workstreams: %+v", decoded.Workstreams)
+	}
 	if !hasControlVerificationTask(decoded.VerificationTasks, "control:input-isolation", "CLAUDE.md", "input_isolation") {
 		t.Fatalf("fleet control catalog should include verification tasks: %+v", decoded.VerificationTasks)
 	}
@@ -2899,6 +2913,7 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	rendered := htmlOut.String()
 	for _, want := range []string{
 		"Ariadne Fleet Control Evidence Catalog",
+		"Break-Path Workstreams",
 		"Verification Tasks",
 		"Control Families",
 		"Controls To Prove",
@@ -3211,6 +3226,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"summary",
 		"controls",
 		"families",
+		"workstreams",
 		"proof_specs",
 		"verification_tasks",
 		"redaction",
@@ -3218,6 +3234,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	)
 	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
+	controlBreakPathWorkstream := schemaMap(t, controlCatalogSchema, "$defs", "control_break_path_workstream")
+	assertRequiredKeys(t, controlBreakPathWorkstream, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations")
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
 	assertRequiredKeys(t, controlProofSpec, "control", "evidence_kind", "proof_surfaces", "recognized_indicators", "notes", "limitations")
 	controlVerificationTask := schemaMap(t, controlCatalogSchema, "$defs", "control_verification_task")
@@ -3654,6 +3672,20 @@ func hasControlProofIndicator(items []model.ControlProofSpec, control string, in
 		}
 		for _, candidate := range item.RecognizedIndicators {
 			if candidate == indicator {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasControlWorkstream(items []model.ControlBreakPathWorkstream, id string, taskID string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		for _, candidate := range item.StartingTaskIDs {
+			if candidate == taskID {
 				return true
 			}
 		}

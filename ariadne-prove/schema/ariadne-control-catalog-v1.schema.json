@@ -14,6 +14,7 @@
     "summary",
     "controls",
     "families",
+    "workstreams",
     "proof_specs",
     "verification_tasks",
     "redaction",
@@ -36,6 +37,10 @@
     "families": {
       "type": "array",
       "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure_family" }
+    },
+    "workstreams": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_break_path_workstream" }
     },
     "proof_specs": {
       "type": "array",
@@ -60,6 +65,28 @@
         "low": { "type": "integer" },
         "targets": { "type": "integer" },
         "flaws": { "type": "integer" }
+      }
+    },
+    "control_break_path_workstream": {
+      "type": "object",
+      "required": ["id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "control_count": { "type": "integer" },
+        "flaw_count": { "type": "integer" },
+        "target_count": { "type": "integer" },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" } },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "starting_task_ids": { "type": "array", "items": { "type": "string" } },
+        "starting_controls": { "type": "array", "items": { "type": "string" } },
+        "rationale": { "type": "string" },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },
     "control_proof_spec": {

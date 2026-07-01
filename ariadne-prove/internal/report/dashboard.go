@@ -136,6 +136,7 @@ func renderControlCatalogDashboard(w io.Writer, r model.ControlCatalogReport) er
 	}
 	renderDashboardHeader(w, title, fields)
 	renderControlCatalogSummaryDashboard(w, r)
+	renderControlBreakPathWorkstreamsDashboard(w, r.Workstreams)
 	renderControlVerificationTasksDashboard(w, r.VerificationTasks)
 	renderControlCatalogFamiliesDashboard(w, r.Families)
 	renderControlCatalogControlsDashboard(w, r.Controls, r.ProofSpecs)
@@ -553,11 +554,45 @@ func renderControlCatalogSummaryDashboard(w io.Writer, r model.ControlCatalogRep
 	})
 	renderMetricRow(w, []kv{
 		{"Affected targets", fmt.Sprintf("%d", r.Summary.Targets)},
-		{"Families", fmt.Sprintf("%d", len(r.Families))},
+		{"Workstreams", fmt.Sprintf("%d", len(r.Workstreams))},
 		{"Rows", fmt.Sprintf("%d", len(r.Controls))},
 		{"Proof specs", fmt.Sprintf("%d", len(r.ProofSpecs))},
 		{"Verification tasks", fmt.Sprintf("%d", len(r.VerificationTasks))},
 	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderControlBreakPathWorkstreamsDashboard(w io.Writer, workstreams []model.ControlBreakPathWorkstream) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Break-Path Workstreams</h2><div class="subtle">Capability areas that group many missing controls into a smaller set of architecture break-path decisions.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(workstreams) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No break-path workstreams were returned for this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Workstream</th><th>Impact</th><th>Starting controls</th><th>Evidence references</th><th>Where to prove this</th><th>Done when</th></tr></thead><tbody>")
+	limit := len(workstreams)
+	if limit > 12 {
+		limit = 12
+	}
+	for _, item := range workstreams[:limit] {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(item.Title), esc(item.ID), esc(item.Rationale))
+		fmt.Fprintf(w, `<td>%d control(s)<br>%d flaw(s)<br>%d target(s)</td>`, item.ControlCount, item.FlawCount, item.TargetCount)
+		fmt.Fprintf(w, `<td>%s<div class="mono">%s</div></td>`, renderSmallList(limitStrings(item.StartingControls, 5)), esc(strings.Join(limitStrings(item.StartingTaskIDs, 5), ", ")))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.ProofSurfaces, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.SuccessCriteria, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(workstreams) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="7"><span class="subtle">%d more workstreams in JSON output.</span></td></tr>`, len(workstreams)-limit)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 

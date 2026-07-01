@@ -87,6 +87,7 @@ func RenderControlsScan(w io.Writer, r model.ScanReport, format string, statusFi
 
 func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
+	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
 	catalog := model.ControlCatalogReport{
 		SchemaVersion:     model.SchemaVersion,
 		RunID:             r.RunID,
@@ -99,8 +100,9 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 		Summary:           summarizeControlCatalog(r.ClosurePlan),
 		Controls:          append([]model.ArchitectureClosure{}, r.ClosurePlan...),
 		Families:          append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		Workstreams:       buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks),
 		ProofSpecs:        proofSpecs,
-		VerificationTasks: buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}),
+		VerificationTasks: verificationTasks,
 		Redaction:         r.Redaction,
 		Limitations:       append([]string{}, r.Limitations...),
 	}
@@ -109,6 +111,9 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 	}
 	if catalog.Families == nil {
 		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	if catalog.Workstreams == nil {
+		catalog.Workstreams = []model.ControlBreakPathWorkstream{}
 	}
 	if catalog.ProofSpecs == nil {
 		catalog.ProofSpecs = []model.ControlProofSpec{}
@@ -121,6 +126,7 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 
 func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
+	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
 	catalog := model.ControlCatalogReport{
 		SchemaVersion:     model.SchemaVersion,
 		RunID:             r.RunID,
@@ -132,8 +138,9 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 		Summary:           summarizeControlCatalog(r.ClosurePlan),
 		Controls:          append([]model.ArchitectureClosure{}, r.ClosurePlan...),
 		Families:          append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		Workstreams:       buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks),
 		ProofSpecs:        proofSpecs,
-		VerificationTasks: buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}),
+		VerificationTasks: verificationTasks,
 		Redaction:         r.Redaction,
 		Limitations:       append([]string{}, r.Limitations...),
 	}
@@ -142,6 +149,9 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 	}
 	if catalog.Families == nil {
 		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	if catalog.Workstreams == nil {
+		catalog.Workstreams = []model.ControlBreakPathWorkstream{}
 	}
 	if catalog.ProofSpecs == nil {
 		catalog.ProofSpecs = []model.ControlProofSpec{}
@@ -947,6 +957,7 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 		fmt.Fprintf(w, "  - no missing hard-barrier controls matched status filter %q\n\n", r.StatusFilter)
 		return nil
 	}
+	renderControlBreakPathWorkstreams(w, r.Workstreams, 8)
 	renderControlVerificationTasks(w, r.VerificationTasks, 8)
 	fmt.Fprintf(w, "  Controls:\n")
 	limit := len(r.Controls)
@@ -1256,6 +1267,111 @@ func summarizeControlCatalog(items []model.ArchitectureClosure) model.ControlCat
 	summary.Targets = len(targets)
 	summary.Flaws = len(flaws)
 	return summary
+}
+
+func renderControlBreakPathWorkstreams(w io.Writer, workstreams []model.ControlBreakPathWorkstream, limit int) {
+	if len(workstreams) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Break-path workstreams:\n")
+	if limit <= 0 || limit > len(workstreams) {
+		limit = len(workstreams)
+	}
+	for _, item := range workstreams[:limit] {
+		fmt.Fprintf(w, "    - %s %s: %d control(s), %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Title,
+			item.ControlCount,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if len(item.StartingControls) > 0 {
+			fmt.Fprintf(w, "      Starting controls: %s\n", strings.Join(limitStrings(item.StartingControls, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 2), "; "))
+		}
+		if len(item.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "      Where to prove this: %s\n", strings.Join(limitStrings(item.ProofSurfaces, 5), "; "))
+		}
+		if len(item.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "      Done when: %s\n", strings.Join(limitStrings(item.SuccessCriteria, 2), "; "))
+		}
+	}
+	if len(workstreams) > limit {
+		fmt.Fprintf(w, "    - %d more workstreams in JSON output\n", len(workstreams)-limit)
+	}
+}
+
+func buildControlBreakPathWorkstreams(families []model.ArchitectureClosureFamily, tasks []model.ControlVerificationTask) []model.ControlBreakPathWorkstream {
+	taskByControl := map[string]model.ControlVerificationTask{}
+	for _, task := range tasks {
+		if task.Control != "" {
+			taskByControl[task.Control] = task
+		}
+	}
+	var out []model.ControlBreakPathWorkstream
+	for _, family := range families {
+		var startingTaskIDs []string
+		var startingControls []string
+		var evidenceRefs []model.EvidenceReference
+		var proofSurfaces []string
+		var limitations []string
+		for _, control := range family.Controls {
+			task, ok := taskByControl[control]
+			if !ok {
+				continue
+			}
+			if len(startingTaskIDs) < 5 {
+				startingTaskIDs = append(startingTaskIDs, task.ID)
+				startingControls = append(startingControls, task.Control)
+			}
+			evidenceRefs = append(evidenceRefs, task.EvidenceReferences...)
+			proofSurfaces = append(proofSurfaces, task.ProofSurfaces...)
+			limitations = append(limitations, task.Limitations...)
+		}
+		workstream := model.ControlBreakPathWorkstream{
+			ID:                 family.ID,
+			Title:              family.Title,
+			Severity:           family.Severity,
+			ControlCount:       family.ControlCount,
+			FlawCount:          family.FlawCount,
+			TargetCount:        family.TargetCount,
+			Controls:           append([]string{}, family.Controls...),
+			Flaws:              append([]string{}, family.Flaws...),
+			Targets:            append([]string{}, family.Targets...),
+			EvidenceReferences: dedupeEvidenceReferences(evidenceRefs),
+			ProofSurfaces:      uniqueSortedStrings(proofSurfaces),
+			StartingTaskIDs:    startingTaskIDs,
+			StartingControls:   startingControls,
+			Rationale:          controlWorkstreamRationale(family),
+			SuccessCriteria:    controlWorkstreamSuccessCriteria(family),
+			Limitations:        uniqueSortedStrings(limitations),
+		}
+		if len(workstream.Limitations) == 0 {
+			workstream.Limitations = []string{"This workstream groups deterministic proof tasks. It does not prove runtime enforcement until Ariadne observes enforcement evidence or the missing hard barriers disappear from the architecture output."}
+		}
+		out = append(out, workstream)
+	}
+	if out == nil {
+		return []model.ControlBreakPathWorkstream{}
+	}
+	return out
+}
+
+func controlWorkstreamRationale(family model.ArchitectureClosureFamily) string {
+	if len(family.Flaws) == 0 {
+		return "This capability family contains missing hard barriers from the architecture closure plan."
+	}
+	return fmt.Sprintf("Addresses %d architecture flaw(s) across %d target(s): %s", family.FlawCount, family.TargetCount, strings.Join(limitStrings(family.Flaws, 3), "; "))
+}
+
+func controlWorkstreamSuccessCriteria(family model.ArchitectureClosureFamily) []string {
+	return []string{
+		fmt.Sprintf("%s no longer appears in the control catalog workstreams for the selected status filter.", family.Title),
+		"Relevant controls are no longer returned as missing hard barriers in the controls output.",
+		"Associated architecture flaws are controlled, not observed, or no longer list the workstream controls in missing_hard_barriers.",
+	}
 }
 
 func renderControlVerificationTasks(w io.Writer, tasks []model.ControlVerificationTask, limit int) {
