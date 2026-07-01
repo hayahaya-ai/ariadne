@@ -27,7 +27,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can a mutable tool launcher grant local execution?
 - Can private-data reachability combine with external communication reachability?
 - Does a declared control break a modeled path?
-- Does configuration declare approval, sandbox, credential-helper, short-lived credential, audit, or retention controls?
+- Does configuration declare cryptographic identity, short-lived credentials, least-agency scope, identity-based isolation, approval, sandbox, audit, traceability, input validation, automated triage, or retention controls?
 - Does configuration contain inline credential field indicators?
 
 ## Zero Trust Architecture Questions

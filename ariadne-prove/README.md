@@ -16,6 +16,7 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
 - Maps those paths to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.
+- Scores Foundation Zero Trust agent requirements from observed and declared evidence.
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
 - Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
@@ -42,6 +43,20 @@ Current checks cover:
 - agent identity boundary
 - observability boundary
 - control strength: impossible versus tedious
+
+The same `zero_trust` object also includes a Foundation maturity evidence readout. It maps the raised Foundation bar from Zero Trust agent architecture guidance into deterministic requirements:
+
+- cryptographically rooted agent identity
+- short-lived identity-provider-issued credentials
+- deny-by-default least-agency permissions
+- identity-based workload isolation
+- comprehensive action logs with request context
+- input validation for untrusted agent context
+- approval escalation with audit evidence
+- context retention controls
+- automated first-pass investigation for agent alerts
+
+Each requirement reports a status, control quality such as `hard_barrier`, `friction_only`, or `evidence_gap`, evidence references, missing evidence, and next actions.
 
 Statuses are evidence-bound:
 
@@ -154,6 +169,7 @@ Current deterministic discovery covers:
 - private context summaries such as paste caches or history directories
 - secret-like boundary indicators such as `.env*`, key files, and credential files
 - `.ariadne/agent-policy.json` declarations for approval, sandbox, credential, audit, and retention controls
+- `.ariadne/agent-policy.json` declarations for cryptographic identity, least agency, identity-based isolation, traceability, input validation, and automated triage controls
 - inline credential field indicators in agent configuration without emitting values
 
 Exact vendor names are used only to identify supported adapters and file formats. Public classification is expressed in Ariadne's own exposure taxonomy.
@@ -180,6 +196,7 @@ Prove output adds:
 - graph path edges
 - controls that break the path
 - Zero Trust architecture checks with evidence, graph edges, controls, actions, and limitations
+- Zero Trust Foundation maturity requirements with control quality, evidence, missing evidence, and actions
 - Zero Trust coverage gaps that name missing evidence and the next collector needed
 - deterministic interpretation with issue priority, severity, disposition, evidence signals, and actions
 - optional LLM review interpretation when `--interpret llm` is used

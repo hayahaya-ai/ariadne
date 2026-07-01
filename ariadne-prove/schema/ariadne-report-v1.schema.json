@@ -60,11 +60,12 @@
     },
     "zero_trust": {
       "type": "object",
-      "required": ["framework_version", "summary", "coverage", "checks"],
+      "required": ["framework_version", "summary", "coverage", "maturity", "checks"],
       "properties": {
         "framework_version": { "const": "ariadne.zero_trust_agent/v1" },
         "summary": { "$ref": "#/$defs/zero_trust_summary" },
         "coverage": { "$ref": "#/$defs/zero_trust_coverage" },
+        "maturity": { "$ref": "#/$defs/zero_trust_maturity" },
         "checks": {
           "type": "array",
           "items": { "$ref": "#/$defs/zero_trust_check" }
@@ -105,6 +106,52 @@
         "missing_evidence": { "type": "array", "items": { "type": "string" } },
         "why_it_matters": { "type": "string" },
         "next_collector": { "type": "string" }
+      }
+    },
+    "zero_trust_maturity": {
+      "type": "object",
+      "required": ["target_tier", "summary", "requirements"],
+      "properties": {
+        "target_tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "summary": { "$ref": "#/$defs/zero_trust_maturity_summary" },
+        "requirements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_requirement" }
+        }
+      }
+    },
+    "zero_trust_maturity_summary": {
+      "type": "object",
+      "required": ["total", "met", "gaps", "breaking", "unknown", "not_observed", "hard_barriers", "friction_only"],
+      "properties": {
+        "total": { "type": "integer" },
+        "met": { "type": "integer" },
+        "gaps": { "type": "integer" },
+        "breaking": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "not_observed": { "type": "integer" },
+        "hard_barriers": { "type": "integer" },
+        "friction_only": { "type": "integer" }
+      }
+    },
+    "zero_trust_requirement": {
+      "type": "object",
+      "required": ["id", "tier", "principle", "capability", "status", "control_quality", "finding", "evidence", "actions"],
+      "properties": {
+        "id": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "principle": { "type": "string" },
+        "capability": { "type": "string" },
+        "status": { "type": "string", "enum": ["breaking", "controlled", "unknown", "not_observed"] },
+        "control_quality": { "type": "string" },
+        "finding": { "type": "string" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_evidence" }
+        },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } }
       }
     },
     "zero_trust_check": {

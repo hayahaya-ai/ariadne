@@ -331,6 +331,15 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 		return
 	}
 	text := strings.ToLower(string(data))
+	if cryptographicIdentityConfigured(text) {
+		addControl(c, "control:cryptographic-identity", "cryptographic-identity", "", s.Source, "Agent policy declares cryptographic or workload identity for agent instances.")
+	}
+	if leastAgencyConfigured(text) {
+		addControl(c, "control:least-agency-policy", "least-agency-policy", "", s.Source, "Agent policy declares deny-by-default or least-agency permission scoping.")
+	}
+	if identityBasedIsolationConfigured(text) {
+		addControl(c, "control:identity-based-isolation", "identity-based-isolation", "", s.Source, "Agent policy declares identity-based isolation or named-caller network boundaries.")
+	}
 	if approvalRequired(text) {
 		addControl(c, "control:approval-required", "approval-required", "", s.Source, "Agent policy requires approval for high-risk agent actions.")
 	}
@@ -345,6 +354,15 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	}
 	if auditLoggingConfigured(text) {
 		addControl(c, "control:audit-logging", "audit-logging", "", s.Source, "Agent policy requires tool-call, approval, or telemetry logging.")
+	}
+	if traceabilityConfigured(text) {
+		addControl(c, "control:request-traceability", "request-traceability", "", s.Source, "Agent policy requires request IDs, trace IDs, or provenance through agent actions.")
+	}
+	if inputValidationConfigured(text) {
+		addControl(c, "control:input-validation", "input-validation", "", s.Source, "Agent policy requires schema, length, or prompt-injection validation for untrusted inputs.")
+	}
+	if automatedTriageConfigured(text) {
+		addControl(c, "control:automated-triage", "automated-triage", "", s.Source, "Agent policy declares automated first-pass investigation or alert triage.")
 	}
 	if contextRetentionConfigured(text) {
 		addControl(c, "control:context-retention", "context-retention", "", s.Source, "Agent policy constrains memory, transcript, or private-context retention.")
@@ -368,6 +386,15 @@ func addExternalCommunication(c *model.Collection, runtime, source, summary stri
 }
 
 func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text string) {
+	if cryptographicIdentityConfigured(text) {
+		addControl(c, "control:cryptographic-identity", "cryptographic-identity", runtime, source, runtime+" config declares cryptographic, certificate, or workload identity posture.")
+	}
+	if leastAgencyConfigured(text) {
+		addControl(c, "control:least-agency-policy", "least-agency-policy", runtime, source, runtime+" config declares deny-by-default or least-agency permission scoping.")
+	}
+	if identityBasedIsolationConfigured(text) {
+		addControl(c, "control:identity-based-isolation", "identity-based-isolation", runtime, source, runtime+" config declares identity-based isolation or named-caller boundaries.")
+	}
 	if approvalRequired(text) {
 		addControl(c, "control:approval-required", "approval-required", runtime, source, runtime+" config requires approval for high-risk or non-read-only agent actions.")
 	}
@@ -382,6 +409,15 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	}
 	if auditLoggingConfigured(text) {
 		addControl(c, "control:audit-logging", "audit-logging", runtime, source, runtime+" config declares tool-call, approval, or telemetry logging.")
+	}
+	if traceabilityConfigured(text) {
+		addControl(c, "control:request-traceability", "request-traceability", runtime, source, runtime+" config declares request, trace, correlation, or provenance IDs.")
+	}
+	if inputValidationConfigured(text) {
+		addControl(c, "control:input-validation", "input-validation", runtime, source, runtime+" config declares schema, length, or prompt-injection validation.")
+	}
+	if automatedTriageConfigured(text) {
+		addControl(c, "control:automated-triage", "automated-triage", runtime, source, runtime+" config declares automated first-pass investigation or alert triage.")
 	}
 	if contextRetentionConfigured(text) {
 		addControl(c, "control:context-retention", "context-retention", runtime, source, runtime+" config constrains transcript, memory, or private-context retention.")
@@ -497,6 +533,39 @@ func networkEnabled(text string) bool {
 		strings.Contains(text, "external_network = true")
 }
 
+func cryptographicIdentityConfigured(text string) bool {
+	return strings.Contains(text, "cryptographic_identity") ||
+		strings.Contains(text, "workload_identity") ||
+		strings.Contains(text, "agent_certificate") ||
+		strings.Contains(text, "certificate_identity") ||
+		strings.Contains(text, "x509") ||
+		strings.Contains(text, "m_tls") ||
+		strings.Contains(text, "mtls") ||
+		strings.Contains(text, "spiffe") ||
+		strings.Contains(text, "spiffe_id")
+}
+
+func leastAgencyConfigured(text string) bool {
+	return strings.Contains(text, "least_agency") ||
+		strings.Contains(text, "least_privilege") ||
+		strings.Contains(text, "deny_by_default") ||
+		strings.Contains(text, "deny-by-default") ||
+		strings.Contains(text, "rbac") ||
+		strings.Contains(text, "tool_scope") ||
+		strings.Contains(text, "permission_scope") ||
+		strings.Contains(text, "scoped_permissions")
+}
+
+func identityBasedIsolationConfigured(text string) bool {
+	return strings.Contains(text, "identity_based_isolation") ||
+		strings.Contains(text, "identity-based isolation") ||
+		strings.Contains(text, "workload_isolation") ||
+		strings.Contains(text, "named_callers") ||
+		strings.Contains(text, "allowed_callers") ||
+		strings.Contains(text, "network_segmentation") ||
+		strings.Contains(text, "microsegmentation")
+}
+
 func approvalRequired(text string) bool {
 	return strings.Contains(text, "approval_policy = \"on-request\"") ||
 		strings.Contains(text, "approval_policy=\"on-request\"") ||
@@ -556,6 +625,33 @@ func auditLoggingConfigured(text string) bool {
 		strings.Contains(text, "opentelemetry") ||
 		strings.Contains(text, "telemetry") ||
 		strings.Contains(text, "trace")
+}
+
+func traceabilityConfigured(text string) bool {
+	return strings.Contains(text, "request_id") ||
+		strings.Contains(text, "trace_id") ||
+		strings.Contains(text, "correlation_id") ||
+		strings.Contains(text, "distributed_tracing") ||
+		strings.Contains(text, "provenance_chain") ||
+		strings.Contains(text, "input_to_output_trace")
+}
+
+func inputValidationConfigured(text string) bool {
+	return strings.Contains(text, "input_validation") ||
+		strings.Contains(text, "schema_validation") ||
+		strings.Contains(text, "max_input_length") ||
+		strings.Contains(text, "prompt_injection_filter") ||
+		strings.Contains(text, "payload_filter") ||
+		strings.Contains(text, "content_filter") ||
+		strings.Contains(text, "spotlighting")
+}
+
+func automatedTriageConfigured(text string) bool {
+	return strings.Contains(text, "automated_triage") ||
+		strings.Contains(text, "first_pass_investigation") ||
+		strings.Contains(text, "first-pass investigation") ||
+		strings.Contains(text, "alert_triage") ||
+		strings.Contains(text, "siem_triage")
 }
 
 func contextRetentionConfigured(text string) bool {

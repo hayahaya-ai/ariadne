@@ -346,6 +346,31 @@ func renderZeroTrustTable(w io.Writer, z model.ZeroTrust) {
 		z.Summary.Unknown,
 		z.Summary.NotObserved,
 	)
+	if z.Maturity.TargetTier != "" {
+		fmt.Fprintf(w, "  Foundation maturity evidence: %d/%d requirements evidenced, %d gaps (%d breaking, %d unknown, %d not observed), %d hard barriers, %d friction-only controls\n",
+			z.Maturity.Summary.Met,
+			z.Maturity.Summary.Total,
+			z.Maturity.Summary.Gaps,
+			z.Maturity.Summary.Breaking,
+			z.Maturity.Summary.Unknown,
+			z.Maturity.Summary.NotObserved,
+			z.Maturity.Summary.HardBarriers,
+			z.Maturity.Summary.FrictionOnly,
+		)
+		limit := len(z.Maturity.Requirements)
+		if limit > 5 {
+			limit = 5
+		}
+		for _, req := range z.Maturity.Requirements[:limit] {
+			fmt.Fprintf(w, "    - %s %s: %s\n", statusLabel(string(req.Status)), req.Capability, req.Finding)
+			if len(req.MissingEvidence) > 0 {
+				fmt.Fprintf(w, "      Missing: %s\n", strings.Join(req.MissingEvidence, "; "))
+			}
+		}
+		if len(z.Maturity.Requirements) > limit {
+			fmt.Fprintf(w, "    - %d more Foundation requirements in JSON or dashboard output\n", len(z.Maturity.Requirements)-limit)
+		}
+	}
 	for _, check := range z.Checks {
 		fmt.Fprintf(w, "  - %s %s / %s: %s\n", statusLabel(string(check.Status)), check.Principle, check.Boundary, check.Finding)
 		if len(check.Evidence) > 0 {

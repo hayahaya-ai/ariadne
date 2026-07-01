@@ -27,6 +27,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		FrameworkVersion: FrameworkVersion,
 		Summary:          summarize(checks),
 		Coverage:         coverage(checks),
+		Maturity:         maturity(c),
 		Checks:           checks,
 	}
 }
@@ -340,6 +341,500 @@ func coverage(checks []model.ZeroTrustCheck) model.ZeroTrustCoverage {
 	return out
 }
 
+func maturity(c model.Collection) model.ZeroTrustMaturity {
+	requirements := []model.ZeroTrustRequirement{
+		requireCryptographicIdentity(c),
+		requireShortLivedCredentials(c),
+		requireLeastAgencyPermissions(c),
+		requireIdentityBasedIsolation(c),
+		requireComprehensiveLogs(c),
+		requireInputValidation(c),
+		requireApprovalEscalation(c),
+		requireContextRetention(c),
+		requireAutomatedTriage(c),
+	}
+	for i := range requirements {
+		requirements[i] = normalizeRequirement(requirements[i])
+	}
+	return model.ZeroTrustMaturity{
+		TargetTier:   "foundation",
+		Summary:      summarizeMaturity(requirements),
+		Requirements: requirements,
+	}
+}
+
+func requireCryptographicIdentity(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:cryptographic-identity")
+	evidence := firstEvidence(
+		boundaryEvidence(c, "boundary:credential-material"),
+		controlsEvidence(c, "control:cryptographic-identity"),
+		runtimeEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported agent runtime was observed, so Ariadne did not evaluate agent identity."
+	missing := []string{"cryptographically rooted agent identity", "agent lifecycle identity evidence"}
+	if hasRuntimeOrAuthority(c) {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent runtime or authority exists, but Ariadne did not observe cryptographically rooted agent identity evidence."
+	}
+	if len(controls) > 0 {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed declared cryptographic or workload identity for agent instances."
+		missing = nil
+	}
+	if hasBoundaryID(c, "boundary:credential-material") {
+		status = model.ZeroTrustBreaking
+		quality = "broken_static_credential"
+		finding = "Inline credential material indicators were observed; this breaks the Foundation expectation for cryptographically rooted agent identity."
+		missing = []string{"credential removal from config", "cryptographic workload identity evidence"}
+	}
+	return zeroTrustRequirement(
+		"ztf:cryptographic-agent-identity",
+		"foundation",
+		"Never trust, always verify",
+		"Cryptographically rooted agent identity",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Use workload identity, mTLS, SPIFFE, X.509, or equivalent cryptographic identity for agent instances.",
+			"Remove inline credentials from agent configuration.",
+		},
+	)
+}
+
+func requireShortLivedCredentials(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:short-lived-credential", "control:credential-helper")
+	evidence := firstEvidence(
+		boundaryEvidence(c, "boundary:credential-material"),
+		controlsEvidence(c, "control:short-lived-credential", "control:credential-helper"),
+		runtimeEvidence(c),
+		toolEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported agent runtime or tool authority was observed, so Ariadne did not evaluate credential lifetime."
+	missing := []string{"short-lived OAuth/OIDC or federated credential evidence", "token lifetime policy"}
+	if hasRuntimeOrAuthority(c) || len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent runtime, tool, or authority exists, but Ariadne did not observe short-lived credential evidence."
+	}
+	if hasControlID(c, "control:credential-helper") && !hasControlID(c, "control:short-lived-credential") {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed a credential helper or vault pattern, but not short-lived identity-provider-issued credentials."
+		missing = []string{"short-lived credential evidence", "token lifetime policy"}
+	}
+	if hasControlID(c, "control:short-lived-credential") {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed declared short-lived, OAuth/OIDC, JIT, or federated credential posture."
+		missing = nil
+	}
+	if hasBoundaryID(c, "boundary:credential-material") {
+		status = model.ZeroTrustBreaking
+		quality = "broken_static_credential"
+		finding = "Inline credential material indicators were observed; static credentials do not meet Foundation credential posture."
+		missing = []string{"static credential removal", "short-lived credential issuance evidence"}
+	}
+	return zeroTrustRequirement(
+		"ztf:short-lived-credentials",
+		"foundation",
+		"Never trust, always verify",
+		"Short-lived identity-provider-issued credentials",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Use short-lived OAuth/OIDC, federated, or JIT-issued credentials for agent tool access.",
+			"Keep credential issuance auditable and revocable.",
+		},
+	)
+}
+
+func requireLeastAgencyPermissions(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:least-agency-policy", "control:deny-secret-read", "control:mcp-reviewed-pinned", "control:network-restricted")
+	evidence := firstEvidence(
+		controlsEvidence(c, "control:least-agency-policy", "control:deny-secret-read", "control:mcp-reviewed-pinned", "control:network-restricted"),
+		authorityEvidence(c),
+		toolEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported agent authority was observed, so Ariadne did not evaluate least-agency permission scope."
+	missing := []string{"deny-by-default role or tool policy", "least-agency permission scope"}
+	if len(c.Authorities) > 0 || len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent authority or tool surfaces exist, but Ariadne did not observe deny-by-default or least-agency scoping evidence."
+	}
+	if hasAuthority(c, "authority:broad-local") && len(controls) == 0 {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "Broad local authority exists without observed least-agency or deny-by-default control evidence."
+	}
+	if hasControlID(c, "control:least-agency-policy") || hasControlID(c, "control:deny-secret-read") || hasControlID(c, "control:mcp-reviewed-pinned") || hasControlID(c, "control:network-restricted") {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed least-agency, deny-read, network restriction, or reviewed tool-scoping controls."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:least-agency-permissions",
+		"foundation",
+		"Least agency",
+		"Deny-by-default least-agency permissions",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Declare deny-by-default roles and tool scopes for each agent function.",
+			"Remove broad local authority unless a graph-backed control restricts the reachable boundary.",
+		},
+	)
+}
+
+func requireIdentityBasedIsolation(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:identity-based-isolation", "control:sandbox-isolation", "control:network-restricted")
+	evidence := firstEvidence(
+		controlsEvidence(c, "control:identity-based-isolation", "control:sandbox-isolation", "control:network-restricted"),
+		runtimeEvidence(c),
+		authorityEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported agent runtime or authority was observed, so Ariadne did not evaluate workload isolation."
+	missing := []string{"identity-based isolation policy", "named-caller or network segmentation evidence"}
+	if hasRuntimeOrAuthority(c) {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent runtime or authority exists, but Ariadne did not observe identity-based workload isolation evidence."
+	}
+	if hasControlID(c, "control:sandbox-isolation") && !hasControlID(c, "control:identity-based-isolation") && !hasControlID(c, "control:network-restricted") {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed sandbox isolation, but not identity-based network or named-caller isolation evidence."
+		missing = []string{"identity-based network isolation evidence", "named-caller allowlist"}
+	}
+	if hasControlID(c, "control:identity-based-isolation") || (hasControlID(c, "control:sandbox-isolation") && hasControlID(c, "control:network-restricted")) {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed declared identity-based isolation or sandbox plus network restriction evidence."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:identity-based-isolation",
+		"foundation",
+		"Assume breach",
+		"Identity-based workload isolation",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Constrain agent workloads with identity-based isolation and named-caller network boundaries.",
+			"Use sandboxing as a containment layer, not the only boundary.",
+		},
+	)
+}
+
+func requireComprehensiveLogs(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:audit-logging", "control:request-traceability")
+	evidence := firstEvidence(
+		controlsEvidence(c, "control:audit-logging", "control:request-traceability"),
+		surfaceEvidenceByCategory(c, "history-cache"),
+		runtimeEvidence(c),
+		toolEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported agent runtime or tool surface was observed, so Ariadne did not evaluate comprehensive logging."
+	missing := []string{"tool-call audit log evidence", "request context and agent identity in logs", "trace or correlation IDs"}
+	if len(c.Runtimes) > 0 || len(c.Tools) > 0 || len(c.Authorities) > 0 {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent runtime, tool, or authority exists, but Ariadne did not observe comprehensive action logging evidence."
+	}
+	if hasControlID(c, "control:audit-logging") && !hasControlID(c, "control:request-traceability") {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed audit logging, but not request or trace propagation evidence."
+		missing = []string{"request ID, trace ID, or provenance propagation evidence"}
+	}
+	if hasControlID(c, "control:audit-logging") && hasControlID(c, "control:request-traceability") {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed declared action logging and request traceability controls."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:comprehensive-agent-logs",
+		"foundation",
+		"Assume breach",
+		"Comprehensive logs of agent actions with context",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Log tool invocations, data access, approvals, external communication, agent identity, and request context.",
+			"Propagate request or trace IDs through agent actions.",
+		},
+	)
+}
+
+func requireInputValidation(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:input-validation")
+	evidence := firstEvidence(
+		controlsEvidence(c, "control:input-validation"),
+		trustInputEvidence(c, true),
+		trustInputEvidence(c, false),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported untrusted instruction surface was observed, so Ariadne did not evaluate input validation."
+	missing := []string{"schema or length validation", "known prompt-injection payload filtering", "untrusted input delimiting policy"}
+	if len(c.TrustInputs) > 0 {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Instruction inputs exist, but Ariadne did not observe input validation or untrusted-content boundary evidence."
+	}
+	if len(trustInputEvidence(c, true)) > 0 && len(controls) == 0 {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "Risky untrusted instruction input exists without observed input validation or prompt-injection filtering evidence."
+	}
+	if len(controls) > 0 {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed declared input validation, schema, or prompt-injection filtering controls."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:input-validation",
+		"foundation",
+		"Never trust, always verify",
+		"Input validation for untrusted agent context",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Validate schemas and lengths before untrusted content reaches an agent.",
+			"Use prompt-injection filtering or explicit untrusted-content delimiting for repo, web, email, and document inputs.",
+		},
+	)
+}
+
+func requireApprovalEscalation(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:approval-required", "control:audit-logging")
+	evidence := firstEvidence(
+		controlsEvidence(c, "control:approval-required", "control:audit-logging"),
+		authorityEvidence(c),
+		toolEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported high-risk tool or authority surface was observed, so Ariadne did not evaluate approval escalation."
+	missing := []string{"approval trigger policy for high-risk actions", "approval decision log evidence"}
+	if len(c.Authorities) > 0 || len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "High-risk authority or tool surfaces exist, but Ariadne did not observe approval escalation evidence."
+	}
+	if hasControlID(c, "control:approval-required") && !hasControlID(c, "control:audit-logging") {
+		status = model.ZeroTrustUnknown
+		quality = "friction_only"
+		finding = "Ariadne observed approval prompts, but not approval decision logging; this is treated as friction until forensic evidence exists."
+		missing = []string{"approval decision log evidence", "tool-call audit trail"}
+	}
+	if hasControlID(c, "control:approval-required") && hasControlID(c, "control:audit-logging") {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed declared approval escalation with audit logging evidence."
+		missing = nil
+	}
+	if (hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:local-code-execution")) && len(controls) == 0 {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "High-risk local authority exists without observed approval escalation or approval logging evidence."
+	}
+	return zeroTrustRequirement(
+		"ztf:approval-escalation",
+		"foundation",
+		"Least agency",
+		"Approval escalation for high-risk actions",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Require approval before high-risk tool use, sensitive data access, external communication, or local execution.",
+			"Log approval decisions with enough context for incident reconstruction.",
+		},
+	)
+}
+
+func requireContextRetention(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:context-retention")
+	evidence := firstEvidence(
+		controlsEvidence(c, "control:context-retention"),
+		memoryEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported memory or private context surface was observed, so Ariadne did not evaluate retention."
+	missing := []string{"context retention policy", "memory isolation or cleanup evidence"}
+	if len(memoryEvidence(c)) > 0 {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Private context or memory surfaces exist, but Ariadne did not observe retention policy evidence."
+	}
+	if len(controls) > 0 {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed declared context, transcript, or memory retention controls."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:context-retention",
+		"foundation",
+		"Assume breach",
+		"Context retention policy for persisted agent memory",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Define retention windows for transcripts, memory, paste caches, and private context.",
+			"Keep high-risk untrusted context short-lived and recoverable.",
+		},
+	)
+}
+
+func requireAutomatedTriage(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, "control:automated-triage", "control:audit-logging")
+	evidence := firstEvidence(
+		controlsEvidence(c, "control:automated-triage", "control:audit-logging"),
+		runtimeEvidence(c),
+		toolEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported agent runtime or tool surface was observed, so Ariadne did not evaluate automated first-pass triage."
+	missing := []string{"automated first-pass investigation evidence", "alert triage or SIEM workflow evidence"}
+	if len(c.Runtimes) > 0 || len(c.Tools) > 0 || len(c.Authorities) > 0 {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent runtime, tool, or authority exists, but Ariadne did not observe automated first-pass triage evidence."
+	}
+	if hasControlID(c, "control:automated-triage") && hasControlID(c, "control:audit-logging") {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed declared automated first-pass investigation and audit logging controls."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:automated-first-pass-triage",
+		"foundation",
+		"Assume breach",
+		"Automated first-pass investigation for agent alerts",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Route agent alerts through an automated first-pass investigation before human review.",
+			"Measure detection speed and alert coverage for critical agent behavior.",
+		},
+	)
+}
+
+func zeroTrustRequirement(id, tier, principle, capability string, status model.ZeroTrustStatus, quality, finding string, evidence []model.ZeroTrustEvidence, controls, missing, actions []string) model.ZeroTrustRequirement {
+	return model.ZeroTrustRequirement{
+		ID:              id,
+		Tier:            tier,
+		Principle:       principle,
+		Capability:      capability,
+		Status:          status,
+		ControlQuality:  quality,
+		Finding:         finding,
+		Evidence:        limitEvidence(evidence, 8),
+		Controls:        uniqueStrings(controls),
+		MissingEvidence: uniqueStrings(missing),
+		Actions:         uniqueStrings(actions),
+	}
+}
+
+func normalizeRequirement(req model.ZeroTrustRequirement) model.ZeroTrustRequirement {
+	if req.Evidence == nil {
+		req.Evidence = []model.ZeroTrustEvidence{}
+	}
+	if req.Controls == nil {
+		req.Controls = []string{}
+	}
+	if req.MissingEvidence == nil {
+		req.MissingEvidence = []string{}
+	}
+	if req.Actions == nil {
+		req.Actions = []string{}
+	}
+	return req
+}
+
+func summarizeMaturity(requirements []model.ZeroTrustRequirement) model.ZeroTrustMaturitySummary {
+	var summary model.ZeroTrustMaturitySummary
+	summary.Total = len(requirements)
+	for _, req := range requirements {
+		switch req.Status {
+		case model.ZeroTrustControlled:
+			summary.Met++
+		case model.ZeroTrustBreaking:
+			summary.Breaking++
+			summary.Gaps++
+		case model.ZeroTrustUnknown:
+			summary.Unknown++
+			summary.Gaps++
+		case model.ZeroTrustNotObserved:
+			summary.NotObserved++
+		default:
+			summary.Gaps++
+		}
+		switch req.ControlQuality {
+		case "hard_barrier":
+			summary.HardBarriers++
+		case "friction_only":
+			summary.FrictionOnly++
+		}
+	}
+	return summary
+}
+
 func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 	gap := model.ZeroTrustGap{
 		CheckID:  check.ID,
@@ -524,6 +1019,37 @@ func controlIDs(c model.Collection, ids ...string) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func hasControlID(c model.Collection, id string) bool {
+	for _, control := range c.Controls {
+		if control.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBoundaryID(c model.Collection, id string) bool {
+	for _, boundary := range c.Boundaries {
+		if boundary.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAuthority(c model.Collection, id string) bool {
+	for _, authority := range c.Authorities {
+		if authority.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRuntimeOrAuthority(c model.Collection) bool {
+	return len(c.Runtimes) > 0 || len(c.Authorities) > 0
 }
 
 func trustInputEvidence(c model.Collection, riskyOnly bool) []model.ZeroTrustEvidence {

@@ -99,6 +99,14 @@ Each check includes:
 - `gaps`: number of unknown or not-observed coverage gaps
 - `gap_details`: missing evidence, why it matters, and the next collector needed
 
+`zero_trust.maturity` maps the current run against Ariadne's Foundation Zero Trust agent requirements:
+
+- `target_tier`: currently `foundation`
+- `summary`: total requirements, requirements with enough deterministic evidence to be treated as met, relevant gaps, breaking requirements, unknowns, not-observed requirements, hard barriers, and friction-only controls
+- `requirements`: each requirement's capability, principle, status, control quality, evidence, controls, missing evidence, and actions
+
+Control quality separates hard barriers from partial or friction-only evidence. This prevents approval prompts, warnings, or policy text from being treated as equivalent to cryptographic identity, short-lived credentials, deny-by-default permissions, isolation, or audited traceability.
+
 `breaking` is reserved for graph-backed paths or missing break-path controls. Missing identity, credential, ABAC, JIT, or telemetry evidence is reported as `unknown` until Ariadne has collectors that can prove the boundary.
 
 LLM review mode uses two JSON payloads:

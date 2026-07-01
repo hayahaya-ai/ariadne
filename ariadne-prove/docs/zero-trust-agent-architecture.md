@@ -59,6 +59,34 @@ Examples Ariadne reports as `breaking` when observed:
 - inline credential field indicators in agent configuration
 - authority paths that reach private context without an observed break-path control
 
+## Foundation Maturity
+
+Ariadne also emits a Foundation maturity evidence readout under `zero_trust.maturity`.
+
+This is not a compliance attestation. It is an evidence map for the raised Foundation bar described in Zero Trust agent architecture guidance. Each requirement has a status, control quality, evidence, missing evidence, and next actions.
+
+Foundation requirements currently modeled:
+
+- Cryptographically rooted agent identity.
+- Short-lived identity-provider-issued credentials.
+- Deny-by-default least-agency permissions.
+- Identity-based workload isolation.
+- Comprehensive logs of agent actions with request context.
+- Input validation for untrusted agent context.
+- Approval escalation for high-risk actions.
+- Context retention policy for persisted agent memory.
+- Automated first-pass investigation for agent alerts.
+
+Control quality values are intentionally blunt:
+
+- `hard_barrier`: Ariadne observed evidence for a control that removes or cryptographically constrains a capability.
+- `friction_only`: Ariadne observed a prompt or approval-like control without enough evidence that it creates a reconstructable, enforceable boundary.
+- `partial_declared`: Ariadne observed part of the required control family, but not enough to call the requirement met.
+- `evidence_gap`: relevant agent surfaces exist, but Ariadne lacks the evidence needed to judge the requirement.
+- `missing_hard_barrier`: relevant risky authority exists without observed control evidence.
+- `broken_static_credential`: inline credential material indicators were observed in agent configuration.
+- `not_applicable`: Ariadne did not observe a supported surface for this requirement in the current run.
+
 ## Local Policy File
 
 Repositories can declare Zero Trust agent controls in `.ariadne/agent-policy.json`.
@@ -67,12 +95,22 @@ Example:
 
 ```json
 {
+  "cryptographic_identity": "spiffe",
+  "least_agency": true,
+  "deny_by_default": true,
+  "identity_based_isolation": true,
+  "network_segmentation": true,
   "approval_required": true,
   "sandbox_required": true,
   "credential_helper": "vault",
   "short_lived_credentials": true,
   "audit_logging": true,
   "tool_call_logging": true,
+  "request_id": true,
+  "trace_id": true,
+  "input_validation": true,
+  "schema_validation": true,
+  "automated_triage": true,
   "context_retention": {
     "retention_days": 7
   }
@@ -105,3 +143,4 @@ The `coverage` object turns unknowns into a collector roadmap:
 - `gap_details`: missing evidence, why it matters, and the next collector Ariadne needs
 
 Ariadne should only call a boundary `breaking` when facts and graph edges support the claim.
+It should only call a Foundation requirement `controlled` when the required evidence is present in the deterministic collection.

@@ -1,10 +1,20 @@
 {
+  "cryptographic_identity": "spiffe",
+  "least_agency": true,
+  "deny_by_default": true,
+  "identity_based_isolation": true,
+  "network_segmentation": true,
   "approval_required": true,
   "sandbox_required": true,
   "credential_helper": "vault",
   "short_lived_credentials": true,
   "audit_logging": true,
   "tool_call_logging": true,
+  "request_id": true,
+  "trace_id": true,
+  "input_validation": true,
+  "schema_validation": true,
+  "automated_triage": true,
   "context_retention": {
     "retention_days": 7
   }

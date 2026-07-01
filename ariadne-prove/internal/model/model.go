@@ -110,6 +110,7 @@ type ZeroTrust struct {
 	FrameworkVersion string            `json:"framework_version"`
 	Summary          ZeroTrustSummary  `json:"summary"`
 	Coverage         ZeroTrustCoverage `json:"coverage"`
+	Maturity         ZeroTrustMaturity `json:"maturity"`
 	Checks           []ZeroTrustCheck  `json:"checks"`
 }
 
@@ -158,6 +159,37 @@ type ZeroTrustGap struct {
 	MissingEvidence []string        `json:"missing_evidence"`
 	WhyItMatters    string          `json:"why_it_matters"`
 	NextCollector   string          `json:"next_collector"`
+}
+
+type ZeroTrustMaturity struct {
+	TargetTier   string                   `json:"target_tier"`
+	Summary      ZeroTrustMaturitySummary `json:"summary"`
+	Requirements []ZeroTrustRequirement   `json:"requirements"`
+}
+
+type ZeroTrustMaturitySummary struct {
+	Total        int `json:"total"`
+	Met          int `json:"met"`
+	Gaps         int `json:"gaps"`
+	Breaking     int `json:"breaking"`
+	Unknown      int `json:"unknown"`
+	NotObserved  int `json:"not_observed"`
+	HardBarriers int `json:"hard_barriers"`
+	FrictionOnly int `json:"friction_only"`
+}
+
+type ZeroTrustRequirement struct {
+	ID              string              `json:"id"`
+	Tier            string              `json:"tier"`
+	Principle       string              `json:"principle"`
+	Capability      string              `json:"capability"`
+	Status          ZeroTrustStatus     `json:"status"`
+	ControlQuality  string              `json:"control_quality"`
+	Finding         string              `json:"finding"`
+	Evidence        []ZeroTrustEvidence `json:"evidence"`
+	Controls        []string            `json:"controls,omitempty"`
+	MissingEvidence []string            `json:"missing_evidence,omitempty"`
+	Actions         []string            `json:"actions"`
 }
 
 type Evidence struct {

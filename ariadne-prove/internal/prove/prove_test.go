@@ -532,10 +532,66 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:short-lived-credential",
 		"control:audit-logging",
 		"control:context-retention",
+		"control:cryptographic-identity",
+		"control:least-agency-policy",
+		"control:identity-based-isolation",
+		"control:request-traceability",
+		"control:input-validation",
+		"control:automated-triage",
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing zero trust control node %s", id)
 		}
+	}
+}
+
+func TestZeroTrustMaturitySafeControlsMeetFoundation(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ZeroTrust.Maturity.TargetTier != "foundation" {
+		t.Fatalf("target tier = %q", r.ZeroTrust.Maturity.TargetTier)
+	}
+	if r.ZeroTrust.Maturity.Summary.Total == 0 {
+		t.Fatalf("expected maturity requirements")
+	}
+	if r.ZeroTrust.Maturity.Summary.Met != r.ZeroTrust.Maturity.Summary.Total {
+		t.Fatalf("expected safe controls to meet foundation requirements: %+v", r.ZeroTrust.Maturity.Summary)
+	}
+	for _, id := range []string{
+		"ztf:cryptographic-agent-identity",
+		"ztf:short-lived-credentials",
+		"ztf:least-agency-permissions",
+		"ztf:identity-based-isolation",
+		"ztf:comprehensive-agent-logs",
+		"ztf:input-validation",
+		"ztf:approval-escalation",
+		"ztf:context-retention",
+		"ztf:automated-first-pass-triage",
+	} {
+		req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, id, model.ZeroTrustControlled)
+		if req.ControlQuality != "hard_barrier" {
+			t.Fatalf("%s control quality = %q, want hard_barrier", id, req.ControlQuality)
+		}
+	}
+}
+
+func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ZeroTrust.Maturity.Summary.Gaps == 0 {
+		t.Fatalf("expected foundation maturity gaps: %+v", r.ZeroTrust.Maturity.Summary)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:input-validation", model.ZeroTrustBreaking)
+	if !containsString(req.MissingEvidence, "prompt") {
+		t.Fatalf("input validation gap should mention prompt-injection filtering: %+v", req.MissingEvidence)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustUnknown)
+	if req.ControlQuality != "evidence_gap" {
+		t.Fatalf("short-lived credential requirement quality = %q", req.ControlQuality)
 	}
 }
 
@@ -754,6 +810,7 @@ func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Exposure Dashboard",
 		"Zero Trust Architecture",
+		"Foundation Maturity Requirements",
 		"Evidence Coverage Gaps",
 		"Influence boundary",
 		"Issue Dashboard",
@@ -851,6 +908,24 @@ func assertZeroTrustGap(t *testing.T, gaps []model.ZeroTrustGap, id string) mode
 	}
 	t.Fatalf("missing zero trust gap %s in %+v", id, gaps)
 	return model.ZeroTrustGap{}
+}
+
+func assertZeroTrustRequirement(t *testing.T, requirements []model.ZeroTrustRequirement, id string, status model.ZeroTrustStatus) model.ZeroTrustRequirement {
+	t.Helper()
+	for _, req := range requirements {
+		if req.ID != id {
+			continue
+		}
+		if req.Status != status {
+			t.Fatalf("zero trust requirement %s status = %s, want %s", id, req.Status, status)
+		}
+		if req.Finding == "" {
+			t.Fatalf("zero trust requirement %s missing finding", id)
+		}
+		return req
+	}
+	t.Fatalf("missing zero trust requirement %s in %+v", id, requirements)
+	return model.ZeroTrustRequirement{}
 }
 
 func assertNoZeroTrustGap(t *testing.T, gaps []model.ZeroTrustGap, id string) {

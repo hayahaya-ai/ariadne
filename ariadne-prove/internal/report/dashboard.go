@@ -206,6 +206,7 @@ tr:last-child td { border-bottom: 0; }
 .controlled { color: #fff; background: var(--low); }
 .unknown { color: #fff; background: var(--info); }
 .not-observed { color: #1f2937; background: #d8dee7; }
+.neutral { color: #374151; background: #eef2f7; }
 .exposed { color: #fff; background: var(--critical); }
 .protected { color: #fff; background: var(--low); }
 .inconclusive { color: #1f2937; background: #d8dee7; }
@@ -318,8 +319,38 @@ func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
+	renderZeroTrustMaturity(w, z.Maturity)
 	renderZeroTrustCoverage(w, z.Coverage)
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderZeroTrustMaturity(w io.Writer, maturity model.ZeroTrustMaturity) {
+	if maturity.TargetTier == "" {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Foundation Maturity Requirements</h3>`)
+	renderMetricRow(w, []kv{
+		{"Evidence present", fmt.Sprintf("%d/%d", maturity.Summary.Met, maturity.Summary.Total)},
+		{"Gaps", fmt.Sprintf("%d", maturity.Summary.Gaps)},
+		{"Breaking", fmt.Sprintf("%d", maturity.Summary.Breaking)},
+		{"Unknown", fmt.Sprintf("%d", maturity.Summary.Unknown)},
+		{"Not observed", fmt.Sprintf("%d", maturity.Summary.NotObserved)},
+		{"Hard barriers", fmt.Sprintf("%d", maturity.Summary.HardBarriers)},
+		{"Friction only", fmt.Sprintf("%d", maturity.Summary.FrictionOnly)},
+	})
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Capability</th><th>Control quality</th><th>Finding</th><th>Evidence</th><th>Missing / Action</th></tr></thead><tbody>")
+	for _, req := range maturity.Requirements {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(string(req.Status)), esc(statusLabel(string(req.Status))))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(req.Capability), esc(req.Principle), esc(req.ID))
+		fmt.Fprintf(w, `<td><span class="pill neutral">%s</span></td>`, esc(strings.ReplaceAll(req.ControlQuality, "_", " ")))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(req.Finding))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderZeroTrustEvidence(req.Evidence), renderControlLine(req.Controls))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(req.MissingEvidence), renderSmallList(limitStrings(req.Actions, 2)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 }
 
 func renderZeroTrustCoverage(w io.Writer, coverage model.ZeroTrustCoverage) {

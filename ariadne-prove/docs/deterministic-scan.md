@@ -46,11 +46,17 @@ Ariadne parses declared controls from runtime configuration and `.ariadne/agent-
 
 Supported control signals include:
 
+- cryptographic identity, workload identity, mTLS, X.509, or SPIFFE indicators
+- least agency, least privilege, RBAC, scoped permissions, or deny-by-default indicators
+- identity-based isolation, workload isolation, network segmentation, or named-caller indicators
 - approval-required posture
 - sandbox or filesystem isolation posture
 - credential helper, vault, or keychain retrieval
 - short-lived, OAuth/OIDC, federated, or JIT credential indicators
 - audit, tool-call, approval, telemetry, or trace logging indicators
+- request ID, trace ID, correlation ID, distributed tracing, or provenance indicators
+- input validation, schema validation, prompt-injection filtering, or maximum input length indicators
+- automated first-pass investigation or alert triage indicators
 - transcript, memory, or context retention indicators
 
 Ariadne also flags inline credential field indicators as `boundary:credential-material`. It reports the field presence only; values are never emitted.
