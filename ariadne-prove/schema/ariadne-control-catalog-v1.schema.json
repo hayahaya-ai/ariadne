@@ -15,6 +15,7 @@
     "controls",
     "families",
     "proof_specs",
+    "verification_tasks",
     "redaction",
     "limitations"
   ],
@@ -39,6 +40,10 @@
     "proof_specs": {
       "type": "array",
       "items": { "$ref": "#/$defs/control_proof_spec" }
+    },
+    "verification_tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_verification_task" }
     },
     "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
     "limitations": { "type": "array", "items": { "type": "string" } }
@@ -66,6 +71,25 @@
         "proof_surfaces": { "type": "array", "items": { "type": "string" } },
         "recognized_indicators": { "type": "array", "items": { "type": "string" } },
         "notes": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_verification_task": {
+      "type": "object",
+      "required": ["id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "actions", "rerun_commands", "success_criteria", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "control": { "type": "string" },
+        "severity": { "type": "string" },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "question": { "type": "string" },
+        "why": { "type": "string" },
+        "evidence_refs": { "type": "array", "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" } },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "recognized_indicators": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
       }
     }

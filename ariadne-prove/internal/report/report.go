@@ -86,21 +86,23 @@ func RenderControlsScan(w io.Writer, r model.ScanReport, format string, statusFi
 }
 
 func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogReport {
+	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
 	catalog := model.ControlCatalogReport{
-		SchemaVersion: model.SchemaVersion,
-		RunID:         r.RunID,
-		GeneratedAt:   r.GeneratedAt,
-		RunKind:       "control_catalog",
-		TargetPath:    r.TargetPath,
-		Mode:          r.Mode,
-		Agent:         r.Agent,
-		StatusFilter:  r.StatusFilter,
-		Summary:       summarizeControlCatalog(r.ClosurePlan),
-		Controls:      append([]model.ArchitectureClosure{}, r.ClosurePlan...),
-		Families:      append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
-		ProofSpecs:    buildControlProofSpecs(r.ClosurePlan),
-		Redaction:     r.Redaction,
-		Limitations:   append([]string{}, r.Limitations...),
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             r.RunID,
+		GeneratedAt:       r.GeneratedAt,
+		RunKind:           "control_catalog",
+		TargetPath:        r.TargetPath,
+		Mode:              r.Mode,
+		Agent:             r.Agent,
+		StatusFilter:      r.StatusFilter,
+		Summary:           summarizeControlCatalog(r.ClosurePlan),
+		Controls:          append([]model.ArchitectureClosure{}, r.ClosurePlan...),
+		Families:          append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		ProofSpecs:        proofSpecs,
+		VerificationTasks: buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}),
+		Redaction:         r.Redaction,
+		Limitations:       append([]string{}, r.Limitations...),
 	}
 	if catalog.Controls == nil {
 		catalog.Controls = []model.ArchitectureClosure{}
@@ -110,25 +112,30 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 	}
 	if catalog.ProofSpecs == nil {
 		catalog.ProofSpecs = []model.ControlProofSpec{}
+	}
+	if catalog.VerificationTasks == nil {
+		catalog.VerificationTasks = []model.ControlVerificationTask{}
 	}
 	return catalog
 }
 
 func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
+	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
 	catalog := model.ControlCatalogReport{
-		SchemaVersion: model.SchemaVersion,
-		RunID:         r.RunID,
-		GeneratedAt:   r.GeneratedAt,
-		RunKind:       "control_catalog_scan",
-		Mode:          r.Mode,
-		Agent:         r.Agent,
-		StatusFilter:  r.StatusFilter,
-		Summary:       summarizeControlCatalog(r.ClosurePlan),
-		Controls:      append([]model.ArchitectureClosure{}, r.ClosurePlan...),
-		Families:      append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
-		ProofSpecs:    buildControlProofSpecs(r.ClosurePlan),
-		Redaction:     r.Redaction,
-		Limitations:   append([]string{}, r.Limitations...),
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             r.RunID,
+		GeneratedAt:       r.GeneratedAt,
+		RunKind:           "control_catalog_scan",
+		Mode:              r.Mode,
+		Agent:             r.Agent,
+		StatusFilter:      r.StatusFilter,
+		Summary:           summarizeControlCatalog(r.ClosurePlan),
+		Controls:          append([]model.ArchitectureClosure{}, r.ClosurePlan...),
+		Families:          append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		ProofSpecs:        proofSpecs,
+		VerificationTasks: buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}),
+		Redaction:         r.Redaction,
+		Limitations:       append([]string{}, r.Limitations...),
 	}
 	if catalog.Controls == nil {
 		catalog.Controls = []model.ArchitectureClosure{}
@@ -138,6 +145,9 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 	}
 	if catalog.ProofSpecs == nil {
 		catalog.ProofSpecs = []model.ControlProofSpec{}
+	}
+	if catalog.VerificationTasks == nil {
+		catalog.VerificationTasks = []model.ControlVerificationTask{}
 	}
 	return catalog
 }
@@ -937,6 +947,7 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 		fmt.Fprintf(w, "  - no missing hard-barrier controls matched status filter %q\n\n", r.StatusFilter)
 		return nil
 	}
+	renderControlVerificationTasks(w, r.VerificationTasks, 8)
 	fmt.Fprintf(w, "  Controls:\n")
 	limit := len(r.Controls)
 	if limit > 12 {
@@ -1245,6 +1256,166 @@ func summarizeControlCatalog(items []model.ArchitectureClosure) model.ControlCat
 	summary.Targets = len(targets)
 	summary.Flaws = len(flaws)
 	return summary
+}
+
+func renderControlVerificationTasks(w io.Writer, tasks []model.ControlVerificationTask, limit int) {
+	if len(tasks) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Verification tasks:\n")
+	if limit <= 0 || limit > len(tasks) {
+		limit = len(tasks)
+	}
+	for _, task := range tasks[:limit] {
+		fmt.Fprintf(w, "    - %s %s\n", strings.ToUpper(task.Severity), task.Control)
+		if task.Why != "" {
+			fmt.Fprintf(w, "      Why: %s\n", task.Why)
+		}
+		if len(task.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(task.EvidenceReferences, 2), "; "))
+		}
+		if len(task.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "      Add or verify at: %s\n", strings.Join(limitStrings(task.ProofSurfaces, 4), "; "))
+		}
+		if len(task.RecognizedIndicators) > 0 {
+			fmt.Fprintf(w, "      Accepted indicators: %s\n", strings.Join(limitStrings(task.RecognizedIndicators, 5), "; "))
+		}
+		if len(task.RerunCommands) > 0 {
+			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(task.RerunCommands, 2), "; "))
+		}
+		if len(task.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "      Done when: %s\n", strings.Join(limitStrings(task.SuccessCriteria, 2), "; "))
+		}
+	}
+	if len(tasks) > limit {
+		fmt.Fprintf(w, "    - %d more verification tasks in JSON output\n", len(tasks)-limit)
+	}
+}
+
+type controlVerificationCommandContext struct {
+	RunKind      string
+	Path         string
+	Mode         string
+	Agent        string
+	StatusFilter string
+}
+
+func buildControlVerificationTasks(items []model.ArchitectureClosure, proofSpecs []model.ControlProofSpec, ctx controlVerificationCommandContext) []model.ControlVerificationTask {
+	proofByControl := controlProofSpecsByControl(proofSpecs)
+	var out []model.ControlVerificationTask
+	for _, item := range items {
+		if item.Control == "" {
+			continue
+		}
+		proof := proofByControl[item.Control]
+		proofSurfaces := proof.ProofSurfaces
+		if len(proofSurfaces) == 0 {
+			proofSurfaces = item.EvidenceSurfaces
+		}
+		limitations := append([]string{}, proof.Limitations...)
+		if len(limitations) == 0 {
+			limitations = []string{"This task verifies deterministic evidence Ariadne can parse; it does not prove live runtime enforcement unless runtime enforcement evidence is observed."}
+		}
+		task := model.ControlVerificationTask{
+			ID:                   controlVerificationTaskID(item.Control),
+			Control:              item.Control,
+			Severity:             item.Severity,
+			Targets:              append([]string{}, item.Targets...),
+			Question:             fmt.Sprintf("Can Ariadne observe %s evidence that breaks this missing hard-barrier path?", item.Control),
+			Why:                  controlVerificationWhy(item),
+			EvidenceReferences:   dedupeEvidenceReferences(item.EvidenceReferences),
+			ProofSurfaces:        uniqueSortedStrings(proofSurfaces),
+			RecognizedIndicators: append([]string{}, proof.RecognizedIndicators...),
+			Actions:              append([]string{}, item.Actions...),
+			RerunCommands:        controlVerificationCommands(ctx),
+			SuccessCriteria:      controlVerificationSuccessCriteria(item.Control),
+			Limitations:          limitations,
+		}
+		out = append(out, task)
+	}
+	if out == nil {
+		return []model.ControlVerificationTask{}
+	}
+	return out
+}
+
+func controlVerificationTaskID(control string) string {
+	var b strings.Builder
+	b.WriteString("verify:")
+	for _, r := range strings.ToLower(control) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		if b.Len() > len("verify:") && b.String()[b.Len()-1] != '-' {
+			b.WriteRune('-')
+		}
+	}
+	id := strings.TrimRight(b.String(), "-")
+	if id == "verify:" {
+		return "verify:control"
+	}
+	return id
+}
+
+func controlVerificationWhy(item model.ArchitectureClosure) string {
+	if len(item.Flaws) == 0 {
+		return "This missing hard barrier is part of the architecture closure plan."
+	}
+	return "Closes: " + strings.Join(limitStrings(item.Flaws, 4), "; ")
+}
+
+func controlVerificationCommands(ctx controlVerificationCommandContext) []string {
+	mode := ctx.Mode
+	if mode == "" {
+		mode = "repo"
+	}
+	agent := ctx.Agent
+	if agent == "" {
+		agent = "all"
+	}
+	status := ctx.StatusFilter
+	if status == "" {
+		status = "breaking"
+	}
+	if ctx.RunKind == "control_catalog_scan" {
+		return []string{
+			fmt.Sprintf("ariadne controls --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
+			fmt.Sprintf("ariadne architecture --targets <targets-file> --mode %s --agent %s --status all", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		}
+	}
+	path := ctx.Path
+	if path == "" {
+		path = "<target-path>"
+	}
+	return []string{
+		fmt.Sprintf("ariadne controls --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
+		fmt.Sprintf("ariadne architecture --path %s --mode %s --agent %s --status all", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	}
+}
+
+func controlVerificationSuccessCriteria(control string) []string {
+	return []string{
+		fmt.Sprintf("%s is no longer returned in the controls output as a missing hard barrier.", control),
+		fmt.Sprintf("Associated architecture flaws no longer list %s in control_test.missing_hard_barriers.", control),
+		"If the task is still present, evidence_refs should point to the remaining source or architecture gap.",
+	}
+}
+
+func shellQuoteCommandArg(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">") {
+		return value
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '/' || r == '.' || r == '_' || r == '-' || r == ':' {
+			continue
+		}
+		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	}
+	return value
 }
 
 func buildControlProofSpecs(items []model.ArchitectureClosure) []model.ControlProofSpec {

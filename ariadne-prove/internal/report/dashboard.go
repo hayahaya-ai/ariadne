@@ -136,6 +136,7 @@ func renderControlCatalogDashboard(w io.Writer, r model.ControlCatalogReport) er
 	}
 	renderDashboardHeader(w, title, fields)
 	renderControlCatalogSummaryDashboard(w, r)
+	renderControlVerificationTasksDashboard(w, r.VerificationTasks)
 	renderControlCatalogFamiliesDashboard(w, r.Families)
 	renderControlCatalogControlsDashboard(w, r.Controls, r.ProofSpecs)
 	renderRunNotes(w, nil, r.Limitations)
@@ -555,8 +556,42 @@ func renderControlCatalogSummaryDashboard(w io.Writer, r model.ControlCatalogRep
 		{"Families", fmt.Sprintf("%d", len(r.Families))},
 		{"Rows", fmt.Sprintf("%d", len(r.Controls))},
 		{"Proof specs", fmt.Sprintf("%d", len(r.ProofSpecs))},
-		{"Source", "architecture closure plan"},
+		{"Verification tasks", fmt.Sprintf("%d", len(r.VerificationTasks))},
 	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderControlVerificationTasksDashboard(w io.Writer, tasks []model.ControlVerificationTask) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Verification Tasks</h2><div class="subtle">Operator tasks that explain what evidence to add or verify, where Ariadne will look, and how to rerun the check.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(tasks) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No verification tasks were returned for this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Task</th><th>Why</th><th>Evidence references</th><th>Add or verify at</th><th>Accepted indicators</th><th>Rerun / done when</th></tr></thead><tbody>")
+	limit := len(tasks)
+	if limit > 16 {
+		limit = 16
+	}
+	for _, task := range tasks[:limit] {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(task.Severity), esc(strings.ToUpper(task.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div></td>`, esc(task.Control), esc(task.ID))
+		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(task.Question), esc(task.Why))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(task.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.ProofSurfaces, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.RecognizedIndicators, 8)))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(task.RerunCommands, 2)), renderSmallList(limitStrings(task.SuccessCriteria, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(tasks) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="7"><span class="subtle">%d more verification tasks in JSON output.</span></td></tr>`, len(tasks)-limit)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 

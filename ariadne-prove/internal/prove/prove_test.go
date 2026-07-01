@@ -2763,8 +2763,12 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Ariadne control evidence catalog:",
 		"Missing hard barriers:",
 		"Control families:",
+		"Verification tasks:",
 		"Where to prove this:",
 		"Evidence references:",
+		"Accepted indicators:",
+		"Rerun:",
+		"Done when:",
 		"Recognized indicators:",
 		"What would prove it:",
 		"control:input-isolation",
@@ -2796,8 +2800,14 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	if len(decoded.ProofSpecs) == 0 {
 		t.Fatalf("control catalog should include proof specs")
 	}
+	if len(decoded.VerificationTasks) == 0 {
+		t.Fatalf("control catalog should include verification tasks")
+	}
 	if !hasControlProofIndicator(decoded.ProofSpecs, "control:input-isolation", "input_isolation") {
 		t.Fatalf("control catalog should include parser-recognized indicators: %+v", decoded.ProofSpecs)
+	}
+	if !hasControlVerificationTask(decoded.VerificationTasks, "control:input-isolation", "CLAUDE.md", "input_isolation") {
+		t.Fatalf("control catalog should include actionable verification task: %+v", decoded.VerificationTasks)
 	}
 	if !hasClosureEvidenceSurface(decoded.Controls, ".ariadne/input-policy.json") {
 		t.Fatalf("control catalog should retain proof surfaces: %+v", decoded.Controls)
@@ -2814,10 +2824,13 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Control Evidence Catalog",
 		"Control Evidence Catalog",
+		"Verification Tasks",
 		"Control Families",
 		"Controls To Prove",
 		"Where to prove this",
 		"References",
+		"Accepted indicators",
+		"Done when",
 		"Recognized indicators",
 		"What would prove it",
 		"control:input-isolation",
@@ -2844,8 +2857,10 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Ariadne control evidence catalog:",
 		"Run: control_catalog_scan",
 		"Targets:",
+		"Verification tasks:",
 		"Where to prove this:",
 		"Evidence references:",
+		"Rerun:",
 		"Recognized indicators:",
 	} {
 		if !strings.Contains(out, want) {
@@ -2867,6 +2882,9 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	if !hasControlProofIndicator(decoded.ProofSpecs, "control:input-isolation", "input_isolation") {
 		t.Fatalf("fleet control catalog should include proof specs: %+v", decoded.ProofSpecs)
 	}
+	if !hasControlVerificationTask(decoded.VerificationTasks, "control:input-isolation", "CLAUDE.md", "input_isolation") {
+		t.Fatalf("fleet control catalog should include verification tasks: %+v", decoded.VerificationTasks)
+	}
 	if !hasClosureTarget(decoded.Controls, "combined") {
 		t.Fatalf("expected fleet control catalog to retain target coverage: %+v", decoded.Controls)
 	}
@@ -2881,11 +2899,13 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	rendered := htmlOut.String()
 	for _, want := range []string{
 		"Ariadne Fleet Control Evidence Catalog",
+		"Verification Tasks",
 		"Control Families",
 		"Controls To Prove",
 		"combined",
 		"Where to prove this",
 		"References",
+		"Done when",
 		"Recognized indicators",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -3192,6 +3212,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"controls",
 		"families",
 		"proof_specs",
+		"verification_tasks",
 		"redaction",
 		"limitations",
 	)
@@ -3199,6 +3220,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
 	assertRequiredKeys(t, controlProofSpec, "control", "evidence_kind", "proof_surfaces", "recognized_indicators", "notes", "limitations")
+	controlVerificationTask := schemaMap(t, controlCatalogSchema, "$defs", "control_verification_task")
+	assertRequiredKeys(t, controlVerificationTask, "id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "actions", "rerun_commands", "success_criteria", "limitations")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
@@ -3633,6 +3656,32 @@ func hasControlProofIndicator(items []model.ControlProofSpec, control string, in
 			if candidate == indicator {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func hasControlVerificationTask(items []model.ControlVerificationTask, control string, source string, indicator string) bool {
+	for _, item := range items {
+		if item.Control != control {
+			continue
+		}
+		hasSource := false
+		for _, candidate := range item.EvidenceReferences {
+			if candidate.Source == source {
+				hasSource = true
+				break
+			}
+		}
+		hasIndicator := false
+		for _, candidate := range item.RecognizedIndicators {
+			if candidate == indicator {
+				hasIndicator = true
+				break
+			}
+		}
+		if hasSource && hasIndicator && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
+			return true
 		}
 	}
 	return false
