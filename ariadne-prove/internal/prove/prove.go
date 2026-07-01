@@ -532,6 +532,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			if controlRestrictsTool(control.ID, tool.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: tool.ID})
 			}
+			if controlRequiresApprovalTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "requires_approval", To: tool.ID})
+			}
 			if controlLimitsTool(control.ID, tool.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "limits", To: tool.ID})
 			}
@@ -542,6 +545,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			}
 			if controlAuthorizesAuthority(control.ID, authority.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "authorizes", To: authority.ID})
+			}
+			if controlRequiresApprovalAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "requires_approval", To: authority.ID})
 			}
 			if controlLimitsAuthority(control.ID, authority.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "limits", To: authority.ID})
@@ -683,6 +689,36 @@ func controlAuthorizesAuthority(controlID, authorityID string) bool {
 		"control:automatic-access-revocation",
 		"control:abac-policy",
 		"control:tool-scope-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlRequiresApprovalTool(controlID, toolID string) bool {
+	if controlID != "control:approval-required" || toolID == "" {
+		return false
+	}
+	switch toolID {
+	case "tool:mcp-package-launch",
+		"tool:agent-command-shell",
+		"tool:agent-delegation",
+		"tool:agent-plugin-surface":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlRequiresApprovalAuthority(controlID, authorityID string) bool {
+	if controlID != "control:approval-required" || authorityID == "" {
+		return false
+	}
+	switch authorityID {
+	case "authority:broad-local",
+		"authority:local-code-execution",
+		"authority:external-communication",
+		"authority:delegated-agent-authority":
 		return true
 	default:
 		return false

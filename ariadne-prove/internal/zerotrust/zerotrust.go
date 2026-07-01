@@ -24,6 +24,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		identityBoundary(c, g),
 		workloadAuthorizationBoundary(c, g),
 		continuousAuthorizationBoundary(c, g),
+		approvalBoundary(c, g),
 		resourceExhaustionBoundary(c, g),
 		observabilityBoundary(c),
 		responseBoundary(c, g, exposures),
@@ -574,6 +575,48 @@ func continuousAuthorizationBoundary(c model.Collection, g model.Graph) model.Ze
 			"Automatically revoke or downscope access when the task completes, policy fails, or risk changes.",
 		},
 		Limitations: []string{"Ariadne detects declared authorization controls and static authority risk, but does not validate live policy decisions, IdP rules, token revocation, or runtime enforcement."},
+	}
+}
+
+func approvalBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	controls := controlIDs(c, approvalControlIDs()...)
+	controlEvidence := controlsEvidence(c, approvalControlIDs()...)
+	riskEvidence := approvalRiskEvidence(c)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported high-risk agent action surface was observed."
+	if hasApprovalRelevantSurface(c) {
+		status = model.ZeroTrustUnknown
+		finding = "High-risk agent authority or tool surfaces exist, but Ariadne did not observe approval-gate and approval-log evidence."
+	}
+	if len(controlEvidence) > 0 && !hasHardApprovalBoundary(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed approval-related evidence, but not both an approval gate and approval/audit logging evidence."
+	}
+	if hasApprovalRelevantSurface(c) && !hasApprovalGate(c) {
+		status = model.ZeroTrustBreaking
+		finding = "High-risk agent authority or tool surfaces exist without an observed human approval gate."
+	}
+	if hasApprovalRelevantSurface(c) && hasHardApprovalBoundary(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed a human approval gate plus approval or audit logging evidence for high-risk agent actions."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:approval-boundary",
+		Principle:  "Never trust, always verify",
+		Boundary:   "Human approval boundary",
+		Tier:       "foundation",
+		Status:     status,
+		DesignTest: "High-risk autonomous actions should pause for explicit human approval and record the approval decision before execution.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, riskEvidence), 8),
+		GraphEdges: approvalEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Require approval before local execution, external communication, delegated authority, or sensitive-data access.",
+			"Log approval decisions with request, actor, tool, action, and timestamp context.",
+			"Treat approval prompts without decision logs as friction until they are reconstructable.",
+		},
+		Limitations: []string{"Ariadne detects declared approval gates and approval-log metadata, but does not validate live prompt enforcement, UI wording, or whether humans saw accurate action descriptions."},
 	}
 }
 
@@ -1330,37 +1373,36 @@ func requireOutputControls(c model.Collection) model.ZeroTrustRequirement {
 }
 
 func requireApprovalEscalation(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:approval-required", "control:audit-logging")
+	controls := controlIDs(c, approvalControlIDs()...)
 	evidence := firstEvidence(
-		controlsEvidence(c, "control:approval-required", "control:audit-logging"),
-		authorityEvidence(c),
-		toolEvidence(c),
+		controlsEvidence(c, approvalControlIDs()...),
+		approvalRiskEvidence(c),
 	)
 	status := model.ZeroTrustNotObserved
 	quality := "not_applicable"
 	finding := "No supported high-risk tool or authority surface was observed, so Ariadne did not evaluate approval escalation."
 	missing := []string{"approval trigger policy for high-risk actions", "approval decision log evidence"}
-	if len(c.Authorities) > 0 || len(c.Tools) > 0 {
+	if hasApprovalRelevantSurface(c) {
 		status = model.ZeroTrustUnknown
 		quality = "evidence_gap"
 		finding = "High-risk authority or tool surfaces exist, but Ariadne did not observe approval escalation evidence."
 	}
-	if hasControlID(c, "control:approval-required") && !hasControlID(c, "control:audit-logging") {
+	if hasApprovalGate(c) && !hasApprovalAudit(c) {
 		status = model.ZeroTrustUnknown
 		quality = "friction_only"
 		finding = "Ariadne observed approval prompts, but not approval decision logging; this is treated as friction until forensic evidence exists."
 		missing = []string{"approval decision log evidence", "tool-call audit trail"}
 	}
-	if hasControlID(c, "control:approval-required") && hasControlID(c, "control:audit-logging") {
+	if hasHardApprovalBoundary(c) {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
 		finding = "Ariadne observed declared approval escalation with audit logging evidence."
 		missing = nil
 	}
-	if (hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:local-code-execution")) && len(controls) == 0 {
+	if hasApprovalRelevantSurface(c) && !hasApprovalGate(c) {
 		status = model.ZeroTrustBreaking
 		quality = "missing_hard_barrier"
-		finding = "High-risk local authority exists without observed approval escalation or approval logging evidence."
+		finding = "High-risk authority or tool surfaces exist without observed approval escalation or approval logging evidence."
 	}
 	return zeroTrustRequirement(
 		"ztf:approval-escalation",
@@ -1693,6 +1735,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without continuous authorization evidence, a compromised agent can keep using valid standing authority after task context, risk, or policy state changes."
 		gap.NextCollector = "Collect authorization policy, real-time policy evaluation evidence, JIT/JEA elevation settings, no-standing-access declarations, revocation hooks, and policy decision logs."
+	case "zt:approval-boundary":
+		gap.MissingEvidence = []string{
+			"approval gate for high-risk local execution, external communication, delegation, or sensitive-data access",
+			"approval decision log evidence",
+			"request, actor, tool, action, and timestamp context for approvals",
+		}
+		gap.WhyItMatters = "Without approval-gate evidence, a manipulated or compromised agent can execute high-risk actions at machine speed before a human can make an informed decision."
+		gap.NextCollector = "Collect runtime approval policy, PreToolUse or ask settings, approval decision logs, tool-call logs, request IDs, and trace IDs for high-risk agent actions."
 	case "zt:resource-exhaustion-boundary":
 		gap.MissingEvidence = []string{
 			"per-tool or API rate-limit policy",
@@ -2244,6 +2294,60 @@ func hasStandingAuthorityRisk(c model.Collection) bool {
 		hasBoundaryID(c, "boundary:credential-material")
 }
 
+func approvalControlIDs() []string {
+	return []string{
+		"control:approval-required",
+		"control:audit-logging",
+		"control:approval-log-evidence",
+		"control:request-traceability",
+		"control:observed-request-traceability",
+	}
+}
+
+func hasApprovalGate(c model.Collection) bool {
+	return hasAnyControl(c, "control:approval-required")
+}
+
+func hasApprovalAudit(c model.Collection) bool {
+	return hasAnyControl(c, "control:audit-logging", "control:approval-log-evidence")
+}
+
+func hasHardApprovalBoundary(c model.Collection) bool {
+	return hasApprovalGate(c) && hasApprovalAudit(c)
+}
+
+func hasApprovalRelevantSurface(c model.Collection) bool {
+	return hasAuthority(c, "authority:broad-local") ||
+		hasAuthority(c, "authority:local-code-execution") ||
+		hasAuthority(c, "authority:external-communication") ||
+		hasAuthority(c, "authority:delegated-agent-authority") ||
+		(hasAuthority(c, "authority:file-read") && hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:memory-credential-retention", "boundary:credential-material")) ||
+		hasToolID(c, "tool:mcp-package-launch") ||
+		hasToolID(c, "tool:agent-command-shell") ||
+		hasToolID(c, "tool:agent-plugin-surface") ||
+		hasToolID(c, "tool:agent-delegation")
+}
+
+func approvalRiskEvidence(c model.Collection) []model.ZeroTrustEvidence {
+	out := authorityEvidenceByID(c,
+		"authority:broad-local",
+		"authority:local-code-execution",
+		"authority:external-communication",
+		"authority:delegated-agent-authority",
+		"authority:file-read",
+	)
+	for _, tool := range c.Tools {
+		switch tool.ID {
+		case "tool:mcp-package-launch",
+			"tool:agent-command-shell",
+			"tool:agent-plugin-surface",
+			"tool:agent-delegation":
+			out = append(out, model.ZeroTrustEvidence{ID: tool.ID, Kind: "tool", Source: tool.Source, Summary: tool.Summary})
+		}
+	}
+	return dedupeEvidence(out)
+}
+
 func resourceControlIDs() []string {
 	return []string{
 		"control:tool-rate-limit",
@@ -2738,6 +2842,16 @@ func authorizationEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func approvalEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "requires_approval" && approvalControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func resourceEdges(g model.Graph) []string {
 	out := []string{}
 	for _, edge := range g.Edges {
@@ -2746,6 +2860,15 @@ func resourceEdges(g model.Graph) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func approvalControlID(id string) bool {
+	switch id {
+	case "control:approval-required":
+		return true
+	default:
+		return false
+	}
 }
 
 func memoryControlID(id string) bool {

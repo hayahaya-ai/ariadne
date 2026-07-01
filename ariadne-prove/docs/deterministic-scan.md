@@ -59,7 +59,7 @@ Supported control signals include:
 - AI-BOM or ML-BOM, model provenance, training-data lineage, dependency health, provider review, signed AI artifacts, runtime component validation, and dependency reachability analysis
 - delegation scope, delegate allowlist, agent-to-agent authorization, original-intent verification, delegated credential scoping, subagent context isolation, and delegation audit indicators
 - egress destination allowlists, webhook allowlists, per-tool network scope, output filtering, and egress audit indicators
-- approval-required posture
+- approval-required posture, ask/PreToolUse settings, and approval decision logging
 - sandbox or filesystem isolation posture
 - credential helper, vault, or keychain retrieval
 - short-lived, OAuth/OIDC, federated, JIT, or token-lifetime credential indicators

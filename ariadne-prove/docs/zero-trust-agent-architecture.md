@@ -32,6 +32,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
 - Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
 - Continuous authorization boundary: whether high-risk agent authority is re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes.
+- Human approval boundary: whether high-risk autonomous actions require explicit human approval and approval-decision logging.
 - Resource exhaustion boundary: whether tool/API calls, spend, loops, runtime, and concurrency are bounded and audited before agent automation can run away.
 - Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
 - Response and containment boundary: whether suspicious agent behavior can trigger containment that terminates sessions, revokes credentials, quarantines workloads, or reduces authority.
@@ -56,6 +57,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
 | Agent authority is granted at session start and remains usable after task or risk context changes | Continuous authorization boundary | Modeled today through authorization policy, per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access declarations, and automatic revocation controls. |
+| Agent can execute high-risk actions without a human approval gate or approval decision log | Human approval boundary and Foundation maturity | Modeled today through runtime approval policy, ask/PreToolUse posture, approval-required declarations, approval decision logs, audit logging, and trace/request metadata. |
 | Agent automation can loop tool calls, exhaust APIs, spike bills, or deny service | Resource exhaustion boundary | Modeled today through resource policy, tool/API rate limits, spend or token budgets, loop guards, tool timeouts, concurrency limits, circuit breakers, and resource usage audit declarations. |
 | Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
 | A compromised agent keeps operating while humans investigate | Response and containment boundary | Modeled today through behavioral monitoring, automated triage, session termination, credential revocation, quarantine, dynamic access reduction, and response escalation declarations. |
@@ -92,7 +94,7 @@ Examples of controls Ariadne can model today:
 - input isolation or trusted-source controls for instruction inputs
 - instruction provenance, untrusted-content delimiting, spotlighting, or prompt-injection filter declarations
 - managed runtime settings surfaces
-- approval-required posture
+- approval-required posture, ask/PreToolUse settings, and approval decision logging
 - sandbox or filesystem isolation posture
 - credential helper or vault-backed credential retrieval
 - per-agent or non-shared credential isolation
@@ -122,6 +124,7 @@ Examples Ariadne reports as `unknown` today:
 - egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
 - output filtering and redaction evidence without output filter logging
 - per-action authorization or ABAC evidence without dynamic/JIT privilege scoping and automatic revocation evidence
+- approval prompts without approval decision logging or audit evidence
 - rate-limit evidence without loop/time/concurrency stop conditions and resource usage audit evidence
 - memory isolation or retention evidence without context integrity and provenance evidence
 - tool sandboxing, rate limits, or circuit breakers without allowlist, provenance, authentication, descriptor integrity, or argument-validation evidence
@@ -142,6 +145,7 @@ Examples Ariadne reports as `breaking` when observed:
 - reachable sensitive data without observed output filtering and block or redaction controls
 - risk-bearing agent configuration without observed hard integrity controls
 - standing high-risk authority without observed continuous authorization, dynamic/JIT scoping, and automatic revocation controls
+- high-risk local execution, external communication, delegation, or sensitive-data access without an observed human approval gate
 - runaway tool, execution, external communication, or delegated authority without resource limits, stop conditions, and usage audit controls
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
 - risk-bearing agent supply-chain surfaces without observed AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence

@@ -39,6 +39,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation?
 - Are agent outputs filtered, redacted or blocked, reviewed, and logged before sensitive content reaches users or external channels?
 - Is high-risk agent authority re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes?
+- Do high-risk local execution, external communication, delegation, or sensitive-data access actions require human approval and approval-decision logging?
 - Can an agent loop tool calls, exhaust APIs, create billing spikes, or deny service without resource limits and circuit breakers?
 - Does a declared control break a modeled path?
 - Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-aware workload authorization, approval, sandbox, audit, traceability, input isolation, input validation, automated triage, containment, retention, memory integrity, provenance, or credential-isolation controls?
@@ -61,6 +62,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Is agent identity scoped and attributable?
 - Is the authenticated agent authorized only for named callers, context attributes, network segments, and tool scopes?
 - Is standing high-risk authority replaced with per-action authorization, dynamic/JIT scoping, and automatic revocation?
+- Are high-risk autonomous actions gated by explicit human approval with decision logs?
 - Are tool/API calls bounded by rate, spend, loop, timeout, concurrency, and usage-audit controls?
 - Is persisted memory or context isolated from unrelated sessions and broad local authority, and does it avoid retaining credential-like material without credential isolation?
 - Would operators have enough audit evidence to reconstruct agent actions and approvals?

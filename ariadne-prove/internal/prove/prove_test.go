@@ -1291,6 +1291,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
@@ -1338,6 +1339,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
@@ -1349,6 +1351,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:response-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:governance-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:continuous-authorization-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:approval-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:resource-exhaustion-boundary")
 	for _, id := range []string{
 		"control:approval-required",
@@ -1978,6 +1981,69 @@ func TestZeroTrustRunawayToolWithoutResourceControlsIsBreaking(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(check.Finding), "runaway") {
 		t.Fatalf("resource boundary finding should explain runaway risk: %q", check.Finding)
+	}
+}
+
+func TestZeroTrustApprovalPolicyControlsHighRiskActions(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "approval-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{"control:approval-required", "control:audit-logging"} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("approval boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing approval control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:approval-required|requires_approval|authority:broad-local",
+		"control:approval-required|requires_approval|authority:local-code-execution",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing approval graph edge %s", edge)
+		}
+		if !containsString(check.GraphEdges, edge) {
+			t.Fatalf("approval boundary check does not cite graph edge %s: %+v", edge, check.GraphEdges)
+		}
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:approval-escalation", model.ZeroTrustControlled)
+	if req.ControlQuality != "hard_barrier" {
+		t.Fatalf("approval escalation quality = %q", req.ControlQuality)
+	}
+}
+
+func TestZeroTrustApprovalPromptWithoutLogIsUnknown(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "approval-partial")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:approval-required") {
+		t.Fatalf("partial approval boundary should cite approval-required: %+v", check.Controls)
+	}
+	if containsString(check.Controls, "control:audit-logging") || containsString(check.Controls, "control:approval-log-evidence") {
+		t.Fatalf("partial approval boundary should not invent approval logging: %+v", check.Controls)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:approval-escalation", model.ZeroTrustUnknown)
+	if req.ControlQuality != "friction_only" {
+		t.Fatalf("approval prompt-only quality = %q", req.ControlQuality)
+	}
+}
+
+func TestZeroTrustHighRiskActionWithoutApprovalIsBreaking(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("high-risk approval risk without controls should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "approval") {
+		t.Fatalf("approval boundary finding should explain missing approval: %q", check.Finding)
 	}
 }
 
