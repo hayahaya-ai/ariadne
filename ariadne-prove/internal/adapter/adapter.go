@@ -110,6 +110,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectAgentPolicy(c, s)
 	case "identity-policy":
 		collectIdentityPolicy(c, s)
+	case "workload-policy":
+		collectWorkloadPolicy(c, s)
 	case "memory-policy":
 		collectMemoryPolicy(c, s)
 	case "observability-policy":
@@ -333,6 +335,9 @@ func collectNetworkPolicy(c *model.Collection, s model.Surface) {
 		c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:network-restricted", Kind: "network-restricted", Source: s.Source, Summary: "Policy declares external network communication restrictions."})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:control:network-restricted", "control", s.Source, "declared", "External communication restriction policy was collected."))
 	}
+	if networkSegmentationConfigured(text) {
+		addControl(c, "control:network-segmentation", "network-segmentation", "", s.Source, "Network policy declares workload network segmentation or microsegmentation.")
+	}
 }
 
 func collectAgentPolicy(c *model.Collection, s model.Surface) {
@@ -355,6 +360,18 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	}
 	if identityBasedIsolationConfigured(text) {
 		addControl(c, "control:identity-based-isolation", "identity-based-isolation", "", s.Source, "Agent policy declares identity-based isolation or named-caller network boundaries.")
+	}
+	if namedCallerConfigured(text) {
+		addControl(c, "control:named-caller-allowlist", "named-caller-allowlist", "", s.Source, "Agent policy declares named caller, principal, or workload allowlist controls.")
+	}
+	if abacPolicyConfigured(text) {
+		addControl(c, "control:abac-policy", "abac-policy", "", s.Source, "Agent policy declares attribute-based access control for agent workloads.")
+	}
+	if networkSegmentationConfigured(text) {
+		addControl(c, "control:network-segmentation", "network-segmentation", "", s.Source, "Agent policy declares workload network segmentation or microsegmentation.")
+	}
+	if toolScopePolicyConfigured(text) {
+		addControl(c, "control:tool-scope-policy", "tool-scope-policy", "", s.Source, "Agent policy declares per-tool scope, allowlist, or permission scope controls.")
 	}
 	if approvalRequired(text) {
 		addControl(c, "control:approval-required", "approval-required", "", s.Source, "Agent policy requires approval for high-risk agent actions.")
@@ -447,6 +464,29 @@ func collectIdentityPolicy(c *model.Collection, s model.Surface) {
 	}
 }
 
+func collectWorkloadPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if identityBasedIsolationConfigured(text) {
+		addControl(c, "control:identity-based-isolation", "identity-based-isolation", "", s.Source, "Workload policy declares identity-based workload isolation.")
+	}
+	if namedCallerConfigured(text) {
+		addControl(c, "control:named-caller-allowlist", "named-caller-allowlist", "", s.Source, "Workload policy declares named caller, principal, or workload allowlist controls.")
+	}
+	if abacPolicyConfigured(text) {
+		addControl(c, "control:abac-policy", "abac-policy", "", s.Source, "Workload policy declares attribute-based access control for agent workloads.")
+	}
+	if networkSegmentationConfigured(text) {
+		addControl(c, "control:network-segmentation", "network-segmentation", "", s.Source, "Workload policy declares network segmentation or microsegmentation.")
+	}
+	if toolScopePolicyConfigured(text) {
+		addControl(c, "control:tool-scope-policy", "tool-scope-policy", "", s.Source, "Workload policy declares per-tool scope, allowlist, or permission scope controls.")
+	}
+}
+
 func collectMemoryPolicy(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -535,6 +575,18 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	}
 	if identityBasedIsolationConfigured(text) {
 		addControl(c, "control:identity-based-isolation", "identity-based-isolation", runtime, source, runtime+" config declares identity-based isolation or named-caller boundaries.")
+	}
+	if namedCallerConfigured(text) {
+		addControl(c, "control:named-caller-allowlist", "named-caller-allowlist", runtime, source, runtime+" config declares named caller, principal, or workload allowlist controls.")
+	}
+	if abacPolicyConfigured(text) {
+		addControl(c, "control:abac-policy", "abac-policy", runtime, source, runtime+" config declares attribute-based access control for agent workloads.")
+	}
+	if networkSegmentationConfigured(text) {
+		addControl(c, "control:network-segmentation", "network-segmentation", runtime, source, runtime+" config declares workload network segmentation or microsegmentation.")
+	}
+	if toolScopePolicyConfigured(text) {
+		addControl(c, "control:tool-scope-policy", "tool-scope-policy", runtime, source, runtime+" config declares per-tool scope, allowlist, or permission scope controls.")
 	}
 	if approvalRequired(text) {
 		addControl(c, "control:approval-required", "approval-required", runtime, source, runtime+" config requires approval for high-risk or non-read-only agent actions.")
@@ -916,10 +968,49 @@ func identityBasedIsolationConfigured(text string) bool {
 	return strings.Contains(text, "identity_based_isolation") ||
 		strings.Contains(text, "identity-based isolation") ||
 		strings.Contains(text, "workload_isolation") ||
-		strings.Contains(text, "named_callers") ||
+		strings.Contains(text, "workload-isolation") ||
+		strings.Contains(text, "identity_aware_proxy") ||
+		strings.Contains(text, "identity-aware proxy")
+}
+
+func namedCallerConfigured(text string) bool {
+	return strings.Contains(text, "named_callers") ||
+		strings.Contains(text, "named-callers") ||
 		strings.Contains(text, "allowed_callers") ||
-		strings.Contains(text, "network_segmentation") ||
+		strings.Contains(text, "caller_allowlist") ||
+		strings.Contains(text, "allowed_principals") ||
+		strings.Contains(text, "principal_allowlist") ||
+		strings.Contains(text, "service_account_allowlist") ||
+		strings.Contains(text, "workload_allowlist")
+}
+
+func abacPolicyConfigured(text string) bool {
+	return strings.Contains(text, "abac") ||
+		strings.Contains(text, "attribute_based") ||
+		strings.Contains(text, "attribute-based") ||
+		strings.Contains(text, "attribute_conditions") ||
+		strings.Contains(text, "subject_attributes") ||
+		strings.Contains(text, "resource_attributes") ||
+		strings.Contains(text, "context_attributes") ||
+		strings.Contains(text, "policy_conditions") ||
+		strings.Contains(text, "claims_required")
+}
+
+func networkSegmentationConfigured(text string) bool {
+	return strings.Contains(text, "network_segmentation") ||
+		strings.Contains(text, "network-segmentation") ||
 		strings.Contains(text, "microsegmentation")
+}
+
+func toolScopePolicyConfigured(text string) bool {
+	return strings.Contains(text, "tool_scope") ||
+		strings.Contains(text, "tool-scopes") ||
+		strings.Contains(text, "tool_scopes") ||
+		strings.Contains(text, "per_tool_scope") ||
+		strings.Contains(text, "allowed_tools") ||
+		strings.Contains(text, "tool_allowlist") ||
+		strings.Contains(text, "mcp_allowlist") ||
+		strings.Contains(text, "permission_scope")
 }
 
 func approvalRequired(text string) bool {

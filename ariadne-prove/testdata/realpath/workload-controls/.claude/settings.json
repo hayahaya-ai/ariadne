@@ -1,0 +1,7 @@
+{
+  "defaultMode": "default",
+  "permissions": {
+    "allow": ["Read(./src/**)"],
+    "deny": ["Read(.env*)", "Read(.ssh/**)"]
+  }
+}

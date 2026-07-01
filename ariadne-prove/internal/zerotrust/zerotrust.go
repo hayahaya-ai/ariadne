@@ -17,6 +17,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		toolBoundary(c, g, exposures),
 		memoryBoundary(c, g),
 		identityBoundary(c, g),
+		workloadAuthorizationBoundary(c, g),
 		observabilityBoundary(c),
 		controlStrengthBoundary(c, g, exposures),
 	}
@@ -258,6 +259,42 @@ func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 			"Treat shared local user authority as an unknown until identity evidence is collected.",
 		},
 		Limitations: []string{"Ariadne detects declared identity and credential controls, but does not validate identity-provider policy, token TTL, JIT authorization, ABAC rules, hardware binding, or runtime enforcement."},
+	}
+}
+
+func workloadAuthorizationBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent runtime, authority, or tool surface was observed."
+	controls := controlIDs(c, append(workloadControlIDs(), "control:sandbox-isolation", "control:network-restricted")...)
+	evidence := limitEvidence(firstEvidence(controlsEvidence(c, append(workloadControlIDs(), "control:sandbox-isolation", "control:network-restricted")...), runtimeEvidence(c), authorityEvidence(c), toolEvidence(c)), 8)
+	if len(c.Runtimes) > 0 || len(c.Authorities) > 0 || len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Agent runtime or authority exists, but Ariadne did not observe ABAC, named-caller, segmentation, or tool-scope authorization evidence."
+	}
+	if hasAnyControl(c, "control:sandbox-isolation", "control:network-restricted") && !hasStrongWorkloadAuthorization(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed sandbox or network restriction evidence, but not identity-aware workload authorization evidence."
+	}
+	if hasStrongWorkloadAuthorization(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed identity-aware workload authorization evidence such as ABAC, named callers, segmentation, or tool scope."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:workload-authorization-boundary",
+		Principle:  "Never trust, always verify",
+		Boundary:   "Workload authorization boundary",
+		Tier:       "enterprise",
+		Status:     status,
+		DesignTest: "Agent identity should be authorized by caller, context, network segment, and tool scope before authority is granted.",
+		Finding:    finding,
+		Evidence:   evidence,
+		GraphEdges: edgesForTypes(g, "configures", "has_authority", "can_call", "restricts"),
+		Controls:   controls,
+		Actions: []string{
+			"Declare named callers, ABAC conditions, network segments, and per-tool scopes for agent workloads.",
+			"Treat sandboxing as containment; require identity-aware authorization for the workload path.",
+		},
+		Limitations: []string{"Ariadne detects declared workload authorization controls, but does not validate identity-provider policy, ABAC evaluation, network enforcement, or runtime authorization decisions."},
 	}
 }
 
@@ -537,9 +574,9 @@ func requireLeastAgencyPermissions(c model.Collection) model.ZeroTrustRequiremen
 }
 
 func requireIdentityBasedIsolation(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:identity-based-isolation", "control:sandbox-isolation", "control:network-restricted")
+	controls := controlIDs(c, append(workloadControlIDs(), "control:sandbox-isolation", "control:network-restricted")...)
 	evidence := firstEvidence(
-		controlsEvidence(c, "control:identity-based-isolation", "control:sandbox-isolation", "control:network-restricted"),
+		controlsEvidence(c, append(workloadControlIDs(), "control:sandbox-isolation", "control:network-restricted")...),
 		runtimeEvidence(c),
 		authorityEvidence(c),
 	)
@@ -552,16 +589,16 @@ func requireIdentityBasedIsolation(c model.Collection) model.ZeroTrustRequiremen
 		quality = "evidence_gap"
 		finding = "Agent runtime or authority exists, but Ariadne did not observe identity-based workload isolation evidence."
 	}
-	if hasControlID(c, "control:sandbox-isolation") && !hasControlID(c, "control:identity-based-isolation") && !hasControlID(c, "control:network-restricted") {
+	if hasAnyControl(c, "control:sandbox-isolation", "control:network-restricted") && !hasStrongWorkloadAuthorization(c) {
 		status = model.ZeroTrustUnknown
 		quality = "partial_declared"
-		finding = "Ariadne observed sandbox isolation, but not identity-based network or named-caller isolation evidence."
-		missing = []string{"identity-based network isolation evidence", "named-caller allowlist"}
+		finding = "Ariadne observed sandbox or network restriction evidence, but not identity-aware workload authorization evidence."
+		missing = []string{"identity-based workload isolation evidence", "ABAC or named-caller evidence", "tool scope or network segmentation evidence"}
 	}
-	if hasControlID(c, "control:identity-based-isolation") || (hasControlID(c, "control:sandbox-isolation") && hasControlID(c, "control:network-restricted")) {
+	if hasStrongWorkloadAuthorization(c) {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
-		finding = "Ariadne observed declared identity-based isolation or sandbox plus network restriction evidence."
+		finding = "Ariadne observed declared identity-aware workload authorization and isolation evidence."
 		missing = nil
 	}
 	return zeroTrustRequirement(
@@ -576,8 +613,8 @@ func requireIdentityBasedIsolation(c model.Collection) model.ZeroTrustRequiremen
 		controls,
 		missing,
 		[]string{
-			"Constrain agent workloads with identity-based isolation and named-caller network boundaries.",
-			"Use sandboxing as a containment layer, not the only boundary.",
+			"Constrain agent workloads with identity-based isolation, ABAC, named callers, network segmentation, and tool scopes.",
+			"Use sandboxing as a containment layer, not the workload authorization boundary.",
 		},
 	)
 }
@@ -926,6 +963,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without identity evidence, Ariadne cannot prove that agent actions are attributable to scoped, expiring credentials."
 		gap.NextCollector = "Collect identity policy, credential-helper config, OAuth/OIDC metadata, token lifetime policy, JIT policy, hardware-bound credential evidence, and per-agent identity scope evidence."
+	case "zt:workload-authorization-boundary":
+		gap.MissingEvidence = []string{
+			"ABAC or context-condition policy",
+			"named-caller or principal allowlist",
+			"network segmentation or per-tool scope evidence",
+		}
+		gap.WhyItMatters = "Without workload authorization evidence, Ariadne cannot prove that an authenticated agent is allowed only for the intended callers, context, network segment, and tool scope."
+		gap.NextCollector = "Collect workload policy, ABAC conditions, named-caller allowlists, network segmentation, and per-tool permission scope evidence."
 	case "zt:observability-boundary":
 		gap.MissingEvidence = []string{
 			"tool-call audit log evidence",
@@ -1118,6 +1163,22 @@ func scopedCredentialControlIDs() []string {
 	}
 }
 
+func workloadControlIDs() []string {
+	return []string{
+		"control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy",
+		"control:network-segmentation",
+		"control:tool-scope-policy",
+	}
+}
+
+func hasStrongWorkloadAuthorization(c model.Collection) bool {
+	callerOrCondition := hasAnyControl(c, "control:named-caller-allowlist", "control:abac-policy")
+	isolationOrScope := hasAnyControl(c, "control:identity-based-isolation", "control:network-segmentation", "control:tool-scope-policy")
+	return callerOrCondition && isolationOrScope
+}
+
 func leastAgencyControlIDs() []string {
 	return []string{
 		"control:least-agency-policy",
@@ -1126,6 +1187,7 @@ func leastAgencyControlIDs() []string {
 		"control:deny-secret-read",
 		"control:mcp-reviewed-pinned",
 		"control:network-restricted",
+		"control:tool-scope-policy",
 	}
 }
 

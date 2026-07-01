@@ -107,7 +107,7 @@ Each check includes:
 
 Control quality separates hard barriers from partial or friction-only evidence. This prevents approval prompts, warnings, or policy text from being treated as equivalent to cryptographic identity, short-lived credentials, deny-by-default permissions, isolation, or audited traceability.
 
-`breaking` is reserved for graph-backed paths or missing break-path controls. Missing identity, credential, ABAC, JIT, or telemetry evidence is reported as `unknown` until Ariadne has collectors that can prove the boundary.
+`breaking` is reserved for graph-backed paths or missing break-path controls. Missing identity, credential, workload authorization, or telemetry evidence is reported as `unknown` until Ariadne collects deterministic facts that prove the boundary.
 
 LLM review mode uses two JSON payloads:
 

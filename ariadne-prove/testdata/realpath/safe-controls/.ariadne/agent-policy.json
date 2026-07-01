@@ -3,7 +3,16 @@
   "least_agency": true,
   "deny_by_default": true,
   "identity_based_isolation": true,
+  "named_callers": ["agent://codex/local/appsec-review"],
+  "abac_policy": {
+    "subject_attributes": ["agent_id", "repo_id"],
+    "resource_attributes": ["workspace", "tool"]
+  },
   "network_segmentation": true,
+  "tool_scope": {
+    "allowed_tools": ["Read", "mcp:approved"],
+    "permission_scope": "workspace"
+  },
   "approval_required": true,
   "sandbox_required": true,
   "credential_helper": "vault",

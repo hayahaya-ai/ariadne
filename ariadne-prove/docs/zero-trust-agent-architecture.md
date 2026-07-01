@@ -25,6 +25,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Tool and MCP boundary: whether model-callable tools can expand capability through mutable launch paths.
 - Memory and context boundary: whether persisted context can be reached or needs isolation evidence.
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
+- Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
 - Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
 - Control boundary: whether controls remove a path or only add friction.
 
@@ -49,6 +50,10 @@ Examples of controls Ariadne can model today:
 - short-lived, federated, JIT, or token-lifetime credential posture
 - hardware-bound credential posture
 - credential rotation, revocation, or identity lifecycle declarations
+- ABAC or attribute-condition policy declarations
+- named-caller or principal allowlists
+- network segmentation or microsegmentation declarations
+- per-tool scope, tool allowlist, MCP allowlist, or permission-scope declarations
 - audit, tool-call, approval, or telemetry logging declarations
 - observed structured transcript metadata for tool-call events, approval decisions, request IDs, trace IDs, and timestamped action records
 - telemetry export and immutable audit log declarations from observability policy or OpenTelemetry collector config
@@ -57,9 +62,9 @@ Examples of controls Ariadne can model today:
 
 Examples Ariadne reports as `unknown` today:
 
-- ABAC
 - credential helper evidence without cryptographic, hardware-bound, or per-agent identity evidence
 - strong identity evidence without scoped or ephemeral credential issuance evidence
+- sandbox or network restriction evidence without identity-aware workload authorization evidence
 - tamper-resistant audit logs without immutable-log or equivalent evidence
 - live behavioral telemetry
 
@@ -79,7 +84,7 @@ Foundation requirements currently modeled:
 - Cryptographically rooted, hardware-bound, or per-agent identity.
 - Short-lived, JIT, or token-limited identity-provider-issued credentials.
 - Deny-by-default least-agency permissions.
-- Identity-based workload isolation.
+- Identity-based workload isolation with ABAC, named callers, segmentation, or tool scope.
 - Comprehensive logs of agent actions with request context.
 - Input validation for untrusted agent context.
 - Approval escalation for high-risk actions.
@@ -110,7 +115,16 @@ Example:
   "least_agency": true,
   "deny_by_default": true,
   "identity_based_isolation": true,
+  "named_callers": ["agent://codex/local/appsec-review"],
+  "abac_policy": {
+    "subject_attributes": ["agent_id", "repo_id"],
+    "resource_attributes": ["workspace", "tool"]
+  },
   "network_segmentation": true,
+  "tool_scope": {
+    "allowed_tools": ["Read", "mcp:approved"],
+    "permission_scope": "workspace"
+  },
   "approval_required": true,
   "sandbox_required": true,
   "credential_helper": "vault",
@@ -149,6 +163,30 @@ Repositories can declare focused identity controls in `.ariadne/identity-policy.
 ```
 
 Ariadne treats helper-only evidence as partial. The identity boundary is controlled only when strong identity evidence and scoped or ephemeral credential issuance evidence are both present.
+
+Repositories can declare focused workload authorization controls in `.ariadne/workload-policy.json`:
+
+```json
+{
+  "identity_based_isolation": true,
+  "named_callers": [
+    "agent://codex/local/appsec-review",
+    "agent://claude/local/appsec-review"
+  ],
+  "abac_policy": {
+    "subject_attributes": ["agent_id", "repo_id", "runtime"],
+    "resource_attributes": ["workspace", "tool", "boundary"],
+    "context_attributes": ["task_type", "approval_state"]
+  },
+  "network_segmentation": true,
+  "tool_scope": {
+    "allowed_tools": ["Read"],
+    "permission_scope": "workspace"
+  }
+}
+```
+
+Ariadne treats sandbox or network restriction alone as partial for workload authorization. The workload authorization boundary is controlled only when Ariadne observes identity-aware authorization evidence such as named callers or ABAC plus an isolation or scope signal such as workload isolation, segmentation, or tool scope.
 
 Repositories can also declare observability controls in `.ariadne/observability-policy.json`, or provide OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`.
 

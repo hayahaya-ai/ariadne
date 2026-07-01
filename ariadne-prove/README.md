@@ -42,16 +42,16 @@ Current checks cover:
 - tool and MCP boundary
 - memory and context boundary
 - agent identity boundary
+- workload authorization boundary
 - observability boundary
 - control strength: impossible versus tedious
 
 The same `zero_trust` object also includes a Foundation maturity evidence readout. It maps the raised Foundation bar from Zero Trust agent architecture guidance into deterministic requirements:
 
-- cryptographically rooted agent identity
 - per-agent, hardware-bound, or cryptographically rooted identity evidence
 - short-lived, JIT, or token-limited identity-provider-issued credentials
 - deny-by-default least-agency permissions
-- identity-based workload isolation
+- identity-based workload isolation with ABAC, named callers, segmentation, or tool scope
 - comprehensive action logs with request context
 - input validation for untrusted agent context
 - approval escalation with audit evidence
@@ -173,6 +173,7 @@ Current deterministic discovery covers:
 - `.ariadne/agent-policy.json` declarations for approval, sandbox, credential, audit, and retention controls
 - `.ariadne/agent-policy.json` declarations for cryptographic identity, least agency, identity-based isolation, traceability, input validation, and automated triage controls
 - `.ariadne/identity-policy.json` declarations for credential isolation, credential helpers, JIT access, token lifetime, hardware-bound credentials, and identity lifecycle controls
+- `.ariadne/workload-policy.json` declarations for ABAC, named callers, network segmentation, and tool-scope controls
 - `.ariadne/memory-policy.json` declarations for context retention, memory isolation, integrity validation, and provenance metadata
 - `.ariadne/observability-policy.json` declarations for audit, trace, telemetry export, and immutable log controls
 - OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`

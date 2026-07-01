@@ -1,0 +1,17 @@
+{
+  "identity_based_isolation": true,
+  "named_callers": [
+    "agent://codex/local/appsec-review",
+    "agent://claude/local/appsec-review"
+  ],
+  "abac_policy": {
+    "subject_attributes": ["agent_id", "repo_id", "runtime"],
+    "resource_attributes": ["workspace", "tool", "boundary"],
+    "context_attributes": ["task_type", "approval_state"]
+  },
+  "network_segmentation": true,
+  "tool_scope": {
+    "allowed_tools": ["Read"],
+    "permission_scope": "workspace"
+  }
+}

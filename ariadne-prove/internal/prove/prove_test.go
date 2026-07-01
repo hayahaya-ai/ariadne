@@ -535,6 +535,10 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:cryptographic-identity",
 		"control:least-agency-policy",
 		"control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy",
+		"control:network-segmentation",
+		"control:tool-scope-policy",
 		"control:request-traceability",
 		"control:input-validation",
 		"control:automated-triage",
@@ -721,6 +725,71 @@ func TestZeroTrustCredentialHelperAloneDoesNotControlIdentityBoundary(t *testing
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustUnknown)
 	if req.ControlQuality != "partial_declared" {
 		t.Fatalf("helper-only short-lived requirement quality = %q", req.ControlQuality)
+	}
+}
+
+func TestZeroTrustWorkloadPolicyControlsAuthorizationBoundary(t *testing.T) {
+	path := realPathFixture(t, "workload-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "workload-policy")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:workload-authorization-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy",
+		"control:network-segmentation",
+		"control:tool-scope-policy",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("workload boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing workload control node %s", id)
+		}
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:identity-based-isolation", model.ZeroTrustControlled)
+	if !containsString(req.Controls, "control:abac-policy") || !containsString(req.Controls, "control:named-caller-allowlist") {
+		t.Fatalf("workload isolation requirement missing ABAC/named caller controls: %+v", req.Controls)
+	}
+}
+
+func TestZeroTrustSandboxNetworkAloneDoesNotControlWorkloadAuthorization(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := `approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+network_access = false
+`
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:workload-authorization-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:sandbox-isolation") && !containsString(check.Controls, "control:network-restricted") {
+		t.Fatalf("workload boundary should cite partial sandbox/network controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "not identity-aware") {
+		t.Fatalf("workload boundary should explain missing identity-aware authorization: %q", check.Finding)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:identity-based-isolation", model.ZeroTrustUnknown)
+	if req.ControlQuality != "partial_declared" {
+		t.Fatalf("sandbox/network-only workload isolation quality = %q", req.ControlQuality)
+	}
+	if containsString(req.Controls, "control:abac-policy") || containsString(req.Controls, "control:named-caller-allowlist") {
+		t.Fatalf("sandbox/network-only fixture should not contain strong workload authorization controls: %+v", req.Controls)
 	}
 }
 

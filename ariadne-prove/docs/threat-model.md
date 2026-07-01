@@ -27,7 +27,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can a mutable tool launcher grant local execution?
 - Can private-data reachability combine with external communication reachability?
 - Does a declared control break a modeled path?
-- Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-based isolation, approval, sandbox, audit, traceability, input validation, automated triage, or retention controls?
+- Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-aware workload authorization, approval, sandbox, audit, traceability, input validation, automated triage, or retention controls?
 - Does configuration contain inline credential field indicators?
 
 ## Zero Trust Architecture Questions
@@ -37,6 +37,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can authority reach sensitive data, private context, execution, or external destinations?
 - Do controls remove the path, or do they only add friction?
 - Is agent identity scoped and attributable?
+- Is the authenticated agent authorized only for named callers, context attributes, network segments, and tool scopes?
 - Is persisted memory or context isolated from unrelated sessions and broad local authority?
 - Would operators have enough audit evidence to reconstruct agent actions and approvals?
 
@@ -49,7 +50,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - registry/package reputation checks
 - cloud API collection
 - non-deterministic LLM review
-- identity provider, ABAC, JIT, token lifetime, or hardware-bound credential enforcement verification
+- identity provider, ABAC, JIT, token lifetime, segmentation, named-caller, or hardware-bound credential enforcement verification
 - live observability, SIEM, telemetry ingestion, or tamper-resistant audit proof
 - runtime enforcement
 
