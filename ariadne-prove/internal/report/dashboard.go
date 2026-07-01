@@ -306,6 +306,10 @@ func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
 		{"Not observed", fmt.Sprintf("%d", z.Summary.NotObserved)},
 		{"Checks", fmt.Sprintf("%d", z.Summary.Total)},
 	})
+	renderZeroTrustBoundaryCoverageDashboard(w, buildArchitectureBoundaryCoverage([]architectureCoverageInput{{
+		TargetID:  "target",
+		ZeroTrust: z,
+	}}), 8)
 	renderArchitectureFlawsDashboard(w, z)
 	fmt.Fprintln(w, `<h3>Boundary Checks</h3>`)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
@@ -352,6 +356,46 @@ func renderArchitectureFlawsDashboard(w io.Writer, z model.ZeroTrust) {
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
+func renderZeroTrustBoundaryCoverageDashboard(w io.Writer, boundaries []model.ArchitectureBoundary, limit int) {
+	if len(boundaries) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Boundary Coverage Map</h3>`)
+	var totals model.ZeroTrustSummary
+	for _, boundary := range boundaries {
+		totals.Total += boundary.StatusCounts.Total
+		totals.Breaking += boundary.StatusCounts.Breaking
+		totals.Controlled += boundary.StatusCounts.Controlled
+		totals.Unknown += boundary.StatusCounts.Unknown
+		totals.NotObserved += boundary.StatusCounts.NotObserved
+	}
+	renderMetricRow(w, []kv{
+		{"Boundary checks", fmt.Sprintf("%d", totals.Total)},
+		{"Breaking", fmt.Sprintf("%d", totals.Breaking)},
+		{"Controlled", fmt.Sprintf("%d", totals.Controlled)},
+		{"Unknown", fmt.Sprintf("%d", totals.Unknown)},
+		{"Not observed", fmt.Sprintf("%d", totals.NotObserved)},
+	})
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Boundary</th><th>Status by target</th><th>Evidence anchors</th><th>Missing / next collector</th><th>Control evidence needed</th></tr></thead><tbody>")
+	if limit <= 0 || limit > len(boundaries) {
+		limit = len(boundaries)
+	}
+	for _, boundary := range boundaries[:limit] {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(boundary.Boundary), esc(boundary.Principle), esc(boundary.CheckID), esc(boundary.DesignTest))
+		fmt.Fprintf(w, `<td>%s</td>`, renderArchitectureBoundaryTargetPills(boundary))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(boundary.EvidenceSources, 5)))
+		fmt.Fprintf(w, `<td><h3>Missing evidence</h3>%s<h3>Next collectors</h3>%s</td>`, renderSmallList(limitStrings(boundary.MissingEvidence, 5)), renderSmallList(limitStrings(boundary.NextCollectors, 3)))
+		fmt.Fprintf(w, `<td><h3>Controls observed</h3>%s<h3>Evidence needed</h3>%s</td>`, renderSmallList(limitStrings(boundary.Controls, 5)), renderSmallList(limitStrings(boundary.ControlEvidenceNeeded, 6)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	if len(boundaries) > limit {
+		fmt.Fprintf(w, `<div class="subtle">%d boundary coverage rows omitted from this HTML view. JSON output contains the full set.</div>`, len(boundaries)-limit)
+	}
 }
 
 func renderZeroTrustMaturity(w io.Writer, maturity model.ZeroTrustMaturity) {
@@ -414,6 +458,7 @@ func renderScanZeroTrustDashboard(w io.Writer, r model.ScanReport) {
 	var total model.ZeroTrustSummary
 	var architectureTotal model.ZeroTrustSummary
 	byTarget := make([]kv, 0, len(r.Targets))
+	coverageInputs := make([]architectureCoverageInput, 0, len(r.Targets))
 	for _, target := range r.Targets {
 		if target.Error != "" || target.Report.ZeroTrust.FrameworkVersion == "" {
 			continue
@@ -430,6 +475,10 @@ func renderScanZeroTrustDashboard(w io.Writer, r model.ScanReport) {
 		architectureTotal.Controlled += a.Controlled
 		architectureTotal.Unknown += a.Unknown
 		architectureTotal.NotObserved += a.NotObserved
+		coverageInputs = append(coverageInputs, architectureCoverageInput{
+			TargetID:  target.Target.ID,
+			ZeroTrust: target.Report.ZeroTrust,
+		})
 		byTarget = append(byTarget, kv{
 			Key:   target.Target.ID,
 			Value: fmt.Sprintf("%d breaking flaws, %d controlled flaws, %d unknown flaws; %d breaking checks", a.Breaking, a.Controlled, a.Unknown, s.Breaking),
@@ -447,6 +496,7 @@ func renderScanZeroTrustDashboard(w io.Writer, r model.ScanReport) {
 		{"Breaking checks", fmt.Sprintf("%d", total.Breaking)},
 		{"Checks", fmt.Sprintf("%d", total.Total)},
 	})
+	renderZeroTrustBoundaryCoverageDashboard(w, buildArchitectureBoundaryCoverage(coverageInputs), 10)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
 	fmt.Fprintln(w, "<thead><tr><th>Target</th><th>Zero Trust readout</th></tr></thead><tbody>")
 	for _, row := range byTarget {
@@ -897,6 +947,33 @@ func renderExposureCounts(exposures []model.ExposureResult) string {
 		parts = append(parts, fmt.Sprintf(`<span class="pill %s">%d %s</span>`, cssClass(string(status)), counts[status], esc(string(status))))
 	}
 	return strings.Join(parts, " ")
+}
+
+func renderArchitectureBoundaryTargetPills(boundary model.ArchitectureBoundary) string {
+	parts := []string{
+		renderTargetStatusPill(model.ZeroTrustBreaking, boundary.BreakingTargets),
+		renderTargetStatusPill(model.ZeroTrustControlled, boundary.ControlledTargets),
+		renderTargetStatusPill(model.ZeroTrustUnknown, boundary.UnknownTargets),
+		renderTargetStatusPill(model.ZeroTrustNotObserved, boundary.NotObservedTargets),
+	}
+	var out []string
+	for _, part := range parts {
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	return strings.Join(out, "<br>")
+}
+
+func renderTargetStatusPill(status model.ZeroTrustStatus, targets []string) string {
+	if len(targets) == 0 {
+		return ""
+	}
+	limited := limitStrings(targets, 5)
+	return fmt.Sprintf(`<span class="pill %s">%d %s</span><div class="mono">%s</div>`, cssClass(string(status)), len(targets), esc(statusLabel(string(status))), esc(strings.Join(limited, ", ")))
 }
 
 func renderSmallList(items []string) string {

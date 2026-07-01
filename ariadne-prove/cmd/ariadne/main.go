@@ -326,6 +326,7 @@ Examples:
   ariadne inventory --path . --format mermaid --out graph.mmd
   ariadne prove --path .
   ariadne dashboard --path . --out ariadne-dashboard.html
+  ariadne dashboard --targets targets.txt --out fleet-dashboard.html
   ariadne prove --path . --format dot --out graph.dot
   ariadne scan --targets targets.txt --format json
   ariadne scan --targets targets.txt --format html --out fleet-dashboard.html

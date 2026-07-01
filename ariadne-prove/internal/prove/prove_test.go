@@ -2777,8 +2777,12 @@ func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Exposure Dashboard",
 		"Zero Trust Architecture",
+		"Boundary Coverage Map",
 		"Architecture Failure Map",
 		"Untrusted instructions can steer privileged tools",
+		"Missing evidence",
+		"Next collectors",
+		"Control evidence needed",
 		"Breaks when",
 		"Evidence surfaces",
 		"Foundation Maturity Requirements",
@@ -2791,6 +2795,34 @@ func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestFleetDashboardContainsBoundaryCoverageMap(t *testing.T) {
+	r, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := report.RenderScan(&out, r, "html"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := out.String()
+	for _, want := range []string{
+		"Ariadne Fleet Exposure Dashboard",
+		"Zero Trust Architecture",
+		"Boundary Coverage Map",
+		"Status by target",
+		"combined",
+		"safe",
+		"repo-only",
+		"Missing evidence",
+		"Next collectors",
+		"Control evidence needed",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("fleet dashboard missing %q:\n%s", want, rendered)
 		}
 	}
 }
