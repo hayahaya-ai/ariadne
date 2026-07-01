@@ -149,6 +149,7 @@ type ControlCatalogReport struct {
 	Summary       ControlCatalogSummary       `json:"summary"`
 	Controls      []ArchitectureClosure       `json:"controls"`
 	Families      []ArchitectureClosureFamily `json:"families"`
+	ProofSpecs    []ControlProofSpec          `json:"proof_specs"`
 	Redaction     RedactionInfo               `json:"redaction"`
 	Limitations   []string                    `json:"limitations"`
 }
@@ -161,6 +162,15 @@ type ControlCatalogSummary struct {
 	Low      int `json:"low"`
 	Targets  int `json:"targets"`
 	Flaws    int `json:"flaws"`
+}
+
+type ControlProofSpec struct {
+	Control              string   `json:"control"`
+	EvidenceKind         string   `json:"evidence_kind"`
+	ProofSurfaces        []string `json:"proof_surfaces"`
+	RecognizedIndicators []string `json:"recognized_indicators"`
+	Notes                []string `json:"notes"`
+	Limitations          []string `json:"limitations"`
 }
 
 type ArchitectureTargetReport struct {

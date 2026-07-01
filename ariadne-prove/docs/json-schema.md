@@ -147,10 +147,11 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `summary`, counting missing hard-barrier controls by severity, affected targets, and affected flaws
 - `controls`, where each missing hard barrier includes the flaws it closes, target coverage, evidence anchors, proof surfaces, and concrete actions
 - `families`, where related controls are grouped into Zero Trust capability areas such as identity, least agency, egress, observability, response, and governance
+- `proof_specs`, where each missing hard barrier maps to the evidence kind, proof surfaces, parser-recognized indicators, notes, and limitations Ariadne uses when looking for deterministic proof
 
-This catalog is derived from the architecture closure plan. It does not create a separate classification; it makes the proof request easier to act on.
+This catalog is derived from the architecture closure plan. It does not create a separate classification; it makes the proof request easier to act on. Recognized indicators are evidence hints, not a claim of live runtime enforcement unless paired with observed enforcement evidence.
 
-`ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, and actions.
+`ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, and actions.
 
 LLM review mode uses two JSON payloads:
 

@@ -14,6 +14,7 @@
     "summary",
     "controls",
     "families",
+    "proof_specs",
     "redaction",
     "limitations"
   ],
@@ -35,6 +36,10 @@
       "type": "array",
       "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure_family" }
     },
+    "proof_specs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_proof_spec" }
+    },
     "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
     "limitations": { "type": "array", "items": { "type": "string" } }
   },
@@ -50,6 +55,18 @@
         "low": { "type": "integer" },
         "targets": { "type": "integer" },
         "flaws": { "type": "integer" }
+      }
+    },
+    "control_proof_spec": {
+      "type": "object",
+      "required": ["control", "evidence_kind", "proof_surfaces", "recognized_indicators", "notes", "limitations"],
+      "properties": {
+        "control": { "type": "string" },
+        "evidence_kind": { "type": "string" },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "recognized_indicators": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     }
   }

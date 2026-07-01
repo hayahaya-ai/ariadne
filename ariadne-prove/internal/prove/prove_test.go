@@ -2763,9 +2763,11 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Missing hard barriers:",
 		"Control families:",
 		"Where to prove this:",
+		"Recognized indicators:",
 		"What would prove it:",
 		"control:input-isolation",
 		".ariadne/input-policy.json",
+		"input_isolation",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("control catalog table missing %q:\n%s", want, out)
@@ -2789,6 +2791,12 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	if len(decoded.Controls) == 0 || len(decoded.Families) == 0 {
 		t.Fatalf("control catalog should include controls and families: %+v", decoded)
 	}
+	if len(decoded.ProofSpecs) == 0 {
+		t.Fatalf("control catalog should include proof specs")
+	}
+	if !hasControlProofIndicator(decoded.ProofSpecs, "control:input-isolation", "input_isolation") {
+		t.Fatalf("control catalog should include parser-recognized indicators: %+v", decoded.ProofSpecs)
+	}
 	if !hasClosureEvidenceSurface(decoded.Controls, ".ariadne/input-policy.json") {
 		t.Fatalf("control catalog should retain proof surfaces: %+v", decoded.Controls)
 	}
@@ -2804,9 +2812,11 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Control Families",
 		"Controls To Prove",
 		"Where to prove this",
+		"Recognized indicators",
 		"What would prove it",
 		"control:input-isolation",
 		".ariadne/input-policy.json",
+		"input_isolation",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("control catalog dashboard missing %q:\n%s", want, rendered)
@@ -2829,6 +2839,7 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Run: control_catalog_scan",
 		"Targets:",
 		"Where to prove this:",
+		"Recognized indicators:",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("control catalog scan table missing %q:\n%s", want, out)
@@ -2846,6 +2857,9 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	if decoded.RunKind != "control_catalog_scan" {
 		t.Fatalf("unexpected run kind: %+v", decoded)
 	}
+	if !hasControlProofIndicator(decoded.ProofSpecs, "control:input-isolation", "input_isolation") {
+		t.Fatalf("fleet control catalog should include proof specs: %+v", decoded.ProofSpecs)
+	}
 	if !hasClosureTarget(decoded.Controls, "combined") {
 		t.Fatalf("expected fleet control catalog to retain target coverage: %+v", decoded.Controls)
 	}
@@ -2861,6 +2875,7 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Controls To Prove",
 		"combined",
 		"Where to prove this",
+		"Recognized indicators",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("fleet control catalog dashboard missing %q:\n%s", want, rendered)
@@ -3163,11 +3178,14 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"summary",
 		"controls",
 		"families",
+		"proof_specs",
 		"redaction",
 		"limitations",
 	)
 	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
+	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
+	assertRequiredKeys(t, controlProofSpec, "control", "evidence_kind", "proof_surfaces", "recognized_indicators", "notes", "limitations")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
@@ -3575,6 +3593,20 @@ func hasClosureEvidenceSurface(items []model.ArchitectureClosure, surface string
 	for _, item := range items {
 		for _, candidate := range item.EvidenceSurfaces {
 			if candidate == surface {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasControlProofIndicator(items []model.ControlProofSpec, control string, indicator string) bool {
+	for _, item := range items {
+		if item.Control != control {
+			continue
+		}
+		for _, candidate := range item.RecognizedIndicators {
+			if candidate == indicator {
 				return true
 			}
 		}

@@ -244,7 +244,7 @@ Prove output adds:
 - optional LLM review interpretation when `--interpret llm` is used
 - limitations
 
-Controls output is a focused operator view of the architecture closure plan. It answers which hard barriers are missing, which flaws each one closes, where evidence should be supplied, and which observed anchors caused Ariadne to ask for that proof.
+Controls output is a focused operator view of the architecture closure plan. It answers which hard barriers are missing, which flaws each one closes, where evidence should be supplied, which parser-recognized indicators Ariadne understands for that control, and which observed anchors caused Ariadne to ask for that proof. Recognized indicators are deterministic evidence hints; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.
 
 Dashboard output adds:
 

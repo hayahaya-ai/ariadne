@@ -137,7 +137,7 @@ func renderControlCatalogDashboard(w io.Writer, r model.ControlCatalogReport) er
 	renderDashboardHeader(w, title, fields)
 	renderControlCatalogSummaryDashboard(w, r)
 	renderControlCatalogFamiliesDashboard(w, r.Families)
-	renderControlCatalogControlsDashboard(w, r.Controls)
+	renderControlCatalogControlsDashboard(w, r.Controls, r.ProofSpecs)
 	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
 	fmt.Fprintln(w, "</body>")
@@ -554,7 +554,7 @@ func renderControlCatalogSummaryDashboard(w io.Writer, r model.ControlCatalogRep
 		{"Affected targets", fmt.Sprintf("%d", r.Summary.Targets)},
 		{"Families", fmt.Sprintf("%d", len(r.Families))},
 		{"Rows", fmt.Sprintf("%d", len(r.Controls))},
-		{"Status filter", firstNonEmpty(r.StatusFilter, "breaking")},
+		{"Proof specs", fmt.Sprintf("%d", len(r.ProofSpecs))},
 		{"Source", "architecture closure plan"},
 	})
 	fmt.Fprintln(w, "</section>")
@@ -586,7 +586,7 @@ func renderControlCatalogFamiliesDashboard(w io.Writer, items []model.Architectu
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderControlCatalogControlsDashboard(w io.Writer, items []model.ArchitectureClosure) {
+func renderControlCatalogControlsDashboard(w io.Writer, items []model.ArchitectureClosure, proofSpecs []model.ControlProofSpec) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Controls To Prove</h2><div class="subtle">Each row states the missing hard barrier, the flaw it closes, the evidence anchor, and the proof surface Ariadne expects.</div></div>`)
@@ -596,16 +596,19 @@ func renderControlCatalogControlsDashboard(w io.Writer, items []model.Architectu
 		fmt.Fprintln(w, "</section>")
 		return
 	}
+	proofByControl := controlProofSpecsByControl(proofSpecs)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Missing hard barrier</th><th>Closes flaws</th><th>Targets</th><th>Evidence anchors</th><th>Where to prove this</th><th>What would prove it</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Missing hard barrier</th><th>Closes flaws</th><th>Targets</th><th>Evidence anchors</th><th>Where to prove this</th><th>Recognized indicators</th><th>What would prove it</th></tr></thead><tbody>")
 	for _, item := range items {
 		fmt.Fprintln(w, "<tr>")
+		proof := proofByControl[item.Control]
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(item.Control), esc(strings.ReplaceAll(item.ControlTestResult, "_", " ")), esc(strings.Join(limitStrings(item.CheckIDs, 4), ", ")))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(proof.RecognizedIndicators, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Actions, 4)))
 		fmt.Fprintln(w, "</tr>")
 	}

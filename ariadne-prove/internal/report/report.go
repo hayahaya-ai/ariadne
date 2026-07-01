@@ -98,6 +98,7 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 		Summary:       summarizeControlCatalog(r.ClosurePlan),
 		Controls:      append([]model.ArchitectureClosure{}, r.ClosurePlan...),
 		Families:      append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		ProofSpecs:    buildControlProofSpecs(r.ClosurePlan),
 		Redaction:     r.Redaction,
 		Limitations:   append([]string{}, r.Limitations...),
 	}
@@ -106,6 +107,9 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 	}
 	if catalog.Families == nil {
 		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	if catalog.ProofSpecs == nil {
+		catalog.ProofSpecs = []model.ControlProofSpec{}
 	}
 	return catalog
 }
@@ -122,6 +126,7 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 		Summary:       summarizeControlCatalog(r.ClosurePlan),
 		Controls:      append([]model.ArchitectureClosure{}, r.ClosurePlan...),
 		Families:      append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		ProofSpecs:    buildControlProofSpecs(r.ClosurePlan),
 		Redaction:     r.Redaction,
 		Limitations:   append([]string{}, r.Limitations...),
 	}
@@ -130,6 +135,9 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 	}
 	if catalog.Families == nil {
 		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	if catalog.ProofSpecs == nil {
+		catalog.ProofSpecs = []model.ControlProofSpec{}
 	}
 	return catalog
 }
@@ -934,6 +942,7 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 	if limit > 12 {
 		limit = 12
 	}
+	proofByControl := controlProofSpecsByControl(r.ProofSpecs)
 	for _, item := range r.Controls[:limit] {
 		fmt.Fprintf(w, "    - %s %s: %d flaw(s), %d target(s)\n",
 			strings.ToUpper(item.Severity),
@@ -953,6 +962,9 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 		if len(item.EvidenceSurfaces) > 0 {
 			fmt.Fprintf(w, "      Where to prove this: %s\n", strings.Join(limitStrings(item.EvidenceSurfaces, 5), "; "))
 		}
+		if proof := proofByControl[item.Control]; len(proof.RecognizedIndicators) > 0 {
+			fmt.Fprintf(w, "      Recognized indicators: %s\n", strings.Join(limitStrings(proof.RecognizedIndicators, 6), "; "))
+		}
 		if len(item.Actions) > 0 {
 			fmt.Fprintf(w, "      What would prove it: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
 		}
@@ -962,6 +974,16 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func controlProofSpecsByControl(items []model.ControlProofSpec) map[string]model.ControlProofSpec {
+	out := map[string]model.ControlProofSpec{}
+	for _, item := range items {
+		if item.Control != "" {
+			out[item.Control] = item
+		}
+	}
+	return out
 }
 
 func renderArchitectureBoundarySummary(w io.Writer, boundaries []model.ArchitectureBoundary, coverage model.ZeroTrustCoverage) {
@@ -1214,6 +1236,246 @@ func summarizeControlCatalog(items []model.ArchitectureClosure) model.ControlCat
 	summary.Targets = len(targets)
 	summary.Flaws = len(flaws)
 	return summary
+}
+
+func buildControlProofSpecs(items []model.ArchitectureClosure) []model.ControlProofSpec {
+	var out []model.ControlProofSpec
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Control == "" || seen[item.Control] {
+			continue
+		}
+		seen[item.Control] = true
+		out = append(out, model.ControlProofSpec{
+			Control:              item.Control,
+			EvidenceKind:         controlEvidenceKind(item.Control),
+			ProofSurfaces:        uniqueSortedStrings(item.EvidenceSurfaces),
+			RecognizedIndicators: controlRecognizedIndicators(item.Control),
+			Notes:                controlProofNotes(item.Control),
+			Limitations: []string{
+				"Ariadne treats these as deterministic declared or observed evidence indicators; it does not prove live enforcement unless a collector observes runtime enforcement evidence.",
+			},
+		})
+	}
+	if out == nil {
+		return []model.ControlProofSpec{}
+	}
+	return out
+}
+
+func controlEvidenceKind(control string) string {
+	switch control {
+	case "control:agent-action-log-evidence",
+		"control:approval-log-evidence",
+		"control:observed-request-traceability",
+		"control:tool-call-audit-evidence":
+		return "observed_log_or_transcript_metadata"
+	case "control:telemetry-export", "control:immutable-audit-log":
+		return "declared_or_observed_observability_evidence"
+	default:
+		return "declared_control_evidence"
+	}
+}
+
+func controlProofNotes(control string) []string {
+	switch control {
+	case "control:input-isolation", "control:trusted-source-policy":
+		return []string{"Input isolation or trusted-source policy can break untrusted instruction influence when connected to authority-bearing runtime paths."}
+	case "control:cryptographic-identity", "control:credential-isolation", "control:short-lived-credential", "control:hardware-bound-credential", "control:jit-access":
+		return []string{"Identity controls are strongest when agent identity and credential scoping are both present."}
+	case "control:network-restricted", "control:egress-destination-allowlist", "control:webhook-allowlist", "control:per-tool-network-scope":
+		return []string{"Egress controls are strongest when private-data access and arbitrary external communication cannot exist in the same path."}
+	case "control:approval-log-evidence", "control:approval-required":
+		return []string{"Approval evidence needs both a pre-action gate and reconstructable approval decision metadata."}
+	default:
+		return []string{}
+	}
+}
+
+func controlRecognizedIndicators(control string) []string {
+	switch control {
+	case "control:input-isolation":
+		return []string{"input_isolation", "instruction_isolation", "treat_untrusted_as_data", "data_only_context"}
+	case "control:trusted-source-policy":
+		return []string{"trusted_instruction_sources", "trusted_sources", "allowed_instruction_sources", "allow_untrusted_instructions:false"}
+	case "control:deny-by-default", "control:deny-by-default-permissions":
+		return []string{"deny_by_default", "default_policy:deny", "default_deny:true", "deny-by-default"}
+	case "control:least-agency-policy":
+		return []string{"least_agency", "least_privilege", "tool_scope", "permission_scope"}
+	case "control:scoped-permissions":
+		return []string{"scoped_permissions", "permission_scope", "tool_scope", "deny_read", "sandbox_mode:workspace-write", "sandbox_mode:read-only"}
+	case "control:mcp-reviewed-pinned":
+		return []string{"require_pinned_packages", "pinned_packages", "package_digest", "reviewed_mcp_servers", "mcp_review_required"}
+	case "control:tool-allowlist":
+		return []string{"approved_tools", "allowed_tools", "tool_allowlist", "approved_mcp_servers", "mcp_allowlist"}
+	case "control:tool-descriptor-integrity":
+		return []string{"tool_descriptor_integrity", "descriptor_integrity", "tool_schema_integrity", "descriptor_signature"}
+	case "control:tool-argument-validation":
+		return []string{"tool_argument_validation", "argument_validation", "validate_tool_arguments", "pre_tool_use"}
+	case "control:tool-auth-required":
+		return []string{"tool_auth_required", "tool_authentication", "mcp_auth_required", "oauth_tool_auth", "short_lived_tool_token"}
+	case "control:signed-tool-artifacts":
+		return []string{"signed_tool_artifacts", "signed_mcp_servers", "tool_signature", "cosign", "sigstore"}
+	case "control:tool-deployment-verification":
+		return []string{"tool_deployment_verification", "mcp_deployment_verification", "reject_unsigned_tools", "tool_admission_verification"}
+	case "control:tool-sandbox-execution":
+		return []string{"tool_sandbox_execution", "sandboxed_tool_execution", "mcp_sandbox", "tool_filesystem_isolation"}
+	case "control:network-restricted":
+		return []string{"network_access:false", "external_network:false", "block_external_network", "deny_network"}
+	case "control:egress-destination-allowlist":
+		return []string{"egress_destination_allowlist", "external_destination_allowlist", "allowed_destinations", "allowed_domains"}
+	case "control:webhook-allowlist":
+		return []string{"webhook_allowlist", "allowed_webhooks", "approved_webhooks", "webhook_destinations"}
+	case "control:per-tool-network-scope":
+		return []string{"per_tool_network_scope", "tool_network_scope", "tool_egress_scope", "allowed_network_by_tool"}
+	case "control:egress-content-filter":
+		return []string{"egress_content_filter", "external_content_filter", "sensitive_output_filter", "block_secret_like"}
+	case "control:egress-audit":
+		return []string{"egress_audit", "outbound_audit", "external_communication_logging", "egress_log"}
+	case "control:output-sensitive-data-filter":
+		return []string{"output_sensitive_data_filter", "sensitive_output_filter", "output_dlp", "credential_filter"}
+	case "control:output-redaction":
+		return []string{"output_redaction", "redact_outputs", "block_sensitive_output", "redact_secret_like", "output_delivery_gate"}
+	case "control:output-filter-logging":
+		return []string{"output_filter_logging", "output_control_audit", "filtering_events", "redaction_logging"}
+	case "control:semantic-output-analysis":
+		return []string{"semantic_output_analysis", "output_semantic_review", "semantic_dlp", "encoded_secret_detection"}
+	case "control:high-risk-output-review":
+		return []string{"high_risk_output_review", "human_review_for_high_risk_output", "output_approval", "approve_sensitive_output"}
+	case "control:cryptographic-identity":
+		return []string{"cryptographic_identity", "workload_identity", "agent_certificate", "spiffe", "spiffe_id", "mtls"}
+	case "control:credential-isolation":
+		return []string{"credential_isolation", "per_agent_credentials", "unique_agent_credentials", "agent_scoped_credentials", "no_shared_credentials"}
+	case "control:short-lived-credential":
+		return []string{"oauth", "oidc", "short_lived", "federated_identity", "jit_access"}
+	case "control:hardware-bound-credential":
+		return []string{"hardware_bound", "hardware_backed", "passkey", "fido2", "secure_enclave", "tpm"}
+	case "control:jit-access", "control:jit-elevation":
+		return []string{"jit_access", "just_in_time", "jit_elevation", "privilege_elevation_ttl", "standing_access:false"}
+	case "control:token-lifetime-policy":
+		return []string{"token_lifetime", "credential_ttl", "max_token_ttl", "max_session_duration", "ttl_minutes"}
+	case "control:identity-lifecycle":
+		return []string{"identity_lifecycle", "credential_rotation", "certificate_lifecycle", "revocation:true", "revoke_on_exit"}
+	case "control:credential-helper":
+		return []string{"credential_helper", "credential_process", "secret_manager", "vault", "keychain"}
+	case "control:identity-based-isolation":
+		return []string{"identity_based_isolation", "workload_isolation", "identity_aware_proxy"}
+	case "control:named-caller-allowlist":
+		return []string{"named_callers", "allowed_callers", "caller_allowlist", "allowed_principals"}
+	case "control:abac-policy":
+		return []string{"abac", "attribute_based", "subject_attributes", "resource_attributes", "context_attributes", "policy_conditions"}
+	case "control:network-segmentation":
+		return []string{"network_segmentation", "microsegmentation"}
+	case "control:tool-scope-policy":
+		return []string{"tool_scope", "tool_scopes", "per_tool_scope", "allowed_tools", "permission_scope"}
+	case "control:per-action-authorization":
+		return []string{"per_action_authorization", "authorize_each_action", "per_tool_authorization", "authorize_tool_call"}
+	case "control:continuous-authorization":
+		return []string{"continuous_authorization", "real_time_policy_evaluation", "policy_evaluation_per_action", "reauthorize_on_risk_change"}
+	case "control:dynamic-privilege-scoping":
+		return []string{"dynamic_privilege_scoping", "dynamic_permission_scope", "just_enough_access", "task_scoped_privileges"}
+	case "control:automatic-access-revocation":
+		return []string{"automatic_access_revocation", "auto_revoke_access", "revoke_on_risk_change", "revoke_after_task", "policy_failure_revocation"}
+	case "control:approval-required":
+		return []string{"approval_policy:on-request", "approval_policy:on-failure", "approval_required:true", "require_approval:true", "pretooluse"}
+	case "control:approval-log-evidence":
+		return []string{"approval_logging", "approval decision event shape", "permission decision event shape", "timestamp"}
+	case "control:agent-action-log-evidence":
+		return []string{"tool_call_logging", "agent action event shape", "request_id", "trace_id", "timestamp"}
+	case "control:tool-call-audit-evidence":
+		return []string{"tool_call_logging", "tool call event shape", "tool name", "timestamp"}
+	case "control:observed-request-traceability":
+		return []string{"request_id", "trace_id", "correlation_id", "distributed_tracing", "input_to_output_trace"}
+	case "control:telemetry-export":
+		return []string{"telemetry_export", "siem_export", "otlp", "opentelemetry", "exporters"}
+	case "control:immutable-audit-log":
+		return []string{"immutable_audit", "append_only", "object_lock", "worm", "tamper_resistant"}
+	case "control:tool-rate-limit":
+		return []string{"tool_rate_limit", "rate_limits", "api_call_limit", "requests_per_minute"}
+	case "control:spend-limit":
+		return []string{"spend_limit", "budget_limit", "cost_limit", "token_budget", "quota_limit"}
+	case "control:loop-guard":
+		return []string{"loop_guard", "loop_detection", "max_iterations", "recursion_limit", "repeat_call_guard"}
+	case "control:tool-timeout":
+		return []string{"tool_timeout", "timeout_seconds", "execution_timeout", "max_tool_runtime"}
+	case "control:concurrency-limit":
+		return []string{"concurrency_limit", "max_concurrency", "parallel_tool_limit", "worker_limit"}
+	case "control:tool-circuit-breaker":
+		return []string{"tool_circuit_breaker", "circuit_breaker", "rate_limit", "spend_limit", "usage_limit"}
+	case "control:resource-usage-audit":
+		return []string{"resource_usage_audit", "usage_logging", "cost_logging", "budget_alert", "quota_alert"}
+	case "control:automated-triage":
+		return []string{"automated_triage", "first_pass_investigation", "alert_triage", "siem_triage"}
+	case "control:behavioral-monitoring":
+		return []string{"behavioral_monitoring", "anomaly_detection", "behavior_baseline", "dwell_time"}
+	case "control:session-termination":
+		return []string{"session_termination", "terminate_session", "kill_session", "end_agent_session"}
+	case "control:credential-revocation":
+		return []string{"credential_revocation", "revoke_credentials", "revoke_tokens", "token_revocation"}
+	case "control:containment-quarantine":
+		return []string{"containment_quarantine", "automatic_containment", "quarantine_agent", "network_quarantine"}
+	case "control:dynamic-access-reduction":
+		return []string{"dynamic_access_reduction", "privilege_reduction", "downscope_on_risk"}
+	case "control:response-escalation":
+		return []string{"response_escalation", "escalation_paths", "incident_response_runbook"}
+	case "control:agent-inventory":
+		return []string{"agent_inventory", "agent_registry", "registered_agents", "ai_inventory"}
+	case "control:accountable-owner", "control:deployment-owner":
+		return []string{"deployment_owner", "accountable_owner", "security_owner", "responsible_team"}
+	case "control:deployment-approval":
+		return []string{"deployment_approval", "new_agent_approval", "governance_approval", "approved_deployment"}
+	case "control:risk-assessment":
+		return []string{"risk_assessment", "risk_tier", "data_classification", "business_impact"}
+	case "control:governance-review", "control:governance-audit":
+		return []string{"governance_review", "policy_review", "periodic_review", "compliance_review", "review_cadence"}
+	case "control:shadow-ai-discovery":
+		return []string{"shadow_ai_detection", "shadow_ai_discovery", "unauthorized_llm_detection", "unmanaged_agent_detection"}
+	case "control:context-retention":
+		return []string{"context_retention", "retention_days", "memory_retention", "transcript_retention"}
+	case "control:memory-isolation":
+		return []string{"memory_isolation", "context_isolation", "tenant_memory_isolation", "isolated_memory"}
+	case "control:context-integrity":
+		return []string{"context_integrity", "memory_integrity", "context_hash", "context_signature"}
+	case "control:context-provenance":
+		return []string{"context_provenance", "memory_provenance", "context_source", "source_attribution"}
+	case "control:config-version-control":
+		return []string{"version_controlled_config", "config_version_control", "config_in_git", "change_history"}
+	case "control:config-review-required":
+		return []string{"config_review_required", "required_review", "pull_request_required", "code_owner_review"}
+	case "control:signed-config":
+		return []string{"signed_config", "config_signature", "policy_signature", "signature_required"}
+	case "control:config-deployment-verification":
+		return []string{"config_deployment_verification", "verify_before_deploy", "reject_unsigned", "admission_verification"}
+	case "control:managed-settings-enforced":
+		return []string{"managed_settings_enforced", "managed_only", "users_cannot_override", "mdm_enforced"}
+	case "control:immutable-agent-runtime":
+		return []string{"immutable_runtime", "immutable_agent_runtime", "ephemeral_vm", "attested_image"}
+	case "control:config-rollback-procedure":
+		return []string{"rollback_procedure", "documented_rollback", "restore_previous_config", "previous_versions"}
+	case "control:automated-config-rollback":
+		return []string{"automated_rollback", "auto_rollback", "rollback_on_failure", "self_healing"}
+	case "control:ai-bom":
+		return []string{"ai_bom", "ai-bom", "ml_bom", "cyclonedx", "bill_of_materials"}
+	case "control:model-provenance":
+		return []string{"model_provenance", "model_provider", "model_version", "model_digest", "model_lineage"}
+	case "control:training-data-lineage":
+		return []string{"training_data_lineage", "dataset_lineage", "fine_tuning_data"}
+	case "control:dependency-health-scan":
+		return []string{"dependency_health", "openssf_scorecard", "dependency_scan", "vulnerability_scan"}
+	case "control:provider-risk-review":
+		return []string{"provider_risk_review", "vendor_risk_review", "security_review", "model_provider_review"}
+	case "control:signed-ai-artifacts":
+		return []string{"signed_ai_artifacts", "model_signature", "dataset_signature", "cosign", "sigstore"}
+	case "control:runtime-component-validation":
+		return []string{"runtime_component_validation", "component_integrity", "runtime_attestation", "verify_runtime_components"}
+	case "control:dependency-reachability-analysis":
+		return []string{"reachability_analysis", "dependency_reachability", "reachable_vulnerabilities"}
+	default:
+		if strings.HasPrefix(control, "control:") {
+			return []string{strings.ReplaceAll(strings.TrimPrefix(control, "control:"), "-", "_")}
+		}
+		return []string{control}
+	}
 }
 
 func incrementZeroTrustSummary(summary *model.ZeroTrustSummary, status model.ZeroTrustStatus) {
