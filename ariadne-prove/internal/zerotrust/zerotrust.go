@@ -14,6 +14,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		influenceBoundary(c, g, exposures),
 		authorityBoundary(c, g, exposures),
 		sensitiveBoundary(c, g, exposures),
+		egressBoundary(c, g, exposures),
 		toolBoundary(c, g, exposures),
 		memoryBoundary(c, g),
 		identityBoundary(c, g),
@@ -56,8 +57,7 @@ func influenceBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 		status = model.ZeroTrustControlled
 		finding = "Risky instruction input exists, and Ariadne observed input-isolation or trusted-source controls that break the influence path."
 	}
-	controls := controlsForExposures(exposures, "prompt-injection-to-secret-canary", "data-egress-chain")
-	controls = append(controls, controlIDs(c, inputControlIDs()...)...)
+	controls := controlIDs(c, inputControlIDs()...)
 	return model.ZeroTrustCheck{
 		ID:         "zt:influence-boundary",
 		Principle:  "Never trust, always verify",
@@ -97,8 +97,7 @@ func authorityBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 			finding = "Agent authority exists, and Ariadne observed scoped permission or deny-by-default controls for least-agency posture."
 		}
 	}
-	controls := controlsForExposures(exposures)
-	controls = append(controls, controlIDs(c, leastAgencyControlIDs()...)...)
+	controls := controlIDs(c, leastAgencyControlIDs()...)
 	return model.ZeroTrustCheck{
 		ID:         "zt:authority-boundary",
 		Principle:  "Least agency",
@@ -141,7 +140,7 @@ func sensitiveBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 		Finding:    finding,
 		Evidence:   limitEvidence(evidence, 8),
 		GraphEdges: edgesForTypes(g, "reaches", "restricts"),
-		Controls:   controlsForExposures(exposures, "prompt-injection-to-secret-canary", "data-egress-chain"),
+		Controls:   controlIDs(c, sensitiveBoundaryControlIDs()...),
 		Actions: []string{
 			"Add deny-read controls for secret-like paths, credential stores, and private agent context.",
 			"Separate private-data reachability from external communication reachability.",
@@ -149,11 +148,55 @@ func sensitiveBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 	}
 }
 
+func egressBoundary(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrustCheck {
+	controls := controlIDs(c, egressControlIDs()...)
+	evidence := limitEvidence(firstEvidence(
+		controlsEvidence(c, egressControlIDs()...),
+		authorityEvidenceByID(c, "authority:external-communication", "authority:broad-local"),
+		boundaryEvidence(c, "boundary:external-destination"),
+	), 8)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported external communication boundary was modeled."
+	if hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local") || hasBoundaryID(c, "boundary:external-destination") {
+		status = model.ZeroTrustUnknown
+		finding = "External communication reachability exists; Ariadne did not observe hard destination or per-tool network controls."
+	}
+	if hasAnyControl(c, softEgressControlIDs()...) && !hasAnyControl(c, hardEgressControlIDs()...) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed egress audit or output filtering evidence, but not a hard destination or network-scope boundary."
+	}
+	if statusForExposures(exposures, "data-egress-chain") == model.ZeroTrustBreaking {
+		status = model.ZeroTrustBreaking
+		finding = "Private-data reachability and external communication combine without an observed hard egress boundary."
+	}
+	if hasAnyControl(c, hardEgressControlIDs()...) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed hard egress boundary evidence such as network restriction, destination allowlist, webhook allowlist, or per-tool network scope."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:egress-boundary",
+		Principle:  "Assume breach",
+		Boundary:   "External egress boundary",
+		Tier:       "foundation",
+		Status:     status,
+		DesignTest: "Private data should not be able to leave through arbitrary external destinations; allowed destinations should be explicit and enforceable.",
+		Finding:    finding,
+		Evidence:   evidence,
+		GraphEdges: edgesForNode(g, "boundary:external-destination"),
+		Controls:   controls,
+		Actions: []string{
+			"Declare approved external destinations and webhook endpoints for agent runtimes.",
+			"Scope network access per tool so private-data access and arbitrary outbound communication are not available in the same path.",
+		},
+		Limitations: []string{"Ariadne detects declared egress controls and graph reachability, but does not validate network enforcement, proxy policy, DNS policy, or runtime egress decisions."},
+	}
+}
+
 func toolBoundary(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrustCheck {
 	status := model.ZeroTrustNotObserved
 	finding := "No supported agent-callable tool or MCP surface was modeled."
 	if len(c.Tools) > 0 {
-		status = statusForExposures(exposures, "mutable-tool-launch-execution", "data-egress-chain")
+		status = statusForExposures(exposures, "mutable-tool-launch-execution")
 		finding = "Agent-callable tool surfaces exist; Ariadne could not prove all tool authority is reviewed and scoped."
 		if status == model.ZeroTrustBreaking {
 			finding = "Agent-callable tool configuration can bridge model behavior to execution or external communication without an observed break-path control."
@@ -171,8 +214,8 @@ func toolBoundary(c model.Collection, g model.Graph, exposures []model.ExposureR
 		DesignTest: "Tools should be allowlisted, pinned, and scoped so the agent cannot gain new capability through mutable launch paths.",
 		Finding:    finding,
 		Evidence:   limitEvidence(toolEvidence(c), 8),
-		GraphEdges: edgesForTypes(g, "can_call", "grants", "restricts"),
-		Controls:   controlsForExposures(exposures, "mutable-tool-launch-execution", "data-egress-chain"),
+		GraphEdges: toolBoundaryEdges(g),
+		Controls:   controlsForExposures(exposures, "mutable-tool-launch-execution"),
 		Actions: []string{
 			"Review MCP servers and plugin/tool configs as authority-bearing surfaces.",
 			"Pin package-manager launchers and remove unused model-callable tools.",
@@ -952,6 +995,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without boundary and control coverage, Ariadne cannot prove whether sensitive data paths are fully broken."
 		gap.NextCollector = "Collect secret-boundary indicators, deny-read rules, private-context locations, and network policy."
+	case "zt:egress-boundary":
+		gap.MissingEvidence = []string{
+			"approved external destination policy",
+			"webhook destination allowlist",
+			"per-tool network scope evidence",
+		}
+		gap.WhyItMatters = "Without egress boundary evidence, Ariadne cannot prove that private data cannot leave through arbitrary external communication paths."
+		gap.NextCollector = "Collect egress policy, webhook allowlists, outbound destination rules, per-tool network scope, and egress audit metadata."
 	case "zt:tool-boundary":
 		gap.MissingEvidence = []string{
 			"tool allowlist",
@@ -1214,6 +1265,39 @@ func hasStrongWorkloadAuthorization(c model.Collection) bool {
 	return callerOrCondition && isolationOrScope
 }
 
+func egressControlIDs() []string {
+	out := append([]string{}, hardEgressControlIDs()...)
+	out = append(out, softEgressControlIDs()...)
+	return out
+}
+
+func hardEgressControlIDs() []string {
+	return []string{
+		"control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+	}
+}
+
+func softEgressControlIDs() []string {
+	return []string{
+		"control:egress-content-filter",
+		"control:egress-audit",
+	}
+}
+
+func sensitiveBoundaryControlIDs() []string {
+	return []string{
+		"control:deny-secret-read",
+		"control:memory-isolation",
+		"control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+	}
+}
+
 func leastAgencyControlIDs() []string {
 	return []string{
 		"control:least-agency-policy",
@@ -1222,6 +1306,9 @@ func leastAgencyControlIDs() []string {
 		"control:deny-secret-read",
 		"control:mcp-reviewed-pinned",
 		"control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
 		"control:tool-scope-policy",
 	}
 }
@@ -1280,6 +1367,21 @@ func runtimeEvidence(c model.Collection) []model.ZeroTrustEvidence {
 func authorityEvidence(c model.Collection) []model.ZeroTrustEvidence {
 	var out []model.ZeroTrustEvidence
 	for _, authority := range c.Authorities {
+		out = append(out, model.ZeroTrustEvidence{ID: authority.ID, Kind: "authority", Source: authority.Source, Summary: authority.Summary})
+	}
+	return dedupeEvidence(out)
+}
+
+func authorityEvidenceByID(c model.Collection, ids ...string) []model.ZeroTrustEvidence {
+	allow := map[string]bool{}
+	for _, id := range ids {
+		allow[id] = true
+	}
+	var out []model.ZeroTrustEvidence
+	for _, authority := range c.Authorities {
+		if len(allow) > 0 && !allow[authority.ID] {
+			continue
+		}
 		out = append(out, model.ZeroTrustEvidence{ID: authority.ID, Kind: "authority", Source: authority.Source, Summary: authority.Summary})
 	}
 	return dedupeEvidence(out)
@@ -1414,6 +1516,19 @@ func edgesForNode(g model.Graph, nodeID string) []string {
 	for _, edge := range g.Edges {
 		if edge.From == nodeID || edge.To == nodeID {
 			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func toolBoundaryEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		key := edge.Key()
+		if edge.Type == "can_call" || edge.Type == "grants" ||
+			key == "control:mcp-reviewed-pinned|restricts|tool:mcp-package-launch" ||
+			key == "control:mcp-reviewed-pinned|restricts|boundary:developer-execution-boundary" {
+			out = append(out, key)
 		}
 	}
 	return uniqueStrings(out)

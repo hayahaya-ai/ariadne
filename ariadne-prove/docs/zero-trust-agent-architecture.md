@@ -22,6 +22,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Influence boundary: whether untrusted instructions can steer an agent runtime or are broken by input isolation or trusted-source gates.
 - Authority boundary: whether agent authority is scoped to least agency.
 - Sensitive data boundary: whether authority reaches secrets, private context, or external destinations.
+- External egress boundary: whether external communication is constrained by network restrictions, destination allowlists, webhook allowlists, or per-tool network scope.
 - Tool and MCP boundary: whether model-callable tools can expand capability through mutable launch paths.
 - Memory and context boundary: whether persisted context can be reached or needs isolation evidence.
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
@@ -41,6 +42,7 @@ Examples of controls Ariadne can model today:
 - scoped runtime permission controls from Claude or Codex settings
 - deny-by-default runtime permission posture
 - network restrictions for external destinations
+- destination allowlists, webhook allowlists, and per-tool network scope for external communication
 - reviewed or pinned MCP server launchers
 - input isolation or trusted-source controls for instruction inputs
 - instruction provenance, untrusted-content delimiting, spotlighting, or prompt-injection filter declarations
@@ -67,6 +69,7 @@ Examples Ariadne reports as `unknown` today:
 - credential helper evidence without cryptographic, hardware-bound, or per-agent identity evidence
 - strong identity evidence without scoped or ephemeral credential issuance evidence
 - input validation, filtering, provenance, or delimiting evidence without input isolation or trusted-source gating
+- egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
 - sandbox or network restriction evidence without identity-aware workload authorization evidence
 - tamper-resistant audit logs without immutable-log or equivalent evidence
 - live behavioral telemetry
@@ -208,6 +211,30 @@ Repositories can declare focused workload authorization controls in `.ariadne/wo
 ```
 
 Ariadne treats sandbox or network restriction alone as partial for workload authorization. The workload authorization boundary is controlled only when Ariadne observes identity-aware authorization evidence such as named callers or ABAC plus an isolation or scope signal such as workload isolation, segmentation, or tool scope.
+
+Repositories can declare focused egress controls in `.ariadne/egress-policy.json`:
+
+```json
+{
+  "egress_destination_allowlist": [
+    "https://api.company.example"
+  ],
+  "webhook_allowlist": [
+    "https://hooks.company.example/agent"
+  ],
+  "per_tool_network_scope": {
+    "WebFetch": [
+      "https://api.company.example"
+    ]
+  },
+  "egress_content_filter": {
+    "block_secret_like": true
+  },
+  "egress_audit": true
+}
+```
+
+Ariadne treats destination allowlists, webhook allowlists, per-tool network scope, and network restriction as hard egress boundary evidence. Output filtering and egress audit are reported as facts, but they do not by themselves break a data-egress path because they monitor or transform output rather than remove arbitrary destination reachability.
 
 Repositories can also declare observability controls in `.ariadne/observability-policy.json`, or provide OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`.
 

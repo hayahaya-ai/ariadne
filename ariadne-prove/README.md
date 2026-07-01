@@ -28,7 +28,7 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 
 - **Secret boundary access:** untrusted repo or agent instructions can influence a runtime that has file-read authority near secret-like files.
 - **Mutable tool launch:** an agent can invoke a tool launched through mutable package-manager or interpreter configuration that grants local execution.
-- **Data egress chain:** untrusted influence, private-data reachability, and external communication reachability exist in the same graph.
+- **Data egress chain:** untrusted influence, private-data reachability, and external communication reachability exist in the same graph unless hard egress controls break the external path.
 
 ## Zero Trust Architecture Readout
 
@@ -39,6 +39,7 @@ Current checks cover:
 - influence boundary
 - authority boundary
 - sensitive data boundary
+- external egress boundary
 - tool and MCP boundary
 - memory and context boundary
 - agent identity boundary
@@ -175,6 +176,7 @@ Current deterministic discovery covers:
 - `.ariadne/input-policy.json` declarations for input isolation, trusted instruction sources, instruction provenance, untrusted-content delimiting, and prompt-injection filtering
 - `.ariadne/identity-policy.json` declarations for credential isolation, credential helpers, JIT access, token lifetime, hardware-bound credentials, and identity lifecycle controls
 - `.ariadne/workload-policy.json` declarations for ABAC, named callers, network segmentation, and tool-scope controls
+- `.ariadne/egress-policy.json` declarations for destination allowlists, webhook allowlists, per-tool network scope, output filtering, and egress audit controls
 - `.ariadne/memory-policy.json` declarations for context retention, memory isolation, integrity validation, and provenance metadata
 - `.ariadne/observability-policy.json` declarations for audit, trace, telemetry export, and immutable log controls
 - OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`

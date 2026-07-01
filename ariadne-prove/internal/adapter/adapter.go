@@ -106,6 +106,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectMCPPolicy(c, s)
 	case "network-policy":
 		collectNetworkPolicy(c, s)
+	case "egress-policy":
+		collectEgressPolicy(c, s)
 	case "agent-policy":
 		collectAgentPolicy(c, s)
 	case "input-policy":
@@ -340,6 +342,37 @@ func collectNetworkPolicy(c *model.Collection, s model.Surface) {
 	if networkSegmentationConfigured(text) {
 		addControl(c, "control:network-segmentation", "network-segmentation", "", s.Source, "Network policy declares workload network segmentation or microsegmentation.")
 	}
+	collectEgressControls(c, s.Source, text)
+}
+
+func collectEgressPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if networkRestricted(text) || strings.Contains(text, "block_external") || strings.Contains(text, "deny_external") {
+		addControl(c, "control:network-restricted", "network-restricted", "", s.Source, "Egress policy declares external network communication restrictions.")
+	}
+	collectEgressControls(c, s.Source, text)
+}
+
+func collectEgressControls(c *model.Collection, source, text string) {
+	if egressDestinationAllowlistConfigured(text) {
+		addControl(c, "control:egress-destination-allowlist", "egress-destination-allowlist", "", source, "Egress policy declares approved external destinations or domains.")
+	}
+	if webhookAllowlistConfigured(text) {
+		addControl(c, "control:webhook-allowlist", "webhook-allowlist", "", source, "Egress policy declares approved webhook destinations.")
+	}
+	if perToolNetworkScopeConfigured(text) {
+		addControl(c, "control:per-tool-network-scope", "per-tool-network-scope", "", source, "Egress policy declares per-tool network destination scope.")
+	}
+	if egressContentFilterConfigured(text) {
+		addControl(c, "control:egress-content-filter", "egress-content-filter", "", source, "Egress policy declares output or sensitive-content filtering for external communication.")
+	}
+	if egressAuditConfigured(text) {
+		addControl(c, "control:egress-audit", "egress-audit", "", source, "Egress policy declares audit logging for outbound or external communication.")
+	}
 }
 
 func collectAgentPolicy(c *model.Collection, s model.Surface) {
@@ -447,6 +480,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if contextProvenanceConfigured(text) {
 		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Agent policy declares source attribution or provenance metadata for context.")
 	}
+	collectEgressControls(c, s.Source, text)
 }
 
 func collectInputPolicy(c *model.Collection, s model.Surface) {
@@ -964,6 +998,51 @@ func networkEnabled(text string) bool {
 		strings.Contains(text, "\"network_access\": true") ||
 		strings.Contains(text, "\"external_network\": true") ||
 		strings.Contains(text, "external_network = true")
+}
+
+func egressDestinationAllowlistConfigured(text string) bool {
+	return strings.Contains(text, "egress_destination_allowlist") ||
+		strings.Contains(text, "external_destination_allowlist") ||
+		strings.Contains(text, "destination_allowlist") ||
+		strings.Contains(text, "allowed_destinations") ||
+		strings.Contains(text, "allowed_domains") ||
+		strings.Contains(text, "allowlisted_domains") ||
+		strings.Contains(text, "outbound_allowlist")
+}
+
+func webhookAllowlistConfigured(text string) bool {
+	return strings.Contains(text, "webhook_allowlist") ||
+		strings.Contains(text, "allowed_webhooks") ||
+		strings.Contains(text, "approved_webhooks") ||
+		strings.Contains(text, "approved_webhook_destinations") ||
+		strings.Contains(text, "webhook_destinations")
+}
+
+func perToolNetworkScopeConfigured(text string) bool {
+	return strings.Contains(text, "per_tool_network_scope") ||
+		strings.Contains(text, "tool_network_scope") ||
+		strings.Contains(text, "tool_egress_scope") ||
+		strings.Contains(text, "network_scope_per_tool") ||
+		strings.Contains(text, "allowed_network_by_tool")
+}
+
+func egressContentFilterConfigured(text string) bool {
+	return strings.Contains(text, "egress_content_filter") ||
+		strings.Contains(text, "external_content_filter") ||
+		strings.Contains(text, "output_filter") ||
+		strings.Contains(text, "output_filtering") ||
+		strings.Contains(text, "sensitive_output_filter") ||
+		strings.Contains(text, "dlp") ||
+		strings.Contains(text, "block_secret_like")
+}
+
+func egressAuditConfigured(text string) bool {
+	return strings.Contains(text, "egress_audit") ||
+		strings.Contains(text, "outbound_audit") ||
+		strings.Contains(text, "network_audit") ||
+		strings.Contains(text, "external_communication_logging") ||
+		strings.Contains(text, "outbound_logging") ||
+		strings.Contains(text, "egress_log")
 }
 
 func cryptographicIdentityConfigured(text string) bool {

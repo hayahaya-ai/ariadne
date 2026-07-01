@@ -547,7 +547,7 @@ func controlRestrictsBoundary(controlID, boundaryID string) bool {
 		return boundaryID == "boundary:secret-like-file" || boundaryID == "boundary:developer-secret-boundary" || boundaryID == "boundary:agent-private-context"
 	case "control:memory-isolation":
 		return boundaryID == "boundary:agent-private-context"
-	case "control:network-restricted":
+	case "control:network-restricted", "control:egress-destination-allowlist", "control:webhook-allowlist", "control:per-tool-network-scope":
 		return boundaryID == "boundary:external-destination"
 	case "control:mcp-reviewed-pinned":
 		return boundaryID == "boundary:developer-execution-boundary"
@@ -633,7 +633,7 @@ func EvaluateAll(c model.Collection, g model.Graph, mode string) []model.Exposur
 func hasDataEgressChainEvidence(c model.Collection) bool {
 	return hasAuthority(c, "authority:external-communication") ||
 		hasBoundary(c, "boundary:external-destination") ||
-		hasControl(c, "control:network-restricted")
+		hasAnyControl(c, egressControlIDs()...)
 }
 
 func hasSecretEvidence(c model.Collection) bool {
@@ -760,7 +760,7 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context")
 	hasExternalCommunication := hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local")
 	hasExternalDestination := hasBoundary(c, "boundary:external-destination")
-	hasNetworkControl := hasControl(c, "control:network-restricted")
+	hasHardEgressControl := hasHardEgressBreak(c)
 	hasDenyRead := hasControl(c, "control:deny-secret-read")
 	hasInputBreak := hasHardInputBreak(c)
 
@@ -778,16 +778,14 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	}
 
 	switch {
-	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && (hasInputBreak || hasNetworkControl || hasDenyRead):
+	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && (hasInputBreak || hasHardEgressControl || hasDenyRead):
 		result.Status = model.StatusProtected
 		result.ProofMode = model.ProofSimulated
 		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The graph contains data-egress ingredients, but a control breaks influence, private-data, or external-communication reachability."}
 		if hasInputBreak {
 			result.ControlsBreakPath = append(result.ControlsBreakPath, "isolate or trust-gate untrusted instructions")
 		}
-		if hasNetworkControl {
-			result.ControlsBreakPath = append(result.ControlsBreakPath, "restrict external network communication")
-		}
+		result.ControlsBreakPath = append(result.ControlsBreakPath, egressBreakDescriptions(c)...)
 		if hasDenyRead {
 			result.ControlsBreakPath = append(result.ControlsBreakPath, "deny-read secret-like paths")
 		}
@@ -968,11 +966,55 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"control:input-isolation|restricts|trustinput:repo-instruction",
 		"control:trusted-source-policy|restricts|trustinput:repo-instruction",
 		"control:network-restricted|restricts|boundary:external-destination",
+		"control:egress-destination-allowlist|restricts|boundary:external-destination",
+		"control:webhook-allowlist|restricts|boundary:external-destination",
+		"control:per-tool-network-scope|restricts|boundary:external-destination",
 		"control:deny-secret-read|restricts|boundary:secret-like-file",
 		"control:deny-secret-read|restricts|boundary:developer-secret-boundary",
 		"control:deny-secret-read|restricts|boundary:agent-private-context",
 	}
 	return existingEdges(g, candidates)
+}
+
+func egressControlIDs() []string {
+	return []string{
+		"control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+		"control:egress-content-filter",
+		"control:egress-audit",
+	}
+}
+
+func hardEgressControlIDs() []string {
+	return []string{
+		"control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+	}
+}
+
+func hasHardEgressBreak(c model.Collection) bool {
+	return hasAnyControl(c, hardEgressControlIDs()...)
+}
+
+func egressBreakDescriptions(c model.Collection) []string {
+	var out []string
+	if hasControl(c, "control:network-restricted") {
+		out = append(out, "restrict external network communication")
+	}
+	if hasControl(c, "control:egress-destination-allowlist") {
+		out = append(out, "allowlist external destinations")
+	}
+	if hasControl(c, "control:webhook-allowlist") {
+		out = append(out, "allowlist webhook destinations")
+	}
+	if hasControl(c, "control:per-tool-network-scope") {
+		out = append(out, "scope per-tool network access")
+	}
+	return out
 }
 
 func existingEdges(g model.Graph, candidates []string) []string {
