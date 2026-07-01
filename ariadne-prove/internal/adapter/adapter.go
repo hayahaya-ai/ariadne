@@ -108,6 +108,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectNetworkPolicy(c, s)
 	case "agent-policy":
 		collectAgentPolicy(c, s)
+	case "memory-policy":
+		collectMemoryPolicy(c, s)
 	case "observability-policy":
 		collectObservabilityPolicy(c, s)
 	case "opentelemetry-config":
@@ -385,6 +387,35 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if contextRetentionConfigured(text) {
 		addControl(c, "control:context-retention", "context-retention", "", s.Source, "Agent policy constrains memory, transcript, or private-context retention.")
 	}
+	if memoryIsolationConfigured(text) {
+		addControl(c, "control:memory-isolation", "memory-isolation", "", s.Source, "Agent policy declares memory or private-context isolation controls.")
+	}
+	if contextIntegrityConfigured(text) {
+		addControl(c, "control:context-integrity", "context-integrity", "", s.Source, "Agent policy declares context integrity validation controls.")
+	}
+	if contextProvenanceConfigured(text) {
+		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Agent policy declares source attribution or provenance metadata for context.")
+	}
+}
+
+func collectMemoryPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if contextRetentionConfigured(text) {
+		addControl(c, "control:context-retention", "context-retention", "", s.Source, "Memory policy declares retention windows for memory, transcripts, or private context.")
+	}
+	if memoryIsolationConfigured(text) {
+		addControl(c, "control:memory-isolation", "memory-isolation", "", s.Source, "Memory policy declares session, user, workspace, or tenant isolation for persisted context.")
+	}
+	if contextIntegrityConfigured(text) {
+		addControl(c, "control:context-integrity", "context-integrity", "", s.Source, "Memory policy declares hashes, signatures, or integrity validation for persisted context.")
+	}
+	if contextProvenanceConfigured(text) {
+		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Memory policy declares source attribution or provenance metadata for persisted context.")
+	}
 }
 
 func collectObservabilityPolicy(c *model.Collection, s model.Surface) {
@@ -488,6 +519,15 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	}
 	if contextRetentionConfigured(text) {
 		addControl(c, "control:context-retention", "context-retention", runtime, source, runtime+" config constrains transcript, memory, or private-context retention.")
+	}
+	if memoryIsolationConfigured(text) {
+		addControl(c, "control:memory-isolation", "memory-isolation", runtime, source, runtime+" config declares memory or private-context isolation controls.")
+	}
+	if contextIntegrityConfigured(text) {
+		addControl(c, "control:context-integrity", "context-integrity", runtime, source, runtime+" config declares context integrity validation controls.")
+	}
+	if contextProvenanceConfigured(text) {
+		addControl(c, "control:context-provenance", "context-provenance", runtime, source, runtime+" config declares context source attribution or provenance metadata.")
 	}
 	if inlineCredentialConfigured(text) {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
@@ -936,9 +976,42 @@ func contextRetentionConfigured(text string) bool {
 		strings.Contains(text, "cleanup_period_days") ||
 		strings.Contains(text, "retention_days") ||
 		strings.Contains(text, "retentiondays") ||
+		strings.Contains(text, "ttl") ||
+		strings.Contains(text, "time_to_live") ||
 		strings.Contains(text, "context_retention") ||
 		strings.Contains(text, "transcript_retention") ||
 		strings.Contains(text, "memory_retention")
+}
+
+func memoryIsolationConfigured(text string) bool {
+	return strings.Contains(text, "memory_isolation") ||
+		strings.Contains(text, "context_isolation") ||
+		strings.Contains(text, "session_isolation") ||
+		strings.Contains(text, "workspace_isolation") ||
+		strings.Contains(text, "tenant_isolation") ||
+		strings.Contains(text, "user_isolation") ||
+		strings.Contains(text, "isolated_memory") ||
+		strings.Contains(text, "private_context_isolation")
+}
+
+func contextIntegrityConfigured(text string) bool {
+	return strings.Contains(text, "context_integrity") ||
+		strings.Contains(text, "memory_integrity") ||
+		strings.Contains(text, "integrity_validation") ||
+		strings.Contains(text, "hash_validation") ||
+		strings.Contains(text, "content_hash") ||
+		strings.Contains(text, "signed_context") ||
+		strings.Contains(text, "signature_validation")
+}
+
+func contextProvenanceConfigured(text string) bool {
+	return strings.Contains(text, "context_provenance") ||
+		strings.Contains(text, "memory_provenance") ||
+		strings.Contains(text, "source_attribution") ||
+		strings.Contains(text, "source_metadata") ||
+		strings.Contains(text, "provenance_metadata") ||
+		strings.Contains(text, "origin_metadata") ||
+		strings.Contains(text, "trusted_source")
 }
 
 func inlineCredentialConfigured(text string) bool {

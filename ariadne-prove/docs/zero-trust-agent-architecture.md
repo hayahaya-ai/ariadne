@@ -50,6 +50,7 @@ Examples of controls Ariadne can model today:
 - observed structured transcript metadata for tool-call events, approval decisions, request IDs, trace IDs, and timestamped action records
 - telemetry export and immutable audit log declarations from observability policy or OpenTelemetry collector config
 - memory, transcript, or context retention declarations
+- memory isolation, context integrity, and context provenance declarations
 
 Examples Ariadne reports as `unknown` today:
 
@@ -128,6 +129,19 @@ The policy is treated as declared evidence. Ariadne does not execute the policy 
 Repositories can also declare observability controls in `.ariadne/observability-policy.json`, or provide OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`.
 
 Transcript and history JSONL files are handled differently from policy files. Ariadne samples bounded structured metadata to identify whether event-shape evidence exists for tool calls, approval decisions, request IDs, trace IDs, correlation IDs, session IDs, and timestamps. It does not emit prompt text, tool arguments, tool outputs, or transcript content.
+
+Repositories can declare persisted-context controls in `.ariadne/memory-policy.json`:
+
+```json
+{
+  "context_retention": { "retention_days": 7 },
+  "memory_isolation": { "session_isolation": true },
+  "context_integrity": { "content_hash": true },
+  "context_provenance": { "source_attribution": true }
+}
+```
+
+Memory isolation is modeled as a graph control for the private-context boundary. Retention, integrity, and provenance are reported as evidence for the context-retention requirement, but Ariadne still does not inspect or emit private memory content.
 
 ## Evidence Contract
 

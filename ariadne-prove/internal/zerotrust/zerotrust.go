@@ -181,14 +181,14 @@ func memoryBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 	if len(evidence) > 0 {
 		status = model.ZeroTrustUnknown
 		finding = "Private context surfaces exist; Ariadne summarizes them but does not validate memory isolation or integrity."
-		controls = controlIDs(c, "control:deny-secret-read")
+		controls = controlIDs(c, memoryControlIDs()...)
 		if hasEdge(g, "authority:file-read|reaches|boundary:agent-private-context") || hasEdge(g, "authority:broad-local|reaches|boundary:agent-private-context") {
 			status = model.ZeroTrustBreaking
 			finding = "Agent authority reaches private context or history surfaces without an observed memory isolation control."
 		}
-		if hasEdge(g, "control:deny-secret-read|restricts|boundary:agent-private-context") {
+		if hasEdge(g, "control:deny-secret-read|restricts|boundary:agent-private-context") || hasEdge(g, "control:memory-isolation|restricts|boundary:agent-private-context") {
 			status = model.ZeroTrustControlled
-			finding = "Private context surfaces exist, and a deny-read control restricts the modeled private-context boundary."
+			finding = "Private context surfaces exist, and Ariadne observed a graph control that restricts the modeled private-context boundary."
 		}
 	}
 	return model.ZeroTrustCheck{
@@ -719,9 +719,9 @@ func requireApprovalEscalation(c model.Collection) model.ZeroTrustRequirement {
 }
 
 func requireContextRetention(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:context-retention")
+	controls := controlIDs(c, memoryControlIDs()...)
 	evidence := firstEvidence(
-		controlsEvidence(c, "control:context-retention"),
+		controlsEvidence(c, memoryControlIDs()...),
 		memoryEvidence(c),
 	)
 	status := model.ZeroTrustNotObserved
@@ -736,7 +736,7 @@ func requireContextRetention(c model.Collection) model.ZeroTrustRequirement {
 	if len(controls) > 0 {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
-		finding = "Ariadne observed declared context, transcript, or memory retention controls."
+		finding = "Ariadne observed retention, isolation, integrity, or provenance controls for persisted context."
 		missing = nil
 	}
 	return zeroTrustRequirement(
@@ -1082,6 +1082,16 @@ func leastAgencyControlIDs() []string {
 		"control:deny-secret-read",
 		"control:mcp-reviewed-pinned",
 		"control:network-restricted",
+	}
+}
+
+func memoryControlIDs() []string {
+	return []string{
+		"control:context-retention",
+		"control:memory-isolation",
+		"control:context-integrity",
+		"control:context-provenance",
+		"control:deny-secret-read",
 	}
 }
 

@@ -540,6 +540,8 @@ func controlRestrictsBoundary(controlID, boundaryID string) bool {
 	switch controlID {
 	case "control:deny-secret-read":
 		return boundaryID == "boundary:secret-like-file" || boundaryID == "boundary:developer-secret-boundary" || boundaryID == "boundary:agent-private-context"
+	case "control:memory-isolation":
+		return boundaryID == "boundary:agent-private-context"
 	case "control:network-restricted":
 		return boundaryID == "boundary:external-destination"
 	case "control:mcp-reviewed-pinned":

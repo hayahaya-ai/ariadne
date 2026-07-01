@@ -59,6 +59,7 @@ Supported control signals include:
 - input validation, schema validation, prompt-injection filtering, or maximum input length indicators
 - automated first-pass investigation or alert triage indicators
 - transcript, memory, or context retention indicators
+- memory isolation, context integrity, and context provenance indicators
 - observed structured transcript metadata for tool-call events, approval decisions, action logs, request IDs, trace IDs, correlation IDs, or session IDs
 - telemetry export and immutable audit log indicators from observability policy or OpenTelemetry collector config
 

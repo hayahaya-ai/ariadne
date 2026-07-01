@@ -663,6 +663,41 @@ func TestZeroTrustMemoryBoundaryUsesGraphEvidence(t *testing.T) {
 	}
 }
 
+func TestZeroTrustMemoryPolicyControlsPrivateContext(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "memory-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:memory-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:context-retention",
+		"control:memory-isolation",
+		"control:context-integrity",
+		"control:context-provenance",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("memory boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing memory control node %s", id)
+		}
+	}
+	if !r.Graph.HasEdge("control:memory-isolation|restricts|boundary:agent-private-context") {
+		t.Fatalf("missing memory isolation graph edge")
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:context-retention", model.ZeroTrustControlled)
+	if !containsString(req.Controls, "control:context-integrity") || !containsString(req.Controls, "control:context-provenance") {
+		t.Fatalf("context retention requirement missing integrity/provenance evidence: %+v", req.Controls)
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(blob), "MEMORY_SECRET_DO_NOT_LEAK") {
+		t.Fatalf("private memory content leaked into report")
+	}
+}
+
 func TestZeroTrustObservedTranscriptMetadataControlsObservability(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "observability-evidence")})
 	if err != nil {
