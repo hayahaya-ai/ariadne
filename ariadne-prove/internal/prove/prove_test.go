@@ -2031,6 +2031,69 @@ func TestZeroTrustMemoryPolicyControlsPrivateContext(t *testing.T) {
 	}
 }
 
+func TestZeroTrustMemoryCredentialRetentionIsBreaking(t *testing.T) {
+	path := realPathFixture(t, "memory-credential-retention")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundSensitiveNameCount := false
+	for _, surface := range inventory.Collection.Surfaces {
+		if surface.Kind == "claude-private-context" && surface.SensitiveNameCount > 0 {
+			foundSensitiveNameCount = true
+		}
+	}
+	if !foundSensitiveNameCount {
+		t.Fatalf("private context inventory did not report credential-like filename indicators")
+	}
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:memory-boundary", model.ZeroTrustBreaking)
+	if !r.Graph.HasNode("boundary:memory-credential-retention") {
+		t.Fatalf("missing memory credential retention boundary")
+	}
+	if !r.Graph.HasEdge("authority:file-read|reaches|boundary:memory-credential-retention") {
+		t.Fatalf("missing file-read reachability edge to memory credential retention boundary")
+	}
+	if !containsString(check.GraphEdges, "authority:file-read|reaches|boundary:memory-credential-retention") {
+		t.Fatalf("memory boundary does not cite credential-retention reachability edge: %+v", check.GraphEdges)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "credential-like") {
+		t.Fatalf("memory credential retention finding should explain credential-like retention: %q", check.Finding)
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(blob), "MEMORY_CREDENTIAL_DO_NOT_LEAK") {
+		t.Fatalf("private credential-like memory content leaked into report")
+	}
+}
+
+func TestZeroTrustPartialMemoryControlsAreUnknown(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "memory-partial-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:memory-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:context-retention") || !containsString(check.Controls, "control:memory-isolation") {
+		t.Fatalf("partial memory boundary should cite observed retention and isolation controls: %+v", check.Controls)
+	}
+	if containsString(check.Controls, "control:context-integrity") || containsString(check.Controls, "control:context-provenance") {
+		t.Fatalf("partial memory boundary should not invent integrity or provenance controls: %+v", check.Controls)
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(blob), "PRIVATE_CONTEXT_DO_NOT_LEAK") {
+		t.Fatalf("private context content leaked into report")
+	}
+}
+
 func TestZeroTrustObservedTranscriptMetadataControlsObservability(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "observability-evidence")})
 	if err != nil {

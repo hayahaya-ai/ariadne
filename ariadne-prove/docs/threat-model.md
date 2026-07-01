@@ -41,7 +41,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Is high-risk agent authority re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes?
 - Can an agent loop tool calls, exhaust APIs, create billing spikes, or deny service without resource limits and circuit breakers?
 - Does a declared control break a modeled path?
-- Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-aware workload authorization, approval, sandbox, audit, traceability, input isolation, input validation, automated triage, containment, or retention controls?
+- Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-aware workload authorization, approval, sandbox, audit, traceability, input isolation, input validation, automated triage, containment, retention, memory integrity, provenance, or credential-isolation controls?
 - Is the agent deployment registered, owned, approved, risk-assessed, reviewed, or still effectively Shadow AI?
 - Are agent settings, MCP definitions, and policy files protected by review, signatures, managed enforcement, immutable runtime, or rollback controls?
 - Does configuration contain inline credential field indicators?
@@ -62,7 +62,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Is the authenticated agent authorized only for named callers, context attributes, network segments, and tool scopes?
 - Is standing high-risk authority replaced with per-action authorization, dynamic/JIT scoping, and automatic revocation?
 - Are tool/API calls bounded by rate, spend, loop, timeout, concurrency, and usage-audit controls?
-- Is persisted memory or context isolated from unrelated sessions and broad local authority?
+- Is persisted memory or context isolated from unrelated sessions and broad local authority, and does it avoid retaining credential-like material without credential isolation?
 - Would operators have enough audit evidence to reconstruct agent actions and approvals?
 - Can suspicious agent behavior trigger containment that terminates sessions, revokes credentials, quarantines the workload, or reduces authority?
 - Is the deployment governed by an inventory, accountable owner, approval process, risk tier, data classification, and review cadence?
@@ -86,6 +86,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - proxy, DNS, firewall, destination allowlist, webhook allowlist, or per-tool network-scope enforcement verification
 - live prompt-injection resistance testing
 - live output DLP, semantic leakage testing, response inspection, or output-control enforcement verification
+- private memory content inspection, live memory quarantine, rollback, or tamper-resistant context-integrity enforcement proof
 - live observability, SIEM, telemetry ingestion, or tamper-resistant audit proof
 - live SOAR execution, session termination, credential revocation, quarantine, or dynamic access-reduction enforcement proof
 - live GRC, CMDB, approval workflow, policy exception, or organization-wide Shadow AI discovery verification

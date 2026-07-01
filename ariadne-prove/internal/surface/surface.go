@@ -62,12 +62,12 @@ func Registry() []Rule {
 		{Runtime: "claude", Scope: "repo", Category: "managed-remote-settings", Kind: "claude-remote-settings", HandlingMode: "parse", Summary: "Claude remote settings can affect managed runtime posture.", Matches: exact(".claude/remote-settings.json")},
 		{Runtime: "claude", Scope: "repo", Category: "policy", Kind: "claude-policy-limits", HandlingMode: "parse", Summary: "Claude policy limits can constrain runtime behavior.", Matches: exact(".claude/policy-limits.json")},
 		{Runtime: "claude", Scope: "repo", Category: "memory", Kind: "claude-project-memory", HandlingMode: "parse", Summary: "Claude project memory can influence future agent behavior.", Matches: containsSegmentAndSuffix("/memory/", ".md")},
-		{Runtime: "claude", Scope: "repo", Category: "history-cache", Kind: "claude-history", HandlingMode: "summarize", Summary: "Claude history/session state may contain prompts or context; contents are not emitted.", Matches: anyOf(exact(".claude/history.jsonl"), prefix(".claude/tasks/"), prefix(".claude/file-history/"), prefix(".claude/paste-cache/"), suffix(".jsonl"))},
+		{Runtime: "claude", Scope: "repo", Category: "history-cache", Kind: "claude-history", HandlingMode: "summarize", Summary: "Claude history/session state may contain prompts or context; contents are not emitted.", Matches: anyOf(exact(".claude/history.jsonl"), prefix(".claude/tasks/"), prefix(".claude/file-history/"), prefix(".claude/paste-cache/"), prefixSuffix(".claude/", ".jsonl"))},
 
 		{Runtime: "codex", Scope: "repo", Category: "runtime-config", Kind: "codex-config", HandlingMode: "parse", Summary: "Codex config declares sandbox, approval, MCP, and profile posture.", Matches: exact(".codex/config.toml")},
 		{Runtime: "codex", Scope: "repo", Category: "policy", Kind: "codex-requirements", HandlingMode: "parse", Summary: "Codex requirements can constrain filesystem and runtime behavior.", Matches: exact(".codex/requirements.toml")},
 		{Runtime: "codex", Scope: "repo", Category: "trust-input", Kind: "codex-agents-md", HandlingMode: "parse", Summary: "Codex AGENTS.md can influence agent behavior.", Matches: exact(".codex/AGENTS.md")},
-		{Runtime: "codex", Scope: "repo", Category: "history-cache", Kind: "codex-browser-session", HandlingMode: "summarize", Summary: "Codex browser/session state may contain local context; contents are not emitted.", Matches: prefix(".codex/browser/sessions/")},
+		{Runtime: "codex", Scope: "repo", Category: "history-cache", Kind: "codex-browser-session", HandlingMode: "summarize", Summary: "Codex browser/session state may contain local context; contents are not emitted.", Matches: anyOf(prefix(".codex/browser/sessions/"), prefix(".codex/sessions/"))},
 
 		{Runtime: "generic", Scope: "repo", Category: "trust-input", Kind: "claude-md", HandlingMode: "parse", Summary: "CLAUDE.md can influence local coding-agent behavior.", Matches: exact("CLAUDE.md")},
 		{Runtime: "generic", Scope: "repo", Category: "trust-input", Kind: "agents-md", HandlingMode: "parse", Summary: "AGENTS.md can influence local coding-agent behavior.", Matches: exact("AGENTS.md")},
@@ -151,17 +151,22 @@ func discoverRoot(root, scope, pathPrefix string, opts Options) ([]model.Surface
 			if info != nil {
 				size = info.Size()
 			}
+			sensitiveNameCount := 0
+			if rule.HandlingMode == "summarize" && credentialLikeName(matchPath) {
+				sensitiveNameCount = 1
+			}
 			surfaces = append(surfaces, model.Surface{
-				ID:           surfaceID(rule.Runtime, rule.Kind, safeRel(opts, path)),
-				Path:         path,
-				Runtime:      rule.Runtime,
-				Scope:        scope,
-				Category:     rule.Category,
-				Kind:         rule.Kind,
-				HandlingMode: rule.HandlingMode,
-				Source:       safeRel(opts, path),
-				Summary:      rule.Summary,
-				ApproxBytes:  size,
+				ID:                 surfaceID(rule.Runtime, rule.Kind, safeRel(opts, path)),
+				Path:               path,
+				Runtime:            rule.Runtime,
+				Scope:              scope,
+				Category:           rule.Category,
+				Kind:               rule.Kind,
+				HandlingMode:       rule.HandlingMode,
+				Source:             safeRel(opts, path),
+				Summary:            rule.Summary,
+				ApproxBytes:        size,
+				SensitiveNameCount: sensitiveNameCount,
 			})
 		}
 		return nil
@@ -230,7 +235,7 @@ func skippedSurface(path, relPath, scope string, opts Options) model.Surface {
 }
 
 func summarizeDir(path, relPath, scope string, opts Options) model.Surface {
-	files, bytes := summarizePath(path)
+	files, bytes, sensitiveNames := summarizePath(path)
 	runtime := "claude"
 	kind := "claude-private-context"
 	if strings.HasPrefix(relPath, ".codex/") {
@@ -238,34 +243,39 @@ func summarizeDir(path, relPath, scope string, opts Options) model.Surface {
 		kind = "codex-private-context"
 	}
 	return model.Surface{
-		ID:           surfaceID(runtime, kind, safeRel(opts, path)),
-		Path:         path,
-		Runtime:      runtime,
-		Scope:        scope,
-		Category:     "history-cache",
-		Kind:         kind,
-		HandlingMode: "summarize",
-		Source:       safeRel(opts, path),
-		Summary:      "Private context surface summarized; contents were not inspected or emitted.",
-		ApproxBytes:  bytes,
-		FileCount:    files,
+		ID:                 surfaceID(runtime, kind, safeRel(opts, path)),
+		Path:               path,
+		Runtime:            runtime,
+		Scope:              scope,
+		Category:           "history-cache",
+		Kind:               kind,
+		HandlingMode:       "summarize",
+		Source:             safeRel(opts, path),
+		Summary:            "Private context surface summarized; contents were not inspected or emitted.",
+		ApproxBytes:        bytes,
+		FileCount:          files,
+		SensitiveNameCount: sensitiveNames,
 	}
 }
 
-func summarizePath(path string) (int, int64) {
+func summarizePath(path string) (int, int64, int) {
 	files := 0
 	var bytes int64
-	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+	sensitiveNames := 0
+	_ = filepath.WalkDir(path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
 		files++
+		if credentialLikeName(path) {
+			sensitiveNames++
+		}
 		if info, statErr := d.Info(); statErr == nil {
 			bytes += info.Size()
 		}
 		return nil
 	})
-	return files, bytes
+	return files, bytes, sensitiveNames
 }
 
 func runtimeAllowed(selected, runtime string) bool {
@@ -351,5 +361,25 @@ func secretLike(path string) bool {
 		strings.HasSuffix(base, ".pem") ||
 		strings.HasSuffix(base, ".key") ||
 		base == ".npmrc" ||
-		base == ".netrc"
+		base == ".netrc" ||
+		base == "id_rsa" ||
+		base == "id_ed25519"
+}
+
+func credentialLikeName(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	return base == ".env" ||
+		strings.HasPrefix(base, ".env.") ||
+		base == "secrets.env" ||
+		strings.HasSuffix(base, ".pem") ||
+		strings.HasSuffix(base, ".key") ||
+		base == ".npmrc" ||
+		base == ".netrc" ||
+		base == "id_rsa" ||
+		base == "id_ed25519" ||
+		strings.Contains(base, "credential") ||
+		strings.Contains(base, "api_key") ||
+		strings.Contains(base, "api-key") ||
+		strings.Contains(base, "secret") ||
+		strings.Contains(base, "token")
 }

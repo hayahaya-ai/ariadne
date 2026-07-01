@@ -28,7 +28,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Tool integrity boundary: whether model-callable tools are approved, provenance-bound, descriptor-validated, authenticated, and argument-validated.
 - AI supply-chain boundary: whether model, dataset, framework, MCP, plugin, tool, and provider components have AI-BOM, provenance, dependency-health, signing, and runtime-validation evidence.
 - Agent delegation boundary: whether delegated or sub-agent work has explicit scope, agent-to-agent authorization, original-intent verification, and delegated credential controls.
-- Memory and context boundary: whether persisted context can be reached or needs isolation evidence.
+- Memory and context boundary: whether persisted context can be reached, poisoned, or retain credential-like material without isolation, retention, integrity, provenance, and credential-isolation evidence.
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
 - Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
 - Continuous authorization boundary: whether high-risk agent authority is re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes.
@@ -60,7 +60,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
 | A compromised agent keeps operating while humans investigate | Response and containment boundary | Modeled today through behavioral monitoring, automated triage, session termination, credential revocation, quarantine, dynamic access reduction, and response escalation declarations. |
 | Employees or teams run agents outside accountable governance | Deployment governance boundary | Modeled today through agent inventory, accountable owner, deployment approval, risk assessment, governance review, and Shadow AI discovery declarations. |
-| Memory or context persists across sessions without isolation or provenance | Memory and context boundary | Modeled today through private-context surfaces, retention policy, memory isolation, context integrity, and provenance declarations. |
+| Memory or context persists across sessions without isolation, provenance, or credential exclusion | Memory and context boundary | Modeled today through private-context surfaces, credential-like filename indicators in summarized context, retention policy, memory isolation, context integrity, context provenance, and credential-isolation declarations. |
 | Agent config can be silently changed to widen authority or disable controls | Configuration integrity boundary | Modeled today through reviewed version-controlled config, signed deployment verification, managed-settings enforcement, immutable runtime, and rollback evidence. |
 
 This gives Ariadne a product rule: a report should separate observed facts, declared controls, inferred paths, and limitations. If Ariadne cannot prove a hard boundary from evidence, it should say `unknown`, not pretend the architecture is safe.
@@ -111,7 +111,7 @@ Examples of controls Ariadne can model today:
 - behavioral monitoring, automated triage, session termination, credential revocation, containment quarantine, dynamic access reduction, and response escalation declarations
 - agent inventory, accountable owner, deployment approval, risk assessment, governance review, and Shadow AI discovery declarations
 - memory, transcript, or context retention declarations
-- memory isolation, context integrity, and context provenance declarations
+- memory isolation, context integrity, context provenance, and credential-isolation declarations for persisted context
 - version-controlled config, config review, signed config, deployment verification, managed-settings enforcement, immutable runtime, and rollback declarations
 
 Examples Ariadne reports as `unknown` today:
@@ -123,6 +123,7 @@ Examples Ariadne reports as `unknown` today:
 - output filtering and redaction evidence without output filter logging
 - per-action authorization or ABAC evidence without dynamic/JIT privilege scoping and automatic revocation evidence
 - rate-limit evidence without loop/time/concurrency stop conditions and resource usage audit evidence
+- memory isolation or retention evidence without context integrity and provenance evidence
 - tool sandboxing, rate limits, or circuit breakers without allowlist, provenance, authentication, descriptor integrity, or argument-validation evidence
 - AI-BOM evidence without dependency health, model provenance or provider review, and artifact signing or runtime validation evidence
 - delegation audit or subagent context isolation without explicit delegation scope, agent-to-agent authorization, original-intent verification, or delegated credential scoping
@@ -136,7 +137,8 @@ Examples Ariadne reports as `unknown` today:
 Examples Ariadne reports as `breaking` when observed:
 
 - inline credential field indicators in agent configuration
-- authority paths that reach private context without an observed break-path control
+- authority paths that reach private context without observed hard memory controls
+- credential-like material retained in private agent context without observed credential-isolation evidence
 - reachable sensitive data without observed output filtering and block or redaction controls
 - risk-bearing agent configuration without observed hard integrity controls
 - standing high-risk authority without observed continuous authorization, dynamic/JIT scoping, and automatic revocation controls
@@ -507,11 +509,12 @@ Repositories can declare persisted-context controls in `.ariadne/memory-policy.j
   "context_retention": { "retention_days": 7 },
   "memory_isolation": { "session_isolation": true },
   "context_integrity": { "content_hash": true },
-  "context_provenance": { "source_attribution": true }
+  "context_provenance": { "source_attribution": true },
+  "credential_isolation": true
 }
 ```
 
-Memory isolation is modeled as a graph control for the private-context boundary. Retention, integrity, and provenance are reported as evidence for the context-retention requirement, but Ariadne still does not inspect or emit private memory content.
+Memory isolation, retention, integrity, and provenance are modeled as graph controls for the private-context boundary. If summarized private context contains credential-like filename indicators, Ariadne emits `boundary:memory-credential-retention`; credential isolation is then required before the memory boundary is considered controlled. Ariadne still does not inspect or emit private memory content.
 
 Repositories can declare focused configuration integrity controls in `.ariadne/integrity-policy.json`:
 

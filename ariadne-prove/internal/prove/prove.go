@@ -606,9 +606,11 @@ func BuildGraph(c model.Collection) model.Graph {
 func controlRestrictsBoundary(controlID, boundaryID string) bool {
 	switch controlID {
 	case "control:deny-secret-read":
-		return boundaryID == "boundary:secret-like-file" || boundaryID == "boundary:developer-secret-boundary" || boundaryID == "boundary:agent-private-context"
-	case "control:memory-isolation":
-		return boundaryID == "boundary:agent-private-context"
+		return boundaryID == "boundary:secret-like-file" || boundaryID == "boundary:developer-secret-boundary" || boundaryID == "boundary:agent-private-context" || boundaryID == "boundary:memory-credential-retention"
+	case "control:memory-isolation", "control:context-retention", "control:context-integrity", "control:context-provenance":
+		return boundaryID == "boundary:agent-private-context" || boundaryID == "boundary:memory-credential-retention"
+	case "control:credential-isolation":
+		return boundaryID == "boundary:memory-credential-retention"
 	case "control:network-restricted", "control:egress-destination-allowlist", "control:webhook-allowlist", "control:per-tool-network-scope":
 		return boundaryID == "boundary:external-destination"
 	case "control:mcp-reviewed-pinned":
@@ -644,6 +646,7 @@ func outputSensitiveBoundary(boundaryID string) bool {
 	case "boundary:secret-like-file",
 		"boundary:developer-secret-boundary",
 		"boundary:agent-private-context",
+		"boundary:memory-credential-retention",
 		"boundary:credential-material":
 		return true
 	default:
@@ -830,6 +833,8 @@ func authorityReachesBoundary(authorityID, boundaryID string) bool {
 		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
 	case "boundary:agent-private-context":
 		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
+	case "boundary:memory-credential-retention":
+		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
 	case "boundary:developer-execution-boundary":
 		return authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
 	case "boundary:external-destination":
@@ -1015,7 +1020,7 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 		}
 	}
 	hasPrivateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local")
-	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context")
+	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context") || hasBoundary(c, "boundary:memory-credential-retention")
 	hasExternalCommunication := hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local")
 	hasExternalDestination := hasBoundary(c, "boundary:external-destination")
 	hasHardEgressControl := hasHardEgressBreak(c)
@@ -1214,9 +1219,11 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"authority:file-read|reaches|boundary:secret-like-file",
 		"authority:file-read|reaches|boundary:developer-secret-boundary",
 		"authority:file-read|reaches|boundary:agent-private-context",
+		"authority:file-read|reaches|boundary:memory-credential-retention",
 		"authority:broad-local|reaches|boundary:secret-like-file",
 		"authority:broad-local|reaches|boundary:developer-secret-boundary",
 		"authority:broad-local|reaches|boundary:agent-private-context",
+		"authority:broad-local|reaches|boundary:memory-credential-retention",
 		"runtime:codex|has_authority|authority:external-communication",
 		"runtime:claude|has_authority|authority:external-communication",
 		"authority:external-communication|reaches|boundary:external-destination",
@@ -1230,6 +1237,7 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"control:deny-secret-read|restricts|boundary:secret-like-file",
 		"control:deny-secret-read|restricts|boundary:developer-secret-boundary",
 		"control:deny-secret-read|restricts|boundary:agent-private-context",
+		"control:deny-secret-read|restricts|boundary:memory-credential-retention",
 	}
 	return existingEdges(g, candidates)
 }

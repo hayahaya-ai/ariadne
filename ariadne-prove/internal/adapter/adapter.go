@@ -1019,6 +1019,9 @@ func collectMemoryPolicy(c *model.Collection, s model.Surface) {
 	if contextProvenanceConfigured(text) {
 		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Memory policy declares source attribution or provenance metadata for persisted context.")
 	}
+	if credentialIsolationConfigured(text) {
+		addControl(c, "control:credential-isolation", "credential-isolation", "", s.Source, "Memory policy declares that credentials are isolated from shared or persisted agent context.")
+	}
 }
 
 func collectIntegrityPolicy(c *model.Collection, s model.Surface) {
@@ -1221,6 +1224,22 @@ func addObservedControl(c *model.Collection, id, kind, runtime, source, summary 
 func collectSummarySurface(c *model.Collection, s model.Surface) {
 	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:agent-private-context", Kind: "agent-private-context", Source: s.Source, Abstract: false, Summary: "Agent private context cache/history exists; contents are not inspected or emitted by default."})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:agent-private-context", "boundary", s.Source, "observed", "Private agent context surface was summarized without reading contents."))
+	if s.SensitiveNameCount > 0 {
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:memory-credential-retention",
+			Kind:     "memory-credential-retention",
+			Source:   s.Source,
+			Abstract: false,
+			Summary:  "Agent private context includes credential-like filename indicators; contents are not inspected or emitted.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence(
+			"evidence:boundary:memory-credential-retention",
+			"boundary",
+			s.Source,
+			"observed",
+			fmt.Sprintf("Private context metadata includes %d credential-like filename indicator(s); values and content were not inspected.", s.SensitiveNameCount),
+		))
+	}
 	collectObservabilityMetadata(c, s)
 }
 

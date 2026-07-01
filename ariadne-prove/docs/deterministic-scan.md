@@ -42,7 +42,7 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 
 ## Zero Trust Control Evidence
 
-Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/tool-policy.json`, `.ariadne/delegation-policy.json`, `.ariadne/input-policy.json`, `.ariadne/output-policy.json`, `.ariadne/identity-policy.json`, `.ariadne/authorization-policy.json`, `.ariadne/resource-policy.json`, `.ariadne/workload-policy.json`, `.ariadne/egress-policy.json`, `.ariadne/response-policy.json`, `.ariadne/governance-policy.json`, `.ariadne/integrity-policy.json`, and `.ariadne/supply-chain-policy.json`.
+Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/tool-policy.json`, `.ariadne/delegation-policy.json`, `.ariadne/input-policy.json`, `.ariadne/output-policy.json`, `.ariadne/identity-policy.json`, `.ariadne/authorization-policy.json`, `.ariadne/resource-policy.json`, `.ariadne/memory-policy.json`, `.ariadne/workload-policy.json`, `.ariadne/egress-policy.json`, `.ariadne/response-policy.json`, `.ariadne/governance-policy.json`, `.ariadne/integrity-policy.json`, and `.ariadne/supply-chain-policy.json`.
 
 Supported control signals include:
 
@@ -74,15 +74,15 @@ Supported control signals include:
 - behavioral monitoring, session termination, credential revocation, quarantine, dynamic access reduction, or response escalation indicators
 - agent inventory, accountable owner, deployment approval, risk assessment, governance review, or Shadow AI discovery indicators
 - transcript, memory, or context retention indicators
-- memory isolation, context integrity, and context provenance indicators
+- memory isolation, context retention, context integrity, context provenance, and memory credential-isolation indicators
 - reviewed version-controlled config, signed config, deployment verification, managed-settings enforcement, immutable runtime, and rollback indicators
 - observed structured transcript metadata for tool-call events, approval decisions, action logs, request IDs, trace IDs, correlation IDs, or session IDs
 - telemetry export and immutable audit log indicators from observability policy or OpenTelemetry collector config
 
-Ariadne also flags inline credential field indicators as `boundary:credential-material`. It reports the field presence only; values are never emitted.
+Ariadne also flags inline credential field indicators as `boundary:credential-material` and credential-like filename indicators inside summarized private context as `boundary:memory-credential-retention`. It reports field or filename presence only; values are never emitted.
 
 ## Redaction
 
-Secret values are never emitted. Private context surfaces are summarized by file count, size, source, and category. Exact sensitive paths outside the scan root are redacted by default.
+Secret values are never emitted. Private context surfaces are summarized by file count, size, source, category, and count-only credential-like filename indicators. Exact sensitive paths outside the scan root are redacted by default.
 
 For transcript and history JSONL files, Ariadne samples bounded structured metadata only. It looks at JSON keys and safe event-shape fields such as event type, request ID, trace ID, timestamp, tool-call presence, and approval-decision presence. It does not emit prompt text, tool arguments, tool outputs, or transcript content.

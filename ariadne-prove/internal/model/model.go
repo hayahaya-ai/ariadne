@@ -202,17 +202,18 @@ type Evidence struct {
 }
 
 type Surface struct {
-	ID           string `json:"id"`
-	Path         string `json:"-"`
-	Runtime      string `json:"runtime"`
-	Scope        string `json:"scope"`
-	Category     string `json:"category"`
-	Kind         string `json:"kind"`
-	HandlingMode string `json:"handling_mode"`
-	Source       string `json:"source"`
-	Summary      string `json:"summary"`
-	ApproxBytes  int64  `json:"approx_bytes,omitempty"`
-	FileCount    int    `json:"file_count,omitempty"`
+	ID                 string `json:"id"`
+	Path               string `json:"-"`
+	Runtime            string `json:"runtime"`
+	Scope              string `json:"scope"`
+	Category           string `json:"category"`
+	Kind               string `json:"kind"`
+	HandlingMode       string `json:"handling_mode"`
+	Source             string `json:"source"`
+	Summary            string `json:"summary"`
+	ApproxBytes        int64  `json:"approx_bytes,omitempty"`
+	FileCount          int    `json:"file_count,omitempty"`
+	SensitiveNameCount int    `json:"sensitive_name_count,omitempty"`
 }
 
 type Fact struct {

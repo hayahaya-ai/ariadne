@@ -403,22 +403,30 @@ func delegationBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck 
 
 func memoryBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 	evidence := memoryEvidence(c)
+	controlEvidence := controlsEvidence(c, memoryControlIDs()...)
 	status := model.ZeroTrustNotObserved
 	finding := "No supported memory, history, paste cache, or private context surface was observed."
-	edges := edgesForNode(g, "boundary:agent-private-context")
-	controls := []string{}
-	if len(evidence) > 0 {
+	edges := memoryEdges(g)
+	controls := controlIDs(c, memoryControlIDs()...)
+	if hasMemoryRelevantSurface(c) {
 		status = model.ZeroTrustUnknown
-		finding = "Private context surfaces exist; Ariadne summarizes them but does not validate memory isolation or integrity."
-		controls = controlIDs(c, memoryControlIDs()...)
-		if hasEdge(g, "authority:file-read|reaches|boundary:agent-private-context") || hasEdge(g, "authority:broad-local|reaches|boundary:agent-private-context") {
-			status = model.ZeroTrustBreaking
-			finding = "Agent authority reaches private context or history surfaces without an observed memory isolation control."
-		}
-		if hasEdge(g, "control:deny-secret-read|restricts|boundary:agent-private-context") || hasEdge(g, "control:memory-isolation|restricts|boundary:agent-private-context") {
-			status = model.ZeroTrustControlled
-			finding = "Private context surfaces exist, and Ariadne observed a graph control that restricts the modeled private-context boundary."
-		}
+		finding = "Private context surfaces exist; Ariadne summarizes them but did not observe isolation, retention, integrity, and provenance controls."
+	}
+	if hasMemoryRelevantSurface(c) && len(controls) > 0 && !hasHardMemoryBoundary(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed some memory-control evidence, but not enough to prove isolation plus retention plus integrity and provenance."
+	}
+	if privateContextReachable(g) && !hasHardMemoryBoundary(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Agent authority reaches private context or history surfaces without hard memory isolation, retention, integrity, and provenance controls."
+	}
+	if hasMemoryCredentialRetention(c) && !hasHardMemoryBoundary(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Credential-like material appears retained in private agent context without observed memory isolation, retention, integrity, provenance, and credential-isolation evidence."
+	}
+	if hasMemoryRelevantSurface(c) && hasHardMemoryBoundary(c) {
+		status = model.ZeroTrustControlled
+		finding = "Private context surfaces exist, and Ariadne observed hard memory controls: isolation, retention, integrity, provenance, and credential isolation when needed."
 	}
 	return model.ZeroTrustCheck{
 		ID:         "zt:memory-boundary",
@@ -426,16 +434,17 @@ func memoryBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 		Boundary:   "Memory and context boundary",
 		Tier:       "enterprise",
 		Status:     status,
-		DesignTest: "Persisted context should be isolated, bounded by retention, and protected from authority paths that do not need it.",
+		DesignTest: "Persisted context should be isolated, bounded by retention, integrity-checked, provenance-tagged, and protected from credential retention across sessions.",
 		Finding:    finding,
-		Evidence:   limitEvidence(evidence, 8),
+		Evidence:   limitEvidence(firstEvidence(evidence, controlEvidence), 8),
 		GraphEdges: edges,
 		Controls:   controls,
 		Actions: []string{
 			"Keep histories, paste caches, and memory stores outside broad agent-readable roots.",
-			"Define retention and isolation controls for persisted agent context.",
+			"Define retention, isolation, integrity, and provenance controls for persisted agent context.",
+			"Prevent credentials and tokens from being cached in shared or reusable agent memory.",
 		},
-		Limitations: []string{"Ariadne summarizes private context metadata only; it does not inspect private history contents by default."},
+		Limitations: []string{"Ariadne summarizes private context metadata only; it does not inspect private history contents or validate live memory quarantine and rollback behavior."},
 	}
 }
 
@@ -1655,10 +1664,11 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		gap.MissingEvidence = []string{
 			"memory isolation policy",
 			"context retention policy",
-			"context integrity or provenance metadata",
+			"context integrity and provenance metadata",
+			"credential exclusion or credential-isolation evidence for persisted context",
 		}
-		gap.WhyItMatters = "Without memory isolation evidence, persisted context may become a cross-session influence or sensitive-data boundary."
-		gap.NextCollector = "Collect memory store locations, retention settings, transcript metadata, and integrity/provenance controls."
+		gap.WhyItMatters = "Without memory isolation and provenance evidence, poisoned or credential-bearing context can persist across sessions and become a cross-session authority path."
+		gap.NextCollector = "Collect memory store locations, retention settings, transcript metadata, credential-retention indicators, context integrity/provenance controls, and memory isolation policy."
 	case "zt:identity-boundary":
 		gap.MissingEvidence = []string{
 			"cryptographic, hardware-bound, or per-agent identity evidence",
@@ -2346,7 +2356,34 @@ func memoryControlIDs() []string {
 		"control:context-integrity",
 		"control:context-provenance",
 		"control:deny-secret-read",
+		"control:credential-isolation",
 	}
+}
+
+func hasHardMemoryBoundary(c model.Collection) bool {
+	isolated := hasAnyControl(c, "control:memory-isolation")
+	retained := hasAnyControl(c, "control:context-retention")
+	integrity := hasAnyControl(c, "control:context-integrity")
+	provenance := hasAnyControl(c, "control:context-provenance")
+	credentialSafe := !hasMemoryCredentialRetention(c) || hasAnyControl(c, "control:credential-isolation")
+	return isolated && retained && integrity && provenance && credentialSafe
+}
+
+func hasMemoryRelevantSurface(c model.Collection) bool {
+	return len(surfaceEvidenceByCategory(c, "memory")) > 0 ||
+		len(surfaceEvidenceByCategory(c, "history-cache")) > 0 ||
+		hasAnyBoundary(c, "boundary:agent-private-context", "boundary:memory-credential-retention")
+}
+
+func hasMemoryCredentialRetention(c model.Collection) bool {
+	return hasBoundaryID(c, "boundary:memory-credential-retention")
+}
+
+func privateContextReachable(g model.Graph) bool {
+	return hasEdge(g, "authority:file-read|reaches|boundary:agent-private-context") ||
+		hasEdge(g, "authority:broad-local|reaches|boundary:agent-private-context") ||
+		hasEdge(g, "authority:file-read|reaches|boundary:memory-credential-retention") ||
+		hasEdge(g, "authority:broad-local|reaches|boundary:memory-credential-retention")
 }
 
 func hasBoundaryID(c model.Collection, id string) bool {
@@ -2523,6 +2560,7 @@ func memoryEvidence(c model.Collection) []model.ZeroTrustEvidence {
 	out := surfaceEvidenceByCategory(c, "memory")
 	out = append(out, surfaceEvidenceByCategory(c, "history-cache")...)
 	out = append(out, boundaryEvidence(c, "boundary:agent-private-context")...)
+	out = append(out, boundaryEvidence(c, "boundary:memory-credential-retention")...)
 	return dedupeEvidence(out)
 }
 
@@ -2679,6 +2717,17 @@ func outputEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func memoryEdges(g model.Graph) []string {
+	out := edgesForNode(g, "boundary:agent-private-context")
+	out = append(out, edgesForNode(g, "boundary:memory-credential-retention")...)
+	for _, edge := range g.Edges {
+		if edge.Type == "restricts" && memoryControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func authorizationEdges(g model.Graph) []string {
 	out := []string{}
 	for _, edge := range g.Edges {
@@ -2697,6 +2746,20 @@ func resourceEdges(g model.Graph) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func memoryControlID(id string) bool {
+	switch id {
+	case "control:context-retention",
+		"control:memory-isolation",
+		"control:context-integrity",
+		"control:context-provenance",
+		"control:deny-secret-read",
+		"control:credential-isolation":
+		return true
+	default:
+		return false
+	}
 }
 
 func toolIntegrityControlID(id string) bool {
