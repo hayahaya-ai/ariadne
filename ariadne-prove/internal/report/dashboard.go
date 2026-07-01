@@ -522,7 +522,7 @@ func renderArchitectureClosurePlanDashboard(w io.Writer, items []model.Architect
 		return
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Missing hard barrier</th><th>Impact</th><th>Flaws</th><th>Targets</th><th>Evidence anchors</th><th>Evidence surfaces / action</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Missing hard barrier</th><th>Impact</th><th>Flaws</th><th>Targets</th><th>Evidence anchors / references</th><th>Evidence surfaces / action</th></tr></thead><tbody>")
 	for _, item := range items {
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
@@ -530,7 +530,7 @@ func renderArchitectureClosurePlanDashboard(w io.Writer, items []model.Architect
 		fmt.Fprintf(w, `<td>%d flaw(s)<br>%d target(s)</td>`, item.FlawCount, item.TargetCount)
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)))
+		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)), renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -579,7 +579,7 @@ func renderControlCatalogFamiliesDashboard(w io.Writer, items []model.Architectu
 		fmt.Fprintf(w, `<td>%d control(s)<br>%d flaw(s)<br>%d target(s)</td>`, item.ControlCount, item.FlawCount, item.TargetCount)
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Controls, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
-		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Evidence anchors</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 6)), renderSmallList(limitStrings(item.EvidenceSources, 6)))
+		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Evidence anchors</h3>%s<h3>Evidence references</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 6)), renderSmallList(limitStrings(item.EvidenceSources, 6)), renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
@@ -589,7 +589,7 @@ func renderControlCatalogFamiliesDashboard(w io.Writer, items []model.Architectu
 func renderControlCatalogControlsDashboard(w io.Writer, items []model.ArchitectureClosure, proofSpecs []model.ControlProofSpec) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
-	fmt.Fprintln(w, `<div><h2>Controls To Prove</h2><div class="subtle">Each row states the missing hard barrier, the flaw it closes, the evidence anchor, and the proof surface Ariadne expects.</div></div>`)
+	fmt.Fprintln(w, `<div><h2>Controls To Prove</h2><div class="subtle">Each row states the missing hard barrier, the flaw it closes, the evidence reference, and the proof surface Ariadne expects.</div></div>`)
 	fmt.Fprintln(w, "</div>")
 	if len(items) == 0 {
 		fmt.Fprintln(w, `<div class="empty">No missing hard-barrier controls matched this status filter.</div>`)
@@ -598,7 +598,7 @@ func renderControlCatalogControlsDashboard(w io.Writer, items []model.Architectu
 	}
 	proofByControl := controlProofSpecsByControl(proofSpecs)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Missing hard barrier</th><th>Closes flaws</th><th>Targets</th><th>Evidence anchors</th><th>Where to prove this</th><th>Recognized indicators</th><th>What would prove it</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Missing hard barrier</th><th>Closes flaws</th><th>Targets</th><th>Evidence anchors / references</th><th>Where to prove this</th><th>Recognized indicators</th><th>What would prove it</th></tr></thead><tbody>")
 	for _, item := range items {
 		fmt.Fprintln(w, "<tr>")
 		proof := proofByControl[item.Control]
@@ -606,7 +606,7 @@ func renderControlCatalogControlsDashboard(w io.Writer, items []model.Architectu
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(item.Control), esc(strings.ReplaceAll(item.ControlTestResult, "_", " ")), esc(strings.Join(limitStrings(item.CheckIDs, 4), ", ")))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)))
+		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)), renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(proof.RecognizedIndicators, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Actions, 4)))
@@ -653,7 +653,7 @@ func renderArchitectureClosureFamiliesDashboard(w io.Writer, items []model.Archi
 		return
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Capability family</th><th>Impact</th><th>Controls</th><th>Flaws</th><th>Targets</th><th>Evidence anchors</th><th>Evidence surfaces / action</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Capability family</th><th>Impact</th><th>Controls</th><th>Flaws</th><th>Targets</th><th>Evidence anchors / references</th><th>Evidence surfaces / action</th></tr></thead><tbody>")
 	for _, item := range items {
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
@@ -662,7 +662,7 @@ func renderArchitectureClosureFamiliesDashboard(w io.Writer, items []model.Archi
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Controls, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)))
+		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)), renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}

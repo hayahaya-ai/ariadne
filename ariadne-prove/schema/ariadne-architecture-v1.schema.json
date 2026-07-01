@@ -250,7 +250,7 @@
     },
     "architecture_closure": {
       "type": "object",
-      "required": ["control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_sources", "evidence_surfaces", "actions"],
+      "required": ["control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_sources", "evidence_refs", "evidence_surfaces", "actions"],
       "properties": {
         "control": { "type": "string" },
         "control_test_result": { "type": "string", "enum": ["missing_hard_barrier"] },
@@ -261,13 +261,14 @@
         "check_ids": { "type": "array", "items": { "type": "string" } },
         "targets": { "type": "array", "items": { "type": "string" } },
         "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/evidence_reference" } },
         "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
         "actions": { "type": "array", "items": { "type": "string" } }
       }
     },
     "architecture_closure_family": {
       "type": "object",
-      "required": ["id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "check_ids", "targets", "evidence_sources", "evidence_surfaces", "actions"],
+      "required": ["id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "check_ids", "targets", "evidence_sources", "evidence_refs", "evidence_surfaces", "actions"],
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -280,8 +281,20 @@
         "check_ids": { "type": "array", "items": { "type": "string" } },
         "targets": { "type": "array", "items": { "type": "string" } },
         "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/evidence_reference" } },
         "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
         "actions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "evidence_reference": {
+      "type": "object",
+      "required": ["id", "kind", "summary"],
+      "properties": {
+        "target": { "type": "string" },
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "summary": { "type": "string" }
       }
     },
     "zero_trust_evidence": {

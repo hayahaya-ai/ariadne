@@ -103,6 +103,8 @@ Each check includes:
 - `actions`: concrete next steps
 - `limitations`
 
+Architecture closure rows and control catalog rows also include `evidence_refs`. Each reference preserves the affected `target`, evidence `id`, evidence `kind`, redacted or target-relative `source`, and fact `summary` so an operator can trace a missing-control request back to the file or modeled fact that caused it.
+
 `zero_trust.coverage` converts unknown and not-observed checks into explicit evidence gaps:
 
 - `known`: checks classified as `breaking` or `controlled`
@@ -128,8 +130,8 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `maturity`
 - `boundary_coverage`
 - `flaws`, where each flaw includes a `control_test` result for the impossible-vs-tedious design test
-- `closure_families`, where missing hard barriers are grouped into Zero Trust capability areas with evidence anchors
-- `closure_plan`, where missing hard barriers are ranked by affected flaws and targets with evidence anchors
+- `closure_families`, where missing hard barriers are grouped into Zero Trust capability areas with evidence anchors and structured evidence references
+- `closure_plan`, where missing hard barriers are ranked by affected flaws and targets with evidence anchors and structured evidence references
 
 `ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
 
@@ -145,7 +147,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 `ariadne controls --format json` emits a focused control evidence catalog with:
 
 - `summary`, counting missing hard-barrier controls by severity, affected targets, and affected flaws
-- `controls`, where each missing hard barrier includes the flaws it closes, target coverage, evidence anchors, proof surfaces, and concrete actions
+- `controls`, where each missing hard barrier includes the flaws it closes, target coverage, evidence anchors, structured evidence references, proof surfaces, and concrete actions
 - `families`, where related controls are grouped into Zero Trust capability areas such as identity, least agency, egress, observability, response, and governance
 - `proof_specs`, where each missing hard barrier maps to the evidence kind, proof surfaces, parser-recognized indicators, notes, and limitations Ariadne uses when looking for deterministic proof
 

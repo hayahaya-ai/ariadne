@@ -237,14 +237,14 @@ Prove output adds:
 - Zero Trust boundary coverage rows with status by target, evidence anchors, missing evidence, next collectors, and control evidence needed
 - Zero Trust evidence plan rows that group unknown or not-observed boundary gaps by the next collector needed
 - Zero Trust closure family rows that group missing hard barriers into capability areas such as identity, least agency, input trust, tool integrity, observability, response, and governance
-- Zero Trust closure plan rows that rank missing hard barriers by affected flaws and targets
+- Zero Trust closure plan rows that rank missing hard barriers by affected flaws and targets, with structured evidence references for the files and facts that caused the proof request
 - Zero Trust Foundation maturity requirements with control quality, evidence, missing evidence, and actions
 - Zero Trust coverage gaps that name missing evidence and the next collector needed
 - deterministic interpretation with issue priority, severity, disposition, evidence signals, and actions
 - optional LLM review interpretation when `--interpret llm` is used
 - limitations
 
-Controls output is a focused operator view of the architecture closure plan. It answers which hard barriers are missing, which flaws each one closes, where evidence should be supplied, which parser-recognized indicators Ariadne understands for that control, and which observed anchors caused Ariadne to ask for that proof. Recognized indicators are deterministic evidence hints; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.
+Controls output is a focused operator view of the architecture closure plan. It answers which hard barriers are missing, which flaws each one closes, which evidence references caused the proof request, where evidence should be supplied, and which parser-recognized indicators Ariadne understands for that control. Recognized indicators are deterministic evidence hints; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.
 
 Dashboard output adds:
 

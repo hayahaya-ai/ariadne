@@ -206,33 +206,43 @@ type ArchitectureControlTest struct {
 }
 
 type ArchitectureClosure struct {
-	Control           string   `json:"control"`
-	ControlTestResult string   `json:"control_test_result"`
-	Severity          string   `json:"severity"`
-	FlawCount         int      `json:"flaw_count"`
-	TargetCount       int      `json:"target_count"`
-	Flaws             []string `json:"flaws"`
-	CheckIDs          []string `json:"check_ids"`
-	Targets           []string `json:"targets"`
-	EvidenceSources   []string `json:"evidence_sources"`
-	EvidenceSurfaces  []string `json:"evidence_surfaces"`
-	Actions           []string `json:"actions"`
+	Control            string              `json:"control"`
+	ControlTestResult  string              `json:"control_test_result"`
+	Severity           string              `json:"severity"`
+	FlawCount          int                 `json:"flaw_count"`
+	TargetCount        int                 `json:"target_count"`
+	Flaws              []string            `json:"flaws"`
+	CheckIDs           []string            `json:"check_ids"`
+	Targets            []string            `json:"targets"`
+	EvidenceSources    []string            `json:"evidence_sources"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	EvidenceSurfaces   []string            `json:"evidence_surfaces"`
+	Actions            []string            `json:"actions"`
 }
 
 type ArchitectureClosureFamily struct {
-	ID               string   `json:"id"`
-	Title            string   `json:"title"`
-	Severity         string   `json:"severity"`
-	ControlCount     int      `json:"control_count"`
-	FlawCount        int      `json:"flaw_count"`
-	TargetCount      int      `json:"target_count"`
-	Controls         []string `json:"controls"`
-	Flaws            []string `json:"flaws"`
-	CheckIDs         []string `json:"check_ids"`
-	Targets          []string `json:"targets"`
-	EvidenceSources  []string `json:"evidence_sources"`
-	EvidenceSurfaces []string `json:"evidence_surfaces"`
-	Actions          []string `json:"actions"`
+	ID                 string              `json:"id"`
+	Title              string              `json:"title"`
+	Severity           string              `json:"severity"`
+	ControlCount       int                 `json:"control_count"`
+	FlawCount          int                 `json:"flaw_count"`
+	TargetCount        int                 `json:"target_count"`
+	Controls           []string            `json:"controls"`
+	Flaws              []string            `json:"flaws"`
+	CheckIDs           []string            `json:"check_ids"`
+	Targets            []string            `json:"targets"`
+	EvidenceSources    []string            `json:"evidence_sources"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	EvidenceSurfaces   []string            `json:"evidence_surfaces"`
+	Actions            []string            `json:"actions"`
+}
+
+type EvidenceReference struct {
+	Target  string `json:"target,omitempty"`
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Source  string `json:"source,omitempty"`
+	Summary string `json:"summary"`
 }
 
 type ArchitectureEvidencePlan struct {

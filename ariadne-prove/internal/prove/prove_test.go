@@ -2640,6 +2640,7 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		"Closure plan:",
 		"control:input-isolation",
 		"Evidence:",
+		"Evidence references:",
 		"Control test:",
 		"missing hard barrier",
 		"Breaks when:",
@@ -2712,8 +2713,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		if family.ID == "" || family.Title == "" || family.Severity == "" || family.ControlCount == 0 || family.FlawCount == 0 || family.TargetCount == 0 {
 			t.Fatalf("closure family should identify capability impact: %+v", family)
 		}
-		if len(family.Controls) == 0 || len(family.Flaws) == 0 || len(family.EvidenceSurfaces) == 0 || len(family.Actions) == 0 {
-			t.Fatalf("closure family should retain controls, flaws, evidence surfaces, and actions: %+v", family)
+		if len(family.Controls) == 0 || len(family.Flaws) == 0 || len(family.EvidenceReferences) == 0 || len(family.EvidenceSurfaces) == 0 || len(family.Actions) == 0 {
+			t.Fatalf("closure family should retain controls, flaws, evidence references, evidence surfaces, and actions: %+v", family)
 		}
 	}
 	if !hasClosureEvidenceSource(decoded.ClosurePlan) {
@@ -2723,8 +2724,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		if closure.Control == "" || closure.ControlTestResult != "missing_hard_barrier" || closure.Severity == "" || closure.FlawCount == 0 || closure.TargetCount == 0 {
 			t.Fatalf("closure item should identify missing hard barrier impact: %+v", closure)
 		}
-		if len(closure.Flaws) == 0 || len(closure.EvidenceSurfaces) == 0 || len(closure.Actions) == 0 {
-			t.Fatalf("closure item should retain flaws, evidence surfaces, and actions: %+v", closure)
+		if len(closure.Flaws) == 0 || len(closure.EvidenceReferences) == 0 || len(closure.EvidenceSurfaces) == 0 || len(closure.Actions) == 0 {
+			t.Fatalf("closure item should retain flaws, evidence references, evidence surfaces, and actions: %+v", closure)
 		}
 	}
 	for _, flaw := range decoded.Flaws {
@@ -2763,6 +2764,7 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Missing hard barriers:",
 		"Control families:",
 		"Where to prove this:",
+		"Evidence references:",
 		"Recognized indicators:",
 		"What would prove it:",
 		"control:input-isolation",
@@ -2800,6 +2802,9 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	if !hasClosureEvidenceSurface(decoded.Controls, ".ariadne/input-policy.json") {
 		t.Fatalf("control catalog should retain proof surfaces: %+v", decoded.Controls)
 	}
+	if !hasClosureEvidenceReference(decoded.Controls, "CLAUDE.md") {
+		t.Fatalf("control catalog should retain evidence references: %+v", decoded.Controls)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderControls(&htmlOut, r, "html", "breaking"); err != nil {
@@ -2812,6 +2817,7 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Control Families",
 		"Controls To Prove",
 		"Where to prove this",
+		"References",
 		"Recognized indicators",
 		"What would prove it",
 		"control:input-isolation",
@@ -2839,6 +2845,7 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Run: control_catalog_scan",
 		"Targets:",
 		"Where to prove this:",
+		"Evidence references:",
 		"Recognized indicators:",
 	} {
 		if !strings.Contains(out, want) {
@@ -2863,6 +2870,9 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	if !hasClosureTarget(decoded.Controls, "combined") {
 		t.Fatalf("expected fleet control catalog to retain target coverage: %+v", decoded.Controls)
 	}
+	if !hasClosureEvidenceReference(decoded.Controls, "CLAUDE.md") {
+		t.Fatalf("fleet control catalog should retain evidence references: %+v", decoded.Controls)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderControlsScan(&htmlOut, scan, "dashboard", "breaking"); err != nil {
@@ -2875,6 +2885,7 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Controls To Prove",
 		"combined",
 		"Where to prove this",
+		"References",
 		"Recognized indicators",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -3128,9 +3139,11 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	architectureControlTest := schemaMap(t, architectureSchema, "$defs", "architecture_control_test")
 	assertRequiredKeys(t, architectureControlTest, "question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers")
 	architectureClosure := schemaMap(t, architectureSchema, "$defs", "architecture_closure")
-	assertRequiredKeys(t, architectureClosure, "control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_sources", "evidence_surfaces", "actions")
+	assertRequiredKeys(t, architectureClosure, "control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_sources", "evidence_refs", "evidence_surfaces", "actions")
 	architectureClosureFamily := schemaMap(t, architectureSchema, "$defs", "architecture_closure_family")
-	assertRequiredKeys(t, architectureClosureFamily, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "check_ids", "targets", "evidence_sources", "evidence_surfaces", "actions")
+	assertRequiredKeys(t, architectureClosureFamily, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "check_ids", "targets", "evidence_sources", "evidence_refs", "evidence_surfaces", "actions")
+	evidenceReference := schemaMap(t, architectureSchema, "$defs", "evidence_reference")
+	assertRequiredKeys(t, evidenceReference, "id", "kind", "summary")
 
 	architectureScanSchema := loadSchema(t, "ariadne-architecture-scan-v1.schema.json")
 	assertRequiredKeys(t, architectureScanSchema,
@@ -3593,6 +3606,17 @@ func hasClosureEvidenceSurface(items []model.ArchitectureClosure, surface string
 	for _, item := range items {
 		for _, candidate := range item.EvidenceSurfaces {
 			if candidate == surface {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasClosureEvidenceReference(items []model.ArchitectureClosure, source string) bool {
+	for _, item := range items {
+		for _, candidate := range item.EvidenceReferences {
+			if candidate.Source == source {
 				return true
 			}
 		}

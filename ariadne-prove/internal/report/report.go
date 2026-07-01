@@ -959,6 +959,9 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 		if len(item.EvidenceSources) > 0 {
 			fmt.Fprintf(w, "      Evidence anchors: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
 		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
 		if len(item.EvidenceSurfaces) > 0 {
 			fmt.Fprintf(w, "      Where to prove this: %s\n", strings.Join(limitStrings(item.EvidenceSurfaces, 5), "; "))
 		}
@@ -1114,6 +1117,9 @@ func renderArchitectureClosurePlan(w io.Writer, items []model.ArchitectureClosur
 		if len(item.EvidenceSources) > 0 {
 			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
 		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
 		if len(item.EvidenceSurfaces) > 0 {
 			fmt.Fprintf(w, "      Evidence surfaces: %s\n", strings.Join(limitStrings(item.EvidenceSurfaces, 5), "; "))
 		}
@@ -1178,6 +1184,9 @@ func renderArchitectureClosureFamilies(w io.Writer, items []model.ArchitectureCl
 		}
 		if len(item.EvidenceSources) > 0 {
 			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
 		}
 		if len(item.Actions) > 0 {
 			fmt.Fprintf(w, "      Actions: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
@@ -1914,6 +1923,7 @@ func buildArchitectureClosurePlan(inputs []architectureClosureInput) []model.Arc
 				}
 				item.targets[targetID] = true
 				item.EvidenceSources = append(item.EvidenceSources, zeroTrustEvidenceSources(flaw.Evidence)...)
+				item.EvidenceReferences = append(item.EvidenceReferences, evidenceReferencesForFlaw(targetID, flaw)...)
 				item.EvidenceSurfaces = append(item.EvidenceSurfaces, flaw.EvidenceSurfaces...)
 				item.Actions = append(item.Actions, flaw.Actions...)
 			}
@@ -1922,17 +1932,18 @@ func buildArchitectureClosurePlan(inputs []architectureClosureInput) []model.Arc
 	out := make([]model.ArchitectureClosure, 0, len(byControl))
 	for _, item := range byControl {
 		closure := model.ArchitectureClosure{
-			Control:           item.Control,
-			ControlTestResult: item.ControlTestResult,
-			Severity:          item.Severity,
-			FlawCount:         len(item.flaws),
-			TargetCount:       len(item.targets),
-			Flaws:             mapKeysSorted(item.flaws),
-			CheckIDs:          mapKeysSorted(item.checkIDs),
-			Targets:           mapKeysSorted(item.targets),
-			EvidenceSources:   uniqueSortedStrings(item.EvidenceSources),
-			EvidenceSurfaces:  uniqueSortedStrings(item.EvidenceSurfaces),
-			Actions:           uniqueSortedStrings(item.Actions),
+			Control:            item.Control,
+			ControlTestResult:  item.ControlTestResult,
+			Severity:           item.Severity,
+			FlawCount:          len(item.flaws),
+			TargetCount:        len(item.targets),
+			Flaws:              mapKeysSorted(item.flaws),
+			CheckIDs:           mapKeysSorted(item.checkIDs),
+			Targets:            mapKeysSorted(item.targets),
+			EvidenceSources:    uniqueSortedStrings(item.EvidenceSources),
+			EvidenceReferences: dedupeEvidenceReferences(item.EvidenceReferences),
+			EvidenceSurfaces:   uniqueSortedStrings(item.EvidenceSurfaces),
+			Actions:            uniqueSortedStrings(item.Actions),
 		}
 		out = append(out, closure)
 	}
@@ -1957,16 +1968,17 @@ func buildArchitectureClosureFamilies(items []model.ArchitectureClosure) []model
 		builder := byFamily[familyID]
 		if builder == nil {
 			builder = &architectureClosureFamilyBuilder{
-				ID:               familyID,
-				Title:            familyTitle,
-				Severity:         item.Severity,
-				controls:         map[string]bool{},
-				flaws:            map[string]bool{},
-				checkIDs:         map[string]bool{},
-				targets:          map[string]bool{},
-				EvidenceSources:  []string{},
-				EvidenceSurfaces: []string{},
-				Actions:          []string{},
+				ID:                 familyID,
+				Title:              familyTitle,
+				Severity:           item.Severity,
+				controls:           map[string]bool{},
+				flaws:              map[string]bool{},
+				checkIDs:           map[string]bool{},
+				targets:            map[string]bool{},
+				EvidenceSources:    []string{},
+				EvidenceReferences: []model.EvidenceReference{},
+				EvidenceSurfaces:   []string{},
+				Actions:            []string{},
 			}
 			byFamily[familyID] = builder
 		}
@@ -1992,25 +2004,27 @@ func buildArchitectureClosureFamilies(items []model.ArchitectureClosure) []model
 			}
 		}
 		builder.EvidenceSources = append(builder.EvidenceSources, item.EvidenceSources...)
+		builder.EvidenceReferences = append(builder.EvidenceReferences, item.EvidenceReferences...)
 		builder.EvidenceSurfaces = append(builder.EvidenceSurfaces, item.EvidenceSurfaces...)
 		builder.Actions = append(builder.Actions, item.Actions...)
 	}
 	out := make([]model.ArchitectureClosureFamily, 0, len(byFamily))
 	for _, builder := range byFamily {
 		family := model.ArchitectureClosureFamily{
-			ID:               builder.ID,
-			Title:            builder.Title,
-			Severity:         builder.Severity,
-			ControlCount:     len(builder.controls),
-			FlawCount:        len(builder.flaws),
-			TargetCount:      len(builder.targets),
-			Controls:         mapKeysSorted(builder.controls),
-			Flaws:            mapKeysSorted(builder.flaws),
-			CheckIDs:         mapKeysSorted(builder.checkIDs),
-			Targets:          mapKeysSorted(builder.targets),
-			EvidenceSources:  uniqueSortedStrings(builder.EvidenceSources),
-			EvidenceSurfaces: uniqueSortedStrings(builder.EvidenceSurfaces),
-			Actions:          uniqueSortedStrings(builder.Actions),
+			ID:                 builder.ID,
+			Title:              builder.Title,
+			Severity:           builder.Severity,
+			ControlCount:       len(builder.controls),
+			FlawCount:          len(builder.flaws),
+			TargetCount:        len(builder.targets),
+			Controls:           mapKeysSorted(builder.controls),
+			Flaws:              mapKeysSorted(builder.flaws),
+			CheckIDs:           mapKeysSorted(builder.checkIDs),
+			Targets:            mapKeysSorted(builder.targets),
+			EvidenceSources:    uniqueSortedStrings(builder.EvidenceSources),
+			EvidenceReferences: dedupeEvidenceReferences(builder.EvidenceReferences),
+			EvidenceSurfaces:   uniqueSortedStrings(builder.EvidenceSurfaces),
+			Actions:            uniqueSortedStrings(builder.Actions),
 		}
 		out = append(out, family)
 	}
@@ -2029,15 +2043,16 @@ func buildArchitectureClosureFamilies(items []model.ArchitectureClosure) []model
 }
 
 type architectureClosureBuilder struct {
-	Control           string
-	ControlTestResult string
-	Severity          string
-	flaws             map[string]bool
-	checkIDs          map[string]bool
-	targets           map[string]bool
-	EvidenceSources   []string
-	EvidenceSurfaces  []string
-	Actions           []string
+	Control            string
+	ControlTestResult  string
+	Severity           string
+	flaws              map[string]bool
+	checkIDs           map[string]bool
+	targets            map[string]bool
+	EvidenceSources    []string
+	EvidenceReferences []model.EvidenceReference
+	EvidenceSurfaces   []string
+	Actions            []string
 }
 
 type architectureEvidencePlanBuilder struct {
@@ -2052,16 +2067,17 @@ type architectureEvidencePlanBuilder struct {
 }
 
 type architectureClosureFamilyBuilder struct {
-	ID               string
-	Title            string
-	Severity         string
-	controls         map[string]bool
-	flaws            map[string]bool
-	checkIDs         map[string]bool
-	targets          map[string]bool
-	EvidenceSources  []string
-	EvidenceSurfaces []string
-	Actions          []string
+	ID                 string
+	Title              string
+	Severity           string
+	controls           map[string]bool
+	flaws              map[string]bool
+	checkIDs           map[string]bool
+	targets            map[string]bool
+	EvidenceSources    []string
+	EvidenceReferences []model.EvidenceReference
+	EvidenceSurfaces   []string
+	Actions            []string
 }
 
 type architectureFrameworkAreaBuilder struct {
@@ -2344,6 +2360,139 @@ func zeroTrustEvidenceSources(evidence []model.ZeroTrustEvidence) []string {
 		}
 	}
 	return out
+}
+
+func evidenceReferencesFromZeroTrust(target string, evidence []model.ZeroTrustEvidence) []model.EvidenceReference {
+	var out []model.EvidenceReference
+	for _, item := range evidence {
+		if item.ID == "evidence:omitted" {
+			continue
+		}
+		ref := model.EvidenceReference{
+			Target:  target,
+			ID:      item.ID,
+			Kind:    item.Kind,
+			Source:  item.Source,
+			Summary: item.Summary,
+		}
+		if ref.ID == "" {
+			ref.ID = ref.Source
+		}
+		if ref.ID == "" {
+			ref.ID = ref.Kind
+		}
+		if ref.Summary == "" {
+			ref.Summary = ref.Source
+		}
+		if ref.Summary == "" {
+			ref.Summary = ref.ID
+		}
+		if ref.ID == "" && ref.Kind == "" && ref.Source == "" && ref.Summary == "" {
+			continue
+		}
+		out = append(out, ref)
+	}
+	return dedupeEvidenceReferences(out)
+}
+
+func evidenceReferencesForFlaw(target string, flaw model.ZeroTrustArchitecture) []model.EvidenceReference {
+	refs := evidenceReferencesFromZeroTrust(target, flaw.Evidence)
+	if len(refs) > 0 {
+		return refs
+	}
+	source := flaw.ID
+	if len(flaw.CheckIDs) > 0 && flaw.CheckIDs[0] != "" {
+		source = flaw.CheckIDs[0]
+	}
+	summary := flaw.Finding
+	if summary == "" {
+		summary = flaw.Title
+	}
+	if summary == "" {
+		summary = flaw.ID
+	}
+	return []model.EvidenceReference{{
+		Target:  target,
+		ID:      flaw.ID,
+		Kind:    "architecture_flaw",
+		Source:  source,
+		Summary: summary,
+	}}
+}
+
+func dedupeEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	seen := map[string]bool{}
+	var out []model.EvidenceReference
+	for _, value := range values {
+		key := value.Target + "|" + value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Target != out[j].Target {
+			return out[i].Target < out[j].Target
+		}
+		if out[i].Source != out[j].Source {
+			return out[i].Source < out[j].Source
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ID < out[j].ID
+	})
+	if out == nil {
+		return []model.EvidenceReference{}
+	}
+	return out
+}
+
+func evidenceReferenceLines(values []model.EvidenceReference, limit int) []string {
+	values = dedupeEvidenceReferences(values)
+	if len(values) == 0 {
+		return []string{}
+	}
+	if limit <= 0 || limit > len(values) {
+		limit = len(values)
+	}
+	lines := make([]string, 0, limit+1)
+	for _, value := range values[:limit] {
+		lines = append(lines, evidenceReferenceLine(value))
+	}
+	if len(values) > limit {
+		lines = append(lines, fmt.Sprintf("%d more evidence reference(s) in JSON", len(values)-limit))
+	}
+	return lines
+}
+
+func evidenceReferenceLine(value model.EvidenceReference) string {
+	source := value.Source
+	if source == "" {
+		source = value.ID
+	}
+	if source == "" {
+		source = value.Kind
+	}
+	prefix := source
+	if value.Target != "" {
+		prefix = value.Target + ": " + prefix
+	}
+	summary := strings.TrimSpace(value.Summary)
+	if len(summary) > 120 {
+		summary = summary[:117] + "..."
+	}
+	if summary == "" || summary == source {
+		if value.Kind != "" {
+			return fmt.Sprintf("%s [%s]", prefix, value.Kind)
+		}
+		return prefix
+	}
+	if value.Kind != "" {
+		return fmt.Sprintf("%s [%s] %s", prefix, value.Kind, summary)
+	}
+	return prefix + " " + summary
 }
 
 func severityRank(value string) int {
