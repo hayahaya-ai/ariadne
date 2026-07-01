@@ -1,0 +1,11 @@
+{
+  "approval_required": true,
+  "sandbox_required": true,
+  "credential_helper": "vault",
+  "short_lived_credentials": true,
+  "audit_logging": true,
+  "tool_call_logging": true,
+  "context_retention": {
+    "retention_days": 7
+  }
+}

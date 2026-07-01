@@ -201,10 +201,20 @@ func memoryBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 	status := model.ZeroTrustNotObserved
 	finding := "No supported agent runtime or authority was observed."
-	evidence := limitEvidence(firstEvidence(runtimeEvidence(c), authorityEvidence(c), toolEvidence(c)), 8)
+	credentialBoundary := boundaryEvidence(c, "boundary:credential-material")
+	identityControls := controlsEvidence(c, "control:credential-helper", "control:short-lived-credential")
+	evidence := limitEvidence(firstEvidence(append(credentialBoundary, identityControls...), runtimeEvidence(c), authorityEvidence(c), toolEvidence(c)), 8)
 	if len(c.Runtimes) > 0 || len(c.Authorities) > 0 || len(c.Tools) > 0 {
 		status = model.ZeroTrustUnknown
 		finding = "Agent runtime or authority exists, but Ariadne did not collect evidence for per-agent identity, short-lived credentials, or JIT access."
+	}
+	if len(identityControls) > 0 && len(credentialBoundary) == 0 {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed credential helper, short-lived credential, or federated identity controls for agent authentication."
+	}
+	if len(credentialBoundary) > 0 {
+		status = model.ZeroTrustBreaking
+		finding = "Ariadne observed inline credential material indicators in agent configuration, which breaks scoped credential isolation."
 	}
 	return model.ZeroTrustCheck{
 		ID:         "zt:identity-boundary",
@@ -216,24 +226,30 @@ func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 		Finding:    finding,
 		Evidence:   evidence,
 		GraphEdges: edgesForTypes(g, "configures", "has_authority", "can_call"),
+		Controls:   controlIDs(c, "control:credential-helper", "control:short-lived-credential"),
 		Actions: []string{
 			"Prefer per-agent identities, short-lived credentials, and auditable credential issuance.",
 			"Treat shared local user authority as an unknown until identity evidence is collected.",
 		},
-		Limitations: []string{"Current local collectors do not yet parse identity provider, OAuth token scope, JIT, ABAC, or hardware-bound credential evidence."},
+		Limitations: []string{"Ariadne detects declared credential helpers and federated identity indicators, but does not validate token lifetime, identity provider policy, JIT authorization, ABAC, or hardware binding."},
 	}
 }
 
 func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
 	status := model.ZeroTrustNotObserved
 	finding := "No supported agent runtime, tool, or authority was observed."
-	evidence := limitEvidence(firstEvidence(surfaceEvidenceByCategory(c, "history-cache"), runtimeEvidence(c), toolEvidence(c)), 8)
+	auditControls := controlsEvidence(c, "control:audit-logging")
+	evidence := limitEvidence(firstEvidence(auditControls, surfaceEvidenceByCategory(c, "history-cache"), runtimeEvidence(c), toolEvidence(c)), 8)
 	if len(c.Runtimes) > 0 || len(c.Tools) > 0 || len(c.Authorities) > 0 {
 		status = model.ZeroTrustUnknown
 		finding = "Ariadne observed agent surfaces, but did not verify tamper-resistant action logs, approval logs, or end-to-end tool-call auditability."
 	}
 	if len(surfaceEvidenceByCategory(c, "history-cache")) > 0 {
 		finding = "Local history or cache surfaces exist, but Ariadne treats them as private context, not as verified audit trails."
+	}
+	if len(auditControls) > 0 {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed declared tool-call, approval, telemetry, or audit logging controls."
 	}
 	return model.ZeroTrustCheck{
 		ID:         "zt:observability-boundary",
@@ -244,11 +260,12 @@ func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
 		DesignTest: "A team should be able to reconstruct what the agent did, why, and which approval or policy allowed it.",
 		Finding:    finding,
 		Evidence:   evidence,
+		Controls:   controlIDs(c, "control:audit-logging"),
 		Actions: []string{
 			"Collect tool-call, approval, credential, and network audit evidence for agent sessions.",
 			"Measure whether critical agent behavior would be visible quickly enough for a human to act.",
 		},
-		Limitations: []string{"Ariadne currently models static local evidence; it does not yet ingest live telemetry or SIEM data."},
+		Limitations: []string{"Ariadne detects declared audit and telemetry controls, but does not yet ingest live telemetry, SIEM data, or tamper-resistant log proofs."},
 	}
 }
 
@@ -461,6 +478,21 @@ func toolEvidence(c model.Collection) []model.ZeroTrustEvidence {
 func controlEvidence(c model.Collection) []model.ZeroTrustEvidence {
 	var out []model.ZeroTrustEvidence
 	for _, control := range c.Controls {
+		out = append(out, model.ZeroTrustEvidence{ID: control.ID, Kind: "control", Source: control.Source, Summary: control.Summary})
+	}
+	return dedupeEvidence(out)
+}
+
+func controlsEvidence(c model.Collection, ids ...string) []model.ZeroTrustEvidence {
+	allow := map[string]bool{}
+	for _, id := range ids {
+		allow[id] = true
+	}
+	var out []model.ZeroTrustEvidence
+	for _, control := range c.Controls {
+		if len(allow) > 0 && !allow[control.ID] {
+			continue
+		}
 		out = append(out, model.ZeroTrustEvidence{ID: control.ID, Kind: "control", Source: control.Source, Summary: control.Summary})
 	}
 	return dedupeEvidence(out)

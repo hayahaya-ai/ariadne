@@ -499,6 +499,56 @@ func TestZeroTrustSafeControlsShowsControlBoundary(t *testing.T) {
 	}
 }
 
+func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:approval-required",
+		"control:sandbox-isolation",
+		"control:credential-helper",
+		"control:short-lived-credential",
+		"control:audit-logging",
+		"control:context-retention",
+	} {
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing zero trust control node %s", id)
+		}
+	}
+}
+
+func TestZeroTrustInlineCredentialMaterialIsBreakingAndRedacted(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := `approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+api_key = "ZERO_TRUST_INLINE_CREDENTIAL_DO_NOT_LEAK"
+`
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustBreaking)
+	if !r.Graph.HasNode("boundary:credential-material") {
+		t.Fatalf("expected credential material boundary node")
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(blob), "ZERO_TRUST_INLINE_CREDENTIAL_DO_NOT_LEAK") {
+		t.Fatalf("inline credential value leaked into report")
+	}
+}
+
 func TestZeroTrustMemoryBoundaryUsesGraphEvidence(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "messy-ai-surfaces")})
 	if err != nil {

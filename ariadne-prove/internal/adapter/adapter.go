@@ -22,7 +22,10 @@ type Options struct {
 	IncludeSensitivePaths bool
 }
 
-var riskyInstructionPattern = regexp.MustCompile(`(?i)(read\s+\.env|read\s+.*secret|secret|token|always approve|ignore security|bypass|send\s+.*secret|send\s+.*token|private key|\.ssh|\.aws)`)
+var (
+	riskyInstructionPattern = regexp.MustCompile(`(?i)(read\s+\.env|read\s+.*secret|secret|token|always approve|ignore security|bypass|send\s+.*secret|send\s+.*token|private key|\.ssh|\.aws)`)
+	inlineCredentialPattern = regexp.MustCompile(`(?i)(api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|password)\s*[:=]`)
+)
 
 func Collect(opts Options) model.Collection {
 	var c model.Collection
@@ -101,6 +104,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectMCPPolicy(c, s)
 	case "network-policy":
 		collectNetworkPolicy(c, s)
+	case "agent-policy":
+		collectAgentPolicy(c, s)
 	case "claude-plugin-config", "claude-installed-plugins":
 		collectPluginSurface(c, s)
 	case "claude-remote-settings", "claude-policy-limits":
@@ -181,6 +186,7 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 	} else if strings.Contains(text, "sandbox_mode") || strings.Contains(text, "allowed_sandbox_modes") || s.Kind == "codex-requirements" {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "codex", Source: source, Summary: "Codex has normal file-read authority in the configured workspace."})
 	}
+	collectRuntimeSecurityControls(c, "codex", source, text)
 	if networkEnabled(text) {
 		addExternalCommunication(c, "codex", source, "Codex config declares external network access.")
 	}
@@ -223,6 +229,7 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: "claude", Source: source, Summary: "Claude Code settings allow broad shell or local execution posture."})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
 	}
+	collectRuntimeSecurityControls(c, "claude", source, text)
 	if containsAny(text, []string{"webfetch", "websearch", "bash(*)", "curl", "wget", "http://"}) {
 		addExternalCommunication(c, "claude", source, "Claude Code settings allow web, shell, or external communication posture.")
 	}
@@ -318,6 +325,32 @@ func collectNetworkPolicy(c *model.Collection, s model.Surface) {
 	}
 }
 
+func collectAgentPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if approvalRequired(text) {
+		addControl(c, "control:approval-required", "approval-required", "", s.Source, "Agent policy requires approval for high-risk agent actions.")
+	}
+	if sandboxIsolated(text) {
+		addControl(c, "control:sandbox-isolation", "sandbox-isolation", "", s.Source, "Agent policy requires sandbox or filesystem isolation.")
+	}
+	if credentialHelperConfigured(text) {
+		addControl(c, "control:credential-helper", "credential-helper", "", s.Source, "Agent policy requires credentials to be retrieved through a helper or vault instead of inline config.")
+	}
+	if shortLivedCredentialConfigured(text) {
+		addControl(c, "control:short-lived-credential", "short-lived-credential", "", s.Source, "Agent policy requires short-lived or federated credentials.")
+	}
+	if auditLoggingConfigured(text) {
+		addControl(c, "control:audit-logging", "audit-logging", "", s.Source, "Agent policy requires tool-call, approval, or telemetry logging.")
+	}
+	if contextRetentionConfigured(text) {
+		addControl(c, "control:context-retention", "context-retention", "", s.Source, "Agent policy constrains memory, transcript, or private-context retention.")
+	}
+}
+
 func collectPluginSurface(c *model.Collection, s model.Surface) {
 	c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-plugin-surface", Kind: "agent-plugin-surface", Runtime: "claude", Source: s.Source, Summary: "Claude plugin or skill configuration surface exists."})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:agent-plugin-surface", "tool", s.Source, "observed", "Plugin surface was observed; plugin code was not executed."))
@@ -332,6 +365,42 @@ func addExternalCommunication(c *model.Collection, runtime, source, summary stri
 	c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:external-communication", Kind: "external-communication", Runtime: runtime, Source: source, Summary: summary})
 	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:external-destination", Kind: "external-destination", Abstract: true, Summary: "External network, web, or remote service destination outside the local trust boundary."})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:external-communication", "authority", source, "declared", "External communication authority was collected."))
+}
+
+func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text string) {
+	if approvalRequired(text) {
+		addControl(c, "control:approval-required", "approval-required", runtime, source, runtime+" config requires approval for high-risk or non-read-only agent actions.")
+	}
+	if sandboxIsolated(text) {
+		addControl(c, "control:sandbox-isolation", "sandbox-isolation", runtime, source, runtime+" config declares sandbox or filesystem isolation.")
+	}
+	if credentialHelperConfigured(text) {
+		addControl(c, "control:credential-helper", "credential-helper", runtime, source, runtime+" config retrieves credentials through a helper or vault instead of inline config.")
+	}
+	if shortLivedCredentialConfigured(text) {
+		addControl(c, "control:short-lived-credential", "short-lived-credential", runtime, source, runtime+" config declares OAuth, OIDC, or short-lived credential posture.")
+	}
+	if auditLoggingConfigured(text) {
+		addControl(c, "control:audit-logging", "audit-logging", runtime, source, runtime+" config declares tool-call, approval, or telemetry logging.")
+	}
+	if contextRetentionConfigured(text) {
+		addControl(c, "control:context-retention", "context-retention", runtime, source, runtime+" config constrains transcript, memory, or private-context retention.")
+	}
+	if inlineCredentialConfigured(text) {
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:credential-material",
+			Kind:     "credential-material",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Config contains inline credential field indicators; values are not emitted.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values."))
+	}
+}
+
+func addControl(c *model.Collection, id, kind, runtime, source, summary string) {
+	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: id, Kind: kind, Runtime: runtime, Source: source, Summary: summary})
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+id, "control", source, "declared", summary))
 }
 
 func collectSummarySurface(c *model.Collection, s model.Surface) {
@@ -426,6 +495,81 @@ func networkEnabled(text string) bool {
 		strings.Contains(text, "\"network_access\": true") ||
 		strings.Contains(text, "\"external_network\": true") ||
 		strings.Contains(text, "external_network = true")
+}
+
+func approvalRequired(text string) bool {
+	return strings.Contains(text, "approval_policy = \"on-request\"") ||
+		strings.Contains(text, "approval_policy=\"on-request\"") ||
+		strings.Contains(text, "approval_policy = \"on-failure\"") ||
+		strings.Contains(text, "approval_policy=\"on-failure\"") ||
+		strings.Contains(text, "approval_policy = \"untrusted\"") ||
+		strings.Contains(text, "approval_policy=\"untrusted\"") ||
+		strings.Contains(text, "\"approval_required\": true") ||
+		strings.Contains(text, "approval_required = true") ||
+		strings.Contains(text, "\"require_approval\": true") ||
+		strings.Contains(text, "require_approval = true") ||
+		strings.Contains(text, "\"defaultmode\": \"default\"") ||
+		strings.Contains(text, "\"ask\"") ||
+		strings.Contains(text, "pretooluse")
+}
+
+func sandboxIsolated(text string) bool {
+	return strings.Contains(text, "sandbox_mode = \"workspace-write\"") ||
+		strings.Contains(text, "sandbox_mode=\"workspace-write\"") ||
+		strings.Contains(text, "sandbox_mode = \"read-only\"") ||
+		strings.Contains(text, "sandbox_mode=\"read-only\"") ||
+		strings.Contains(text, "\"sandbox_required\": true") ||
+		strings.Contains(text, "sandbox_required = true") ||
+		strings.Contains(text, "\"filesystem_isolation\": true") ||
+		strings.Contains(text, "filesystem_isolation = true") ||
+		strings.Contains(text, "\"network_isolation\": true") ||
+		strings.Contains(text, "network_isolation = true")
+}
+
+func credentialHelperConfigured(text string) bool {
+	return strings.Contains(text, "apikeyhelper") ||
+		strings.Contains(text, "api_key_helper") ||
+		strings.Contains(text, "credentialhelper") ||
+		strings.Contains(text, "credential_helper") ||
+		strings.Contains(text, "credential_process") ||
+		strings.Contains(text, "secret_manager") ||
+		strings.Contains(text, "vault") ||
+		strings.Contains(text, "keychain")
+}
+
+func shortLivedCredentialConfigured(text string) bool {
+	return strings.Contains(text, "oauth") ||
+		strings.Contains(text, "oidc") ||
+		strings.Contains(text, "pkce") ||
+		strings.Contains(text, "short_lived") ||
+		strings.Contains(text, "short-lived") ||
+		strings.Contains(text, "federated_identity") ||
+		strings.Contains(text, "jit_access") ||
+		strings.Contains(text, "jit")
+}
+
+func auditLoggingConfigured(text string) bool {
+	return strings.Contains(text, "audit_logging") ||
+		strings.Contains(text, "approval_logging") ||
+		strings.Contains(text, "tool_call_logging") ||
+		strings.Contains(text, "otel") ||
+		strings.Contains(text, "opentelemetry") ||
+		strings.Contains(text, "telemetry") ||
+		strings.Contains(text, "trace")
+}
+
+func contextRetentionConfigured(text string) bool {
+	return strings.Contains(text, "cleanupperioddays") ||
+		strings.Contains(text, "cleanup_period_days") ||
+		strings.Contains(text, "retention_days") ||
+		strings.Contains(text, "retentiondays") ||
+		strings.Contains(text, "context_retention") ||
+		strings.Contains(text, "transcript_retention") ||
+		strings.Contains(text, "memory_retention")
+}
+
+func inlineCredentialConfigured(text string) bool {
+	return inlineCredentialPattern.MatchString(text)
 }
 
 func looksPinned(text string) bool {

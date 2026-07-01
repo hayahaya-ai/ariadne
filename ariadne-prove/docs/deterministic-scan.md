@@ -10,6 +10,7 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 - models authorities, boundaries, and controls
 - builds graph edges between facts
 - classifies supported exposure paths
+- maps exposure and control evidence to Zero Trust architecture checks
 - exports the same graph as JSON, Graphviz DOT, or Mermaid when requested
 
 ## What Ariadne Does Not Do
@@ -38,6 +39,21 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 | `exposed` | Ariadne found a supported graph path from influence or tool authority to a sensitive boundary without a breaking control. |
 | `protected` | Ariadne found a supported path attempt and a control that breaks it. |
 | `inconclusive` | Ariadne did not collect enough evidence to prove exposure or protection. |
+
+## Zero Trust Control Evidence
+
+Ariadne parses declared controls from runtime configuration and `.ariadne/agent-policy.json`.
+
+Supported control signals include:
+
+- approval-required posture
+- sandbox or filesystem isolation posture
+- credential helper, vault, or keychain retrieval
+- short-lived, OAuth/OIDC, federated, or JIT credential indicators
+- audit, tool-call, approval, telemetry, or trace logging indicators
+- transcript, memory, or context retention indicators
+
+Ariadne also flags inline credential field indicators as `boundary:credential-material`. It reports the field presence only; values are never emitted.
 
 ## Redaction
 

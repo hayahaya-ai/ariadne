@@ -545,7 +545,7 @@ func controlRestrictsBoundary(controlID, boundaryID string) bool {
 	case "control:mcp-reviewed-pinned":
 		return boundaryID == "boundary:developer-execution-boundary"
 	default:
-		return true
+		return false
 	}
 }
 

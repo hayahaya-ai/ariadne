@@ -40,15 +40,46 @@ Examples of controls Ariadne can model today:
 - network restrictions for external destinations
 - reviewed or pinned MCP server launchers
 - managed runtime settings surfaces
+- approval-required posture
+- sandbox or filesystem isolation posture
+- credential helper or vault-backed credential retrieval
+- short-lived or federated credential posture
+- audit, tool-call, approval, or telemetry logging declarations
+- memory, transcript, or context retention declarations
 
 Examples Ariadne reports as `unknown` today:
 
-- per-agent identity
-- short-lived credentials
 - JIT access
 - ABAC
 - tamper-resistant audit logs
 - live behavioral telemetry
+
+Examples Ariadne reports as `breaking` when observed:
+
+- inline credential field indicators in agent configuration
+- authority paths that reach private context without an observed break-path control
+
+## Local Policy File
+
+Repositories can declare Zero Trust agent controls in `.ariadne/agent-policy.json`.
+
+Example:
+
+```json
+{
+  "approval_required": true,
+  "sandbox_required": true,
+  "credential_helper": "vault",
+  "short_lived_credentials": true,
+  "audit_logging": true,
+  "tool_call_logging": true,
+  "context_retention": {
+    "retention_days": 7
+  }
+}
+```
+
+The policy is treated as declared evidence. Ariadne does not execute the policy or prove live enforcement.
 
 ## Evidence Contract
 

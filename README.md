@@ -32,6 +32,8 @@ make build
 - Maps exposure evidence to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
+- Detects declared Zero Trust agent controls such as approval, sandbox, credential-helper, audit, and retention posture.
+- Flags inline credential field indicators in agent configuration without emitting values.
 - Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
 - Writes local HTML dashboards with issue and facts-dive views.
 - Emits JSON for automation, fleet aggregation, and security data pipelines.

@@ -76,6 +76,7 @@ func Registry() []Rule {
 		{Runtime: "mcp", Scope: "repo", Category: "mcp-tool-config", Kind: "mcp-config", HandlingMode: "parse", Summary: "MCP config declares model-callable tools.", Matches: anyOf(exact("mcp.json"), exact(".mcp.json"), suffix("/mcp.json"), suffix("/.mcp.json"))},
 		{Runtime: "mcp", Scope: "repo", Category: "policy", Kind: "mcp-policy", HandlingMode: "parse", Summary: "Ariadne MCP policy declares MCP review, allowlist, or package pinning controls.", Matches: exact(".ariadne/mcp-policy.json")},
 		{Runtime: "generic", Scope: "repo", Category: "policy", Kind: "network-policy", HandlingMode: "parse", Summary: "Ariadne network policy declares external communication controls.", Matches: exact(".ariadne/network-policy.json")},
+		{Runtime: "generic", Scope: "repo", Category: "policy", Kind: "agent-policy", HandlingMode: "parse", Summary: "Ariadne agent policy declares identity, approval, sandbox, audit, or retention controls.", Matches: exact(".ariadne/agent-policy.json")},
 
 		{Runtime: "generic", Scope: "repo", Category: "sensitive-boundary", Kind: "secret-like-file", HandlingMode: "boundary_indicator", Summary: "Secret-like file path exists; contents are not read or emitted.", Matches: secretLike},
 	}

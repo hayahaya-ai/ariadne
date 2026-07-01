@@ -153,6 +153,8 @@ Current deterministic discovery covers:
 - project memory
 - private context summaries such as paste caches or history directories
 - secret-like boundary indicators such as `.env*`, key files, and credential files
+- `.ariadne/agent-policy.json` declarations for approval, sandbox, credential, audit, and retention controls
+- inline credential field indicators in agent configuration without emitting values
 
 Exact vendor names are used only to identify supported adapters and file formats. Public classification is expressed in Ariadne's own exposure taxonomy.
 
