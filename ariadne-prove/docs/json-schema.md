@@ -126,6 +126,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `maturity`
 - `boundary_coverage`
 - `flaws`, where each flaw includes a `control_test` result for the impossible-vs-tedious design test
+- `closure_families`, where missing hard barriers are grouped into Zero Trust capability areas
 - `closure_plan`, where missing hard barriers are ranked by affected flaws and targets
 
 `ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
@@ -133,6 +134,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `summary`
 - `boundary_coverage`
 - `groups`, including aggregated `control_test_results`
+- `closure_families`, aggregated across targets
 - `closure_plan`, aggregated across targets
 - `targets`
 

@@ -15,6 +15,7 @@
     "boundary_coverage",
     "groups",
     "closure_plan",
+    "closure_families",
     "targets",
     "redaction",
     "limitations"
@@ -39,6 +40,10 @@
     "closure_plan": {
       "type": "array",
       "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure" }
+    },
+    "closure_families": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure_family" }
     },
     "targets": {
       "type": "array",

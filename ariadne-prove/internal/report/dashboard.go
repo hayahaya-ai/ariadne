@@ -72,6 +72,7 @@ func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error 
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureSummaryDashboard(w, r)
+	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
 	renderArchitectureClosurePlanDashboard(w, r.ClosurePlan)
 	renderArchitectureFlawTableDashboard(w, r.Flaws)
 	renderZeroTrustBoundaryCoverageDashboard(w, r.BoundaryCoverage, 12)
@@ -98,6 +99,7 @@ func renderArchitectureScanDashboard(w io.Writer, r model.ArchitectureScanReport
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureScanSummaryDashboard(w, r)
+	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
 	renderArchitectureClosurePlanDashboard(w, r.ClosurePlan)
 	renderZeroTrustBoundaryCoverageDashboard(w, r.BoundaryCoverage, 12)
 	renderArchitectureFlawGroupsDashboard(w, r.Groups)
@@ -465,6 +467,33 @@ func renderArchitectureClosurePlanDashboard(w io.Writer, items []model.Architect
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(item.Control), esc(strings.ReplaceAll(item.ControlTestResult, "_", " ")), esc(strings.Join(limitStrings(item.CheckIDs, 4), ", ")))
 		fmt.Fprintf(w, `<td>%d flaw(s)<br>%d target(s)</td>`, item.FlawCount, item.TargetCount)
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureClosureFamiliesDashboard(w io.Writer, items []model.ArchitectureClosureFamily) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Closure Families</h2><div class="subtle">Missing hard barriers grouped into Zero Trust capability areas.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(items) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No closure families were returned for this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Capability family</th><th>Impact</th><th>Controls</th><th>Flaws</th><th>Targets</th><th>Evidence surfaces / action</th></tr></thead><tbody>")
+	for _, item := range items {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div></td>`, esc(item.Title), esc(item.ID))
+		fmt.Fprintf(w, `<td>%d control(s)<br>%d flaw(s)<br>%d target(s)</td>`, item.ControlCount, item.FlawCount, item.TargetCount)
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Controls, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
 		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))

@@ -594,13 +594,16 @@ Start with:
 
 - `architecture_summary`: counts architecture flaw categories by status
 - `architecture_flaws`: user-centered flaw categories with evidence, graph edges, observed controls, control-test result, control evidence needed, evidence surfaces, and next actions
+- `closure_families`: missing hard barriers grouped into Zero Trust capability areas
 - `closure_plan`: missing hard barriers ranked by affected flaws and targets
 - `boundary_coverage`: check-level Zero Trust boundary coverage with target counts, evidence sources, controls, missing evidence, next collectors, and control evidence needed
 - `evidence_coverage`: known versus missing Zero Trust evidence for a single target
 - `maturity`: Foundation requirement status for a single target
 - `checks`: lower-level boundary evaluations that support the flaw map
 
-Use `closure_plan` when deciding what to close first. It is derived from each flaw's `control_test.missing_hard_barriers`, then ranked by severity, affected target count, and affected flaw count.
+Use `closure_families` to separate signal from noise before drilling into individual controls. It groups the same missing hard barriers into deterministic capability areas such as input trust, least agency, tool and MCP integrity, identity and credentials, observability, response, memory, supply chain, and governance.
+
+Use `closure_plan` when deciding which exact hard barrier to validate or implement first. It is derived from each flaw's `control_test.missing_hard_barriers`, then ranked by severity, affected target count, and affected flaw count.
 
 Each check includes:
 

@@ -2632,6 +2632,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		"Untrusted instructions can steer privileged tools",
 		"Agent has broad standing authority instead of least agency",
 		"Boundary checks:",
+		"Closure families:",
+		"Input Trust Boundary",
 		"Closure plan:",
 		"control:input-isolation",
 		"Evidence:",
@@ -2668,6 +2670,20 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 	}
 	if len(decoded.ClosurePlan) == 0 {
 		t.Fatalf("architecture JSON should include closure plan")
+	}
+	if len(decoded.ClosureFamilies) == 0 {
+		t.Fatalf("architecture JSON should include closure families")
+	}
+	if !hasClosureFamily(decoded.ClosureFamilies, "input-trust-boundary") {
+		t.Fatalf("architecture JSON should group input controls into a closure family: %+v", decoded.ClosureFamilies)
+	}
+	for _, family := range decoded.ClosureFamilies {
+		if family.ID == "" || family.Title == "" || family.Severity == "" || family.ControlCount == 0 || family.FlawCount == 0 || family.TargetCount == 0 {
+			t.Fatalf("closure family should identify capability impact: %+v", family)
+		}
+		if len(family.Controls) == 0 || len(family.Flaws) == 0 || len(family.EvidenceSurfaces) == 0 || len(family.Actions) == 0 {
+			t.Fatalf("closure family should retain controls, flaws, evidence surfaces, and actions: %+v", family)
+		}
 	}
 	for _, closure := range decoded.ClosurePlan {
 		if closure.Control == "" || closure.ControlTestResult != "missing_hard_barrier" || closure.Severity == "" || closure.FlawCount == 0 || closure.TargetCount == 0 {
@@ -2712,6 +2728,7 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 		"Ariadne Zero Trust architecture fleet:",
 		"Filter: breaking",
 		"Boundary coverage:",
+		"Closure families:",
 		"Closure plan:",
 		"Flaws by target coverage:",
 		"combined",
@@ -2751,8 +2768,14 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	if len(decoded.ClosurePlan) == 0 {
 		t.Fatalf("expected fleet closure plan rows")
 	}
+	if len(decoded.ClosureFamilies) == 0 {
+		t.Fatalf("expected fleet closure family rows")
+	}
 	if !hasClosureTarget(decoded.ClosurePlan, "combined") {
 		t.Fatalf("expected fleet closure plan to retain target coverage: %+v", decoded.ClosurePlan)
+	}
+	if !hasClosureFamilyTarget(decoded.ClosureFamilies, "combined") {
+		t.Fatalf("expected fleet closure families to retain target coverage: %+v", decoded.ClosureFamilies)
 	}
 	hasBoundaryEvidence := false
 	hasBoundaryContract := false
@@ -2813,6 +2836,7 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Zero Trust Architecture",
 		"Architecture Readout",
+		"Closure Families",
 		"Closure Plan",
 		"Architecture Failure Map",
 		"Control test",
@@ -2840,6 +2864,7 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Fleet Zero Trust Architecture",
 		"Fleet Architecture Readout",
+		"Closure Families",
 		"Closure Plan",
 		"Boundary Coverage Map",
 		"Flaws By Target Coverage",
@@ -2884,6 +2909,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"boundary_coverage",
 		"flaws",
 		"closure_plan",
+		"closure_families",
 		"redaction",
 		"limitations",
 	)
@@ -2907,6 +2933,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, architectureControlTest, "question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers")
 	architectureClosure := schemaMap(t, architectureSchema, "$defs", "architecture_closure")
 	assertRequiredKeys(t, architectureClosure, "control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_surfaces", "actions")
+	architectureClosureFamily := schemaMap(t, architectureSchema, "$defs", "architecture_closure_family")
+	assertRequiredKeys(t, architectureClosureFamily, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "check_ids", "targets", "evidence_surfaces", "actions")
 
 	architectureScanSchema := loadSchema(t, "ariadne-architecture-scan-v1.schema.json")
 	assertRequiredKeys(t, architectureScanSchema,
@@ -2921,6 +2949,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"boundary_coverage",
 		"groups",
 		"closure_plan",
+		"closure_families",
 		"targets",
 		"redaction",
 		"limitations",
@@ -3318,6 +3347,26 @@ func hasSourcePrefix(nodes []model.Node, prefix string) bool {
 }
 
 func hasClosureTarget(items []model.ArchitectureClosure, target string) bool {
+	for _, item := range items {
+		for _, candidate := range item.Targets {
+			if candidate == target {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasClosureFamily(items []model.ArchitectureClosureFamily, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasClosureFamilyTarget(items []model.ArchitectureClosureFamily, target string) bool {
 	for _, item := range items {
 		for _, candidate := range item.Targets {
 			if candidate == target {

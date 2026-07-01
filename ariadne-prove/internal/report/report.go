@@ -84,6 +84,7 @@ func BuildArchitectureReport(r model.Report, statusFilter string) (model.Archite
 	if flaws == nil {
 		flaws = []model.ZeroTrustArchitecture{}
 	}
+	closurePlan := buildArchitectureClosurePlan([]architectureClosureInput{{TargetID: "target", Flaws: flaws}})
 	return model.ArchitectureReport{
 		SchemaVersion:    model.SchemaVersion,
 		RunID:            r.RunID,
@@ -101,10 +102,11 @@ func BuildArchitectureReport(r model.Report, statusFilter string) (model.Archite
 			TargetID:  "target",
 			ZeroTrust: r.ZeroTrust,
 		}}),
-		Flaws:       flaws,
-		ClosurePlan: buildArchitectureClosurePlan([]architectureClosureInput{{TargetID: "target", Flaws: flaws}}),
-		Redaction:   r.Redaction,
-		Limitations: append([]string{}, r.Limitations...),
+		Flaws:           flaws,
+		ClosurePlan:     closurePlan,
+		ClosureFamilies: buildArchitectureClosureFamilies(closurePlan),
+		Redaction:       r.Redaction,
+		Limitations:     append([]string{}, r.Limitations...),
 	}, nil
 }
 
@@ -204,6 +206,7 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 	})
 	out.BoundaryCoverage = buildArchitectureBoundaryCoverage(coverageInputs)
 	out.ClosurePlan = buildArchitectureClosurePlan(closureInputs)
+	out.ClosureFamilies = buildArchitectureClosureFamilies(out.ClosurePlan)
 	if out.Groups == nil {
 		out.Groups = []model.ArchitectureFlawGroup{}
 	}
@@ -212,6 +215,9 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 	}
 	if out.ClosurePlan == nil {
 		out.ClosurePlan = []model.ArchitectureClosure{}
+	}
+	if out.ClosureFamilies == nil {
+		out.ClosureFamilies = []model.ArchitectureClosureFamily{}
 	}
 	if out.Targets == nil {
 		out.Targets = []model.ArchitectureTargetReport{}
@@ -665,6 +671,7 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 		r.OverallSummary.NotObserved,
 	)
 	renderArchitectureBoundarySummary(w, r.BoundaryCoverage, r.EvidenceCoverage)
+	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 8)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 8)
 	if len(r.Flaws) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
@@ -726,6 +733,7 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 		r.Summary.NotObserved,
 	)
 	renderArchitectureBoundaryCoverage(w, r.BoundaryCoverage, 8)
+	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 10)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 10)
 	if len(r.Groups) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
@@ -865,6 +873,40 @@ func renderArchitectureClosurePlan(w io.Writer, items []model.ArchitectureClosur
 	}
 	if len(items) > limit {
 		fmt.Fprintf(w, "    - %d more closure items in JSON output\n", len(items)-limit)
+	}
+}
+
+func renderArchitectureClosureFamilies(w io.Writer, items []model.ArchitectureClosureFamily, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Closure families:\n")
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	for _, item := range items[:limit] {
+		fmt.Fprintf(w, "    - %s %s: %d control(s), %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Title,
+			item.ControlCount,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if len(item.Controls) > 0 {
+			fmt.Fprintf(w, "      Controls: %s\n", strings.Join(limitStrings(item.Controls, 6), "; "))
+		}
+		if len(item.Flaws) > 0 {
+			fmt.Fprintf(w, "      Flaws: %s\n", strings.Join(limitStrings(item.Flaws, 4), "; "))
+		}
+		if len(item.Targets) > 0 {
+			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 5), "; "))
+		}
+		if len(item.Actions) > 0 {
+			fmt.Fprintf(w, "      Actions: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "    - %d more closure families in JSON output\n", len(items)-limit)
 	}
 }
 
@@ -1067,6 +1109,81 @@ func buildArchitectureClosurePlan(inputs []architectureClosureInput) []model.Arc
 	return out
 }
 
+func buildArchitectureClosureFamilies(items []model.ArchitectureClosure) []model.ArchitectureClosureFamily {
+	byFamily := map[string]*architectureClosureFamilyBuilder{}
+	for _, item := range items {
+		familyID, familyTitle := architectureControlFamily(item.Control)
+		builder := byFamily[familyID]
+		if builder == nil {
+			builder = &architectureClosureFamilyBuilder{
+				ID:               familyID,
+				Title:            familyTitle,
+				Severity:         item.Severity,
+				controls:         map[string]bool{},
+				flaws:            map[string]bool{},
+				checkIDs:         map[string]bool{},
+				targets:          map[string]bool{},
+				EvidenceSurfaces: []string{},
+				Actions:          []string{},
+			}
+			byFamily[familyID] = builder
+		}
+		if severityRank(item.Severity) > severityRank(builder.Severity) {
+			builder.Severity = item.Severity
+		}
+		if item.Control != "" {
+			builder.controls[item.Control] = true
+		}
+		for _, flaw := range item.Flaws {
+			if flaw != "" {
+				builder.flaws[flaw] = true
+			}
+		}
+		for _, checkID := range item.CheckIDs {
+			if checkID != "" {
+				builder.checkIDs[checkID] = true
+			}
+		}
+		for _, target := range item.Targets {
+			if target != "" {
+				builder.targets[target] = true
+			}
+		}
+		builder.EvidenceSurfaces = append(builder.EvidenceSurfaces, item.EvidenceSurfaces...)
+		builder.Actions = append(builder.Actions, item.Actions...)
+	}
+	out := make([]model.ArchitectureClosureFamily, 0, len(byFamily))
+	for _, builder := range byFamily {
+		family := model.ArchitectureClosureFamily{
+			ID:               builder.ID,
+			Title:            builder.Title,
+			Severity:         builder.Severity,
+			ControlCount:     len(builder.controls),
+			FlawCount:        len(builder.flaws),
+			TargetCount:      len(builder.targets),
+			Controls:         mapKeysSorted(builder.controls),
+			Flaws:            mapKeysSorted(builder.flaws),
+			CheckIDs:         mapKeysSorted(builder.checkIDs),
+			Targets:          mapKeysSorted(builder.targets),
+			EvidenceSurfaces: uniqueSortedStrings(builder.EvidenceSurfaces),
+			Actions:          uniqueSortedStrings(builder.Actions),
+		}
+		out = append(out, family)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := architectureClosureFamilyRank(out[i])
+		right := architectureClosureFamilyRank(out[j])
+		if left == right {
+			return out[i].Title < out[j].Title
+		}
+		return left > right
+	})
+	if out == nil {
+		return []model.ArchitectureClosureFamily{}
+	}
+	return out
+}
+
 type architectureClosureBuilder struct {
 	Control           string
 	ControlTestResult string
@@ -1078,8 +1195,156 @@ type architectureClosureBuilder struct {
 	Actions           []string
 }
 
+type architectureClosureFamilyBuilder struct {
+	ID               string
+	Title            string
+	Severity         string
+	controls         map[string]bool
+	flaws            map[string]bool
+	checkIDs         map[string]bool
+	targets          map[string]bool
+	EvidenceSurfaces []string
+	Actions          []string
+}
+
 func architectureClosureRank(item model.ArchitectureClosure) int {
 	return severityRank(item.Severity)*100000 + item.TargetCount*1000 + item.FlawCount
+}
+
+func architectureClosureFamilyRank(item model.ArchitectureClosureFamily) int {
+	return severityRank(item.Severity)*100000 + item.TargetCount*1000 + item.FlawCount*10 + item.ControlCount
+}
+
+func architectureControlFamily(control string) (string, string) {
+	switch control {
+	case "control:input-isolation",
+		"control:trusted-source-policy",
+		"control:instruction-provenance",
+		"control:untrusted-input-delimiting",
+		"control:prompt-injection-filter",
+		"control:input-validation":
+		return "input-trust-boundary", "Input Trust Boundary"
+	case "control:deny-by-default",
+		"control:deny-by-default-permissions",
+		"control:least-agency-policy",
+		"control:scoped-permissions",
+		"control:deny-secret-read",
+		"deny rules",
+		"allowlists",
+		"isolation controls",
+		"scoped credentials",
+		"capability-removing break controls":
+		return "least-agency-authority", "Least Agency And Authority Scope"
+	case "control:mcp-reviewed-pinned",
+		"control:tool-allowlist",
+		"control:tool-descriptor-integrity",
+		"control:tool-argument-validation",
+		"control:tool-auth-required",
+		"control:signed-tool-artifacts",
+		"control:tool-deployment-verification",
+		"control:tool-sandbox-execution":
+		return "tool-mcp-integrity", "Tool And MCP Integrity"
+	case "control:ai-bom",
+		"control:model-provenance",
+		"control:training-data-lineage",
+		"control:dependency-health-scan",
+		"control:provider-risk-review",
+		"control:signed-ai-artifacts",
+		"control:runtime-component-validation",
+		"control:dependency-reachability-analysis":
+		return "ai-supply-chain", "AI Supply Chain"
+	case "control:delegation-scope",
+		"control:delegation-allowlist",
+		"control:agent-to-agent-authorization",
+		"control:origin-intent-verification",
+		"control:delegated-credential-scope",
+		"control:subagent-context-isolation",
+		"control:delegation-audit":
+		return "agent-delegation", "Agent Delegation"
+	case "control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+		"control:egress-content-filter",
+		"control:egress-audit",
+		"control:output-sensitive-data-filter",
+		"control:output-redaction",
+		"control:output-filter-logging",
+		"control:semantic-output-analysis",
+		"control:high-risk-output-review":
+		return "egress-output-boundary", "Egress And Output Boundary"
+	case "control:cryptographic-identity",
+		"control:credential-isolation",
+		"control:short-lived-credential",
+		"control:hardware-bound-credential",
+		"control:jit-access",
+		"control:token-lifetime-policy",
+		"control:credential-helper",
+		"control:identity-lifecycle":
+		return "identity-credentials", "Identity And Credentials"
+	case "control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy",
+		"control:network-segmentation",
+		"control:tool-scope-policy",
+		"control:per-action-authorization",
+		"control:continuous-authorization",
+		"control:dynamic-privilege-scoping",
+		"control:jit-elevation",
+		"control:standing-access-denied",
+		"control:automatic-access-revocation":
+		return "workload-authorization", "Workload And Continuous Authorization"
+	case "control:approval-required",
+		"control:approval-log-evidence",
+		"control:audit-logging",
+		"control:request-traceability",
+		"control:observed-request-traceability",
+		"control:agent-action-log-evidence",
+		"control:tool-call-audit-evidence",
+		"control:telemetry-export",
+		"control:immutable-audit-log":
+		return "observability-approval", "Observability And Approval"
+	case "control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:tool-circuit-breaker",
+		"control:resource-usage-audit",
+		"control:automated-triage",
+		"control:behavioral-monitoring",
+		"control:session-termination",
+		"control:credential-revocation",
+		"control:containment-quarantine",
+		"control:dynamic-access-reduction",
+		"control:response-escalation":
+		return "response-resource-control", "Response And Resource Control"
+	case "control:context-retention",
+		"control:memory-isolation",
+		"control:context-integrity",
+		"control:context-provenance":
+		return "memory-context", "Memory And Context"
+	case "control:agent-inventory",
+		"control:accountable-owner",
+		"control:deployment-owner",
+		"control:deployment-approval",
+		"control:risk-assessment",
+		"control:governance-review",
+		"control:governance-audit",
+		"control:shadow-ai-discovery",
+		"control:config-version-control",
+		"control:config-review-required",
+		"control:signed-config",
+		"control:config-deployment-verification",
+		"control:managed-settings-enforced",
+		"control:managed-runtime-settings",
+		"control:immutable-agent-runtime",
+		"control:config-rollback-procedure",
+		"control:automated-config-rollback":
+		return "governance-config-integrity", "Governance And Configuration Integrity"
+	default:
+		return "other-hard-barriers", "Other Hard Barriers"
+	}
 }
 
 func mapKeysSorted(values map[string]bool) []string {
