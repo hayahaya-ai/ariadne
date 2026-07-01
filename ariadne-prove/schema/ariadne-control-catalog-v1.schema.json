@@ -14,6 +14,7 @@
     "summary",
     "controls",
     "families",
+    "operator_cases",
     "workstreams",
     "proof_specs",
     "verification_tasks",
@@ -37,6 +38,10 @@
     "families": {
       "type": "array",
       "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure_family" }
+    },
+    "operator_cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_operator_case" }
     },
     "workstreams": {
       "type": "array",
@@ -65,6 +70,33 @@
         "low": { "type": "integer" },
         "targets": { "type": "integer" },
         "flaws": { "type": "integer" }
+      }
+    },
+    "control_operator_case": {
+      "type": "object",
+      "required": ["id", "title", "severity", "question", "finding", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "rerun_commands", "success_criteria", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "question": { "type": "string" },
+        "finding": { "type": "string" },
+        "target_count": { "type": "integer" },
+        "flaw_count": { "type": "integer" },
+        "control_count": { "type": "integer" },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" } },
+        "starting_controls": { "type": "array", "items": { "type": "string" } },
+        "starting_task_ids": { "type": "array", "items": { "type": "string" } },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "evidence_examples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_evidence_example" }
+        },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },
     "control_break_path_workstream": {

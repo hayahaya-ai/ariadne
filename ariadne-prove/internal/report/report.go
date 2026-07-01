@@ -88,6 +88,7 @@ func RenderControlsScan(w io.Writer, r model.ScanReport, format string, statusFi
 func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
 	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
+	workstreams := buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks)
 	catalog := model.ControlCatalogReport{
 		SchemaVersion:     model.SchemaVersion,
 		RunID:             r.RunID,
@@ -100,7 +101,8 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 		Summary:           summarizeControlCatalog(r.ClosurePlan),
 		Controls:          append([]model.ArchitectureClosure{}, r.ClosurePlan...),
 		Families:          append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
-		Workstreams:       buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks),
+		OperatorCases:     buildControlOperatorCases(workstreams, verificationTasks),
+		Workstreams:       workstreams,
 		ProofSpecs:        proofSpecs,
 		VerificationTasks: verificationTasks,
 		Redaction:         r.Redaction,
@@ -111,6 +113,9 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 	}
 	if catalog.Families == nil {
 		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	if catalog.OperatorCases == nil {
+		catalog.OperatorCases = []model.ControlOperatorCase{}
 	}
 	if catalog.Workstreams == nil {
 		catalog.Workstreams = []model.ControlBreakPathWorkstream{}
@@ -127,6 +132,7 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
 	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
+	workstreams := buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks)
 	catalog := model.ControlCatalogReport{
 		SchemaVersion:     model.SchemaVersion,
 		RunID:             r.RunID,
@@ -138,7 +144,8 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 		Summary:           summarizeControlCatalog(r.ClosurePlan),
 		Controls:          append([]model.ArchitectureClosure{}, r.ClosurePlan...),
 		Families:          append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
-		Workstreams:       buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks),
+		OperatorCases:     buildControlOperatorCases(workstreams, verificationTasks),
+		Workstreams:       workstreams,
 		ProofSpecs:        proofSpecs,
 		VerificationTasks: verificationTasks,
 		Redaction:         r.Redaction,
@@ -149,6 +156,9 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 	}
 	if catalog.Families == nil {
 		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	if catalog.OperatorCases == nil {
+		catalog.OperatorCases = []model.ControlOperatorCase{}
 	}
 	if catalog.Workstreams == nil {
 		catalog.Workstreams = []model.ControlBreakPathWorkstream{}
@@ -957,6 +967,7 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 		fmt.Fprintf(w, "  - no missing hard-barrier controls matched status filter %q\n\n", r.StatusFilter)
 		return nil
 	}
+	renderControlOperatorCases(w, r.OperatorCases, 6)
 	renderControlBreakPathWorkstreams(w, r.Workstreams, 8)
 	renderControlVerificationTasks(w, r.VerificationTasks, 8)
 	fmt.Fprintf(w, "  Controls:\n")
@@ -1267,6 +1278,191 @@ func summarizeControlCatalog(items []model.ArchitectureClosure) model.ControlCat
 	summary.Targets = len(targets)
 	summary.Flaws = len(flaws)
 	return summary
+}
+
+func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, limit int) {
+	if len(cases) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Operator cases:\n")
+	if limit <= 0 || limit > len(cases) {
+		limit = len(cases)
+	}
+	for _, item := range cases[:limit] {
+		fmt.Fprintf(w, "    - %s %s (%s): %d control(s), %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Title,
+			item.ID,
+			item.ControlCount,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if item.Question != "" {
+			fmt.Fprintf(w, "      Question: %s\n", item.Question)
+		}
+		if item.Finding != "" {
+			fmt.Fprintf(w, "      Why this case exists: %s\n", item.Finding)
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 2), "; "))
+		}
+		if len(item.StartingControls) > 0 {
+			fmt.Fprintf(w, "      Start with: %s\n", strings.Join(limitStrings(item.StartingControls, 4), "; "))
+		}
+		if len(item.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "      Prove at: %s\n", strings.Join(limitStrings(item.ProofSurfaces, 4), "; "))
+		}
+		if len(item.EvidenceExamples) > 0 {
+			fmt.Fprintf(w, "      Evidence examples: %s\n", strings.Join(controlEvidenceExampleLines(item.EvidenceExamples, 2), "; "))
+		}
+		if len(item.RerunCommands) > 0 {
+			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(item.RerunCommands, 2), "; "))
+		}
+		if len(item.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "      Done when: %s\n", strings.Join(limitStrings(item.SuccessCriteria, 2), "; "))
+		}
+	}
+	if len(cases) > limit {
+		fmt.Fprintf(w, "    - %d more operator cases in JSON output\n", len(cases)-limit)
+	}
+}
+
+func buildControlOperatorCases(workstreams []model.ControlBreakPathWorkstream, tasks []model.ControlVerificationTask) []model.ControlOperatorCase {
+	taskByControl := map[string]model.ControlVerificationTask{}
+	for _, task := range tasks {
+		if task.Control != "" {
+			taskByControl[task.Control] = task
+		}
+	}
+	var out []model.ControlOperatorCase
+	for _, workstream := range workstreams {
+		selectedTasks := controlOperatorCaseStartingTasks(workstream, taskByControl)
+		caseItem := model.ControlOperatorCase{
+			ID:                 "case:" + workstream.ID,
+			Title:              workstream.Title,
+			Severity:           workstream.Severity,
+			Question:           controlOperatorCaseQuestion(workstream),
+			Finding:            workstream.Rationale,
+			TargetCount:        workstream.TargetCount,
+			FlawCount:          workstream.FlawCount,
+			ControlCount:       workstream.ControlCount,
+			Targets:            append([]string{}, workstream.Targets...),
+			Flaws:              append([]string{}, workstream.Flaws...),
+			EvidenceReferences: append([]model.EvidenceReference{}, workstream.EvidenceReferences...),
+			StartingControls:   controlOperatorCaseStartingControls(selectedTasks),
+			StartingTaskIDs:    controlOperatorCaseStartingTaskIDs(selectedTasks),
+			ProofSurfaces:      append([]string{}, workstream.ProofSurfaces...),
+			RerunCommands:      controlOperatorCaseRerunCommands(selectedTasks),
+			SuccessCriteria:    append([]string{}, workstream.SuccessCriteria...),
+			Limitations:        append([]string{}, workstream.Limitations...),
+		}
+		var examples []model.ControlEvidenceExample
+		var limitations []string
+		for _, task := range selectedTasks {
+			examples = append(examples, task.EvidenceExamples...)
+			limitations = append(limitations, task.Limitations...)
+		}
+		caseItem.EvidenceExamples = dedupeControlEvidenceExamples(examples)
+		caseItem.Limitations = uniqueSortedStrings(append(caseItem.Limitations, limitations...))
+		if len(caseItem.Limitations) == 0 {
+			caseItem.Limitations = []string{"Operator cases are deterministic proof guides; they do not prove live enforcement unless Ariadne observes runtime enforcement evidence or the missing hard barriers disappear."}
+		}
+		out = append(out, caseItem)
+	}
+	if out == nil {
+		return []model.ControlOperatorCase{}
+	}
+	return out
+}
+
+func controlOperatorCaseQuestion(workstream model.ControlBreakPathWorkstream) string {
+	if workstream.Title == "" {
+		return "What evidence proves this architecture break path is closed?"
+	}
+	return fmt.Sprintf("What evidence proves the %s break path is closed?", workstream.Title)
+}
+
+func controlOperatorCaseStartingTasks(workstream model.ControlBreakPathWorkstream, taskByControl map[string]model.ControlVerificationTask) []model.ControlVerificationTask {
+	orderedControls := append([]string{}, workstream.Controls...)
+	if len(orderedControls) == 0 {
+		orderedControls = append([]string{}, workstream.StartingControls...)
+	}
+	var selected []model.ControlVerificationTask
+	for _, requireControlPrefix := range []bool{true, false} {
+		for _, control := range orderedControls {
+			if requireControlPrefix && !strings.HasPrefix(control, "control:") {
+				continue
+			}
+			if !requireControlPrefix && strings.HasPrefix(control, "control:") {
+				continue
+			}
+			task, ok := taskByControl[control]
+			if !ok || hasControlVerificationTask(selected, task.ID) {
+				continue
+			}
+			selected = append(selected, task)
+			if len(selected) >= 5 {
+				return selected
+			}
+		}
+		if len(selected) > 0 {
+			return selected
+		}
+	}
+	return selected
+}
+
+func hasControlVerificationTask(tasks []model.ControlVerificationTask, id string) bool {
+	for _, task := range tasks {
+		if task.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func controlOperatorCaseStartingControls(tasks []model.ControlVerificationTask) []string {
+	var out []string
+	for _, task := range tasks {
+		out = append(out, task.Control)
+	}
+	return out
+}
+
+func controlOperatorCaseStartingTaskIDs(tasks []model.ControlVerificationTask) []string {
+	var out []string
+	for _, task := range tasks {
+		out = append(out, task.ID)
+	}
+	return out
+}
+
+func controlOperatorCaseRerunCommands(tasks []model.ControlVerificationTask) []string {
+	var out []string
+	for _, task := range tasks {
+		out = append(out, task.RerunCommands...)
+		if len(out) >= 2 {
+			break
+		}
+	}
+	return uniqueStrings(firstStrings(out, 2))
+}
+
+func dedupeControlEvidenceExamples(items []model.ControlEvidenceExample) []model.ControlEvidenceExample {
+	seen := map[string]bool{}
+	var out []model.ControlEvidenceExample
+	for _, item := range items {
+		key := item.Surface + "\x00" + item.Summary + "\x00" + item.Example
+		if key == "\x00\x00" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	if out == nil {
+		return []model.ControlEvidenceExample{}
+	}
+	return out
 }
 
 func renderControlBreakPathWorkstreams(w io.Writer, workstreams []model.ControlBreakPathWorkstream, limit int) {

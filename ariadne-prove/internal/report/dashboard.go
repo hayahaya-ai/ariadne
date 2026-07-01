@@ -136,6 +136,7 @@ func renderControlCatalogDashboard(w io.Writer, r model.ControlCatalogReport) er
 	}
 	renderDashboardHeader(w, title, fields)
 	renderControlCatalogSummaryDashboard(w, r)
+	renderControlOperatorCasesDashboard(w, r.OperatorCases)
 	renderControlBreakPathWorkstreamsDashboard(w, r.Workstreams)
 	renderControlVerificationTasksDashboard(w, r.VerificationTasks)
 	renderControlCatalogFamiliesDashboard(w, r.Families)
@@ -554,11 +555,45 @@ func renderControlCatalogSummaryDashboard(w io.Writer, r model.ControlCatalogRep
 	})
 	renderMetricRow(w, []kv{
 		{"Affected targets", fmt.Sprintf("%d", r.Summary.Targets)},
+		{"Operator cases", fmt.Sprintf("%d", len(r.OperatorCases))},
 		{"Workstreams", fmt.Sprintf("%d", len(r.Workstreams))},
-		{"Rows", fmt.Sprintf("%d", len(r.Controls))},
 		{"Proof specs", fmt.Sprintf("%d", len(r.ProofSpecs))},
 		{"Verification tasks", fmt.Sprintf("%d", len(r.VerificationTasks))},
 	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOperatorCase) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Operator Cases</h2><div class="subtle">A smaller action layer that connects architecture breakage, evidence references, proof surfaces, accepted evidence examples, and rerun criteria.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(cases) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No operator cases were returned for this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Case</th><th>Why it exists</th><th>Evidence references</th><th>Start with</th><th>Prove at / example</th><th>Rerun / done when</th></tr></thead><tbody>")
+	limit := len(cases)
+	if limit > 10 {
+		limit = 10
+	}
+	for _, item := range cases[:limit] {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%d control(s), %d flaw(s), %d target(s)</div></td>`, esc(item.Title), esc(item.ID), item.ControlCount, item.FlawCount, item.TargetCount)
+		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(item.Question), esc(item.Finding))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td>%s<div class="mono">%s</div></td>`, renderSmallList(limitStrings(item.StartingControls, 5)), esc(strings.Join(limitStrings(item.StartingTaskIDs, 5), ", ")))
+		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Evidence examples</h3>%s</td>`, renderSmallList(limitStrings(item.ProofSurfaces, 6)), renderSmallList(controlEvidenceExampleLines(item.EvidenceExamples, 2)))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 2)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(cases) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="7"><span class="subtle">%d more operator cases in JSON output.</span></td></tr>`, len(cases)-limit)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 

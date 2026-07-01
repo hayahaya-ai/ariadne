@@ -149,13 +149,14 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `summary`, counting missing hard-barrier controls by severity, affected targets, and affected flaws
 - `controls`, where each missing hard barrier includes the flaws it closes, target coverage, evidence anchors, structured evidence references, proof surfaces, and concrete actions
 - `families`, where related controls are grouped into Zero Trust capability areas such as identity, least agency, egress, observability, response, and governance
+- `operator_cases`, where each architecture break-path workstream becomes an actionable case with evidence references, starting controls, proof surfaces, evidence examples, rerun commands, and success criteria
 - `workstreams`, where related controls become break-path workstreams with starting tasks, evidence references, proof surfaces, rationale, and success criteria
 - `proof_specs`, where each missing hard barrier maps to the evidence kind, proof surfaces, parser-recognized indicators, notes, and limitations Ariadne uses when looking for deterministic proof
 - `verification_tasks`, where each missing hard barrier becomes an operator task with evidence references, proof surfaces, recognized indicators, evidence examples, rerun commands, success criteria, and limitations
 
 This catalog is derived from the architecture closure plan. It does not create a separate classification; it makes the proof request easier to act on. Recognized indicators and evidence examples are evidence hints, not a claim of live runtime enforcement unless paired with observed enforcement evidence.
 
-`ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, evidence examples, and actions.
+`ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, operator cases, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, evidence examples, and actions.
 
 LLM review mode uses two JSON payloads:
 

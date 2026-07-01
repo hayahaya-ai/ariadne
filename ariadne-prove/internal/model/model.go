@@ -149,6 +149,7 @@ type ControlCatalogReport struct {
 	Summary           ControlCatalogSummary        `json:"summary"`
 	Controls          []ArchitectureClosure        `json:"controls"`
 	Families          []ArchitectureClosureFamily  `json:"families"`
+	OperatorCases     []ControlOperatorCase        `json:"operator_cases"`
 	Workstreams       []ControlBreakPathWorkstream `json:"workstreams"`
 	ProofSpecs        []ControlProofSpec           `json:"proof_specs"`
 	VerificationTasks []ControlVerificationTask    `json:"verification_tasks"`
@@ -164,6 +165,27 @@ type ControlCatalogSummary struct {
 	Low      int `json:"low"`
 	Targets  int `json:"targets"`
 	Flaws    int `json:"flaws"`
+}
+
+type ControlOperatorCase struct {
+	ID                 string                   `json:"id"`
+	Title              string                   `json:"title"`
+	Severity           string                   `json:"severity"`
+	Question           string                   `json:"question"`
+	Finding            string                   `json:"finding"`
+	TargetCount        int                      `json:"target_count"`
+	FlawCount          int                      `json:"flaw_count"`
+	ControlCount       int                      `json:"control_count"`
+	Targets            []string                 `json:"targets"`
+	Flaws              []string                 `json:"flaws"`
+	EvidenceReferences []EvidenceReference      `json:"evidence_refs"`
+	StartingControls   []string                 `json:"starting_controls"`
+	StartingTaskIDs    []string                 `json:"starting_task_ids"`
+	ProofSurfaces      []string                 `json:"proof_surfaces"`
+	EvidenceExamples   []ControlEvidenceExample `json:"evidence_examples"`
+	RerunCommands      []string                 `json:"rerun_commands"`
+	SuccessCriteria    []string                 `json:"success_criteria"`
+	Limitations        []string                 `json:"limitations"`
 }
 
 type ControlBreakPathWorkstream struct {

@@ -2763,6 +2763,10 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Ariadne control evidence catalog:",
 		"Missing hard barriers:",
 		"Control families:",
+		"Operator cases:",
+		"case:input-trust-boundary",
+		"Start with:",
+		"Prove at:",
 		"Break-path workstreams:",
 		"Starting controls:",
 		"Verification tasks:",
@@ -2801,6 +2805,12 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	if len(decoded.Controls) == 0 || len(decoded.Families) == 0 {
 		t.Fatalf("control catalog should include controls and families: %+v", decoded)
 	}
+	if len(decoded.OperatorCases) == 0 {
+		t.Fatalf("control catalog should include operator cases")
+	}
+	if !hasControlOperatorCase(decoded.OperatorCases, "case:input-trust-boundary", "control:input-isolation", ".ariadne/input-policy.json", "input_isolation") {
+		t.Fatalf("control catalog should include actionable input-trust operator case: %+v", decoded.OperatorCases)
+	}
 	if len(decoded.Workstreams) == 0 {
 		t.Fatalf("control catalog should include break-path workstreams")
 	}
@@ -2834,6 +2844,8 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Control Evidence Catalog",
 		"Control Evidence Catalog",
+		"Operator Cases",
+		"case:input-trust-boundary",
 		"Break-Path Workstreams",
 		"Verification Tasks",
 		"Control Families",
@@ -2871,6 +2883,8 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Ariadne control evidence catalog:",
 		"Run: control_catalog_scan",
 		"Targets:",
+		"Operator cases:",
+		"case:input-trust-boundary",
 		"Break-path workstreams:",
 		"Verification tasks:",
 		"Where to prove this:",
@@ -2898,6 +2912,9 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	if !hasControlProofIndicator(decoded.ProofSpecs, "control:input-isolation", "input_isolation") {
 		t.Fatalf("fleet control catalog should include proof specs: %+v", decoded.ProofSpecs)
 	}
+	if !hasControlOperatorCase(decoded.OperatorCases, "case:input-trust-boundary", "control:input-isolation", ".ariadne/input-policy.json", "input_isolation") {
+		t.Fatalf("fleet control catalog should include actionable operator cases: %+v", decoded.OperatorCases)
+	}
 	if !hasControlWorkstream(decoded.Workstreams, "input-trust-boundary", "verify:control-input-isolation") {
 		t.Fatalf("fleet control catalog should include workstreams: %+v", decoded.Workstreams)
 	}
@@ -2918,6 +2935,8 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	rendered := htmlOut.String()
 	for _, want := range []string{
 		"Ariadne Fleet Control Evidence Catalog",
+		"Operator Cases",
+		"case:input-trust-boundary",
 		"Break-Path Workstreams",
 		"Verification Tasks",
 		"Control Families",
@@ -3232,6 +3251,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"summary",
 		"controls",
 		"families",
+		"operator_cases",
 		"workstreams",
 		"proof_specs",
 		"verification_tasks",
@@ -3240,6 +3260,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	)
 	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
+	controlOperatorCase := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_case")
+	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "question", "finding", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "rerun_commands", "success_criteria", "limitations")
 	controlBreakPathWorkstream := schemaMap(t, controlCatalogSchema, "$defs", "control_break_path_workstream")
 	assertRequiredKeys(t, controlBreakPathWorkstream, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations")
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
@@ -3696,6 +3718,39 @@ func hasControlWorkstream(items []model.ControlBreakPathWorkstream, id string, t
 			if candidate == taskID {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func hasControlOperatorCase(items []model.ControlOperatorCase, id string, control string, surface string, indicator string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		hasControl := false
+		for _, candidate := range item.StartingControls {
+			if candidate == control {
+				hasControl = true
+				break
+			}
+		}
+		hasSurface := false
+		for _, candidate := range item.ProofSurfaces {
+			if candidate == surface {
+				hasSurface = true
+				break
+			}
+		}
+		hasExample := false
+		for _, candidate := range item.EvidenceExamples {
+			if candidate.Surface == surface && strings.Contains(candidate.Example, indicator) {
+				hasExample = true
+				break
+			}
+		}
+		if hasControl && hasSurface && hasExample && len(item.EvidenceReferences) > 0 && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
+			return true
 		}
 	}
 	return false
