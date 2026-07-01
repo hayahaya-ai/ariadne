@@ -52,7 +52,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Tool descriptors, schemas, metadata, or remote tool auth can change underneath the agent | Tool integrity boundary | Modeled today through approved tool/MCP allowlists, MCP review and pinning, descriptor integrity, argument validation, tool authentication, signed artifacts, and deployment verification declarations. |
 | Agent tools, frameworks, model components, or providers are unknown, mutable, or unverified | AI supply-chain boundary and Foundation maturity | Modeled today through AI-BOM or ML-BOM surfaces, supply-chain policy, model provenance, training-data lineage, dependency health, provider review, signed AI artifacts, runtime component validation, and reachability analysis declarations. |
 | A lower-trust delegated or sub-agent path can inherit parent authority | Agent delegation boundary | Modeled today through Claude subagent definitions, delegation language in instruction surfaces, delegation scope, delegate allowlists, agent-to-agent authorization, original-intent verification, delegated credential scoping, context isolation, and delegation audit declarations. |
-| Data can leave through arbitrary destinations | External egress boundary | Modeled today through external communication authority, destination allowlists, webhook allowlists, per-tool network scope, and network restriction evidence. |
+| Data can leave through arbitrary destinations | External egress boundary | Modeled today through external communication authority, destination allowlists, webhook allowlists, per-tool network scope, and network restriction evidence. A complete private-data egress path can be inconclusive while the external egress boundary is still breaking if risky influence, high-risk authority, or risky tools can reach arbitrary external destinations. |
 | Sensitive data can leak through an agent response even without arbitrary network egress | Output controls boundary and Foundation maturity | Modeled today through output policy, sensitive-output filters, block or redaction controls, output filter logging, semantic output analysis, and high-risk output review declarations. |
 | Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls. High-risk authority without strong scoped agent identity is breaking; helper-only evidence remains partial. Live certificate, hardware attestation, and IdP validation are future collectors. |
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes caller or condition evidence such as named callers or ABAC plus isolation or scope evidence such as identity-based isolation, network segmentation, or per-tool scope. High-risk authority without that boundary is breaking. |
@@ -144,6 +144,7 @@ Examples Ariadne reports as `breaking` when observed:
 
 - inline credential field indicators in agent configuration
 - risky untrusted instruction input influencing high-risk runtime authority or tool surfaces without input isolation or trusted-source gates
+- risky agent influence, high-risk authority, or risky tool surfaces reaching arbitrary external communication without hard egress controls
 - high-risk agent authority or tool surfaces without strong scoped agent identity
 - high-risk agent authority or tool surfaces without identity-aware workload authorization
 - authority paths that reach private context without observed hard memory controls
@@ -466,7 +467,7 @@ Repositories can declare focused egress controls in `.ariadne/egress-policy.json
 }
 ```
 
-Ariadne treats destination allowlists, webhook allowlists, per-tool network scope, and network restriction as hard egress boundary evidence. Output filtering and egress audit are reported as facts, but they do not by themselves break a data-egress path because they monitor or transform output rather than remove arbitrary destination reachability.
+Ariadne treats destination allowlists, webhook allowlists, per-tool network scope, and network restriction as hard egress boundary evidence. Output filtering and egress audit are reported as facts, but they do not by themselves break a data-egress path because they monitor or transform output rather than remove arbitrary destination reachability. A full data-egress chain can remain inconclusive while the external egress boundary is still `breaking` when risky influence, high-risk authority, or risky tool surfaces can reach arbitrary external communication without hard egress controls.
 
 Repositories can also declare observability controls in `.ariadne/observability-policy.json`, or provide OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`.
 

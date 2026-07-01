@@ -568,6 +568,36 @@ func TestZeroTrustEgressAuditFilterAloneDoesNotBreakDataEgressPath(t *testing.T)
 	}
 }
 
+func TestZeroTrustHighRiskExternalCommunicationBreaksEgressWithoutPrivateBoundary(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "egress-high-risk-no-private-boundary")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertExposure(t, r, "data-egress-chain", model.StatusInconclusive)
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustBreaking)
+	if !strings.Contains(strings.ToLower(check.Finding), "external communication") {
+		t.Fatalf("egress boundary should explain external communication risk: %q", check.Finding)
+	}
+	for _, id := range []string{
+		"control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+	} {
+		if containsString(check.Controls, id) {
+			t.Fatalf("high-risk egress fixture should not include hard egress control %s: %+v", id, check.Controls)
+		}
+	}
+	for _, edge := range []string{
+		"trustinput:repo-instruction|influences|runtime:claude",
+		"authority:external-communication|reaches|boundary:external-destination",
+	} {
+		if !containsString(check.GraphEdges, edge) {
+			t.Fatalf("egress boundary should cite graph edge %s: %+v", edge, check.GraphEdges)
+		}
+	}
+}
+
 func TestZeroTrustOutputPolicyControlsSensitiveOutputBoundary(t *testing.T) {
 	path := realPathFixture(t, "safe-controls")
 	inventory, err := RunInventory(Options{Path: path})

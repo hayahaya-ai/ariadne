@@ -183,6 +183,10 @@ func egressBoundary(c model.Collection, g model.Graph, exposures []model.Exposur
 		status = model.ZeroTrustBreaking
 		finding = "Private-data reachability and external communication combine without an observed hard egress boundary."
 	}
+	if hasEgressArchitectureRisk(c) && !hasAnyControl(c, hardEgressControlIDs()...) {
+		status = model.ZeroTrustBreaking
+		finding = "Risky agent influence, authority, or tool surfaces can reach external communication without a hard destination or network-scope boundary."
+	}
 	if hasAnyControl(c, hardEgressControlIDs()...) {
 		status = model.ZeroTrustControlled
 		finding = "Ariadne observed hard egress boundary evidence such as network restriction, destination allowlist, webhook allowlist, or per-tool network scope."
@@ -196,7 +200,7 @@ func egressBoundary(c model.Collection, g model.Graph, exposures []model.Exposur
 		DesignTest: "Private data should not be able to leave through arbitrary external destinations; allowed destinations should be explicit and enforceable.",
 		Finding:    finding,
 		Evidence:   evidence,
-		GraphEdges: edgesForNode(g, "boundary:external-destination"),
+		GraphEdges: egressEdges(g),
 		Controls:   controls,
 		Actions: []string{
 			"Declare approved external destinations and webhook endpoints for agent runtimes.",
@@ -2500,6 +2504,20 @@ func softEgressControlIDs() []string {
 	}
 }
 
+func hasEgressArchitectureRisk(c model.Collection) bool {
+	hasExternal := hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local") || hasBoundaryID(c, "boundary:external-destination")
+	if !hasExternal {
+		return false
+	}
+	privateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local")
+	privateBoundary := hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:memory-credential-retention", "boundary:credential-material")
+	return len(trustInputEvidence(c, true)) > 0 ||
+		(privateAuthority && privateBoundary) ||
+		hasAuthority(c, "authority:local-code-execution") ||
+		hasAuthority(c, "authority:delegated-agent-authority") ||
+		hasRiskyToolSurface(c)
+}
+
 func outputControlIDs() []string {
 	return []string{
 		"control:output-sensitive-data-filter",
@@ -2933,6 +2951,10 @@ func authorizationEdges(g model.Graph) []string {
 
 func influenceEdges(g model.Graph) []string {
 	return edgesForTypes(g, "influences", "has_authority", "can_call", "restricts")
+}
+
+func egressEdges(g model.Graph) []string {
+	return edgesForTypes(g, "influences", "reaches", "restricts")
 }
 
 func workloadEdges(g model.Graph) []string {

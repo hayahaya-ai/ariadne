@@ -36,7 +36,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Are model, tool, framework, MCP, and dependency components covered by AI-BOM or ML-BOM evidence, model provenance, dependency health, provider review, signing, or runtime validation?
 - Can delegated or sub-agent work inherit parent authority without explicit authorization and scope?
 - Can private-data reachability combine with external communication reachability?
-- Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation?
+- Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation before risky influence or high-risk authority can communicate externally?
 - Are agent outputs filtered, redacted or blocked, reviewed, and logged before sensitive content reaches users or external channels?
 - Is high-risk agent authority re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes?
 - Do high-risk local execution, external communication, delegation, or sensitive-data access actions require human approval and approval-decision logging?
