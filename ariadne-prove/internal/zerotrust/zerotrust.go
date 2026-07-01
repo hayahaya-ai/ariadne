@@ -15,6 +15,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		authorityBoundary(c, g, exposures),
 		sensitiveBoundary(c, g, exposures),
 		egressBoundary(c, g, exposures),
+		outputBoundary(c, g, exposures),
 		toolBoundary(c, g, exposures),
 		toolIntegrityBoundary(c, g),
 		supplyChainBoundary(c, g),
@@ -195,6 +196,52 @@ func egressBoundary(c model.Collection, g model.Graph, exposures []model.Exposur
 			"Scope network access per tool so private-data access and arbitrary outbound communication are not available in the same path.",
 		},
 		Limitations: []string{"Ariadne detects declared egress controls and graph reachability, but does not validate network enforcement, proxy policy, DNS policy, or runtime egress decisions."},
+	}
+}
+
+func outputBoundary(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrustCheck {
+	controls := controlIDs(c, outputControlIDs()...)
+	controlEvidence := controlsEvidence(c, outputControlIDs()...)
+	riskEvidence := firstEvidence(
+		boundaryEvidence(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:credential-material"),
+		authorityEvidenceByID(c, "authority:file-read", "authority:broad-local"),
+		trustInputEvidence(c, true),
+	)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent output or sensitive-output risk surface was observed."
+	if hasOutputRelevantSurface(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Agent output or sensitive boundary evidence exists, but Ariadne did not observe sensitive-output filtering, redaction, and logging controls."
+	}
+	if len(controlEvidence) > 0 && !hasHardOutputBoundary(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed output-control evidence, but not enough to prove sensitive-output filtering plus block/redaction plus logging."
+	}
+	if hasOutputLeakRisk(c, exposures) && !hasOutputBlockingControl(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Sensitive agent output can be produced from reachable private data without observed filtering, redaction, and output-control logging evidence."
+	}
+	if hasOutputRelevantSurface(c) && hasHardOutputBoundary(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed hard output-control evidence: sensitive-output filtering, block or redaction, and logging before delivery."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:output-boundary",
+		Principle:  "Assume breach",
+		Boundary:   "Output controls boundary",
+		Tier:       "foundation",
+		Status:     status,
+		DesignTest: "Sensitive or harmful agent output should be blocked, redacted, reviewed, and logged before it reaches a user or external channel.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, riskEvidence), 8),
+		GraphEdges: outputEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Declare output filtering for credentials, PII, and sensitive business data.",
+			"Block or redact sensitive agent output before delivery, not only after external egress.",
+			"Log output filtering and redaction decisions for later investigation.",
+		},
+		Limitations: []string{"Ariadne detects declared output-control policy and graph risk, but does not inspect live model responses, validate DLP enforcement, or perform semantic leakage testing."},
 	}
 }
 
@@ -716,6 +763,7 @@ func maturity(c model.Collection) model.ZeroTrustMaturity {
 		requireIdentityBasedIsolation(c),
 		requireComprehensiveLogs(c),
 		requireInputValidation(c),
+		requireOutputControls(c),
 		requireApprovalEscalation(c),
 		requireContextRetention(c),
 		requireAutomatedTriage(c),
@@ -1133,6 +1181,59 @@ func requireInputValidation(c model.Collection) model.ZeroTrustRequirement {
 	)
 }
 
+func requireOutputControls(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, outputControlIDs()...)
+	evidence := firstEvidence(
+		controlsEvidence(c, outputControlIDs()...),
+		boundaryEvidence(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:credential-material"),
+		authorityEvidenceByID(c, "authority:file-read", "authority:broad-local"),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported sensitive-output risk surface was observed, so Ariadne did not evaluate output controls."
+	missing := []string{"sensitive-output filter", "block or redaction policy", "output filtering event logs"}
+	if hasOutputRelevantSurface(c) {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Agent output or sensitive boundary evidence exists, but Ariadne did not observe sensitive-output filtering, redaction, and logging controls."
+	}
+	if len(controls) > 0 && !hasHardOutputBoundary(c) {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed output-control evidence, but not filtering plus block/redaction plus logging."
+		missing = []string{"sensitive-output filter", "block or redaction policy", "output-control log evidence"}
+	}
+	if hasOutputLeakRisk(c, nil) && !hasOutputBlockingControl(c) {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "Sensitive agent output can be produced from reachable private data without observed filtering, redaction, and output-control logging evidence."
+		missing = []string{"sensitive-output filter", "block or redaction policy", "output-control log evidence"}
+	}
+	if hasOutputRelevantSurface(c) && hasHardOutputBoundary(c) {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed output filtering, block or redaction, and logging evidence."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:output-controls",
+		"foundation",
+		"Assume breach",
+		"Output filtering, redaction, and logging for sensitive agent output",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Filter agent outputs for credentials, PII, and sensitive business data.",
+			"Block or redact detected sensitive output before it reaches users or external tools.",
+			"Log output filtering decisions for incident reconstruction and compliance review.",
+		},
+	)
+}
+
 func requireApprovalEscalation(c model.Collection) model.ZeroTrustRequirement {
 	controls := controlIDs(c, "control:approval-required", "control:audit-logging")
 	evidence := firstEvidence(
@@ -1424,6 +1525,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without egress boundary evidence, Ariadne cannot prove that private data cannot leave through arbitrary external communication paths."
 		gap.NextCollector = "Collect egress policy, webhook allowlists, outbound destination rules, per-tool network scope, and egress audit metadata."
+	case "zt:output-boundary":
+		gap.MissingEvidence = []string{
+			"sensitive-output filtering policy",
+			"block or redaction policy for credentials, PII, and sensitive business data",
+			"output filtering event logs",
+		}
+		gap.WhyItMatters = "Without output-control evidence, a compromised or manipulated agent can expose sensitive data in its response even when network egress is separately constrained."
+		gap.NextCollector = "Collect output policy, DLP or sensitive-output filter declarations, redaction/blocking rules, semantic output review settings, human-review triggers, and output filtering event logs."
 	case "zt:tool-boundary":
 		gap.MissingEvidence = []string{
 			"tool allowlist",
@@ -1829,6 +1938,39 @@ func hasRiskySupplyChainSurface(c model.Collection) bool {
 		hasAuthority(c, "authority:local-code-execution")
 }
 
+func hasHardOutputBoundary(c model.Collection) bool {
+	return hasOutputBlockingControl(c) && hasOutputAuditControl(c)
+}
+
+func hasOutputBlockingControl(c model.Collection) bool {
+	filter := hasAnyControl(c, "control:output-sensitive-data-filter", "control:semantic-output-analysis", "control:egress-content-filter")
+	blockOrReview := hasAnyControl(c, "control:output-redaction", "control:high-risk-output-review")
+	return filter && blockOrReview
+}
+
+func hasOutputAuditControl(c model.Collection) bool {
+	return hasAnyControl(c, "control:output-filter-logging", "control:audit-logging", "control:request-traceability", "control:telemetry-export")
+}
+
+func hasOutputRelevantSurface(c model.Collection) bool {
+	return len(c.Runtimes) > 0 ||
+		len(c.TrustInputs) > 0 ||
+		hasAnyControl(c, outputControlIDs()...) ||
+		hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:credential-material")
+}
+
+func hasOutputLeakRisk(c model.Collection, exposures []model.ExposureResult) bool {
+	if hasBoundaryID(c, "boundary:credential-material") {
+		return true
+	}
+	if statusForExposures(exposures, "prompt-injection-to-secret-canary", "data-egress-chain") == model.ZeroTrustBreaking {
+		return true
+	}
+	privateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local")
+	privateBoundary := hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context")
+	return privateAuthority && privateBoundary
+}
+
 func hasHardConfigIntegrity(c model.Collection) bool {
 	reviewedVersionControl := hasAnyControl(c, "control:config-version-control") && hasAnyControl(c, "control:config-review-required")
 	signedVerified := hasAnyControl(c, "control:signed-config") && hasAnyControl(c, "control:config-deployment-verification")
@@ -1978,6 +2120,20 @@ func softEgressControlIDs() []string {
 	}
 }
 
+func outputControlIDs() []string {
+	return []string{
+		"control:output-sensitive-data-filter",
+		"control:output-redaction",
+		"control:output-filter-logging",
+		"control:semantic-output-analysis",
+		"control:high-risk-output-review",
+		"control:egress-content-filter",
+		"control:audit-logging",
+		"control:request-traceability",
+		"control:telemetry-export",
+	}
+}
+
 func sensitiveBoundaryControlIDs() []string {
 	return []string{
 		"control:deny-secret-read",
@@ -2019,6 +2175,15 @@ func memoryControlIDs() []string {
 func hasBoundaryID(c model.Collection, id string) bool {
 	for _, boundary := range c.Boundaries {
 		if boundary.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyBoundary(c model.Collection, ids ...string) bool {
+	for _, id := range ids {
+		if hasBoundaryID(c, id) {
 			return true
 		}
 	}
@@ -2327,6 +2492,16 @@ func supplyChainEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func outputEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "filters" && outputControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func toolIntegrityControlID(id string) bool {
 	switch id {
 	case "control:tool-allowlist",
@@ -2336,6 +2511,20 @@ func toolIntegrityControlID(id string) bool {
 		"control:tool-auth-required",
 		"control:signed-tool-artifacts",
 		"control:tool-deployment-verification":
+		return true
+	default:
+		return false
+	}
+}
+
+func outputControlID(id string) bool {
+	switch id {
+	case "control:output-sensitive-data-filter",
+		"control:output-redaction",
+		"control:output-filter-logging",
+		"control:semantic-output-analysis",
+		"control:high-risk-output-review",
+		"control:egress-content-filter":
 		return true
 	default:
 		return false

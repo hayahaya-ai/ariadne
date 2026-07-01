@@ -579,6 +579,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			if controlRestrictsBoundary(control.ID, boundary.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: boundary.ID})
 			}
+			if controlFiltersOutput(control.ID, boundary.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "filters", To: boundary.ID})
+			}
 		}
 		for _, input := range c.TrustInputs {
 			if controlRestrictsTrustInput(control.ID, input.ID) {
@@ -605,6 +608,35 @@ func controlRestrictsBoundary(controlID, boundaryID string) bool {
 		return boundaryID == "boundary:agent-delegation-boundary"
 	case "control:containment-quarantine":
 		return boundaryID == "boundary:external-destination" || boundaryID == "boundary:developer-execution-boundary"
+	default:
+		return false
+	}
+}
+
+func controlFiltersOutput(controlID, boundaryID string) bool {
+	if !outputSensitiveBoundary(boundaryID) {
+		return false
+	}
+	switch controlID {
+	case "control:output-sensitive-data-filter",
+		"control:output-redaction",
+		"control:output-filter-logging",
+		"control:semantic-output-analysis",
+		"control:high-risk-output-review",
+		"control:egress-content-filter":
+		return true
+	default:
+		return false
+	}
+}
+
+func outputSensitiveBoundary(boundaryID string) bool {
+	switch boundaryID {
+	case "boundary:secret-like-file",
+		"boundary:developer-secret-boundary",
+		"boundary:agent-private-context",
+		"boundary:credential-material":
+		return true
 	default:
 		return false
 	}

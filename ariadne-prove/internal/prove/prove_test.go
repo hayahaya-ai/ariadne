@@ -568,6 +568,117 @@ func TestZeroTrustEgressAuditFilterAloneDoesNotBreakDataEgressPath(t *testing.T)
 	}
 }
 
+func TestZeroTrustOutputPolicyControlsSensitiveOutputBoundary(t *testing.T) {
+	path := realPathFixture(t, "safe-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "output-policy")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:output-sensitive-data-filter",
+		"control:output-redaction",
+		"control:output-filter-logging",
+		"control:semantic-output-analysis",
+		"control:high-risk-output-review",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("output boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing output control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:output-sensitive-data-filter|filters|boundary:secret-like-file",
+		"control:output-redaction|filters|boundary:developer-secret-boundary",
+		"control:output-filter-logging|filters|boundary:secret-like-file",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing output graph edge %s", edge)
+		}
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:output-controls", model.ZeroTrustControlled)
+	if req.ControlQuality != "hard_barrier" {
+		t.Fatalf("output controls requirement quality = %q", req.ControlQuality)
+	}
+}
+
+func TestZeroTrustOutputFilterWithoutLoggingIsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".ariadne"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "allow": ["Read(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("OUTPUT_FILTER_ONLY_DO_NOT_LEAK=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	policy := `{
+  "output_sensitive_data_filter": true,
+  "output_redaction": {
+    "block_sensitive_output": true
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".ariadne", "output-policy.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:output-sensitive-data-filter") || !containsString(check.Controls, "control:output-redaction") {
+		t.Fatalf("partial output boundary should cite filter and redaction controls: %+v", check.Controls)
+	}
+	if containsString(check.Controls, "control:output-filter-logging") {
+		t.Fatalf("partial output boundary should not invent output logging: %+v", check.Controls)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:output-controls", model.ZeroTrustUnknown)
+	if req.ControlQuality != "partial_declared" {
+		t.Fatalf("partial output controls requirement quality = %q", req.ControlQuality)
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(blob), "OUTPUT_FILTER_ONLY_DO_NOT_LEAK") {
+		t.Fatalf("output filter-only secret value leaked into report")
+	}
+}
+
+func TestZeroTrustReachablePrivateDataWithoutOutputControlsIsBreaking(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("risky output boundary without controls should not cite controls: %+v", check.Controls)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:output-controls", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("output controls requirement quality = %q", req.ControlQuality)
+	}
+}
+
 func TestZeroTrustIntegrityPolicyControlsRiskyConfig(t *testing.T) {
 	path := realPathFixture(t, "config-integrity-controls")
 	inventory, err := RunInventory(Options{Path: path})
@@ -1173,6 +1284,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:authority-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:sensitive-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustBreaking)
@@ -1216,6 +1328,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	}
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustControlled)
@@ -1224,6 +1337,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:output-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:config-integrity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:tool-integrity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:supply-chain-boundary")
@@ -1251,6 +1365,11 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:prompt-injection-filter",
 		"control:request-traceability",
 		"control:input-validation",
+		"control:output-sensitive-data-filter",
+		"control:output-redaction",
+		"control:output-filter-logging",
+		"control:semantic-output-analysis",
+		"control:high-risk-output-review",
 		"control:automated-triage",
 		"control:config-version-control",
 		"control:config-review-required",
@@ -1326,6 +1445,7 @@ func TestZeroTrustMaturitySafeControlsMeetFoundation(t *testing.T) {
 		"ztf:identity-based-isolation",
 		"ztf:comprehensive-agent-logs",
 		"ztf:input-validation",
+		"ztf:output-controls",
 		"ztf:approval-escalation",
 		"ztf:context-retention",
 		"ztf:automated-first-pass-triage",
@@ -1357,6 +1477,10 @@ func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:tool-integrity", model.ZeroTrustBreaking)
 	if req.ControlQuality != "missing_hard_barrier" {
 		t.Fatalf("tool integrity requirement quality = %q", req.ControlQuality)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:output-controls", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("output controls requirement quality = %q", req.ControlQuality)
 	}
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:supply-chain-provenance", model.ZeroTrustBreaking)
 	if req.ControlQuality != "missing_hard_barrier" {

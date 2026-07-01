@@ -34,6 +34,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can delegated or sub-agent work inherit parent authority without explicit authorization and scope?
 - Can private-data reachability combine with external communication reachability?
 - Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation?
+- Are agent outputs filtered, redacted or blocked, reviewed, and logged before sensitive content reaches users or external channels?
 - Does a declared control break a modeled path?
 - Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-aware workload authorization, approval, sandbox, audit, traceability, input isolation, input validation, automated triage, containment, or retention controls?
 - Is the agent deployment registered, owned, approved, risk-assessed, reviewed, or still effectively Shadow AI?
@@ -47,6 +48,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Is runtime/tool authority constrained to least agency?
 - Can authority reach sensitive data, private context, execution, or external destinations?
 - Can private data leave only through approved external destinations?
+- Can sensitive data leak through the agent response itself without output filtering, redaction, and output-control logging?
 - Can a model-callable tool change capability without allowlisting, pinning, descriptor integrity, authentication, or argument validation?
 - Can an agent load model, tool, framework, MCP, or dependency components without AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence?
 - Can a lower-trust delegated agent become a confused deputy for a more privileged parent agent?
@@ -74,6 +76,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - live inter-agent authorization, delegated credential downscoping, or subagent execution enforcement verification
 - proxy, DNS, firewall, destination allowlist, webhook allowlist, or per-tool network-scope enforcement verification
 - live prompt-injection resistance testing
+- live output DLP, semantic leakage testing, response inspection, or output-control enforcement verification
 - live observability, SIEM, telemetry ingestion, or tamper-resistant audit proof
 - live SOAR execution, session termination, credential revocation, quarantine, or dynamic access-reduction enforcement proof
 - live GRC, CMDB, approval workflow, policy exception, or organization-wide Shadow AI discovery verification

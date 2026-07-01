@@ -133,6 +133,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectResponsePolicy(c, s)
 	case "governance-policy":
 		collectGovernancePolicy(c, s)
+	case "output-policy":
+		collectOutputPolicy(c, s)
 	case "supply-chain-policy":
 		collectSupplyChainPolicy(c, s)
 	case "ai-bom":
@@ -441,6 +443,7 @@ func collectEgressControls(c *model.Collection, source, text string) {
 	if egressAuditConfigured(text) {
 		addControl(c, "control:egress-audit", "egress-audit", "", source, "Egress policy declares audit logging for outbound or external communication.")
 	}
+	collectOutputControls(c, "", source, text)
 }
 
 func collectConfigIntegrityControls(c *model.Collection, runtime, source, text string) {
@@ -589,6 +592,28 @@ func collectGovernanceControls(c *model.Collection, runtime, source, text string
 	}
 }
 
+func collectOutputControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Output policy"
+	if runtime != "" {
+		prefix = runtime + " output policy"
+	}
+	if outputSensitiveDataFilterConfigured(text) {
+		addControl(c, "control:output-sensitive-data-filter", "output-sensitive-data-filter", runtime, source, prefix+" declares sensitive-data, credential, PII, or DLP filtering for agent outputs.")
+	}
+	if outputRedactionConfigured(text) {
+		addControl(c, "control:output-redaction", "output-redaction", runtime, source, prefix+" declares blocking or redaction for sensitive agent output before delivery.")
+	}
+	if outputFilterLoggingConfigured(text) {
+		addControl(c, "control:output-filter-logging", "output-filter-logging", runtime, source, prefix+" declares logging for output filtering, redaction, or DLP events.")
+	}
+	if semanticOutputAnalysisConfigured(text) {
+		addControl(c, "control:semantic-output-analysis", "semantic-output-analysis", runtime, source, prefix+" declares semantic analysis for sensitive, encoded, or harmful output before delivery.")
+	}
+	if highRiskOutputReviewConfigured(text) {
+		addControl(c, "control:high-risk-output-review", "high-risk-output-review", runtime, source, prefix+" declares human review or approval before high-risk agent outputs are delivered.")
+	}
+}
+
 func collectSupplyChainControls(c *model.Collection, runtime, source, text string) {
 	prefix := "Supply-chain policy"
 	if runtime != "" {
@@ -731,6 +756,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	collectEgressControls(c, s.Source, text)
 	collectResponseControls(c, "", s.Source, text)
 	collectGovernanceControls(c, "", s.Source, text)
+	collectOutputControls(c, "", s.Source, text)
 	collectSupplyChainControls(c, "", s.Source, text)
 }
 
@@ -780,6 +806,15 @@ func collectGovernancePolicy(c *model.Collection, s model.Surface) {
 	}
 	text := strings.ToLower(string(data))
 	collectGovernanceControls(c, "", s.Source, text)
+}
+
+func collectOutputPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	collectOutputControls(c, "", s.Source, text)
 }
 
 func collectSupplyChainPolicy(c *model.Collection, s model.Surface) {
@@ -1074,6 +1109,7 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	collectDelegationControls(c, runtime, source, text)
 	collectConfigIntegrityControls(c, runtime, source, text)
 	collectResponseControls(c, runtime, source, text)
+	collectOutputControls(c, runtime, source, text)
 	if inlineCredentialConfigured(text) {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:credential-material",
@@ -1380,6 +1416,53 @@ func egressAuditConfigured(text string) bool {
 		strings.Contains(text, "external_communication_logging") ||
 		strings.Contains(text, "outbound_logging") ||
 		strings.Contains(text, "egress_log")
+}
+
+func outputSensitiveDataFilterConfigured(text string) bool {
+	return strings.Contains(text, "output_sensitive_data_filter") ||
+		strings.Contains(text, "sensitive_output_filter") ||
+		strings.Contains(text, "output_filter") ||
+		strings.Contains(text, "output_filtering") ||
+		strings.Contains(text, "output_dlp") ||
+		strings.Contains(text, "dlp") ||
+		strings.Contains(text, "pii_filter") ||
+		strings.Contains(text, "credential_filter") ||
+		strings.Contains(text, "sensitive_data_patterns")
+}
+
+func outputRedactionConfigured(text string) bool {
+	return strings.Contains(text, "output_redaction") ||
+		strings.Contains(text, "redact_outputs") ||
+		strings.Contains(text, "redact_sensitive_output") ||
+		strings.Contains(text, "block_sensitive_output") ||
+		strings.Contains(text, "block_secret_like") ||
+		strings.Contains(text, "redact_secret_like") ||
+		strings.Contains(text, "output_delivery_gate")
+}
+
+func outputFilterLoggingConfigured(text string) bool {
+	return strings.Contains(text, "output_filter_logging") ||
+		strings.Contains(text, "output_control_audit") ||
+		strings.Contains(text, "filtering_events") ||
+		strings.Contains(text, "dlp_logging") ||
+		strings.Contains(text, "redaction_logging")
+}
+
+func semanticOutputAnalysisConfigured(text string) bool {
+	return strings.Contains(text, "semantic_output_analysis") ||
+		strings.Contains(text, "output_semantic_review") ||
+		strings.Contains(text, "semantic_dlp") ||
+		strings.Contains(text, "encoded_secret_detection") ||
+		strings.Contains(text, "harmful_output_detection") ||
+		strings.Contains(text, "social_engineering_output")
+}
+
+func highRiskOutputReviewConfigured(text string) bool {
+	return strings.Contains(text, "high_risk_output_review") ||
+		strings.Contains(text, "human_review_for_high_risk_output") ||
+		strings.Contains(text, "human_in_loop_output") ||
+		strings.Contains(text, "output_approval") ||
+		strings.Contains(text, "approve_sensitive_output")
 }
 
 func cryptographicIdentityConfigured(text string) bool {

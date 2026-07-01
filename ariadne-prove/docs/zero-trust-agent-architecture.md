@@ -23,6 +23,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Authority boundary: whether agent authority is scoped to least agency.
 - Sensitive data boundary: whether authority reaches secrets, private context, or external destinations.
 - External egress boundary: whether external communication is constrained by network restrictions, destination allowlists, webhook allowlists, or per-tool network scope.
+- Output controls boundary: whether sensitive or harmful agent output is filtered, blocked or redacted, reviewed, and logged before delivery.
 - Tool and MCP boundary: whether model-callable tools can expand capability through mutable launch paths.
 - Tool integrity boundary: whether model-callable tools are approved, provenance-bound, descriptor-validated, authenticated, and argument-validated.
 - AI supply-chain boundary: whether model, dataset, framework, MCP, plugin, tool, and provider components have AI-BOM, provenance, dependency-health, signing, and runtime-validation evidence.
@@ -49,6 +50,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Agent tools, frameworks, model components, or providers are unknown, mutable, or unverified | AI supply-chain boundary and Foundation maturity | Modeled today through AI-BOM or ML-BOM surfaces, supply-chain policy, model provenance, training-data lineage, dependency health, provider review, signed AI artifacts, runtime component validation, and reachability analysis declarations. |
 | A lower-trust delegated or sub-agent path can inherit parent authority | Agent delegation boundary | Modeled today through Claude subagent definitions, delegation language in instruction surfaces, delegation scope, delegate allowlists, agent-to-agent authorization, original-intent verification, delegated credential scoping, context isolation, and delegation audit declarations. |
 | Data can leave through arbitrary destinations | External egress boundary | Modeled today through external communication authority, destination allowlists, webhook allowlists, per-tool network scope, and network restriction evidence. |
+| Sensitive data can leak through an agent response even without arbitrary network egress | Output controls boundary and Foundation maturity | Modeled today through output policy, sensitive-output filters, block or redaction controls, output filter logging, semantic output analysis, and high-risk output review declarations. |
 | Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
 | Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
@@ -72,6 +74,7 @@ Examples of controls Ariadne can model today:
 - deny-by-default runtime permission posture
 - network restrictions for external destinations
 - destination allowlists, webhook allowlists, and per-tool network scope for external communication
+- sensitive-output filtering, block or redaction, output filter logging, semantic output analysis, and high-risk output review declarations
 - reviewed or pinned MCP server launchers
 - approved tool and MCP server allowlists
 - tool descriptor or schema integrity declarations
@@ -111,6 +114,7 @@ Examples Ariadne reports as `unknown` today:
 - strong identity evidence without scoped or ephemeral credential issuance evidence
 - input validation, filtering, provenance, or delimiting evidence without input isolation or trusted-source gating
 - egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
+- output filtering and redaction evidence without output filter logging
 - tool sandboxing, rate limits, or circuit breakers without allowlist, provenance, authentication, descriptor integrity, or argument-validation evidence
 - AI-BOM evidence without dependency health, model provenance or provider review, and artifact signing or runtime validation evidence
 - delegation audit or subagent context isolation without explicit delegation scope, agent-to-agent authorization, original-intent verification, or delegated credential scoping
@@ -125,6 +129,7 @@ Examples Ariadne reports as `breaking` when observed:
 
 - inline credential field indicators in agent configuration
 - authority paths that reach private context without an observed break-path control
+- reachable sensitive data without observed output filtering and block or redaction controls
 - risk-bearing agent configuration without observed hard integrity controls
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
 - risk-bearing agent supply-chain surfaces without observed AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence
@@ -148,6 +153,7 @@ Foundation requirements currently modeled:
 - Identity-based workload isolation with ABAC, named callers, segmentation, or tool scope.
 - Comprehensive logs of agent actions with request context.
 - Input isolation, trusted-source gating, and validation for untrusted agent context.
+- Output filtering, redaction, and logging for sensitive agent output.
 - Approval escalation for high-risk actions.
 - Context retention policy for persisted agent memory.
 - Automated first-pass investigation and containment for agent alerts.
@@ -284,6 +290,27 @@ Repositories can declare focused input controls in `.ariadne/input-policy.json`:
 ```
 
 Ariadne treats input isolation and trusted-source policy as graph break controls for untrusted instruction influence. Validation, provenance, delimiting, and filtering are still reported as evidence, but they are partial unless Ariadne also observes an input-isolation or trusted-source gate.
+
+Repositories can declare focused output controls in `.ariadne/output-policy.json`:
+
+```json
+{
+  "output_sensitive_data_filter": {
+    "pii_filter": true,
+    "credential_filter": true,
+    "sensitive_data_patterns": ["secret-like", "token-like"]
+  },
+  "output_redaction": {
+    "block_sensitive_output": true,
+    "redact_secret_like": true
+  },
+  "output_filter_logging": true,
+  "semantic_output_analysis": true,
+  "high_risk_output_review": true
+}
+```
+
+Ariadne treats sensitive-output filtering plus block or redaction plus output filter logging as hard Foundation output-control evidence. Semantic analysis and high-risk output review are additional evidence, but output filtering without logging remains partial.
 
 Repositories can declare focused identity controls in `.ariadne/identity-policy.json`:
 
