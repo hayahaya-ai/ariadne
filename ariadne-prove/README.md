@@ -108,6 +108,7 @@ Inspect the current repository:
 ./bin/ariadne prove --path .
 ./bin/ariadne architecture --path . --format html --out architecture-dashboard.html
 ./bin/ariadne cases --path .
+./bin/ariadne cases --path . --case case:input-trust-boundary
 ./bin/ariadne cases --path . --format html --out cases-dashboard.html
 ./bin/ariadne controls --path .
 ./bin/ariadne controls --path . --format html --out controls-dashboard.html
@@ -157,7 +158,7 @@ repo-only,/srv/repos/example
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
 | `ariadne architecture --path <dir>` | Show focused Zero Trust architecture flaws for one target. |
 | `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets. |
-| `ariadne cases --path <dir>` | Show the operator case board for architecture break paths and what proof closes them. |
+| `ariadne cases --path <dir>` | Show the operator case board for architecture break paths and what proof closes them. Use `--case <case-id>` to focus one case. |
 | `ariadne cases --targets <file>` | Group operator cases across many targets. |
 | `ariadne controls --path <dir>` | Show missing hard-barrier controls, proof surfaces, and the flaws they close. Use `--format html` for the focused operator dashboard. |
 | `ariadne controls --targets <file>` | Group missing hard-barrier controls across many targets. |
@@ -250,7 +251,7 @@ Prove output adds:
 - optional LLM review interpretation when `--interpret llm` is used
 - limitations
 
-Cases output is the case-first operator view of the architecture closure plan. It starts with the few architecture break paths an operator can act on, then shows evidence refs, starting controls, proof surfaces, evidence examples, rerun commands, and success criteria for each case.
+Cases output is the case-first operator view of the architecture closure plan. It starts with the few architecture break paths an operator can act on, then shows evidence refs, starting controls, proof surfaces, evidence examples, rerun commands, and success criteria for each case. Use `--case case:input-trust-boundary` or the unprefixed case id to focus the table, JSON, or HTML output on one case and its supporting evidence.
 
 Controls output is the deeper proof catalog behind the case board. It answers which hard barriers are missing, which flaws each one closes, which evidence references caused the proof request, where evidence should be supplied, which parser-recognized indicators Ariadne understands for that control, and what an accepted evidence shape can look like. It also groups controls into break-path workstreams so operators can start with a few architecture decisions instead of treating every missing control as equal. Verification tasks provide the lower-level proof loop so operators can add evidence, rerun Ariadne, and confirm the missing hard barrier is no longer reported. Recognized indicators and examples are deterministic evidence hints; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.
 

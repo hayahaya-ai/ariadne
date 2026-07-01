@@ -146,6 +146,7 @@ type ControlCatalogReport struct {
 	Mode              string                       `json:"mode"`
 	Agent             string                       `json:"agent"`
 	StatusFilter      string                       `json:"status_filter"`
+	CaseFilter        string                       `json:"case_filter,omitempty"`
 	Summary           ControlCatalogSummary        `json:"summary"`
 	Controls          []ArchitectureClosure        `json:"controls"`
 	Families          []ArchitectureClosureFamily  `json:"families"`

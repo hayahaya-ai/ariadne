@@ -85,21 +85,27 @@ func RenderControlsScan(w io.Writer, r model.ScanReport, format string, statusFi
 	return renderControlCatalog(w, catalog, format)
 }
 
-func RenderCases(w io.Writer, r model.Report, format string, statusFilter string) error {
+func RenderCases(w io.Writer, r model.Report, format string, statusFilter string, caseFilter string) error {
 	architecture, err := BuildArchitectureReport(r, statusFilter)
 	if err != nil {
 		return err
 	}
 	catalog := BuildControlCaseBoardReport(architecture)
+	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
+		return err
+	}
 	return renderControlCaseBoard(w, catalog, format)
 }
 
-func RenderCasesScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
+func RenderCasesScan(w io.Writer, r model.ScanReport, format string, statusFilter string, caseFilter string) error {
 	architecture, err := BuildArchitectureScanReport(r, statusFilter)
 	if err != nil {
 		return err
 	}
 	catalog := BuildControlCaseBoardScanReport(architecture)
+	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
+		return err
+	}
 	return renderControlCaseBoard(w, catalog, format)
 }
 
@@ -976,6 +982,9 @@ func renderControlCaseBoardTable(w io.Writer, r model.ControlCatalogReport) erro
 		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
 	}
 	fmt.Fprintf(w, "  Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "case_board"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, "  Case: %s\n", r.CaseFilter)
+	}
 	fmt.Fprintf(w, "  Case queue: %d case(s); %d missing hard-barrier controls; %d critical, %d high, %d medium, %d low; %d target(s); %d flaw(s)\n",
 		len(r.OperatorCases),
 		r.Summary.Controls,
@@ -1099,6 +1108,155 @@ func rewriteControlCatalogAsCaseBoard(catalog *model.ControlCatalogReport) {
 		catalog.VerificationTasks[i].RerunCommands = caseBoardRerunCommands(catalog.VerificationTasks[i].RerunCommands)
 		catalog.VerificationTasks[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.VerificationTasks[i].SuccessCriteria)
 	}
+}
+
+func filterControlCaseBoard(catalog *model.ControlCatalogReport, caseFilter string) error {
+	caseFilter = strings.TrimSpace(caseFilter)
+	if caseFilter == "" {
+		return nil
+	}
+	var selected model.ControlOperatorCase
+	found := false
+	for _, item := range catalog.OperatorCases {
+		if controlOperatorCaseMatches(item, caseFilter) {
+			selected = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("operator case %q not found", caseFilter)
+	}
+	catalog.CaseFilter = selected.ID
+	selected.RerunCommands = caseBoardFocusedRerunCommands(selected.RerunCommands, selected.ID)
+	caseID := strings.TrimPrefix(selected.ID, "case:")
+	controls := map[string]bool{}
+	taskIDs := map[string]bool{}
+	for _, control := range selected.StartingControls {
+		controls[control] = true
+	}
+	for _, taskID := range selected.StartingTaskIDs {
+		taskIDs[taskID] = true
+	}
+	var workstreams []model.ControlBreakPathWorkstream
+	for _, workstream := range catalog.Workstreams {
+		if workstream.ID != caseID {
+			continue
+		}
+		workstreams = append(workstreams, workstream)
+		for _, control := range workstream.Controls {
+			controls[control] = true
+		}
+		for _, taskID := range workstream.StartingTaskIDs {
+			taskIDs[taskID] = true
+		}
+	}
+	var families []model.ArchitectureClosureFamily
+	for _, family := range catalog.Families {
+		if family.ID != caseID {
+			continue
+		}
+		families = append(families, family)
+		for _, control := range family.Controls {
+			controls[control] = true
+		}
+	}
+	var closurePlan []model.ArchitectureClosure
+	for _, item := range catalog.Controls {
+		if controls[item.Control] {
+			closurePlan = append(closurePlan, item)
+		}
+	}
+	var proofSpecs []model.ControlProofSpec
+	for _, item := range catalog.ProofSpecs {
+		if controls[item.Control] {
+			proofSpecs = append(proofSpecs, item)
+		}
+	}
+	var tasks []model.ControlVerificationTask
+	for _, item := range catalog.VerificationTasks {
+		if controls[item.Control] || taskIDs[item.ID] {
+			item.RerunCommands = caseBoardFocusedRerunCommands(item.RerunCommands, selected.ID)
+			tasks = append(tasks, item)
+		}
+	}
+	catalog.OperatorCases = []model.ControlOperatorCase{selected}
+	catalog.Workstreams = nonNilControlBreakPathWorkstreams(workstreams)
+	catalog.Families = nonNilArchitectureClosureFamilies(families)
+	catalog.Controls = nonNilArchitectureClosures(closurePlan)
+	catalog.ProofSpecs = nonNilControlProofSpecs(proofSpecs)
+	catalog.VerificationTasks = nonNilControlVerificationTasks(tasks)
+	catalog.Summary = summarizeControlCatalog(catalog.Controls)
+	return nil
+}
+
+func caseBoardFocusedRerunCommands(commands []string, caseID string) []string {
+	out := make([]string, 0, len(commands))
+	for _, command := range commands {
+		if strings.HasPrefix(command, "ariadne cases ") && !strings.Contains(command, " --case ") {
+			command += " --case " + shellQuoteCommandArg(caseID)
+		}
+		out = append(out, command)
+	}
+	return out
+}
+
+func controlOperatorCaseMatches(item model.ControlOperatorCase, filter string) bool {
+	normalized := normalizeControlOperatorCaseID(filter)
+	return normalized != "" && (normalizeControlOperatorCaseID(item.ID) == normalized || normalizeControlOperatorCaseID(item.Title) == normalized)
+}
+
+func normalizeControlOperatorCaseID(value string) string {
+	value = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "case:")
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if b.Len() > 0 && !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
+}
+
+func nonNilArchitectureClosures(items []model.ArchitectureClosure) []model.ArchitectureClosure {
+	if items == nil {
+		return []model.ArchitectureClosure{}
+	}
+	return items
+}
+
+func nonNilArchitectureClosureFamilies(items []model.ArchitectureClosureFamily) []model.ArchitectureClosureFamily {
+	if items == nil {
+		return []model.ArchitectureClosureFamily{}
+	}
+	return items
+}
+
+func nonNilControlBreakPathWorkstreams(items []model.ControlBreakPathWorkstream) []model.ControlBreakPathWorkstream {
+	if items == nil {
+		return []model.ControlBreakPathWorkstream{}
+	}
+	return items
+}
+
+func nonNilControlProofSpecs(items []model.ControlProofSpec) []model.ControlProofSpec {
+	if items == nil {
+		return []model.ControlProofSpec{}
+	}
+	return items
+}
+
+func nonNilControlVerificationTasks(items []model.ControlVerificationTask) []model.ControlVerificationTask {
+	if items == nil {
+		return []model.ControlVerificationTask{}
+	}
+	return items
 }
 
 func caseBoardRerunCommands(commands []string) []string {

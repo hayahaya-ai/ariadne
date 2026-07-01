@@ -53,6 +53,7 @@ func runCases(args []string) {
 	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
+	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
 	format := fs.String("format", "table", "output format: table, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
@@ -72,7 +73,7 @@ func runCases(args []string) {
 			fatal(err)
 		}
 		defer closeFn()
-		if err := report.RenderCasesScan(writer, r, *format, *status); err != nil {
+		if err := report.RenderCasesScan(writer, r, *format, *status, *caseID); err != nil {
 			fatal(err)
 		}
 		return
@@ -91,7 +92,7 @@ func runCases(args []string) {
 		fatal(err)
 	}
 	defer closeFn()
-	if err := report.RenderCases(writer, r, *format, *status); err != nil {
+	if err := report.RenderCases(writer, r, *format, *status, *caseID); err != nil {
 		fatal(err)
 	}
 }
@@ -429,6 +430,7 @@ Examples:
   ariadne architecture --path . --status all --format json
   ariadne architecture --path . --format html --out architecture-dashboard.html
   ariadne cases --path .
+  ariadne cases --path . --case case:input-trust-boundary
   ariadne cases --path . --format html --out cases-dashboard.html
   ariadne cases --targets targets.txt
   ariadne controls --path .

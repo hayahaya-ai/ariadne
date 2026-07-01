@@ -25,11 +25,12 @@
     "schema_version": { "const": "ariadne.report/v1" },
     "run_id": { "type": "string" },
     "generated_at": { "type": "string", "format": "date-time" },
-    "run_kind": { "type": "string", "enum": ["control_catalog", "control_catalog_scan"] },
+    "run_kind": { "type": "string", "enum": ["control_catalog", "control_catalog_scan", "case_board", "case_board_scan"] },
     "target_path": { "type": "string" },
     "mode": { "type": "string" },
     "agent": { "type": "string" },
     "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "case_filter": { "type": "string" },
     "summary": { "$ref": "#/$defs/control_catalog_summary" },
     "controls": {
       "type": "array",

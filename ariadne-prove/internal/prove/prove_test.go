@@ -3,6 +3,7 @@ package prove
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -2875,7 +2876,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	var table bytes.Buffer
-	if err := report.RenderCases(&table, r, "table", "breaking"); err != nil {
+	if err := report.RenderCases(&table, r, "table", "breaking", ""); err != nil {
 		t.Fatal(err)
 	}
 	out := table.String()
@@ -2903,7 +2904,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 	}
 
 	var jsonOut bytes.Buffer
-	if err := report.RenderCases(&jsonOut, r, "json", "breaking"); err != nil {
+	if err := report.RenderCases(&jsonOut, r, "json", "breaking", ""); err != nil {
 		t.Fatal(err)
 	}
 	var decoded model.ControlCatalogReport
@@ -2921,7 +2922,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 	}
 
 	var htmlOut bytes.Buffer
-	if err := report.RenderCases(&htmlOut, r, "html", "breaking"); err != nil {
+	if err := report.RenderCases(&htmlOut, r, "html", "breaking", ""); err != nil {
 		t.Fatal(err)
 	}
 	rendered := htmlOut.String()
@@ -2937,6 +2938,77 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("operator case board dashboard missing %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderCases(&table, r, "table", "breaking", "input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne operator case board:",
+		"Case: case:input-trust-boundary",
+		"Case queue: 1 case(s); 2 missing hard-barrier controls",
+		"case:input-trust-boundary",
+		"control:input-isolation",
+		".ariadne/input-policy.json",
+		"--case case:input-trust-boundary",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("focused operator case board missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "case:egress-output-boundary") {
+		t.Fatalf("focused operator case board should not include unrelated cases:\n%s", out)
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderCases(&jsonOut, r, "json", "breaking", "case:input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ControlCatalogReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.CaseFilter != "case:input-trust-boundary" || len(decoded.OperatorCases) != 1 || decoded.OperatorCases[0].ID != "case:input-trust-boundary" {
+		t.Fatalf("focused case board should return one selected case: %+v", decoded)
+	}
+	if decoded.Summary.Controls != 2 || len(decoded.Controls) != 2 || len(decoded.Workstreams) != 1 {
+		t.Fatalf("focused case board should retain only selected case evidence: summary=%+v controls=%+v workstreams=%+v", decoded.Summary, decoded.Controls, decoded.Workstreams)
+	}
+	if !operatorCaseHasRerun(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
+		t.Fatalf("focused case board should preserve case filter in rerun commands: %+v", decoded.OperatorCases)
+	}
+	if !controlCatalogHasOnlyControls(decoded.Controls, "control:input-isolation", "control:trusted-source-policy") {
+		t.Fatalf("focused case board controls were not scoped to input trust: %+v", decoded.Controls)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderCases(&htmlOut, r, "html", "breaking", "case:input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Operator Case Board",
+		"case:input-trust-boundary",
+		"control:input-isolation",
+		"Case Queue",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("focused case board dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "case:egress-output-boundary") {
+		t.Fatalf("focused case board dashboard should not include unrelated cases:\n%s", rendered)
+	}
+	if err := report.RenderCases(io.Discard, r, "table", "breaking", "case:not-real"); err == nil {
+		t.Fatalf("expected unknown case filter to return an error")
 	}
 }
 
@@ -3031,7 +3103,7 @@ func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	var table bytes.Buffer
-	if err := report.RenderCasesScan(&table, scan, "table", "breaking"); err != nil {
+	if err := report.RenderCasesScan(&table, scan, "table", "breaking", ""); err != nil {
 		t.Fatal(err)
 	}
 	out := table.String()
@@ -3048,7 +3120,7 @@ func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
 	}
 
 	var jsonOut bytes.Buffer
-	if err := report.RenderCasesScan(&jsonOut, scan, "json", "breaking"); err != nil {
+	if err := report.RenderCasesScan(&jsonOut, scan, "json", "breaking", ""); err != nil {
 		t.Fatal(err)
 	}
 	var decoded model.ControlCatalogReport
@@ -3066,7 +3138,7 @@ func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
 	}
 
 	var htmlOut bytes.Buffer
-	if err := report.RenderCasesScan(&htmlOut, scan, "html", "breaking"); err != nil {
+	if err := report.RenderCasesScan(&htmlOut, scan, "html", "breaking", ""); err != nil {
 		t.Fatal(err)
 	}
 	rendered := htmlOut.String()
@@ -3387,6 +3459,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"redaction",
 		"limitations",
 	)
+	assertSchemaProperty(t, controlCatalogSchema, "case_filter")
 	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
 	controlOperatorCase := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_case")
@@ -3897,6 +3970,22 @@ func operatorCaseHasRerun(items []model.ControlOperatorCase, id string, commandP
 		}
 	}
 	return false
+}
+
+func controlCatalogHasOnlyControls(items []model.ArchitectureClosure, controls ...string) bool {
+	want := map[string]bool{}
+	for _, control := range controls {
+		want[control] = true
+	}
+	if len(items) != len(want) {
+		return false
+	}
+	for _, item := range items {
+		if !want[item.Control] {
+			return false
+		}
+	}
+	return true
 }
 
 func hasControlVerificationTask(items []model.ControlVerificationTask, control string, source string, indicator string) bool {

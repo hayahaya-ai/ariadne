@@ -134,6 +134,9 @@ func renderControlCatalogDashboard(w io.Writer, r model.ControlCatalogReport) er
 	if r.TargetPath != "" {
 		fields[0] = kv{"Target", r.TargetPath}
 	}
+	if r.CaseFilter != "" {
+		fields = append(fields, kv{"Case", r.CaseFilter})
+	}
 	renderDashboardHeader(w, title, fields)
 	renderControlCatalogSummaryDashboard(w, r)
 	renderControlOperatorCasesDashboard(w, r.OperatorCases)
@@ -166,6 +169,9 @@ func renderControlCaseBoardDashboard(w io.Writer, r model.ControlCatalogReport) 
 	}
 	if r.TargetPath != "" {
 		fields[0] = kv{"Target", r.TargetPath}
+	}
+	if r.CaseFilter != "" {
+		fields = append(fields, kv{"Case", r.CaseFilter})
 	}
 	renderDashboardHeader(w, title, fields)
 	renderCaseBoardSummaryDashboard(w, r)
