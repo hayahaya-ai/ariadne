@@ -318,7 +318,35 @@ func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
+	renderZeroTrustCoverage(w, z.Coverage)
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderZeroTrustCoverage(w io.Writer, coverage model.ZeroTrustCoverage) {
+	if coverage.Gaps == 0 {
+		fmt.Fprintln(w, `<div class="empty">No Zero Trust evidence coverage gaps were returned for this run.</div>`)
+		return
+	}
+	fmt.Fprintln(w, `<h3>Evidence Coverage Gaps</h3>`)
+	renderMetricRow(w, []kv{
+		{"Known", fmt.Sprintf("%d", coverage.Known)},
+		{"Gaps", fmt.Sprintf("%d", coverage.Gaps)},
+		{"Unknown", fmt.Sprintf("%d", coverage.Unknown)},
+		{"Not observed", fmt.Sprintf("%d", coverage.NotObserved)},
+		{"Next collectors", fmt.Sprintf("%d", coverage.Gaps)},
+	})
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Boundary</th><th>Missing evidence</th><th>Why it matters</th><th>Next collector</th></tr></thead><tbody>")
+	for _, gap := range coverage.GapDetails {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(string(gap.Status)), esc(statusLabel(string(gap.Status))))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div></td>`, esc(gap.Boundary), esc(gap.CheckID))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(gap.MissingEvidence))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(gap.WhyItMatters))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(gap.NextCollector))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 }
 
 func renderScanZeroTrustDashboard(w io.Writer, r model.ScanReport) {

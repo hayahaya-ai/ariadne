@@ -180,6 +180,7 @@ Prove output adds:
 - graph path edges
 - controls that break the path
 - Zero Trust architecture checks with evidence, graph edges, controls, actions, and limitations
+- Zero Trust coverage gaps that name missing evidence and the next collector needed
 - deterministic interpretation with issue priority, severity, disposition, evidence signals, and actions
 - optional LLM review interpretation when `--interpret llm` is used
 - limitations

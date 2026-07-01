@@ -98,4 +98,10 @@ Each check includes:
 - actions
 - limitations
 
+The `coverage` object turns unknowns into a collector roadmap:
+
+- `known`: checks with `breaking` or `controlled` status
+- `gaps`: checks that are `unknown` or `not_observed`
+- `gap_details`: missing evidence, why it matters, and the next collector Ariadne needs
+
 Ariadne should only call a boundary `breaking` when facts and graph edges support the claim.

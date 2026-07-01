@@ -26,6 +26,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 	return model.ZeroTrust{
 		FrameworkVersion: FrameworkVersion,
 		Summary:          summarize(checks),
+		Coverage:         coverage(checks),
 		Checks:           checks,
 	}
 }
@@ -316,6 +317,106 @@ func summarize(checks []model.ZeroTrustCheck) model.ZeroTrustSummary {
 		}
 	}
 	return summary
+}
+
+func coverage(checks []model.ZeroTrustCheck) model.ZeroTrustCoverage {
+	var out model.ZeroTrustCoverage
+	for _, check := range checks {
+		switch check.Status {
+		case model.ZeroTrustUnknown:
+			out.Unknown++
+			out.GapDetails = append(out.GapDetails, gapForCheck(check))
+		case model.ZeroTrustNotObserved:
+			out.NotObserved++
+			out.GapDetails = append(out.GapDetails, gapForCheck(check))
+		default:
+			out.Known++
+		}
+	}
+	out.Gaps = len(out.GapDetails)
+	if out.GapDetails == nil {
+		out.GapDetails = []model.ZeroTrustGap{}
+	}
+	return out
+}
+
+func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
+	gap := model.ZeroTrustGap{
+		CheckID:  check.ID,
+		Boundary: check.Boundary,
+		Status:   check.Status,
+	}
+	switch check.ID {
+	case "zt:influence-boundary":
+		gap.MissingEvidence = []string{
+			"runtime input-isolation policy",
+			"instruction provenance or trust policy",
+			"approval evidence for untrusted-instruction execution",
+		}
+		gap.WhyItMatters = "Without input-isolation evidence, Ariadne cannot prove whether untrusted instructions are separated from authority-bearing runtime behavior."
+		gap.NextCollector = "Collect runtime permission policy, trusted-source policy, and approval/tool-call logs."
+	case "zt:authority-boundary":
+		gap.MissingEvidence = []string{
+			"least-agency tool scope",
+			"sandbox enforcement evidence",
+			"per-tool filesystem/network scope",
+		}
+		gap.WhyItMatters = "Without authority-scope evidence, Ariadne cannot prove whether broad agent permissions are necessary or constrained."
+		gap.NextCollector = "Collect sandbox profile, filesystem root, network scope, and per-tool permission metadata."
+	case "zt:sensitive-boundary":
+		gap.MissingEvidence = []string{
+			"complete sensitive-boundary inventory",
+			"deny-read coverage for secrets and private context",
+			"control evidence for external destinations",
+		}
+		gap.WhyItMatters = "Without boundary and control coverage, Ariadne cannot prove whether sensitive data paths are fully broken."
+		gap.NextCollector = "Collect secret-boundary indicators, deny-read rules, private-context locations, and network policy."
+	case "zt:tool-boundary":
+		gap.MissingEvidence = []string{
+			"tool allowlist",
+			"package pinning or digest evidence",
+			"tool provenance and launch review evidence",
+		}
+		gap.WhyItMatters = "Without tool provenance and scoping evidence, mutable or remote tool surfaces remain uncertain."
+		gap.NextCollector = "Collect MCP allowlists, lockfiles, package digests, plugin manifests, and tool review policy."
+	case "zt:memory-boundary":
+		gap.MissingEvidence = []string{
+			"memory isolation policy",
+			"context retention policy",
+			"context integrity or provenance metadata",
+		}
+		gap.WhyItMatters = "Without memory isolation evidence, persisted context may become a cross-session influence or sensitive-data boundary."
+		gap.NextCollector = "Collect memory store locations, retention settings, transcript metadata, and integrity/provenance controls."
+	case "zt:identity-boundary":
+		gap.MissingEvidence = []string{
+			"credential helper or vault evidence",
+			"short-lived credential evidence",
+			"JIT, ABAC, or hardware-bound credential evidence",
+		}
+		gap.WhyItMatters = "Without identity evidence, Ariadne cannot prove that agent actions are attributable to scoped, expiring credentials."
+		gap.NextCollector = "Collect credential-helper config, OAuth/OIDC metadata, token lifetime policy, JIT policy, and identity-provider scope evidence."
+	case "zt:observability-boundary":
+		gap.MissingEvidence = []string{
+			"tool-call audit log evidence",
+			"approval log evidence",
+			"telemetry export or SIEM evidence",
+		}
+		gap.WhyItMatters = "Without audit evidence, operators may not be able to reconstruct what the agent did or why quickly enough to respond."
+		gap.NextCollector = "Collect transcript metadata, tool-call logs, approval logs, OpenTelemetry config, and SIEM export evidence."
+	case "zt:control-strength":
+		gap.MissingEvidence = []string{
+			"control edge that removes the path",
+			"runtime enforcement evidence",
+			"policy proof for the relevant authority or boundary",
+		}
+		gap.WhyItMatters = "Without a break-path control, Ariadne cannot prove that the architecture removes the capability rather than adding friction."
+		gap.NextCollector = "Collect deny, allowlist, sandbox, network, MCP review, and enforcement policy evidence."
+	default:
+		gap.MissingEvidence = []string{"deterministic evidence for this architecture boundary"}
+		gap.WhyItMatters = "Ariadne needs more evidence to classify this boundary."
+		gap.NextCollector = "Add a collector for the missing boundary evidence."
+	}
+	return gap
 }
 
 func normalizeCheck(check model.ZeroTrustCheck) model.ZeroTrustCheck {

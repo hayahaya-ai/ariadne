@@ -107,9 +107,10 @@ const (
 )
 
 type ZeroTrust struct {
-	FrameworkVersion string           `json:"framework_version"`
-	Summary          ZeroTrustSummary `json:"summary"`
-	Checks           []ZeroTrustCheck `json:"checks"`
+	FrameworkVersion string            `json:"framework_version"`
+	Summary          ZeroTrustSummary  `json:"summary"`
+	Coverage         ZeroTrustCoverage `json:"coverage"`
+	Checks           []ZeroTrustCheck  `json:"checks"`
 }
 
 type ZeroTrustSummary struct {
@@ -140,6 +141,23 @@ type ZeroTrustEvidence struct {
 	Kind    string `json:"kind"`
 	Source  string `json:"source,omitempty"`
 	Summary string `json:"summary"`
+}
+
+type ZeroTrustCoverage struct {
+	Known       int            `json:"known"`
+	Gaps        int            `json:"gaps"`
+	Unknown     int            `json:"unknown"`
+	NotObserved int            `json:"not_observed"`
+	GapDetails  []ZeroTrustGap `json:"gap_details"`
+}
+
+type ZeroTrustGap struct {
+	CheckID         string          `json:"check_id"`
+	Boundary        string          `json:"boundary"`
+	Status          ZeroTrustStatus `json:"status"`
+	MissingEvidence []string        `json:"missing_evidence"`
+	WhyItMatters    string          `json:"why_it_matters"`
+	NextCollector   string          `json:"next_collector"`
 }
 
 type Evidence struct {

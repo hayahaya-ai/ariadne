@@ -358,6 +358,28 @@ func renderZeroTrustTable(w io.Writer, z model.ZeroTrust) {
 			fmt.Fprintf(w, "    Next: %s\n", check.Actions[0])
 		}
 	}
+	if len(z.Coverage.GapDetails) > 0 {
+		fmt.Fprintf(w, "  Evidence coverage: %d known, %d gaps (%d unknown, %d not observed)\n",
+			z.Coverage.Known,
+			z.Coverage.Gaps,
+			z.Coverage.Unknown,
+			z.Coverage.NotObserved,
+		)
+		limit := len(z.Coverage.GapDetails)
+		if limit > 4 {
+			limit = 4
+		}
+		for _, gap := range z.Coverage.GapDetails[:limit] {
+			fmt.Fprintf(w, "    - %s: missing %s. Next collector: %s\n",
+				gap.Boundary,
+				strings.Join(gap.MissingEvidence, "; "),
+				gap.NextCollector,
+			)
+		}
+		if len(z.Coverage.GapDetails) > limit {
+			fmt.Fprintf(w, "    - %d more coverage gaps in JSON or dashboard output\n", len(z.Coverage.GapDetails)-limit)
+		}
+	}
 	fmt.Fprintln(w)
 }
 

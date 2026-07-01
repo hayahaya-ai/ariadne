@@ -93,6 +93,12 @@ Each check includes:
 - `actions`: concrete next steps
 - `limitations`
 
+`zero_trust.coverage` converts unknown and not-observed checks into explicit evidence gaps:
+
+- `known`: checks classified as `breaking` or `controlled`
+- `gaps`: number of unknown or not-observed coverage gaps
+- `gap_details`: missing evidence, why it matters, and the next collector needed
+
 `breaking` is reserved for graph-backed paths or missing break-path controls. Missing identity, credential, ABAC, JIT, or telemetry evidence is reported as `unknown` until Ariadne has collectors that can prove the boundary.
 
 LLM review mode uses two JSON payloads:

@@ -488,6 +488,23 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
 
+func TestZeroTrustCoverageGapsExplainUnknownBoundaries(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ZeroTrust.Coverage.Gaps == 0 {
+		t.Fatalf("expected zero trust coverage gaps: %+v", r.ZeroTrust.Coverage)
+	}
+	gap := assertZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
+	if !containsString(gap.MissingEvidence, "credential") {
+		t.Fatalf("identity gap should describe missing credential evidence: %+v", gap)
+	}
+	if !strings.Contains(strings.ToLower(gap.NextCollector), "credential") {
+		t.Fatalf("identity gap should name a credential collector: %+v", gap)
+	}
+}
+
 func TestZeroTrustSafeControlsShowsControlBoundary(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
@@ -506,6 +523,8 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	}
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -735,6 +754,7 @@ func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Exposure Dashboard",
 		"Zero Trust Architecture",
+		"Evidence Coverage Gaps",
 		"Influence boundary",
 		"Issue Dashboard",
 		"Exposure Paths",
@@ -814,6 +834,32 @@ func assertZeroTrustCheck(t *testing.T, checks []model.ZeroTrustCheck, id string
 	}
 	t.Fatalf("missing zero trust check %s in %+v", id, checks)
 	return model.ZeroTrustCheck{}
+}
+
+func assertZeroTrustGap(t *testing.T, gaps []model.ZeroTrustGap, id string) model.ZeroTrustGap {
+	t.Helper()
+	for _, gap := range gaps {
+		if gap.CheckID == id {
+			if len(gap.MissingEvidence) == 0 {
+				t.Fatalf("zero trust gap %s missing evidence list", id)
+			}
+			if gap.NextCollector == "" {
+				t.Fatalf("zero trust gap %s missing next collector", id)
+			}
+			return gap
+		}
+	}
+	t.Fatalf("missing zero trust gap %s in %+v", id, gaps)
+	return model.ZeroTrustGap{}
+}
+
+func assertNoZeroTrustGap(t *testing.T, gaps []model.ZeroTrustGap, id string) {
+	t.Helper()
+	for _, gap := range gaps {
+		if gap.CheckID == id {
+			t.Fatalf("zero trust gap %s should not exist when check is controlled: %+v", id, gap)
+		}
+	}
 }
 
 func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {

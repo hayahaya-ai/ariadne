@@ -60,10 +60,11 @@
     },
     "zero_trust": {
       "type": "object",
-      "required": ["framework_version", "summary", "checks"],
+      "required": ["framework_version", "summary", "coverage", "checks"],
       "properties": {
         "framework_version": { "const": "ariadne.zero_trust_agent/v1" },
         "summary": { "$ref": "#/$defs/zero_trust_summary" },
+        "coverage": { "$ref": "#/$defs/zero_trust_coverage" },
         "checks": {
           "type": "array",
           "items": { "$ref": "#/$defs/zero_trust_check" }
@@ -78,6 +79,32 @@
         "controlled": { "type": "integer" },
         "unknown": { "type": "integer" },
         "not_observed": { "type": "integer" }
+      }
+    },
+    "zero_trust_coverage": {
+      "type": "object",
+      "required": ["known", "gaps", "unknown", "not_observed", "gap_details"],
+      "properties": {
+        "known": { "type": "integer" },
+        "gaps": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "not_observed": { "type": "integer" },
+        "gap_details": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_gap" }
+        }
+      }
+    },
+    "zero_trust_gap": {
+      "type": "object",
+      "required": ["check_id", "boundary", "status", "missing_evidence", "why_it_matters", "next_collector"],
+      "properties": {
+        "check_id": { "type": "string" },
+        "boundary": { "type": "string" },
+        "status": { "type": "string", "enum": ["breaking", "controlled", "unknown", "not_observed"] },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "why_it_matters": { "type": "string" },
+        "next_collector": { "type": "string" }
       }
     },
     "zero_trust_check": {
