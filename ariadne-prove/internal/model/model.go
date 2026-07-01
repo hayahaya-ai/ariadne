@@ -107,11 +107,13 @@ const (
 )
 
 type ZeroTrust struct {
-	FrameworkVersion string            `json:"framework_version"`
-	Summary          ZeroTrustSummary  `json:"summary"`
-	Coverage         ZeroTrustCoverage `json:"coverage"`
-	Maturity         ZeroTrustMaturity `json:"maturity"`
-	Checks           []ZeroTrustCheck  `json:"checks"`
+	FrameworkVersion    string                  `json:"framework_version"`
+	Summary             ZeroTrustSummary        `json:"summary"`
+	ArchitectureSummary ZeroTrustSummary        `json:"architecture_summary"`
+	ArchitectureFlaws   []ZeroTrustArchitecture `json:"architecture_flaws"`
+	Coverage            ZeroTrustCoverage       `json:"coverage"`
+	Maturity            ZeroTrustMaturity       `json:"maturity"`
+	Checks              []ZeroTrustCheck        `json:"checks"`
 }
 
 type ZeroTrustSummary struct {
@@ -135,6 +137,24 @@ type ZeroTrustCheck struct {
 	Controls    []string            `json:"controls,omitempty"`
 	Actions     []string            `json:"actions"`
 	Limitations []string            `json:"limitations,omitempty"`
+}
+
+type ZeroTrustArchitecture struct {
+	ID           string              `json:"id"`
+	Title        string              `json:"title"`
+	Status       ZeroTrustStatus     `json:"status"`
+	Severity     string              `json:"severity"`
+	Principle    string              `json:"principle"`
+	Tier         string              `json:"tier"`
+	Boundaries   []string            `json:"boundaries"`
+	CheckIDs     []string            `json:"check_ids"`
+	Finding      string              `json:"finding"`
+	WhyItMatters string              `json:"why_it_matters"`
+	Evidence     []ZeroTrustEvidence `json:"evidence"`
+	GraphEdges   []string            `json:"graph_edges"`
+	Controls     []string            `json:"controls,omitempty"`
+	Actions      []string            `json:"actions"`
+	Limitations  []string            `json:"limitations,omitempty"`
 }
 
 type ZeroTrustEvidence struct {

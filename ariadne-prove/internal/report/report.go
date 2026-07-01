@@ -346,6 +346,39 @@ func renderZeroTrustTable(w io.Writer, z model.ZeroTrust) {
 		z.Summary.Unknown,
 		z.Summary.NotObserved,
 	)
+	if len(z.ArchitectureFlaws) > 0 {
+		fmt.Fprintf(w, "  Architecture flaws: %d total, %d breaking, %d controlled, %d unknown, %d not observed\n",
+			z.ArchitectureSummary.Total,
+			z.ArchitectureSummary.Breaking,
+			z.ArchitectureSummary.Controlled,
+			z.ArchitectureSummary.Unknown,
+			z.ArchitectureSummary.NotObserved,
+		)
+		rendered := 0
+		for _, flaw := range z.ArchitectureFlaws {
+			if flaw.Status == model.ZeroTrustNotObserved {
+				continue
+			}
+			if rendered >= 8 {
+				fmt.Fprintf(w, "    - %d more architecture flaw categories in JSON or dashboard output\n", countObservedArchitectureFlaws(z.ArchitectureFlaws)-rendered)
+				break
+			}
+			rendered++
+			fmt.Fprintf(w, "    - %s %s: %s\n", statusLabel(string(flaw.Status)), flaw.Title, flaw.Finding)
+			if len(flaw.Evidence) > 0 {
+				fmt.Fprintf(w, "      Evidence: %s\n", zeroTrustEvidenceLine(flaw.Evidence, 3))
+			}
+			if len(flaw.Controls) > 0 {
+				fmt.Fprintf(w, "      Controls: %s\n", strings.Join(flaw.Controls, "; "))
+			}
+			if len(flaw.Actions) > 0 {
+				fmt.Fprintf(w, "      Next: %s\n", flaw.Actions[0])
+			}
+		}
+		if rendered == 0 {
+			fmt.Fprintf(w, "    - no observed architecture flaw categories returned\n")
+		}
+	}
 	if z.Maturity.TargetTier != "" {
 		fmt.Fprintf(w, "  Foundation maturity evidence: %d/%d requirements evidenced, %d gaps (%d breaking, %d unknown, %d not observed), %d hard barriers, %d friction-only controls\n",
 			z.Maturity.Summary.Met,
@@ -406,6 +439,16 @@ func renderZeroTrustTable(w io.Writer, z model.ZeroTrust) {
 		}
 	}
 	fmt.Fprintln(w)
+}
+
+func countObservedArchitectureFlaws(flaws []model.ZeroTrustArchitecture) int {
+	count := 0
+	for _, flaw := range flaws {
+		if flaw.Status != model.ZeroTrustNotObserved {
+			count++
+		}
+	}
+	return count
 }
 
 func zeroTrustEvidenceLine(evidence []model.ZeroTrustEvidence, limit int) string {

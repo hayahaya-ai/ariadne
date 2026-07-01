@@ -306,6 +306,8 @@ func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
 		{"Not observed", fmt.Sprintf("%d", z.Summary.NotObserved)},
 		{"Checks", fmt.Sprintf("%d", z.Summary.Total)},
 	})
+	renderArchitectureFlawsDashboard(w, z)
+	fmt.Fprintln(w, `<h3>Boundary Checks</h3>`)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
 	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Boundary</th><th>Finding</th><th>Evidence</th><th>Graph / Control</th><th>Next action</th></tr></thead><tbody>")
 	for _, check := range z.Checks {
@@ -322,6 +324,33 @@ func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
 	renderZeroTrustMaturity(w, z.Maturity)
 	renderZeroTrustCoverage(w, z.Coverage)
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureFlawsDashboard(w io.Writer, z model.ZeroTrust) {
+	if len(z.ArchitectureFlaws) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Architecture Failure Map</h3>`)
+	renderMetricRow(w, []kv{
+		{"Breaking flaws", fmt.Sprintf("%d", z.ArchitectureSummary.Breaking)},
+		{"Controlled flaws", fmt.Sprintf("%d", z.ArchitectureSummary.Controlled)},
+		{"Unknown flaws", fmt.Sprintf("%d", z.ArchitectureSummary.Unknown)},
+		{"Not observed", fmt.Sprintf("%d", z.ArchitectureSummary.NotObserved)},
+		{"Flaw categories", fmt.Sprintf("%d", z.ArchitectureSummary.Total)},
+	})
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Architecture flaw</th><th>Why it matters</th><th>Evidence</th><th>Graph / Control</th><th>Next action</th></tr></thead><tbody>")
+	for _, flaw := range z.ArchitectureFlaws {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><div class="pill %s">%s</div></td>`, cssClass(string(flaw.Status)), esc(statusLabel(string(flaw.Status))), cssClass(flaw.Severity), esc(strings.ToUpper(flaw.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(flaw.Title), esc(flaw.Principle), esc(flaw.ID), esc(strings.Join(flaw.Boundaries, ", ")))
+		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(flaw.Finding), esc(flaw.WhyItMatters))
+		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(flaw.Evidence))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(flaw.GraphEdges, 4)), renderControlLine(flaw.Controls))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(flaw.Actions, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 }
 
 func renderZeroTrustMaturity(w io.Writer, maturity model.ZeroTrustMaturity) {
@@ -382,32 +411,39 @@ func renderZeroTrustCoverage(w io.Writer, coverage model.ZeroTrustCoverage) {
 
 func renderScanZeroTrustDashboard(w io.Writer, r model.ScanReport) {
 	var total model.ZeroTrustSummary
+	var architectureTotal model.ZeroTrustSummary
 	byTarget := make([]kv, 0, len(r.Targets))
 	for _, target := range r.Targets {
 		if target.Error != "" || target.Report.ZeroTrust.FrameworkVersion == "" {
 			continue
 		}
 		s := target.Report.ZeroTrust.Summary
+		a := target.Report.ZeroTrust.ArchitectureSummary
 		total.Total += s.Total
 		total.Breaking += s.Breaking
 		total.Controlled += s.Controlled
 		total.Unknown += s.Unknown
 		total.NotObserved += s.NotObserved
+		architectureTotal.Total += a.Total
+		architectureTotal.Breaking += a.Breaking
+		architectureTotal.Controlled += a.Controlled
+		architectureTotal.Unknown += a.Unknown
+		architectureTotal.NotObserved += a.NotObserved
 		byTarget = append(byTarget, kv{
 			Key:   target.Target.ID,
-			Value: fmt.Sprintf("%d breaking, %d controlled, %d unknown", s.Breaking, s.Controlled, s.Unknown),
+			Value: fmt.Sprintf("%d breaking flaws, %d controlled flaws, %d unknown flaws; %d breaking checks", a.Breaking, a.Controlled, a.Unknown, s.Breaking),
 		})
 	}
 	if total.Total == 0 {
 		return
 	}
 	fmt.Fprintln(w, `<section class="panel">`)
-	fmt.Fprintln(w, `<div class="section-head"><div><h2>Zero Trust Architecture</h2><div class="subtle">Aggregated architecture-boundary readout across scanned targets.</div></div></div>`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Zero Trust Architecture</h2><div class="subtle">Aggregated architecture-failure and boundary readout across scanned targets.</div></div></div>`)
 	renderMetricRow(w, []kv{
-		{"Breaking", fmt.Sprintf("%d", total.Breaking)},
-		{"Controlled", fmt.Sprintf("%d", total.Controlled)},
-		{"Unknown", fmt.Sprintf("%d", total.Unknown)},
-		{"Not observed", fmt.Sprintf("%d", total.NotObserved)},
+		{"Breaking flaws", fmt.Sprintf("%d", architectureTotal.Breaking)},
+		{"Controlled flaws", fmt.Sprintf("%d", architectureTotal.Controlled)},
+		{"Unknown flaws", fmt.Sprintf("%d", architectureTotal.Unknown)},
+		{"Breaking checks", fmt.Sprintf("%d", total.Breaking)},
 		{"Checks", fmt.Sprintf("%d", total.Total)},
 	})
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)

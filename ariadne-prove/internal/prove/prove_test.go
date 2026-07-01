@@ -1328,6 +1328,44 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:workload-authorization-boundary", model.ZeroTrustBreaking)
 }
 
+func TestZeroTrustArchitectureFlawsSummarizeBreakingBoundaries(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ZeroTrust.ArchitectureSummary.Total == 0 {
+		t.Fatalf("expected architecture flaw summary: %+v", r.ZeroTrust.ArchitectureSummary)
+	}
+	if r.ZeroTrust.ArchitectureSummary.Breaking == 0 {
+		t.Fatalf("expected breaking architecture flaws: %+v", r.ZeroTrust.ArchitectureSummary)
+	}
+	for _, id := range []string{
+		"ztaf:untrusted-instructions-steer-privileged-tools",
+		"ztaf:broad-standing-agent-authority",
+		"ztaf:arbitrary-external-egress",
+		"ztaf:weak-agent-identity",
+		"ztaf:missing-request-action-observability",
+	} {
+		flaw := assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, id, model.ZeroTrustBreaking)
+		if len(flaw.CheckIDs) == 0 {
+			t.Fatalf("architecture flaw %s missing check IDs: %+v", id, flaw)
+		}
+		if flaw.WhyItMatters == "" {
+			t.Fatalf("architecture flaw %s missing why-it-matters text", id)
+		}
+		if len(flaw.Actions) == 0 {
+			t.Fatalf("architecture flaw %s missing next actions: %+v", id, flaw)
+		}
+	}
+	flaw := assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:untrusted-instructions-steer-privileged-tools", model.ZeroTrustBreaking)
+	if !containsString(flaw.CheckIDs, "zt:influence-boundary") {
+		t.Fatalf("influence architecture flaw should cite boundary check: %+v", flaw.CheckIDs)
+	}
+	if len(flaw.Evidence) == 0 {
+		t.Fatalf("influence architecture flaw should cite evidence: %+v", flaw)
+	}
+}
+
 func TestZeroTrustCoverageGapsExplainUnknownBoundaries(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {
@@ -1385,6 +1423,9 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:continuous-authorization-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:approval-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:resource-exhaustion-boundary")
+	assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:weak-agent-identity", model.ZeroTrustControlled)
+	assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:missing-request-action-observability", model.ZeroTrustControlled)
+	assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:sensitive-output-leakage", model.ZeroTrustControlled)
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -2545,6 +2586,12 @@ func TestTableReportIsFactFirst(t *testing.T) {
 	if !strings.Contains(out, "Authority modeled: file-read") {
 		t.Fatalf("report did not include authority fact:\n%s", out)
 	}
+	if !strings.Contains(out, "Architecture flaws:") {
+		t.Fatalf("report did not include architecture flaw summary:\n%s", out)
+	}
+	if !strings.Contains(out, "Untrusted instructions can steer privileged tools") {
+		t.Fatalf("report did not include architecture flaw title:\n%s", out)
+	}
 }
 
 func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
@@ -2560,6 +2607,8 @@ func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Exposure Dashboard",
 		"Zero Trust Architecture",
+		"Architecture Failure Map",
+		"Untrusted instructions can steer privileged tools",
 		"Foundation Maturity Requirements",
 		"Evidence Coverage Gaps",
 		"Influence boundary",
@@ -2652,6 +2701,27 @@ func assertZeroTrustCheck(t *testing.T, checks []model.ZeroTrustCheck, id string
 	}
 	t.Fatalf("missing zero trust check %s in %+v", id, checks)
 	return model.ZeroTrustCheck{}
+}
+
+func assertZeroTrustArchitecture(t *testing.T, flaws []model.ZeroTrustArchitecture, id string, status model.ZeroTrustStatus) model.ZeroTrustArchitecture {
+	t.Helper()
+	for _, flaw := range flaws {
+		if flaw.ID != id {
+			continue
+		}
+		if flaw.Status != status {
+			t.Fatalf("zero trust architecture flaw %s status = %s, want %s", id, flaw.Status, status)
+		}
+		if flaw.Finding == "" {
+			t.Fatalf("zero trust architecture flaw %s missing finding", id)
+		}
+		if flaw.Title == "" {
+			t.Fatalf("zero trust architecture flaw %s missing title", id)
+		}
+		return flaw
+	}
+	t.Fatalf("missing zero trust architecture flaw %s in %+v", id, flaws)
+	return model.ZeroTrustArchitecture{}
 }
 
 func assertZeroTrustGap(t *testing.T, gaps []model.ZeroTrustGap, id string) model.ZeroTrustGap {

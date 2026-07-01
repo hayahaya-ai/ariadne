@@ -15,6 +15,24 @@ The goal is not to certify that an environment is safe. The goal is to expose wh
 - `unknown`: Ariadne found relevant surfaces, but not enough evidence to prove or clear the architecture boundary.
 - `not_observed`: Ariadne did not observe supported evidence for that boundary.
 
+## Product Readout
+
+The first readout is `zero_trust.architecture_flaws`.
+
+This is the user-centered map of architecture flaw categories Ariadne is trying to expose:
+
+- untrusted instructions steering privileged tools
+- broad standing agent authority
+- mutable or unverified tools and MCP servers
+- arbitrary external egress
+- weak agent identity
+- missing workload or continuous authorization
+- missing approval, observability, response, governance, or configuration integrity
+- unsafe persistent memory or context
+- controls that add friction instead of removing the risky path
+
+Each flaw carries a status, severity, underlying check IDs, evidence references, graph edges, controls, actions, and limitations. The flaw map is derived from the lower-level `zero_trust.checks`; it does not introduce a second opinion layer.
+
 ## Architecture Boundaries
 
 Ariadne currently evaluates these Zero Trust checks:
@@ -549,7 +567,13 @@ Ariadne treats reviewed version-controlled configuration, signed configuration w
 
 ## Evidence Contract
 
-Zero Trust checks are emitted under `zero_trust` in `prove` JSON and rendered in the local dashboard.
+Zero Trust architecture results are emitted under `zero_trust` in `prove` JSON and rendered in the local dashboard.
+
+Start with:
+
+- `architecture_summary`: counts architecture flaw categories by status
+- `architecture_flaws`: user-centered flaw categories with evidence, graph edges, controls, and next actions
+- `checks`: lower-level boundary evaluations that support the flaw map
 
 Each check includes:
 

@@ -35,12 +35,385 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 	for i := range checks {
 		checks[i] = normalizeCheck(checks[i])
 	}
+	architecture := architectureFlaws(checks)
 	return model.ZeroTrust{
-		FrameworkVersion: FrameworkVersion,
-		Summary:          summarize(checks),
-		Coverage:         coverage(checks),
-		Maturity:         maturity(c),
-		Checks:           checks,
+		FrameworkVersion:    FrameworkVersion,
+		Summary:             summarize(checks),
+		ArchitectureSummary: summarizeArchitecture(architecture),
+		ArchitectureFlaws:   architecture,
+		Coverage:            coverage(checks),
+		Maturity:            maturity(c),
+		Checks:              checks,
+	}
+}
+
+type architectureDefinition struct {
+	ID           string
+	Title        string
+	Severity     string
+	Principle    string
+	Tier         string
+	CheckIDs     []string
+	WhyItMatters string
+	Actions      []string
+}
+
+func architectureFlaws(checks []model.ZeroTrustCheck) []model.ZeroTrustArchitecture {
+	byID := map[string]model.ZeroTrustCheck{}
+	for _, check := range checks {
+		byID[check.ID] = check
+	}
+	var out []model.ZeroTrustArchitecture
+	for _, def := range architectureDefinitions() {
+		linked := make([]model.ZeroTrustCheck, 0, len(def.CheckIDs))
+		for _, id := range def.CheckIDs {
+			if check, ok := byID[id]; ok {
+				linked = append(linked, check)
+			}
+		}
+		if len(linked) == 0 {
+			continue
+		}
+		primary := primaryArchitectureCheck(linked)
+		flaw := model.ZeroTrustArchitecture{
+			ID:           def.ID,
+			Title:        def.Title,
+			Status:       aggregateArchitectureStatus(linked),
+			Severity:     def.Severity,
+			Principle:    def.Principle,
+			Tier:         def.Tier,
+			CheckIDs:     append([]string{}, def.CheckIDs...),
+			WhyItMatters: def.WhyItMatters,
+		}
+		for _, check := range linked {
+			flaw.Boundaries = append(flaw.Boundaries, check.Boundary)
+			flaw.Evidence = append(flaw.Evidence, check.Evidence...)
+			flaw.GraphEdges = append(flaw.GraphEdges, check.GraphEdges...)
+			flaw.Controls = append(flaw.Controls, check.Controls...)
+			flaw.Actions = append(flaw.Actions, check.Actions...)
+			flaw.Limitations = append(flaw.Limitations, check.Limitations...)
+		}
+		flaw.Finding = architectureFinding(flaw.Status, primary)
+		flaw.Boundaries = uniqueStrings(flaw.Boundaries)
+		flaw.Evidence = dedupeEvidence(flaw.Evidence)
+		flaw.GraphEdges = uniqueStrings(flaw.GraphEdges)
+		flaw.Controls = uniqueStrings(flaw.Controls)
+		flaw.Actions = uniqueStrings(append(def.Actions, flaw.Actions...))
+		flaw.Limitations = uniqueStrings(flaw.Limitations)
+		out = append(out, normalizeArchitectureFlaw(flaw))
+	}
+	return out
+}
+
+func normalizeArchitectureFlaw(flaw model.ZeroTrustArchitecture) model.ZeroTrustArchitecture {
+	if flaw.Boundaries == nil {
+		flaw.Boundaries = []string{}
+	}
+	if flaw.CheckIDs == nil {
+		flaw.CheckIDs = []string{}
+	}
+	if flaw.Evidence == nil {
+		flaw.Evidence = []model.ZeroTrustEvidence{}
+	}
+	if flaw.GraphEdges == nil {
+		flaw.GraphEdges = []string{}
+	}
+	if flaw.Controls == nil {
+		flaw.Controls = []string{}
+	}
+	if flaw.Actions == nil {
+		flaw.Actions = []string{}
+	}
+	if flaw.Limitations == nil {
+		flaw.Limitations = []string{}
+	}
+	return flaw
+}
+
+func architectureDefinitions() []architectureDefinition {
+	return []architectureDefinition{
+		{
+			ID:        "ztaf:untrusted-instructions-steer-privileged-tools",
+			Title:     "Untrusted instructions can steer privileged tools",
+			Severity:  "critical",
+			Principle: "Never trust, always verify",
+			Tier:      "foundation",
+			CheckIDs:  []string{"zt:influence-boundary"},
+			WhyItMatters: "Repo, memory, web, or pasted instructions are attacker-influence surfaces. If they can steer tools without isolation, " +
+				"the agent can misuse legitimate authority while appearing to operate normally.",
+			Actions: []string{
+				"Separate untrusted natural-language inputs from authority-bearing tool execution.",
+				"Add input isolation or trusted-source gates before instructions can influence high-risk tools.",
+			},
+		},
+		{
+			ID:           "ztaf:broad-standing-agent-authority",
+			Title:        "Agent has broad standing authority instead of least agency",
+			Severity:     "critical",
+			Principle:    "Least agency",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:authority-boundary"},
+			WhyItMatters: "Broad local authority increases blast radius because a compromised agent can read, execute, or call more than the task requires.",
+			Actions: []string{
+				"Replace broad local authority with deny-by-default posture and scoped permission allowlists.",
+			},
+		},
+		{
+			ID:           "ztaf:mutable-tool-capability",
+			Title:        "MCP or tool configuration can expand capability through mutable launch paths",
+			Severity:     "high",
+			Principle:    "Least agency",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:tool-boundary"},
+			WhyItMatters: "Model-callable tools are authority surfaces. Mutable package launchers, plugins, or MCP definitions can change what the agent is able to do.",
+			Actions: []string{
+				"Pin and review MCP launchers, plugins, and tool definitions before making them model-callable.",
+			},
+		},
+		{
+			ID:           "ztaf:unverified-tool-integrity",
+			Title:        "Tool descriptors, schemas, metadata, or tool auth are not integrity-bound",
+			Severity:     "high",
+			Principle:    "Never trust, always verify",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:tool-integrity-boundary"},
+			WhyItMatters: "Agents choose tools from descriptors and schemas. If those surfaces can be poisoned, the agent can be guided into unintended actions.",
+			Actions: []string{
+				"Require tool allowlists, descriptor integrity, argument validation, and authenticated tool access.",
+			},
+		},
+		{
+			ID:           "ztaf:unverified-ai-supply-chain",
+			Title:        "Agent tools, frameworks, models, or providers are unknown or unverified",
+			Severity:     "high",
+			Principle:    "Never trust, always verify",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:supply-chain-boundary"},
+			WhyItMatters: "Agent stacks compose models, MCP servers, plugins, dependencies, and providers at runtime. Unknown or mutable components create supply-chain exposure.",
+			Actions: []string{
+				"Publish AI-BOM or ML-BOM evidence, model provenance, dependency health, provider review, signing, and runtime validation.",
+			},
+		},
+		{
+			ID:           "ztaf:delegated-authority-inheritance",
+			Title:        "Delegated or sub-agent work can inherit parent authority",
+			Severity:     "high",
+			Principle:    "Least agency",
+			Tier:         "enterprise",
+			CheckIDs:     []string{"zt:delegation-boundary"},
+			WhyItMatters: "A lower-trust agent or sub-agent can become a privilege-escalation path if delegation lacks scope, intent verification, or credential separation.",
+			Actions: []string{
+				"Require delegation scope, agent-to-agent authorization, original-intent verification, and delegated credential scoping.",
+			},
+		},
+		{
+			ID:           "ztaf:arbitrary-external-egress",
+			Title:        "Data or agent actions can leave through arbitrary external destinations",
+			Severity:     "critical",
+			Principle:    "Assume breach",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:egress-boundary"},
+			WhyItMatters: "Once an influenced or compromised agent can communicate externally, arbitrary destinations become a practical exfiltration and command path.",
+			Actions: []string{
+				"Constrain outbound destinations with network restriction, destination allowlists, webhook allowlists, or per-tool network scope.",
+			},
+		},
+		{
+			ID:           "ztaf:sensitive-output-leakage",
+			Title:        "Sensitive data can leak through agent output",
+			Severity:     "high",
+			Principle:    "Assume breach",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:output-boundary"},
+			WhyItMatters: "Even without arbitrary network egress, agent responses can disclose credentials, private context, or sensitive business data to users or downstream tools.",
+			Actions: []string{
+				"Add sensitive-output filtering, block or redaction controls, review, and output-control logging.",
+			},
+		},
+		{
+			ID:           "ztaf:weak-agent-identity",
+			Title:        "Agent identity is a label rather than a cryptographic boundary",
+			Severity:     "critical",
+			Principle:    "Never trust, always verify",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:identity-boundary"},
+			WhyItMatters: "Without strong scoped identity, agent actions may be inherited from a developer, service account, or shared credential that cannot be safely attributed or revoked.",
+			Actions: []string{
+				"Use cryptographic, workload, hardware-bound, or per-agent identity plus scoped or ephemeral credentials.",
+			},
+		},
+		{
+			ID:           "ztaf:workload-not-authorized",
+			Title:        "Workload isolation exists without identity-aware authorization",
+			Severity:     "high",
+			Principle:    "Never trust, always verify",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:workload-authorization-boundary"},
+			WhyItMatters: "Sandboxing and network placement contain some effects, but they do not prove the caller, context, segment, or tool scope is authorized.",
+			Actions: []string{
+				"Require ABAC, named callers, workload identity, network segmentation, or per-tool scope for agent workloads.",
+			},
+		},
+		{
+			ID:           "ztaf:standing-authority-without-reauthorization",
+			Title:        "Agent authority remains usable after task or risk context changes",
+			Severity:     "high",
+			Principle:    "Never trust, always verify",
+			Tier:         "advanced",
+			CheckIDs:     []string{"zt:continuous-authorization-boundary"},
+			WhyItMatters: "Session-start approval leaves standing authority available after task completion, context drift, or risk changes.",
+			Actions: []string{
+				"Re-authorize high-risk actions per action and downscope or revoke authority when task or risk state changes.",
+			},
+		},
+		{
+			ID:           "ztaf:missing-human-approval",
+			Title:        "High-risk autonomous actions lack an approval gate and decision log",
+			Severity:     "high",
+			Principle:    "Never trust, always verify",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:approval-boundary"},
+			WhyItMatters: "Approval prompts are only useful if high-risk actions pause before execution and the decision is reconstructable later.",
+			Actions: []string{
+				"Require human approval and approval-decision logging for local execution, external communication, delegation, and sensitive-data access.",
+			},
+		},
+		{
+			ID:           "ztaf:runaway-agent-automation",
+			Title:        "Agent automation can loop, spend, or call tools without bounded stop conditions",
+			Severity:     "medium",
+			Principle:    "Least agency",
+			Tier:         "enterprise",
+			CheckIDs:     []string{"zt:resource-exhaustion-boundary"},
+			WhyItMatters: "Autonomous loops can create API spend, rate-limit bypass, denial of service, or incident noise at machine speed.",
+			Actions: []string{
+				"Set rate, spend, runtime, loop, concurrency, and circuit-breaker limits with usage audit evidence.",
+			},
+		},
+		{
+			ID:           "ztaf:missing-request-action-observability",
+			Title:        "Agent actions cannot be reconstructed from triggering request to tool action",
+			Severity:     "high",
+			Principle:    "Assume breach",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:observability-boundary"},
+			WhyItMatters: "If teams cannot connect a request to tool calls, approvals, and outputs, they cannot investigate misuse or prove what happened.",
+			Actions: []string{
+				"Log tool actions with request IDs, trace IDs, approval decisions, actor context, and immutable audit storage.",
+			},
+		},
+		{
+			ID:           "ztaf:missing-containment",
+			Title:        "A compromised agent can keep operating while humans investigate",
+			Severity:     "high",
+			Principle:    "Assume breach",
+			Tier:         "enterprise",
+			CheckIDs:     []string{"zt:response-boundary"},
+			WhyItMatters: "Detection without containment leaves authority active during investigation.",
+			Actions: []string{
+				"Connect behavioral monitoring to session termination, credential revocation, quarantine, or dynamic access reduction.",
+			},
+		},
+		{
+			ID:           "ztaf:unmanaged-agent-deployments",
+			Title:        "Agent deployments run outside accountable governance",
+			Severity:     "medium",
+			Principle:    "Never trust, always verify",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:governance-boundary"},
+			WhyItMatters: "Unregistered or ownerless agents become Shadow AI surfaces with unclear risk acceptance, review, and remediation ownership.",
+			Actions: []string{
+				"Register agent deployments with owner, approval, risk assessment, and recurring review evidence.",
+			},
+		},
+		{
+			ID:           "ztaf:unsafe-persistent-memory",
+			Title:        "Memory or context persists without isolation, provenance, integrity, or credential exclusion",
+			Severity:     "high",
+			Principle:    "Assume breach",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:memory-boundary"},
+			WhyItMatters: "Persisted context can retain credentials or poisoned instructions that influence future sessions.",
+			Actions: []string{
+				"Apply memory isolation, retention windows, integrity checks, provenance, and credential exclusion for persisted context.",
+			},
+		},
+		{
+			ID:           "ztaf:mutable-agent-configuration",
+			Title:        "Agent configuration can be changed without review or integrity evidence",
+			Severity:     "high",
+			Principle:    "Never trust, always verify",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:config-integrity-boundary"},
+			WhyItMatters: "Configuration files can widen authority, alter MCP servers, disable controls, or change approval posture.",
+			Actions: []string{
+				"Require reviewed version control, signed config, deployment verification, managed settings, or immutable runtime evidence.",
+			},
+		},
+		{
+			ID:           "ztaf:friction-only-controls",
+			Title:        "Controls add friction instead of removing the risky path",
+			Severity:     "medium",
+			Principle:    "Assume breach",
+			Tier:         "foundation",
+			CheckIDs:     []string{"zt:control-strength"},
+			WhyItMatters: "Warnings, prompts, and soft monitoring can slow an attacker, but Zero Trust requires controls that remove or enforceably constrain capability.",
+			Actions: []string{
+				"Replace friction-only controls with graph break controls such as deny rules, allowlists, isolation, or scoped credentials.",
+			},
+		},
+	}
+}
+
+func primaryArchitectureCheck(checks []model.ZeroTrustCheck) model.ZeroTrustCheck {
+	if len(checks) == 0 {
+		return model.ZeroTrustCheck{}
+	}
+	primary := checks[0]
+	for _, check := range checks[1:] {
+		if zeroTrustStatusRank(check.Status) > zeroTrustStatusRank(primary.Status) {
+			primary = check
+		}
+	}
+	return primary
+}
+
+func aggregateArchitectureStatus(checks []model.ZeroTrustCheck) model.ZeroTrustStatus {
+	status := model.ZeroTrustNotObserved
+	for _, check := range checks {
+		if zeroTrustStatusRank(check.Status) > zeroTrustStatusRank(status) {
+			status = check.Status
+		}
+	}
+	return status
+}
+
+func zeroTrustStatusRank(status model.ZeroTrustStatus) int {
+	switch status {
+	case model.ZeroTrustBreaking:
+		return 4
+	case model.ZeroTrustUnknown:
+		return 3
+	case model.ZeroTrustControlled:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func architectureFinding(status model.ZeroTrustStatus, primary model.ZeroTrustCheck) string {
+	if primary.Finding == "" {
+		return "Ariadne did not produce a supporting boundary finding for this architecture category."
+	}
+	switch status {
+	case model.ZeroTrustBreaking:
+		return "Breaking: " + primary.Finding
+	case model.ZeroTrustControlled:
+		return "Controlled: " + primary.Finding
+	case model.ZeroTrustUnknown:
+		return "Unknown: " + primary.Finding
+	default:
+		return "Not observed: " + primary.Finding
 	}
 }
 
@@ -881,6 +1254,24 @@ func summarize(checks []model.ZeroTrustCheck) model.ZeroTrustSummary {
 	summary.Total = len(checks)
 	for _, check := range checks {
 		switch check.Status {
+		case model.ZeroTrustBreaking:
+			summary.Breaking++
+		case model.ZeroTrustControlled:
+			summary.Controlled++
+		case model.ZeroTrustUnknown:
+			summary.Unknown++
+		default:
+			summary.NotObserved++
+		}
+	}
+	return summary
+}
+
+func summarizeArchitecture(flaws []model.ZeroTrustArchitecture) model.ZeroTrustSummary {
+	var summary model.ZeroTrustSummary
+	summary.Total = len(flaws)
+	for _, flaw := range flaws {
+		switch flaw.Status {
 		case model.ZeroTrustBreaking:
 			summary.Breaking++
 		case model.ZeroTrustControlled:
