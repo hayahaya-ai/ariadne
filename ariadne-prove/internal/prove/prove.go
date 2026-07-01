@@ -532,6 +532,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			if controlRestrictsTool(control.ID, tool.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: tool.ID})
 			}
+			if controlLimitsTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "limits", To: tool.ID})
+			}
 		}
 		for _, authority := range c.Authorities {
 			if controlRestrictsAuthority(control.ID, authority.ID) {
@@ -539,6 +542,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			}
 			if controlAuthorizesAuthority(control.ID, authority.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "authorizes", To: authority.ID})
+			}
+			if controlLimitsAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "limits", To: authority.ID})
 			}
 		}
 		if controlGovernsDeployment(control.ID) {
@@ -674,6 +680,42 @@ func controlAuthorizesAuthority(controlID, authorityID string) bool {
 		"control:automatic-access-revocation",
 		"control:abac-policy",
 		"control:tool-scope-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlLimitsTool(controlID, toolID string) bool {
+	if toolID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:resource-usage-audit",
+		"control:tool-circuit-breaker":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlLimitsAuthority(controlID, authorityID string) bool {
+	if authorityID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:resource-usage-audit",
+		"control:tool-circuit-breaker":
 		return true
 	default:
 		return false

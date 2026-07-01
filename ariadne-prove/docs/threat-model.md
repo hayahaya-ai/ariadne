@@ -11,6 +11,7 @@ Ariadne focuses on local AI-agent exposure management.
 - tool and MCP configuration
 - AI-BOM, ML-BOM, model, tool, framework, dependency, and provider provenance records
 - external communication paths
+- API quotas, budgets, token usage, and compute/runtime limits
 
 ## Trust Boundaries
 
@@ -22,6 +23,7 @@ Ariadne focuses on local AI-agent exposure management.
 - external destinations
 - policy and control surfaces
 - continuous authorization and privilege elevation controls
+- resource, rate, spend, loop, timeout, concurrency, and quota controls
 - response and containment controls
 - deployment governance records
 
@@ -37,6 +39,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation?
 - Are agent outputs filtered, redacted or blocked, reviewed, and logged before sensitive content reaches users or external channels?
 - Is high-risk agent authority re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes?
+- Can an agent loop tool calls, exhaust APIs, create billing spikes, or deny service without resource limits and circuit breakers?
 - Does a declared control break a modeled path?
 - Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-aware workload authorization, approval, sandbox, audit, traceability, input isolation, input validation, automated triage, containment, or retention controls?
 - Is the agent deployment registered, owned, approved, risk-assessed, reviewed, or still effectively Shadow AI?
@@ -58,6 +61,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Is agent identity scoped and attributable?
 - Is the authenticated agent authorized only for named callers, context attributes, network segments, and tool scopes?
 - Is standing high-risk authority replaced with per-action authorization, dynamic/JIT scoping, and automatic revocation?
+- Are tool/API calls bounded by rate, spend, loop, timeout, concurrency, and usage-audit controls?
 - Is persisted memory or context isolated from unrelated sessions and broad local authority?
 - Would operators have enough audit evidence to reconstruct agent actions and approvals?
 - Can suspicious agent behavior trigger containment that terminates sessions, revokes credentials, quarantines the workload, or reduces authority?
@@ -77,6 +81,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - non-deterministic LLM review
 - identity provider, ABAC, JIT, token lifetime, segmentation, named-caller, or hardware-bound credential enforcement verification
 - live continuous authorization, policy-decision-point, JIT elevation, no-standing-access, or access-revocation enforcement verification
+- live quota, rate-limit, billing, token accounting, timeout, circuit-breaker, or resource-usage enforcement verification
 - live inter-agent authorization, delegated credential downscoping, or subagent execution enforcement verification
 - proxy, DNS, firewall, destination allowlist, webhook allowlist, or per-tool network-scope enforcement verification
 - live prompt-injection resistance testing

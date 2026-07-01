@@ -32,6 +32,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
 - Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
 - Continuous authorization boundary: whether high-risk agent authority is re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes.
+- Resource exhaustion boundary: whether tool/API calls, spend, loops, runtime, and concurrency are bounded and audited before agent automation can run away.
 - Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
 - Response and containment boundary: whether suspicious agent behavior can trigger containment that terminates sessions, revokes credentials, quarantines workloads, or reduces authority.
 - Deployment governance boundary: whether observed agent deployments are registered, owned, approved, risk-assessed, and reviewed instead of unmanaged Shadow AI.
@@ -55,6 +56,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
 | Agent authority is granted at session start and remains usable after task or risk context changes | Continuous authorization boundary | Modeled today through authorization policy, per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access declarations, and automatic revocation controls. |
+| Agent automation can loop tool calls, exhaust APIs, spike bills, or deny service | Resource exhaustion boundary | Modeled today through resource policy, tool/API rate limits, spend or token budgets, loop guards, tool timeouts, concurrency limits, circuit breakers, and resource usage audit declarations. |
 | Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
 | A compromised agent keeps operating while humans investigate | Response and containment boundary | Modeled today through behavioral monitoring, automated triage, session termination, credential revocation, quarantine, dynamic access reduction, and response escalation declarations. |
 | Employees or teams run agents outside accountable governance | Deployment governance boundary | Modeled today through agent inventory, accountable owner, deployment approval, risk assessment, governance review, and Shadow AI discovery declarations. |
@@ -99,6 +101,7 @@ Examples of controls Ariadne can model today:
 - credential rotation, revocation, or identity lifecycle declarations
 - ABAC or attribute-condition policy declarations
 - per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access, and automatic access revocation declarations
+- rate limits, spend limits, loop guards, tool timeouts, concurrency limits, circuit breakers, and resource usage audit declarations
 - named-caller or principal allowlists
 - network segmentation or microsegmentation declarations
 - per-tool scope, tool allowlist, MCP allowlist, or permission-scope declarations
@@ -119,6 +122,7 @@ Examples Ariadne reports as `unknown` today:
 - egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
 - output filtering and redaction evidence without output filter logging
 - per-action authorization or ABAC evidence without dynamic/JIT privilege scoping and automatic revocation evidence
+- rate-limit evidence without loop/time/concurrency stop conditions and resource usage audit evidence
 - tool sandboxing, rate limits, or circuit breakers without allowlist, provenance, authentication, descriptor integrity, or argument-validation evidence
 - AI-BOM evidence without dependency health, model provenance or provider review, and artifact signing or runtime validation evidence
 - delegation audit or subagent context isolation without explicit delegation scope, agent-to-agent authorization, original-intent verification, or delegated credential scoping
@@ -136,6 +140,7 @@ Examples Ariadne reports as `breaking` when observed:
 - reachable sensitive data without observed output filtering and block or redaction controls
 - risk-bearing agent configuration without observed hard integrity controls
 - standing high-risk authority without observed continuous authorization, dynamic/JIT scoping, and automatic revocation controls
+- runaway tool, execution, external communication, or delegated authority without resource limits, stop conditions, and usage audit controls
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
 - risk-bearing agent supply-chain surfaces without observed AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence
 - delegated or sub-agent authority inheritance without observed hard delegation controls
@@ -235,6 +240,42 @@ Repositories can declare focused tool integrity controls in `.ariadne/tool-polic
 ```
 
 Ariadne treats allowlist plus MCP/package pinning, signed tool artifacts plus deployment verification, descriptor integrity plus argument validation, or authenticated tool access plus short-lived/JIT credential evidence as hard tool integrity evidence. Sandboxed tool execution and circuit breakers are reported as evidence, but they do not by themselves prove tool provenance or invocation integrity.
+
+Repositories can declare focused resource-exhaustion controls in `.ariadne/resource-policy.json`:
+
+```json
+{
+  "tool_rate_limit": {
+    "requests_per_minute": 30,
+    "api_call_limit": 300
+  },
+  "spend_limit": {
+    "token_budget": 250000,
+    "cost_limit": "25.00"
+  },
+  "loop_guard": {
+    "max_iterations": 12,
+    "recursion_limit": 3,
+    "loop_detection": true
+  },
+  "tool_timeout": {
+    "timeout_seconds": 120,
+    "wall_clock_limit": "10m"
+  },
+  "concurrency_limit": {
+    "max_parallel_tools": 3,
+    "worker_limit": 4
+  },
+  "tool_circuit_breaker": true,
+  "resource_usage_audit": {
+    "usage_logging": true,
+    "budget_alert": true,
+    "quota_alert": true
+  }
+}
+```
+
+Ariadne treats rate, spend, or concurrency bounds plus loop guards, timeouts, or circuit breakers plus resource usage audit as hard resource-exhaustion evidence. A rate limit alone is partial because it may slow a runaway agent without proving the operation stops or leaves investigation evidence.
 
 Repositories can declare focused AI supply-chain controls in `.ariadne/supply-chain-policy.json`:
 

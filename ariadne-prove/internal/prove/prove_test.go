@@ -1291,6 +1291,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
 
@@ -1337,6 +1338,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:output-boundary")
@@ -1347,6 +1349,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:response-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:governance-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:continuous-authorization-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:resource-exhaustion-boundary")
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -1424,6 +1427,12 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:jit-elevation",
 		"control:standing-access-denied",
 		"control:automatic-access-revocation",
+		"control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:resource-usage-audit",
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing zero trust control node %s", id)
@@ -1878,6 +1887,97 @@ func TestZeroTrustStandingAuthorityWithoutContinuousAuthorizationIsBreaking(t *t
 	}
 	if !strings.Contains(strings.ToLower(check.Finding), "standing") {
 		t.Fatalf("continuous authorization finding should explain standing authority risk: %q", check.Finding)
+	}
+}
+
+func TestZeroTrustResourcePolicyControlsResourceExhaustionBoundary(t *testing.T) {
+	path := realPathFixture(t, "safe-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "resource-policy")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:resource-usage-audit",
+		"control:tool-circuit-breaker",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("resource boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing resource control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:tool-rate-limit|limits|tool:mcp-package-launch",
+		"control:spend-limit|limits|authority:local-code-execution",
+		"control:loop-guard|limits|tool:mcp-package-launch",
+		"control:resource-usage-audit|limits|authority:file-read",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing resource graph edge %s", edge)
+		}
+	}
+}
+
+func TestZeroTrustResourceLimitWithoutStopOrAuditIsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".ariadne"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := `approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+`
+	if err := os.WriteFile(filepath.Join(dir, ".codex", "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	policy := `{
+  "tool_rate_limit": {
+    "requests_per_minute": 10
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".ariadne", "resource-policy.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:tool-rate-limit") {
+		t.Fatalf("partial resource boundary should cite rate-limit control: %+v", check.Controls)
+	}
+	if containsString(check.Controls, "control:loop-guard") || containsString(check.Controls, "control:resource-usage-audit") {
+		t.Fatalf("partial resource boundary should not invent stop/audit controls: %+v", check.Controls)
+	}
+}
+
+func TestZeroTrustRunawayToolWithoutResourceControlsIsBreaking(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("runaway resource risk without controls should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "runaway") {
+		t.Fatalf("resource boundary finding should explain runaway risk: %q", check.Finding)
 	}
 }
 

@@ -125,6 +125,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectAuthorizationPolicy(c, s)
 	case "workload-policy":
 		collectWorkloadPolicy(c, s)
+	case "resource-policy":
+		collectResourcePolicy(c, s)
 	case "memory-policy":
 		collectMemoryPolicy(c, s)
 	case "integrity-policy":
@@ -399,6 +401,7 @@ func collectMCPPolicy(c *model.Collection, s model.Surface) {
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:control:mcp-reviewed-pinned", "control", s.Source, "declared", "MCP review or pinning policy was collected."))
 	}
 	collectToolIntegrityControls(c, "", s.Source, text)
+	collectResourceControls(c, "", s.Source, text)
 }
 
 func collectNetworkPolicy(c *model.Collection, s model.Surface) {
@@ -510,6 +513,34 @@ func collectToolIntegrityControls(c *model.Collection, runtime, source, text str
 	}
 	if toolCircuitBreakerConfigured(text) {
 		addControl(c, "control:tool-circuit-breaker", "tool-circuit-breaker", runtime, source, prefix+" declares rate limits, spend limits, or circuit breakers for tool execution.")
+	}
+}
+
+func collectResourceControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Resource policy"
+	if runtime != "" {
+		prefix = runtime + " resource policy"
+	}
+	if toolRateLimitConfigured(text) {
+		addControl(c, "control:tool-rate-limit", "tool-rate-limit", runtime, source, prefix+" declares per-tool, API, or request rate limits for agent operations.")
+	}
+	if spendLimitConfigured(text) {
+		addControl(c, "control:spend-limit", "spend-limit", runtime, source, prefix+" declares spend, budget, token, or cost ceilings for agent operations.")
+	}
+	if loopGuardConfigured(text) {
+		addControl(c, "control:loop-guard", "loop-guard", runtime, source, prefix+" declares loop, recursion, iteration, or runaway-operation guards.")
+	}
+	if toolTimeoutConfigured(text) {
+		addControl(c, "control:tool-timeout", "tool-timeout", runtime, source, prefix+" declares wall-clock or per-tool execution timeouts.")
+	}
+	if concurrencyLimitConfigured(text) {
+		addControl(c, "control:concurrency-limit", "concurrency-limit", runtime, source, prefix+" declares concurrency, parallelism, or worker limits for agent operations.")
+	}
+	if resourceUsageAuditConfigured(text) {
+		addControl(c, "control:resource-usage-audit", "resource-usage-audit", runtime, source, prefix+" declares usage, budget, quota, token, or cost event logging.")
+	}
+	if toolCircuitBreakerConfigured(text) {
+		addControl(c, "control:tool-circuit-breaker", "tool-circuit-breaker", runtime, source, prefix+" declares circuit breakers for runaway or excessive tool execution.")
 	}
 }
 
@@ -785,6 +816,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	collectGovernanceControls(c, "", s.Source, text)
 	collectOutputControls(c, "", s.Source, text)
 	collectAuthorizationControls(c, "", s.Source, text)
+	collectResourceControls(c, "", s.Source, text)
 	collectSupplyChainControls(c, "", s.Source, text)
 }
 
@@ -795,6 +827,7 @@ func collectToolPolicy(c *model.Collection, s model.Surface) {
 	}
 	text := strings.ToLower(string(data))
 	collectToolIntegrityControls(c, "", s.Source, text)
+	collectResourceControls(c, "", s.Source, text)
 }
 
 func collectDelegationPolicy(c *model.Collection, s model.Surface) {
@@ -826,6 +859,7 @@ func collectResponsePolicy(c *model.Collection, s model.Surface) {
 	}
 	collectResponseControls(c, "", s.Source, text)
 	collectAuthorizationControls(c, "", s.Source, text)
+	collectResourceControls(c, "", s.Source, text)
 }
 
 func collectGovernancePolicy(c *model.Collection, s model.Surface) {
@@ -954,7 +988,17 @@ func collectWorkloadPolicy(c *model.Collection, s model.Surface) {
 		addControl(c, "control:tool-scope-policy", "tool-scope-policy", "", s.Source, "Workload policy declares per-tool scope, allowlist, or permission scope controls.")
 	}
 	collectAuthorizationControls(c, "", s.Source, text)
+	collectResourceControls(c, "", s.Source, text)
 	collectDelegationControls(c, "", s.Source, text)
+}
+
+func collectResourcePolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	collectResourceControls(c, "", s.Source, text)
 }
 
 func collectMemoryPolicy(c *model.Collection, s model.Surface) {
@@ -1151,6 +1195,7 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	collectResponseControls(c, runtime, source, text)
 	collectOutputControls(c, runtime, source, text)
 	collectAuthorizationControls(c, runtime, source, text)
+	collectResourceControls(c, runtime, source, text)
 	if inlineCredentialConfigured(text) {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:credential-material",
@@ -1829,6 +1874,73 @@ func toolCircuitBreakerConfigured(text string) bool {
 		strings.Contains(text, "rate_limit") ||
 		strings.Contains(text, "spend_limit") ||
 		strings.Contains(text, "usage_limit")
+}
+
+func toolRateLimitConfigured(text string) bool {
+	return strings.Contains(text, "tool_rate_limit") ||
+		strings.Contains(text, "tool_rate_limits") ||
+		strings.Contains(text, "rate_limit") ||
+		strings.Contains(text, "rate_limits") ||
+		strings.Contains(text, "api_call_limit") ||
+		strings.Contains(text, "request_limit") ||
+		strings.Contains(text, "requests_per_minute") ||
+		strings.Contains(text, "rpm_limit") ||
+		strings.Contains(text, "calls_per_minute")
+}
+
+func spendLimitConfigured(text string) bool {
+	return strings.Contains(text, "spend_limit") ||
+		strings.Contains(text, "budget_limit") ||
+		strings.Contains(text, "cost_limit") ||
+		strings.Contains(text, "billing_cap") ||
+		strings.Contains(text, "max_spend") ||
+		strings.Contains(text, "token_budget") ||
+		strings.Contains(text, "token_limit") ||
+		strings.Contains(text, "usage_limit") ||
+		strings.Contains(text, "quota_limit")
+}
+
+func loopGuardConfigured(text string) bool {
+	return strings.Contains(text, "loop_guard") ||
+		strings.Contains(text, "loop_detection") ||
+		strings.Contains(text, "loop_amplification") ||
+		strings.Contains(text, "max_iterations") ||
+		strings.Contains(text, "iteration_limit") ||
+		strings.Contains(text, "recursion_limit") ||
+		strings.Contains(text, "runaway_loop") ||
+		strings.Contains(text, "repeat_call_guard")
+}
+
+func toolTimeoutConfigured(text string) bool {
+	return strings.Contains(text, "tool_timeout") ||
+		strings.Contains(text, "timeout_seconds") ||
+		strings.Contains(text, "execution_timeout") ||
+		strings.Contains(text, "max_tool_runtime") ||
+		strings.Contains(text, "tool_runtime_limit") ||
+		strings.Contains(text, "wall_clock_limit") ||
+		strings.Contains(text, "max_duration")
+}
+
+func concurrencyLimitConfigured(text string) bool {
+	return strings.Contains(text, "concurrency_limit") ||
+		strings.Contains(text, "max_concurrency") ||
+		strings.Contains(text, "parallel_tool_limit") ||
+		strings.Contains(text, "max_parallel_tools") ||
+		strings.Contains(text, "max_parallel") ||
+		strings.Contains(text, "worker_limit") ||
+		strings.Contains(text, "parallelism_limit")
+}
+
+func resourceUsageAuditConfigured(text string) bool {
+	return strings.Contains(text, "resource_usage_audit") ||
+		strings.Contains(text, "usage_audit") ||
+		strings.Contains(text, "usage_logging") ||
+		strings.Contains(text, "tool_usage_logging") ||
+		strings.Contains(text, "cost_logging") ||
+		strings.Contains(text, "budget_alert") ||
+		strings.Contains(text, "quota_alert") ||
+		strings.Contains(text, "token_usage_logging") ||
+		strings.Contains(text, "spend_alert")
 }
 
 func approvalRequired(text string) bool {

@@ -1,0 +1,29 @@
+{
+  "tool_rate_limit": {
+    "requests_per_minute": 30,
+    "api_call_limit": 300
+  },
+  "spend_limit": {
+    "token_budget": 250000,
+    "cost_limit": "25.00"
+  },
+  "loop_guard": {
+    "max_iterations": 12,
+    "recursion_limit": 3,
+    "loop_detection": true
+  },
+  "tool_timeout": {
+    "timeout_seconds": 120,
+    "wall_clock_limit": "10m"
+  },
+  "concurrency_limit": {
+    "max_parallel_tools": 3,
+    "worker_limit": 4
+  },
+  "tool_circuit_breaker": true,
+  "resource_usage_audit": {
+    "usage_logging": true,
+    "budget_alert": true,
+    "quota_alert": true
+  }
+}

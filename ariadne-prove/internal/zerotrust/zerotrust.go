@@ -24,6 +24,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		identityBoundary(c, g),
 		workloadAuthorizationBoundary(c, g),
 		continuousAuthorizationBoundary(c, g),
+		resourceExhaustionBoundary(c, g),
 		observabilityBoundary(c),
 		responseBoundary(c, g, exposures),
 		governanceBoundary(c, g),
@@ -564,6 +565,48 @@ func continuousAuthorizationBoundary(c model.Collection, g model.Graph) model.Ze
 			"Automatically revoke or downscope access when the task completes, policy fails, or risk changes.",
 		},
 		Limitations: []string{"Ariadne detects declared authorization controls and static authority risk, but does not validate live policy decisions, IdP rules, token revocation, or runtime enforcement."},
+	}
+}
+
+func resourceExhaustionBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	controls := controlIDs(c, resourceControlIDs()...)
+	controlEvidence := controlsEvidence(c, resourceControlIDs()...)
+	riskEvidence := firstEvidence(toolEvidence(c), authorityEvidence(c), runtimeEvidence(c))
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent tool, external communication, or local execution surface was observed."
+	if hasResourceRelevantSurface(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Agent runtime, authority, or tool surfaces exist, but Ariadne did not observe rate, spend, loop, timeout, concurrency, and usage-audit controls."
+	}
+	if len(controlEvidence) > 0 && !hasHardResourceBoundary(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed resource-control evidence, but not enough to prove bounded execution plus a stop condition plus usage audit."
+	}
+	if hasRunawayResourceRisk(c) && !hasHardResourceBoundary(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Runaway agent operation is possible through tool, execution, external communication, or delegated authority without observed resource limits, circuit breakers, and usage audit evidence."
+	}
+	if hasResourceRelevantSurface(c) && hasHardResourceBoundary(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed hard resource-exhaustion controls: rate or spend bounds, loop/timeout/concurrency stop conditions, and usage audit evidence."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:resource-exhaustion-boundary",
+		Principle:  "Least agency",
+		Boundary:   "Resource exhaustion boundary",
+		Tier:       "enterprise",
+		Status:     status,
+		DesignTest: "Automated agent operations should have bounded rate, spend, concurrency, runtime, and loop behavior so compromise cannot create unbounded cost or denial of service.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, riskEvidence), 8),
+		GraphEdges: resourceEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Declare per-tool/API rate limits, spend ceilings, concurrency limits, and execution timeouts.",
+			"Add loop guards or circuit breakers that stop repeated tool calls and runaway plans.",
+			"Log resource usage, budget events, quota alerts, and circuit-breaker decisions for investigation.",
+		},
+		Limitations: []string{"Ariadne detects declared resource controls and static tool/authority risk, but does not validate live quota enforcement, billing systems, token accounting, or runtime circuit-breaker behavior."},
 	}
 }
 
@@ -1640,6 +1683,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without continuous authorization evidence, a compromised agent can keep using valid standing authority after task context, risk, or policy state changes."
 		gap.NextCollector = "Collect authorization policy, real-time policy evaluation evidence, JIT/JEA elevation settings, no-standing-access declarations, revocation hooks, and policy decision logs."
+	case "zt:resource-exhaustion-boundary":
+		gap.MissingEvidence = []string{
+			"per-tool or API rate-limit policy",
+			"spend, quota, concurrency, timeout, loop-guard, or circuit-breaker policy",
+			"resource usage, budget, quota, or circuit-breaker audit logs",
+		}
+		gap.WhyItMatters = "Without resource-bound evidence, a manipulated or compromised agent can loop tool calls, exhaust APIs, create billing spikes, or deny service while using legitimate automation paths."
+		gap.NextCollector = "Collect resource policy, tool/API rate limits, spend or token budgets, loop guards, tool timeouts, concurrency limits, circuit-breaker settings, and usage or budget event logs."
 	case "zt:observability-boundary":
 		gap.MissingEvidence = []string{
 			"tool-call audit log evidence",
@@ -2183,6 +2234,47 @@ func hasStandingAuthorityRisk(c model.Collection) bool {
 		hasBoundaryID(c, "boundary:credential-material")
 }
 
+func resourceControlIDs() []string {
+	return []string{
+		"control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:resource-usage-audit",
+		"control:tool-circuit-breaker",
+		"control:behavioral-monitoring",
+		"control:audit-logging",
+		"control:telemetry-export",
+	}
+}
+
+func hasHardResourceBoundary(c model.Collection) bool {
+	bounded := hasAnyControl(c, "control:tool-rate-limit", "control:spend-limit", "control:concurrency-limit")
+	stopCondition := hasAnyControl(c, "control:loop-guard", "control:tool-timeout", "control:tool-circuit-breaker", "control:session-termination", "control:dynamic-access-reduction")
+	auditable := hasAnyControl(c, "control:resource-usage-audit", "control:behavioral-monitoring", "control:audit-logging", "control:telemetry-export")
+	return bounded && stopCondition && auditable
+}
+
+func hasResourceRelevantSurface(c model.Collection) bool {
+	return len(c.Runtimes) > 0 ||
+		len(c.Tools) > 0 ||
+		len(c.Authorities) > 0 ||
+		hasAnyControl(c, resourceControlIDs()...)
+}
+
+func hasRunawayResourceRisk(c model.Collection) bool {
+	return hasAuthority(c, "authority:broad-local") ||
+		hasAuthority(c, "authority:local-code-execution") ||
+		hasAuthority(c, "authority:external-communication") ||
+		hasAuthority(c, "authority:delegated-agent-authority") ||
+		hasToolID(c, "tool:mcp-package-launch") ||
+		hasToolID(c, "tool:mcp-remote-server") ||
+		hasToolID(c, "tool:agent-command-shell") ||
+		hasToolID(c, "tool:agent-plugin-surface") ||
+		hasToolID(c, "tool:agent-delegation")
+}
+
 func egressControlIDs() []string {
 	out := append([]string{}, hardEgressControlIDs()...)
 	out = append(out, softEgressControlIDs()...)
@@ -2597,6 +2689,16 @@ func authorizationEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func resourceEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "limits" && resourceControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func toolIntegrityControlID(id string) bool {
 	switch id {
 	case "control:tool-allowlist",
@@ -2622,6 +2724,21 @@ func authorizationControlID(id string) bool {
 		"control:automatic-access-revocation",
 		"control:abac-policy",
 		"control:tool-scope-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func resourceControlID(id string) bool {
+	switch id {
+	case "control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:resource-usage-audit",
+		"control:tool-circuit-breaker":
 		return true
 	default:
 		return false
