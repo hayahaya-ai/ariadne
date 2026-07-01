@@ -833,6 +833,7 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 	renderArchitectureFrameworkCoverage(w, r.FrameworkCoverage, 8)
 	renderArchitectureEvidencePlan(w, r.EvidencePlan, 6)
 	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 8)
+	renderArchitectureCaseWorkflow(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}, 6)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 8)
 	if len(r.Flaws) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
@@ -897,6 +898,7 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 	renderArchitectureFrameworkCoverage(w, r.FrameworkCoverage, 10)
 	renderArchitectureEvidencePlan(w, r.EvidencePlan, 8)
 	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 10)
+	renderArchitectureCaseWorkflow(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}, 8)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 10)
 	if len(r.Groups) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
@@ -1493,6 +1495,51 @@ func renderArchitectureClosureFamilies(w io.Writer, items []model.ArchitectureCl
 	if len(items) > limit {
 		fmt.Fprintf(w, "    - %d more closure families in JSON output\n", len(items)-limit)
 	}
+}
+
+func renderArchitectureCaseWorkflow(w io.Writer, families []model.ArchitectureClosureFamily, ctx controlVerificationCommandContext, limit int) {
+	if len(families) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Operator case workflow:\n")
+	fmt.Fprintf(w, "    Board: %s\n", architectureCaseBoardCommand(ctx))
+	fmt.Fprintf(w, "    Focus cases:\n")
+	if limit <= 0 || limit > len(families) {
+		limit = len(families)
+	}
+	for _, family := range families[:limit] {
+		fmt.Fprintf(w, "      - %s %s (%s): %s\n",
+			strings.ToUpper(family.Severity),
+			family.Title,
+			architectureCaseID(family),
+			architectureCaseFocusCommand(ctx, family),
+		)
+	}
+	if len(families) > limit {
+		fmt.Fprintf(w, "      - %d more operator cases in `ariadne cases` output\n", len(families)-limit)
+	}
+}
+
+func architectureCaseBoardCommand(ctx controlVerificationCommandContext) string {
+	mode := firstNonEmpty(ctx.Mode, "repo")
+	agent := firstNonEmpty(ctx.Agent, "all")
+	status := firstNonEmpty(ctx.StatusFilter, "breaking")
+	if ctx.RunKind == "case_board_scan" {
+		return fmt.Sprintf("ariadne cases --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+	}
+	path := firstNonEmpty(ctx.Path, "<target-path>")
+	return fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+}
+
+func architectureCaseFocusCommand(ctx controlVerificationCommandContext, family model.ArchitectureClosureFamily) string {
+	return architectureCaseBoardCommand(ctx) + " --case " + shellQuoteCommandArg(architectureCaseID(family))
+}
+
+func architectureCaseID(family model.ArchitectureClosureFamily) string {
+	if strings.HasPrefix(family.ID, "case:") {
+		return family.ID
+	}
+	return "case:" + family.ID
 }
 
 func summarizeArchitectureFlaws(flaws []model.ZeroTrustArchitecture) model.ZeroTrustSummary {

@@ -72,6 +72,7 @@ func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error 
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureSummaryDashboard(w, r)
+	renderArchitectureCaseWorkflowDashboard(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
 	renderArchitectureFrameworkCoverageDashboard(w, r.FrameworkCoverage)
 	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
 	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
@@ -101,6 +102,7 @@ func renderArchitectureScanDashboard(w io.Writer, r model.ArchitectureScanReport
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureScanSummaryDashboard(w, r)
+	renderArchitectureCaseWorkflowDashboard(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
 	renderArchitectureFrameworkCoverageDashboard(w, r.FrameworkCoverage)
 	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
 	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
@@ -506,6 +508,41 @@ func renderArchitectureSummaryDashboard(w io.Writer, r model.ArchitectureReport)
 		{"Overall unknown", fmt.Sprintf("%d", r.OverallSummary.Unknown)},
 		{"Not observed", fmt.Sprintf("%d", r.OverallSummary.NotObserved)},
 	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderArchitectureCaseWorkflowDashboard(w io.Writer, families []model.ArchitectureClosureFamily, ctx controlVerificationCommandContext) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Operator Case Workflow</h2><div class="subtle">Move from architecture breakage to the case board and focused closure commands.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(families) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No operator cases were available for this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Entry point</th><th>Command</th><th>What it does</th></tr></thead><tbody>")
+	fmt.Fprintf(w, "<tr><td><strong>Case board</strong></td><td><span class=\"mono\">%s</span></td><td>Shows all architecture break paths as operator cases.</td></tr>", esc(architectureCaseBoardCommand(ctx)))
+	limit := len(families)
+	if limit > 6 {
+		limit = 6
+	}
+	for _, family := range families[:limit] {
+		fmt.Fprintf(w, "<tr><td><strong>%s</strong><div class=\"subtle\">%s</div><div class=\"mono\">%s</div></td><td><span class=\"mono\">%s</span></td><td>%d control(s), %d flaw(s), %d target(s)</td></tr>",
+			esc(family.Title),
+			esc(strings.ToUpper(family.Severity)),
+			esc(architectureCaseID(family)),
+			esc(architectureCaseFocusCommand(ctx, family)),
+			family.ControlCount,
+			family.FlawCount,
+			family.TargetCount,
+		)
+	}
+	if len(families) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="3"><span class="subtle">%d more operator cases in cases output.</span></td></tr>`, len(families)-limit)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 
