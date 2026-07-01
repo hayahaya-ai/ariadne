@@ -20,6 +20,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		identityBoundary(c, g),
 		workloadAuthorizationBoundary(c, g),
 		observabilityBoundary(c),
+		configIntegrityBoundary(c, g),
 		controlStrengthBoundary(c, g, exposures),
 	}
 	for i := range checks {
@@ -383,6 +384,47 @@ func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
 			"Measure whether critical agent behavior would be visible quickly enough for a human to act.",
 		},
 		Limitations: []string{"Ariadne samples structured audit metadata only; it does not emit transcript content, validate log completeness, or prove tamper resistance unless immutable-log evidence is collected."},
+	}
+}
+
+func configIntegrityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	configEvidence := configSurfaceEvidence(c)
+	controls := controlIDs(c, configIntegrityControlIDs()...)
+	controlEvidence := controlsEvidence(c, configIntegrityControlIDs()...)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent configuration surface was observed."
+	if len(configEvidence) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Agent configuration surfaces exist, but Ariadne did not observe review, signature, managed-enforcement, or immutable deployment evidence."
+	}
+	if len(controlEvidence) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed configuration integrity evidence, but not enough to prove a hard configuration integrity boundary."
+	}
+	if hasRiskyMutableConfig(c) && !hasHardConfigIntegrity(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Risk-bearing agent configuration exists without observed hard integrity controls for review, signature, managed enforcement, or immutable deployment."
+	}
+	if hasHardConfigIntegrity(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed hard configuration integrity evidence such as review plus version control, signed deployment verification, managed enforcement, or immutable runtime."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:config-integrity-boundary",
+		Principle:  "Assume breach",
+		Boundary:   "Configuration integrity boundary",
+		Tier:       "foundation",
+		Status:     status,
+		DesignTest: "Agent configuration should be reviewable, tamper-evident, centrally enforced, or replaced immutably so attackers cannot silently widen authority.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, configEvidence), 8),
+		GraphEdges: configIntegrityEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Keep agent settings, MCP definitions, and policies under reviewed version control.",
+			"Use signed configuration, deployment verification, managed settings enforcement, or immutable runtime images for higher-risk agents.",
+		},
+		Limitations: []string{"Ariadne detects declared configuration integrity controls, but does not validate Git branch protection, signature verification, MDM enforcement, admission policy, or runtime rollback behavior."},
 	}
 }
 
@@ -1043,6 +1085,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without audit evidence, operators may not be able to reconstruct what the agent did or why quickly enough to respond."
 		gap.NextCollector = "Collect transcript metadata, tool-call logs, approval logs, OpenTelemetry config, and SIEM export evidence."
+	case "zt:config-integrity-boundary":
+		gap.MissingEvidence = []string{
+			"reviewed version-controlled agent configuration",
+			"signed configuration with deployment verification",
+			"managed settings enforcement or immutable runtime evidence",
+		}
+		gap.WhyItMatters = "Without configuration integrity evidence, an attacker or local override can silently widen agent authority or disable controls."
+		gap.NextCollector = "Collect integrity policy, managed settings enforcement, signed config metadata, deployment verification, branch protection, and rollback evidence."
 	case "zt:control-strength":
 		gap.MissingEvidence = []string{
 			"control edge that removes the path",
@@ -1197,6 +1247,37 @@ func observabilityControlIDs() []string {
 	}
 }
 
+func configIntegrityControlIDs() []string {
+	return []string{
+		"control:config-version-control",
+		"control:config-review-required",
+		"control:signed-config",
+		"control:config-deployment-verification",
+		"control:managed-settings-enforced",
+		"control:managed-runtime-settings",
+		"control:immutable-agent-runtime",
+		"control:config-rollback-procedure",
+		"control:automated-config-rollback",
+	}
+}
+
+func hasHardConfigIntegrity(c model.Collection) bool {
+	reviewedVersionControl := hasAnyControl(c, "control:config-version-control") && hasAnyControl(c, "control:config-review-required")
+	signedVerified := hasAnyControl(c, "control:signed-config") && hasAnyControl(c, "control:config-deployment-verification")
+	return reviewedVersionControl ||
+		signedVerified ||
+		hasAnyControl(c, "control:managed-settings-enforced", "control:immutable-agent-runtime")
+}
+
+func hasRiskyMutableConfig(c model.Collection) bool {
+	return hasAuthority(c, "authority:broad-local") ||
+		hasAuthority(c, "authority:local-code-execution") ||
+		hasAuthority(c, "authority:external-communication") ||
+		hasToolID(c, "tool:mcp-package-launch") ||
+		hasToolID(c, "tool:agent-plugin-surface") ||
+		hasToolID(c, "tool:agent-command-shell")
+}
+
 func identityControlIDs() []string {
 	return []string{
 		"control:cryptographic-identity",
@@ -1341,6 +1422,15 @@ func hasAuthority(c model.Collection, id string) bool {
 	return false
 }
 
+func hasToolID(c model.Collection, id string) bool {
+	for _, tool := range c.Tools {
+		if tool.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func hasRuntimeOrAuthority(c model.Collection) bool {
 	return len(c.Runtimes) > 0 || len(c.Authorities) > 0
 }
@@ -1440,6 +1530,29 @@ func memoryEvidence(c model.Collection) []model.ZeroTrustEvidence {
 	return dedupeEvidence(out)
 }
 
+func configSurfaceEvidence(c model.Collection) []model.ZeroTrustEvidence {
+	var out []model.ZeroTrustEvidence
+	for _, surface := range c.Surfaces {
+		if !configSurfaceCategory(surface.Category) {
+			continue
+		}
+		out = append(out, model.ZeroTrustEvidence{ID: surface.ID, Kind: surface.Category, Source: surface.Source, Summary: surface.Summary})
+	}
+	for _, runtime := range c.Runtimes {
+		out = append(out, model.ZeroTrustEvidence{ID: runtime.ID, Kind: "runtime", Source: runtime.Source, Summary: runtime.Summary})
+	}
+	return dedupeEvidence(out)
+}
+
+func configSurfaceCategory(category string) bool {
+	switch category {
+	case "runtime-config", "managed-remote-settings", "policy", "mcp-tool-config", "plugin-skill", "command-hook":
+		return true
+	default:
+		return false
+	}
+}
+
 func surfaceEvidenceByCategory(c model.Collection, category string) []model.ZeroTrustEvidence {
 	var out []model.ZeroTrustEvidence
 	for _, surface := range c.Surfaces {
@@ -1532,6 +1645,31 @@ func toolBoundaryEdges(g model.Graph) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func configIntegrityEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		key := edge.Key()
+		if edge.Type == "configures" || (edge.Type == "restricts" && configIntegrityControlID(edge.From)) {
+			out = append(out, key)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func configIntegrityControlID(id string) bool {
+	switch id {
+	case "control:config-version-control",
+		"control:config-review-required",
+		"control:signed-config",
+		"control:config-deployment-verification",
+		"control:managed-settings-enforced",
+		"control:immutable-agent-runtime":
+		return true
+	default:
+		return false
+	}
 }
 
 func hasEdge(g model.Graph, key string) bool {

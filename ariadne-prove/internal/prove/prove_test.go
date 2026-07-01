@@ -568,6 +568,75 @@ func TestZeroTrustEgressAuditFilterAloneDoesNotBreakDataEgressPath(t *testing.T)
 	}
 }
 
+func TestZeroTrustIntegrityPolicyControlsRiskyConfig(t *testing.T) {
+	path := realPathFixture(t, "config-integrity-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "integrity-policy")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:config-version-control",
+		"control:config-review-required",
+		"control:signed-config",
+		"control:config-deployment-verification",
+		"control:managed-settings-enforced",
+		"control:immutable-agent-runtime",
+		"control:config-rollback-procedure",
+		"control:automated-config-rollback",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("config integrity boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing config integrity control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:config-version-control|restricts|config:claude-repo",
+		"control:signed-config|restricts|config:claude-repo",
+		"control:managed-settings-enforced|restricts|config:claude-repo",
+		"control:immutable-agent-runtime|restricts|config:claude-repo",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing config integrity graph edge %s", edge)
+		}
+	}
+}
+
+func TestZeroTrustRiskyConfigWithoutIntegrityIsBreaking(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "allow": ["Read(*)", "Bash(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("risky config without integrity controls should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "risk-bearing agent configuration") {
+		t.Fatalf("config integrity finding should explain risky mutable config: %q", check.Finding)
+	}
+}
+
 func TestRunPathSafeControlsBreakPaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
@@ -598,6 +667,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:authority-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:sensitive-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
 
@@ -636,8 +706,10 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	}
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:config-integrity-boundary")
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -660,6 +732,14 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:request-traceability",
 		"control:input-validation",
 		"control:automated-triage",
+		"control:config-version-control",
+		"control:config-review-required",
+		"control:signed-config",
+		"control:config-deployment-verification",
+		"control:managed-settings-enforced",
+		"control:immutable-agent-runtime",
+		"control:config-rollback-procedure",
+		"control:automated-config-rollback",
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing zero trust control node %s", id)

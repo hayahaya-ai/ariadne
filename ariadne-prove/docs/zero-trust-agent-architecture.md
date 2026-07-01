@@ -28,7 +28,26 @@ Ariadne currently evaluates these Zero Trust checks:
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
 - Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
 - Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
+- Configuration integrity boundary: whether agent settings, MCP definitions, and policy files are reviewable, tamper-evident, centrally enforced, or immutable.
 - Control boundary: whether controls remove a path or only add friction.
+
+## Agent Architecture Failure Map
+
+The Zero Trust goal is to expose boundary failures in agent architecture, not to grade an agent by vibes. Ariadne maps common AI-agent architecture flaws into deterministic evidence questions:
+
+| Architecture flaw | Ariadne boundary | Current posture |
+| --- | --- | --- |
+| Untrusted instructions can steer privileged tools | Influence, authority, sensitive data, and egress boundaries | Modeled today through trust inputs, runtime authority, secret/private boundaries, egress destinations, and break-path controls. |
+| Agent has broad standing authority instead of least agency | Authority boundary and Foundation maturity | Modeled today through Claude/Codex permission posture, deny-by-default evidence, broad local authority, and scoped permission controls. |
+| MCP/tooling expands capability through mutable or unpinned launch paths | Tool and MCP boundary | Modeled today for package launchers, reviewed/pinned controls, plugin surfaces, and shell-capable command surfaces. |
+| Data can leave through arbitrary destinations | External egress boundary | Modeled today through external communication authority, destination allowlists, webhook allowlists, per-tool network scope, and network restriction evidence. |
+| Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
+| Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
+| Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
+| Memory or context persists across sessions without isolation or provenance | Memory and context boundary | Modeled today through private-context surfaces, retention policy, memory isolation, context integrity, and provenance declarations. |
+| Agent config can be silently changed to widen authority or disable controls | Configuration integrity boundary | Modeled today through reviewed version-controlled config, signed deployment verification, managed-settings enforcement, immutable runtime, and rollback evidence. |
+
+This gives Ariadne a product rule: a report should separate observed facts, declared controls, inferred paths, and limitations. If Ariadne cannot prove a hard boundary from evidence, it should say `unknown`, not pretend the architecture is safe.
 
 ## Design Test
 
@@ -63,6 +82,7 @@ Examples of controls Ariadne can model today:
 - telemetry export and immutable audit log declarations from observability policy or OpenTelemetry collector config
 - memory, transcript, or context retention declarations
 - memory isolation, context integrity, and context provenance declarations
+- version-controlled config, config review, signed config, deployment verification, managed-settings enforcement, immutable runtime, and rollback declarations
 
 Examples Ariadne reports as `unknown` today:
 
@@ -72,12 +92,14 @@ Examples Ariadne reports as `unknown` today:
 - egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
 - sandbox or network restriction evidence without identity-aware workload authorization evidence
 - tamper-resistant audit logs without immutable-log or equivalent evidence
+- configuration version-control evidence without review, or signed-config evidence without deployment verification
 - live behavioral telemetry
 
 Examples Ariadne reports as `breaking` when observed:
 
 - inline credential field indicators in agent configuration
 - authority paths that reach private context without an observed break-path control
+- risk-bearing agent configuration without observed hard integrity controls
 
 ## Foundation Maturity
 
@@ -252,6 +274,23 @@ Repositories can declare persisted-context controls in `.ariadne/memory-policy.j
 ```
 
 Memory isolation is modeled as a graph control for the private-context boundary. Retention, integrity, and provenance are reported as evidence for the context-retention requirement, but Ariadne still does not inspect or emit private memory content.
+
+Repositories can declare focused configuration integrity controls in `.ariadne/integrity-policy.json`:
+
+```json
+{
+  "version_controlled_config": true,
+  "config_review_required": true,
+  "signed_config": true,
+  "config_deployment_verification": true,
+  "managed_settings_enforced": true,
+  "immutable_agent_runtime": true,
+  "rollback_procedure": true,
+  "automated_rollback": true
+}
+```
+
+Ariadne treats reviewed version-controlled configuration, signed configuration with deployment verification, managed settings enforcement, and immutable runtime declarations as hard configuration integrity evidence. Rollback controls are reported as recovery evidence, but they do not by themselves prevent a configuration change from widening authority.
 
 ## Evidence Contract
 

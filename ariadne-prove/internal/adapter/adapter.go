@@ -118,6 +118,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectWorkloadPolicy(c, s)
 	case "memory-policy":
 		collectMemoryPolicy(c, s)
+	case "integrity-policy":
+		collectIntegrityPolicy(c, s)
 	case "observability-policy":
 		collectObservabilityPolicy(c, s)
 	case "opentelemetry-config":
@@ -375,6 +377,37 @@ func collectEgressControls(c *model.Collection, source, text string) {
 	}
 }
 
+func collectConfigIntegrityControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Agent policy"
+	if runtime != "" {
+		prefix = runtime + " config"
+	}
+	if configVersionControlled(text) {
+		addControl(c, "control:config-version-control", "config-version-control", runtime, source, prefix+" declares version-controlled agent configuration.")
+	}
+	if configReviewRequired(text) {
+		addControl(c, "control:config-review-required", "config-review-required", runtime, source, prefix+" requires review or approval for agent configuration changes.")
+	}
+	if signedConfigConfigured(text) {
+		addControl(c, "control:signed-config", "signed-config", runtime, source, prefix+" declares signed agent configuration or policy artifacts.")
+	}
+	if configDeploymentVerificationConfigured(text) {
+		addControl(c, "control:config-deployment-verification", "config-deployment-verification", runtime, source, prefix+" declares verification before agent configuration deployment.")
+	}
+	if managedSettingsEnforced(text) {
+		addControl(c, "control:managed-settings-enforced", "managed-settings-enforced", runtime, source, prefix+" declares centrally enforced managed settings that users cannot override.")
+	}
+	if immutableRuntimeConfigured(text) {
+		addControl(c, "control:immutable-agent-runtime", "immutable-agent-runtime", runtime, source, prefix+" declares immutable agent runtime or replace-not-modify deployment.")
+	}
+	if rollbackProcedureConfigured(text) {
+		addControl(c, "control:config-rollback-procedure", "config-rollback-procedure", runtime, source, prefix+" declares rollback or recovery procedures for agent configuration.")
+	}
+	if automatedRollbackConfigured(text) {
+		addControl(c, "control:automated-config-rollback", "automated-config-rollback", runtime, source, prefix+" declares automated rollback or health-check-based recovery for agent configuration.")
+	}
+}
+
 func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -480,6 +513,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if contextProvenanceConfigured(text) {
 		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Agent policy declares source attribution or provenance metadata for context.")
 	}
+	collectConfigIntegrityControls(c, "", s.Source, text)
 	collectEgressControls(c, s.Source, text)
 }
 
@@ -584,6 +618,15 @@ func collectMemoryPolicy(c *model.Collection, s model.Surface) {
 	}
 }
 
+func collectIntegrityPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	collectConfigIntegrityControls(c, "", s.Source, text)
+}
+
 func collectObservabilityPolicy(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -629,6 +672,11 @@ func collectPluginSurface(c *model.Collection, s model.Surface) {
 func collectManagedControlSurface(c *model.Collection, s model.Surface) {
 	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:managed-runtime-settings", Kind: "managed-runtime-settings", Runtime: "claude", Source: s.Source, Summary: "Managed or policy settings surface exists for Claude Code."})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:control:managed-runtime-settings", "control", s.Source, "observed", "Managed settings surface was observed."))
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	collectConfigIntegrityControls(c, "claude", s.Source, strings.ToLower(string(data)))
 }
 
 func addExternalCommunication(c *model.Collection, runtime, source, summary string) {
@@ -737,6 +785,7 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	if contextProvenanceConfigured(text) {
 		addControl(c, "control:context-provenance", "context-provenance", runtime, source, runtime+" config declares context source attribution or provenance metadata.")
 	}
+	collectConfigIntegrityControls(c, runtime, source, text)
 	if inlineCredentialConfigured(text) {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:credential-material",
@@ -1292,6 +1341,85 @@ func immutableAuditConfigured(text string) bool {
 		strings.Contains(text, "worm") ||
 		strings.Contains(text, "tamper_resistant") ||
 		strings.Contains(text, "tamper-resistant")
+}
+
+func configVersionControlled(text string) bool {
+	return strings.Contains(text, "version_controlled_config") ||
+		strings.Contains(text, "version-controlled config") ||
+		strings.Contains(text, "config_version_control") ||
+		strings.Contains(text, "config_in_git") ||
+		strings.Contains(text, "settings_in_git") ||
+		strings.Contains(text, "policy_in_git") ||
+		strings.Contains(text, "configuration_history") ||
+		strings.Contains(text, "change_history")
+}
+
+func configReviewRequired(text string) bool {
+	return strings.Contains(text, "config_review_required") ||
+		strings.Contains(text, "configuration_review_required") ||
+		strings.Contains(text, "required_config_review") ||
+		strings.Contains(text, "required_review") ||
+		strings.Contains(text, "pull_request_required") ||
+		strings.Contains(text, "code_owner_review") ||
+		strings.Contains(text, "change_approval_required") ||
+		strings.Contains(text, "two_person_review")
+}
+
+func signedConfigConfigured(text string) bool {
+	return strings.Contains(text, "signed_config") ||
+		strings.Contains(text, "signed_configuration") ||
+		strings.Contains(text, "config_signature") ||
+		strings.Contains(text, "policy_signature") ||
+		strings.Contains(text, "signature_required") ||
+		strings.Contains(text, "cosign") ||
+		strings.Contains(text, "sigstore")
+}
+
+func configDeploymentVerificationConfigured(text string) bool {
+	return strings.Contains(text, "deployment_verification") ||
+		strings.Contains(text, "config_deployment_verification") ||
+		strings.Contains(text, "verify_before_deploy") ||
+		strings.Contains(text, "verify_signature_before_deploy") ||
+		strings.Contains(text, "reject_unsigned") ||
+		strings.Contains(text, "admission_verification")
+}
+
+func managedSettingsEnforced(text string) bool {
+	return strings.Contains(text, "allowmanagedpermissionrulesonly") ||
+		strings.Contains(text, "allow_managed_permission_rules_only") ||
+		strings.Contains(text, "managed_settings_enforced") ||
+		strings.Contains(text, "managed_only") ||
+		strings.Contains(text, "server_managed_settings") ||
+		strings.Contains(text, "users_cannot_override") ||
+		strings.Contains(text, "prevent_user_override") ||
+		strings.Contains(text, "mdm_enforced")
+}
+
+func immutableRuntimeConfigured(text string) bool {
+	return strings.Contains(text, "immutable_runtime") ||
+		strings.Contains(text, "immutable_agent_runtime") ||
+		strings.Contains(text, "immutable_infrastructure") ||
+		strings.Contains(text, "replace_not_modify") ||
+		strings.Contains(text, "ephemeral_vm") ||
+		strings.Contains(text, "ephemeral_container") ||
+		strings.Contains(text, "attested_image") ||
+		strings.Contains(text, "image_attestation")
+}
+
+func rollbackProcedureConfigured(text string) bool {
+	return strings.Contains(text, "rollback_procedure") ||
+		strings.Contains(text, "documented_rollback") ||
+		strings.Contains(text, "restore_previous_config") ||
+		strings.Contains(text, "previous_versions") ||
+		strings.Contains(text, "recovery_procedure")
+}
+
+func automatedRollbackConfigured(text string) bool {
+	return strings.Contains(text, "automated_rollback") ||
+		strings.Contains(text, "auto_rollback") ||
+		strings.Contains(text, "health_check_rollback") ||
+		strings.Contains(text, "rollback_on_failure") ||
+		strings.Contains(text, "self_healing")
 }
 
 func traceabilityConfigured(text string) bool {

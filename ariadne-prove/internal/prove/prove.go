@@ -525,6 +525,19 @@ func BuildGraph(c model.Collection) model.Graph {
 		if control.ID == "control:mcp-reviewed-pinned" {
 			addEdge(model.Edge{From: control.ID, Type: "restricts", To: "tool:mcp-package-launch"})
 		}
+		if controlRestrictsConfig(control.ID) {
+			for _, runtime := range c.Runtimes {
+				if runtime.Scope == "" {
+					continue
+				}
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: "config:" + runtime.Kind + "-" + runtime.Scope})
+			}
+			for _, surface := range c.Surfaces {
+				if configIntegritySurface(surface) {
+					addEdge(model.Edge{From: control.ID, Type: "restricts", To: surface.ID})
+				}
+			}
+		}
 		for _, boundary := range c.Boundaries {
 			if controlRestrictsBoundary(control.ID, boundary.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: boundary.ID})
@@ -562,6 +575,29 @@ func controlRestrictsTrustInput(controlID, inputID string) bool {
 	}
 	switch controlID {
 	case "control:input-isolation", "control:trusted-source-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlRestrictsConfig(controlID string) bool {
+	switch controlID {
+	case "control:config-version-control",
+		"control:config-review-required",
+		"control:signed-config",
+		"control:config-deployment-verification",
+		"control:managed-settings-enforced",
+		"control:immutable-agent-runtime":
+		return true
+	default:
+		return false
+	}
+}
+
+func configIntegritySurface(surface model.Surface) bool {
+	switch surface.Category {
+	case "runtime-config", "managed-remote-settings", "policy", "mcp-tool-config", "plugin-skill", "command-hook":
 		return true
 	default:
 		return false
