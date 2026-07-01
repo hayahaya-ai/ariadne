@@ -1,0 +1,12 @@
+{
+  "approved_tools": ["mcp:filesystem"],
+  "approved_mcp_servers": ["filesystem"],
+  "require_pinned_packages": true,
+  "tool_descriptor_integrity": true,
+  "tool_argument_validation": true,
+  "tool_auth_required": true,
+  "signed_tool_artifacts": true,
+  "tool_deployment_verification": true,
+  "tool_sandbox_execution": true,
+  "tool_circuit_breaker": true
+}

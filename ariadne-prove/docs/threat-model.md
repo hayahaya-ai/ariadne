@@ -25,6 +25,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can untrusted instructions influence an agent with private-data access?
 - Can the agent reach secret-like local boundaries?
 - Can a mutable tool launcher grant local execution?
+- Are model-callable tools approved, provenance-bound, descriptor-validated, authenticated, and argument-validated?
 - Can private-data reachability combine with external communication reachability?
 - Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation?
 - Does a declared control break a modeled path?
@@ -39,6 +40,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Is runtime/tool authority constrained to least agency?
 - Can authority reach sensitive data, private context, execution, or external destinations?
 - Can private data leave only through approved external destinations?
+- Can a model-callable tool change capability without allowlisting, pinning, descriptor integrity, authentication, or argument validation?
 - Do controls remove the path, or do they only add friction?
 - Is agent identity scoped and attributable?
 - Is the authenticated agent authorized only for named callers, context attributes, network segments, and tool scopes?
@@ -53,6 +55,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - live exploit execution
 - runtime behavioral sandbox bypass testing
 - registry/package reputation checks
+- live MCP descriptor retrieval, registry resolution, package digest verification, or signature validation
 - cloud API collection
 - non-deterministic LLM review
 - identity provider, ABAC, JIT, token lifetime, segmentation, named-caller, or hardware-bound credential enforcement verification

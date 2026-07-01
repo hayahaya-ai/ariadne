@@ -110,6 +110,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectEgressPolicy(c, s)
 	case "agent-policy":
 		collectAgentPolicy(c, s)
+	case "tool-policy":
+		collectToolPolicy(c, s)
 	case "input-policy":
 		collectInputPolicy(c, s)
 	case "identity-policy":
@@ -329,6 +331,7 @@ func collectMCPPolicy(c *model.Collection, s model.Surface) {
 		c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:mcp-reviewed-pinned", Kind: "mcp-reviewed-pinned", Source: s.Source, Summary: "Repo declares reviewed MCP allowlist or package pinning policy."})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:control:mcp-reviewed-pinned", "control", s.Source, "declared", "MCP review or pinning policy was collected."))
 	}
+	collectToolIntegrityControls(c, "", s.Source, text)
 }
 
 func collectNetworkPolicy(c *model.Collection, s model.Surface) {
@@ -405,6 +408,40 @@ func collectConfigIntegrityControls(c *model.Collection, runtime, source, text s
 	}
 	if automatedRollbackConfigured(text) {
 		addControl(c, "control:automated-config-rollback", "automated-config-rollback", runtime, source, prefix+" declares automated rollback or health-check-based recovery for agent configuration.")
+	}
+}
+
+func collectToolIntegrityControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Tool policy"
+	if runtime != "" {
+		prefix = runtime + " tool policy"
+	}
+	if toolAllowlistConfigured(text) {
+		addControl(c, "control:tool-allowlist", "tool-allowlist", runtime, source, prefix+" declares approved model-callable tools or MCP servers.")
+	}
+	if mcpReviewOrPinningConfigured(text) {
+		addControl(c, "control:mcp-reviewed-pinned", "mcp-reviewed-pinned", runtime, source, prefix+" declares reviewed or pinned MCP/tool package launchers.")
+	}
+	if toolDescriptorIntegrityConfigured(text) {
+		addControl(c, "control:tool-descriptor-integrity", "tool-descriptor-integrity", runtime, source, prefix+" declares descriptor, schema, or metadata integrity validation for tools.")
+	}
+	if toolArgumentValidationConfigured(text) {
+		addControl(c, "control:tool-argument-validation", "tool-argument-validation", runtime, source, prefix+" declares validation for tool call arguments before execution.")
+	}
+	if toolAuthRequiredConfigured(text) {
+		addControl(c, "control:tool-auth-required", "tool-auth-required", runtime, source, prefix+" declares authenticated tool access instead of unauthenticated local tool reachability.")
+	}
+	if signedToolArtifactsConfigured(text) {
+		addControl(c, "control:signed-tool-artifacts", "signed-tool-artifacts", runtime, source, prefix+" declares signed tool, MCP, plugin, or server artifacts.")
+	}
+	if toolDeploymentVerificationConfigured(text) {
+		addControl(c, "control:tool-deployment-verification", "tool-deployment-verification", runtime, source, prefix+" declares verification before tool or MCP deployment.")
+	}
+	if toolSandboxExecutionConfigured(text) {
+		addControl(c, "control:tool-sandbox-execution", "tool-sandbox-execution", runtime, source, prefix+" declares sandboxed execution for model-callable tools.")
+	}
+	if toolCircuitBreakerConfigured(text) {
+		addControl(c, "control:tool-circuit-breaker", "tool-circuit-breaker", runtime, source, prefix+" declares rate limits, spend limits, or circuit breakers for tool execution.")
 	}
 }
 
@@ -513,8 +550,18 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if contextProvenanceConfigured(text) {
 		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Agent policy declares source attribution or provenance metadata for context.")
 	}
+	collectToolIntegrityControls(c, "", s.Source, text)
 	collectConfigIntegrityControls(c, "", s.Source, text)
 	collectEgressControls(c, s.Source, text)
+}
+
+func collectToolPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	collectToolIntegrityControls(c, "", s.Source, text)
 }
 
 func collectInputPolicy(c *model.Collection, s model.Surface) {
@@ -785,6 +832,7 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	if contextProvenanceConfigured(text) {
 		addControl(c, "control:context-provenance", "context-provenance", runtime, source, runtime+" config declares context source attribution or provenance metadata.")
 	}
+	collectToolIntegrityControls(c, runtime, source, text)
 	collectConfigIntegrityControls(c, runtime, source, text)
 	if inlineCredentialConfigured(text) {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
@@ -1197,6 +1245,95 @@ func toolScopePolicyConfigured(text string) bool {
 		strings.Contains(text, "tool_allowlist") ||
 		strings.Contains(text, "mcp_allowlist") ||
 		strings.Contains(text, "permission_scope")
+}
+
+func toolAllowlistConfigured(text string) bool {
+	return strings.Contains(text, "approved_tools") ||
+		strings.Contains(text, "allowed_tools") ||
+		strings.Contains(text, "tool_allowlist") ||
+		strings.Contains(text, "tool_allow_list") ||
+		strings.Contains(text, "approved_mcp_servers") ||
+		strings.Contains(text, "mcp_allowlist") ||
+		strings.Contains(text, "allowed_mcp_servers")
+}
+
+func mcpReviewOrPinningConfigured(text string) bool {
+	return strings.Contains(text, "require_pinned_packages") ||
+		strings.Contains(text, "pinned_packages") ||
+		strings.Contains(text, "package_digest") ||
+		strings.Contains(text, "package_lock") ||
+		strings.Contains(text, "reviewed_mcp_servers") ||
+		strings.Contains(text, "approved_mcp_servers") ||
+		strings.Contains(text, "mcp_review_required") ||
+		strings.Contains(text, "tool_review_required")
+}
+
+func toolDescriptorIntegrityConfigured(text string) bool {
+	return strings.Contains(text, "tool_descriptor_integrity") ||
+		strings.Contains(text, "descriptor_integrity") ||
+		strings.Contains(text, "tool_schema_integrity") ||
+		strings.Contains(text, "schema_integrity") ||
+		strings.Contains(text, "metadata_integrity") ||
+		strings.Contains(text, "descriptor_signature") ||
+		strings.Contains(text, "schema_signature")
+}
+
+func toolArgumentValidationConfigured(text string) bool {
+	return strings.Contains(text, "tool_argument_validation") ||
+		strings.Contains(text, "argument_validation") ||
+		strings.Contains(text, "tool_parameter_validation") ||
+		strings.Contains(text, "parameter_validation") ||
+		strings.Contains(text, "validate_tool_arguments") ||
+		strings.Contains(text, "pretooluse") ||
+		strings.Contains(text, "pre_tool_use")
+}
+
+func toolAuthRequiredConfigured(text string) bool {
+	return strings.Contains(text, "tool_auth_required") ||
+		strings.Contains(text, "tool_authentication") ||
+		strings.Contains(text, "mcp_auth_required") ||
+		strings.Contains(text, "certificate_based_tool_auth") ||
+		strings.Contains(text, "mtls_tool_auth") ||
+		strings.Contains(text, "oauth_tool_auth") ||
+		strings.Contains(text, "short_lived_tool_token")
+}
+
+func signedToolArtifactsConfigured(text string) bool {
+	return strings.Contains(text, "signed_tool_artifacts") ||
+		strings.Contains(text, "signed_tools") ||
+		strings.Contains(text, "signed_mcp_servers") ||
+		strings.Contains(text, "tool_signature") ||
+		strings.Contains(text, "mcp_signature") ||
+		strings.Contains(text, "cosign") ||
+		strings.Contains(text, "sigstore")
+}
+
+func toolDeploymentVerificationConfigured(text string) bool {
+	return strings.Contains(text, "tool_deployment_verification") ||
+		strings.Contains(text, "mcp_deployment_verification") ||
+		strings.Contains(text, "verify_tool_before_deploy") ||
+		strings.Contains(text, "verify_mcp_before_deploy") ||
+		strings.Contains(text, "reject_unsigned_tools") ||
+		strings.Contains(text, "tool_admission_verification")
+}
+
+func toolSandboxExecutionConfigured(text string) bool {
+	return strings.Contains(text, "tool_sandbox_execution") ||
+		strings.Contains(text, "sandboxed_tool_execution") ||
+		strings.Contains(text, "mcp_sandbox") ||
+		strings.Contains(text, "tool_filesystem_isolation") ||
+		strings.Contains(text, "tool_network_isolation") ||
+		strings.Contains(text, "microvm_tools") ||
+		strings.Contains(text, "gvisor")
+}
+
+func toolCircuitBreakerConfigured(text string) bool {
+	return strings.Contains(text, "tool_circuit_breaker") ||
+		strings.Contains(text, "circuit_breaker") ||
+		strings.Contains(text, "tool_rate_limit") ||
+		strings.Contains(text, "rate_limit") ||
+		strings.Contains(text, "spend_limit") ||
+		strings.Contains(text, "usage_limit")
 }
 
 func approvalRequired(text string) bool {

@@ -41,6 +41,7 @@ Current checks cover:
 - sensitive data boundary
 - external egress boundary
 - tool and MCP boundary
+- tool integrity boundary
 - memory and context boundary
 - agent identity boundary
 - workload authorization boundary
@@ -53,6 +54,7 @@ The same `zero_trust` object also includes a Foundation maturity evidence readou
 - per-agent, hardware-bound, or cryptographically rooted identity evidence
 - short-lived, JIT, or token-limited identity-provider-issued credentials
 - deny-by-default least-agency permissions
+- tool allowlisting, provenance, and invocation validation
 - identity-based workload isolation with ABAC, named callers, segmentation, or tool scope
 - comprehensive action logs with request context
 - input isolation, trusted-source gating, and validation for untrusted agent context
@@ -174,6 +176,7 @@ Current deterministic discovery covers:
 - secret-like boundary indicators such as `.env*`, key files, and credential files
 - `.ariadne/agent-policy.json` declarations for approval, sandbox, credential, audit, and retention controls
 - `.ariadne/agent-policy.json` declarations for cryptographic identity, least agency, identity-based isolation, traceability, input validation, and automated triage controls
+- `.ariadne/tool-policy.json` declarations for approved tools, MCP review and pinning, descriptor integrity, argument validation, tool authentication, signed artifacts, deployment verification, sandboxed tool execution, and circuit breakers
 - `.ariadne/input-policy.json` declarations for input isolation, trusted instruction sources, instruction provenance, untrusted-content delimiting, and prompt-injection filtering
 - `.ariadne/identity-policy.json` declarations for credential isolation, credential helpers, JIT access, token lifetime, hardware-bound credentials, and identity lifecycle controls
 - `.ariadne/workload-policy.json` declarations for ABAC, named callers, network segmentation, and tool-scope controls

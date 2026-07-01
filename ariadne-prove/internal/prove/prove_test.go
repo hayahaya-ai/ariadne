@@ -637,6 +637,83 @@ func TestZeroTrustRiskyConfigWithoutIntegrityIsBreaking(t *testing.T) {
 	}
 }
 
+func TestZeroTrustToolPolicyControlsToolIntegrity(t *testing.T) {
+	path := realPathFixture(t, "tool-integrity-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "tool-policy")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:tool-allowlist",
+		"control:mcp-reviewed-pinned",
+		"control:tool-descriptor-integrity",
+		"control:tool-argument-validation",
+		"control:tool-auth-required",
+		"control:signed-tool-artifacts",
+		"control:tool-deployment-verification",
+		"control:tool-sandbox-execution",
+		"control:tool-circuit-breaker",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("tool integrity boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing tool integrity control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:tool-allowlist|restricts|tool:mcp-package-launch",
+		"control:mcp-reviewed-pinned|restricts|tool:mcp-package-launch",
+		"control:tool-descriptor-integrity|restricts|tool:mcp-package-launch",
+		"control:tool-argument-validation|restricts|tool:mcp-package-launch",
+		"control:tool-auth-required|restricts|tool:mcp-package-launch",
+		"control:signed-tool-artifacts|restricts|tool:mcp-package-launch",
+		"control:tool-deployment-verification|restricts|tool:mcp-package-launch",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing tool integrity graph edge %s", edge)
+		}
+	}
+}
+
+func TestZeroTrustRiskyToolWithoutIntegrityIsBreaking(t *testing.T) {
+	dir := t.TempDir()
+	mcp := `{
+  "mcpServers": {
+    "mutable": {
+      "command": "npx",
+      "args": ["@example/mutable-mcp-server", "~"]
+    }
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "mcp.json"), []byte(mcp), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("risky tool without integrity controls should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "risk-bearing model-callable tool") {
+		t.Fatalf("tool integrity finding should explain risky tool surface: %q", check.Finding)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:tool-integrity", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("tool integrity requirement quality = %q", req.ControlQuality)
+	}
+}
+
 func TestRunPathSafeControlsBreakPaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
@@ -668,6 +745,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:sensitive-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
 
@@ -707,9 +785,11 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:config-integrity-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:tool-integrity-boundary")
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -740,6 +820,15 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:immutable-agent-runtime",
 		"control:config-rollback-procedure",
 		"control:automated-config-rollback",
+		"control:tool-allowlist",
+		"control:mcp-reviewed-pinned",
+		"control:tool-descriptor-integrity",
+		"control:tool-argument-validation",
+		"control:tool-auth-required",
+		"control:signed-tool-artifacts",
+		"control:tool-deployment-verification",
+		"control:tool-sandbox-execution",
+		"control:tool-circuit-breaker",
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing zero trust control node %s", id)
@@ -765,6 +854,7 @@ func TestZeroTrustMaturitySafeControlsMeetFoundation(t *testing.T) {
 		"ztf:cryptographic-agent-identity",
 		"ztf:short-lived-credentials",
 		"ztf:least-agency-permissions",
+		"ztf:tool-integrity",
 		"ztf:identity-based-isolation",
 		"ztf:comprehensive-agent-logs",
 		"ztf:input-validation",
@@ -794,6 +884,10 @@ func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustUnknown)
 	if req.ControlQuality != "evidence_gap" {
 		t.Fatalf("short-lived credential requirement quality = %q", req.ControlQuality)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:tool-integrity", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("tool integrity requirement quality = %q", req.ControlQuality)
 	}
 }
 

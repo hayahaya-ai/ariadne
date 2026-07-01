@@ -16,6 +16,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		sensitiveBoundary(c, g, exposures),
 		egressBoundary(c, g, exposures),
 		toolBoundary(c, g, exposures),
+		toolIntegrityBoundary(c, g),
 		memoryBoundary(c, g),
 		identityBoundary(c, g),
 		workloadAuthorizationBoundary(c, g),
@@ -221,6 +222,47 @@ func toolBoundary(c model.Collection, g model.Graph, exposures []model.ExposureR
 			"Review MCP servers and plugin/tool configs as authority-bearing surfaces.",
 			"Pin package-manager launchers and remove unused model-callable tools.",
 		},
+	}
+}
+
+func toolIntegrityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	controls := controlIDs(c, toolIntegrityControlIDs()...)
+	controlEvidence := controlsEvidence(c, toolIntegrityControlIDs()...)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent-callable tool surface was observed."
+	if len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Agent-callable tool surfaces exist, but Ariadne did not observe hard tool provenance, descriptor integrity, authentication, or invocation validation evidence."
+	}
+	if len(controlEvidence) > 0 && len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed tool security evidence, but not enough to prove a hard tool integrity boundary."
+	}
+	if hasRiskyToolSurface(c) && !hasHardToolIntegrity(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Risk-bearing model-callable tool surfaces exist without observed hard provenance, allowlist, descriptor-integrity, authentication, or argument-validation controls."
+	}
+	if len(c.Tools) > 0 && hasHardToolIntegrity(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed hard tool integrity evidence such as allowlist plus pinning, signed deployment verification, descriptor validation, or authenticated short-lived tool access."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:tool-integrity-boundary",
+		Principle:  "Never trust, always verify",
+		Boundary:   "Tool integrity boundary",
+		Tier:       "foundation",
+		Status:     status,
+		DesignTest: "Model-callable tools should be approved, provenance-bound, descriptor-validated, authenticated, and argument-validated before they can extend agent capability.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, toolEvidence(c)), 8),
+		GraphEdges: toolIntegrityEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Maintain an approved tool and MCP server allowlist with pinned packages or signed artifacts.",
+			"Validate tool descriptors, schemas, and arguments before tool calls execute.",
+			"Require authenticated, short-lived tool access for sensitive or remote tools.",
+		},
+		Limitations: []string{"Ariadne detects declared tool integrity controls and static tool surfaces, but does not execute tools, resolve registries, validate signatures, inspect live MCP descriptors, or prove runtime enforcement."},
 	}
 }
 
@@ -503,6 +545,7 @@ func maturity(c model.Collection) model.ZeroTrustMaturity {
 		requireCryptographicIdentity(c),
 		requireShortLivedCredentials(c),
 		requireLeastAgencyPermissions(c),
+		requireToolIntegrity(c),
 		requireIdentityBasedIsolation(c),
 		requireComprehensiveLogs(c),
 		requireInputValidation(c),
@@ -661,6 +704,58 @@ func requireLeastAgencyPermissions(c model.Collection) model.ZeroTrustRequiremen
 		[]string{
 			"Declare deny-by-default roles and tool scopes for each agent function.",
 			"Remove broad local authority unless a graph-backed control restricts the reachable boundary.",
+		},
+	)
+}
+
+func requireToolIntegrity(c model.Collection) model.ZeroTrustRequirement {
+	controls := controlIDs(c, toolIntegrityControlIDs()...)
+	evidence := firstEvidence(
+		controlsEvidence(c, toolIntegrityControlIDs()...),
+		toolEvidence(c),
+	)
+	status := model.ZeroTrustNotObserved
+	quality := "not_applicable"
+	finding := "No supported model-callable tool surface was observed, so Ariadne did not evaluate tool integrity."
+	missing := []string{"approved tool allowlist", "tool package pinning or signature evidence", "tool descriptor and argument validation evidence"}
+	if len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		quality = "evidence_gap"
+		finding = "Model-callable tool surfaces exist, but Ariadne did not observe hard tool provenance or invocation-validation evidence."
+	}
+	if len(controls) > 0 && !hasHardToolIntegrity(c) {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed tool security controls, but not enough to prove allowlist plus pinning, signed verification, descriptor validation, or authenticated short-lived tool access."
+		missing = []string{"hard tool provenance boundary", "tool descriptor or argument validation", "signed or pinned tool artifacts"}
+	}
+	if hasRiskyToolSurface(c) && !hasHardToolIntegrity(c) {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "Risk-bearing model-callable tool surfaces exist without hard tool integrity evidence."
+		missing = []string{"approved tool allowlist", "package pinning or signed artifact verification", "tool descriptor and argument validation"}
+	}
+	if len(c.Tools) > 0 && hasHardToolIntegrity(c) {
+		status = model.ZeroTrustControlled
+		quality = "hard_barrier"
+		finding = "Ariadne observed hard tool integrity evidence for model-callable tools."
+		missing = nil
+	}
+	return zeroTrustRequirement(
+		"ztf:tool-integrity",
+		"foundation",
+		"Never trust, always verify",
+		"Tool allowlisting, provenance, and invocation validation",
+		status,
+		quality,
+		finding,
+		evidence,
+		controls,
+		missing,
+		[]string{
+			"Allowlist approved tools and MCP servers per agent function.",
+			"Pin or sign tool artifacts and validate descriptors, schemas, and arguments before execution.",
+			"Use authenticated, short-lived access for sensitive tools.",
 		},
 	)
 }
@@ -1053,6 +1148,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without tool provenance and scoping evidence, mutable or remote tool surfaces remain uncertain."
 		gap.NextCollector = "Collect MCP allowlists, lockfiles, package digests, plugin manifests, and tool review policy."
+	case "zt:tool-integrity-boundary":
+		gap.MissingEvidence = []string{
+			"approved tool or MCP server allowlist",
+			"package pinning, digest, signature, or deployment verification evidence",
+			"tool descriptor integrity, authentication, and argument-validation evidence",
+		}
+		gap.WhyItMatters = "Without tool integrity evidence, a compromised or mutable model-callable tool can change what the agent believes it is calling or what capability it receives."
+		gap.NextCollector = "Collect tool policy, MCP allowlists, descriptor/signature metadata, package digests, tool authentication policy, and PreToolUse or schema validation controls."
 	case "zt:memory-boundary":
 		gap.MissingEvidence = []string{
 			"memory isolation policy",
@@ -1261,6 +1364,37 @@ func configIntegrityControlIDs() []string {
 	}
 }
 
+func toolIntegrityControlIDs() []string {
+	return []string{
+		"control:tool-allowlist",
+		"control:mcp-reviewed-pinned",
+		"control:tool-descriptor-integrity",
+		"control:tool-argument-validation",
+		"control:tool-auth-required",
+		"control:signed-tool-artifacts",
+		"control:tool-deployment-verification",
+		"control:tool-sandbox-execution",
+		"control:tool-circuit-breaker",
+	}
+}
+
+func hasHardToolIntegrity(c model.Collection) bool {
+	reviewedPinnedAllowlist := hasAnyControl(c, "control:tool-allowlist") && hasAnyControl(c, "control:mcp-reviewed-pinned")
+	signedVerified := hasAnyControl(c, "control:signed-tool-artifacts") && hasAnyControl(c, "control:tool-deployment-verification")
+	descriptorValidated := hasAnyControl(c, "control:tool-descriptor-integrity") && hasAnyControl(c, "control:tool-argument-validation")
+	authenticatedScoped := hasAnyControl(c, "control:tool-auth-required") && hasAnyControl(c, "control:short-lived-credential", "control:jit-access", "control:token-lifetime-policy")
+	return reviewedPinnedAllowlist || signedVerified || descriptorValidated || authenticatedScoped
+}
+
+func hasRiskyToolSurface(c model.Collection) bool {
+	for _, tool := range c.Tools {
+		if tool.Risky || tool.ID == "tool:agent-command-shell" {
+			return true
+		}
+	}
+	return false
+}
+
 func hasHardConfigIntegrity(c model.Collection) bool {
 	reviewedVersionControl := hasAnyControl(c, "control:config-version-control") && hasAnyControl(c, "control:config-review-required")
 	signedVerified := hasAnyControl(c, "control:signed-config") && hasAnyControl(c, "control:config-deployment-verification")
@@ -1391,6 +1525,8 @@ func leastAgencyControlIDs() []string {
 		"control:webhook-allowlist",
 		"control:per-tool-network-scope",
 		"control:tool-scope-policy",
+		"control:tool-allowlist",
+		"control:tool-argument-validation",
 	}
 }
 
@@ -1645,6 +1781,31 @@ func toolBoundaryEdges(g model.Graph) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func toolIntegrityEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "can_call" || edge.Type == "grants" || (edge.Type == "restricts" && toolIntegrityControlID(edge.From)) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func toolIntegrityControlID(id string) bool {
+	switch id {
+	case "control:tool-allowlist",
+		"control:mcp-reviewed-pinned",
+		"control:tool-descriptor-integrity",
+		"control:tool-argument-validation",
+		"control:tool-auth-required",
+		"control:signed-tool-artifacts",
+		"control:tool-deployment-verification":
+		return true
+	default:
+		return false
+	}
 }
 
 func configIntegrityEdges(g model.Graph) []string {

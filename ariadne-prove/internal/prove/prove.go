@@ -525,6 +525,11 @@ func BuildGraph(c model.Collection) model.Graph {
 		if control.ID == "control:mcp-reviewed-pinned" {
 			addEdge(model.Edge{From: control.ID, Type: "restricts", To: "tool:mcp-package-launch"})
 		}
+		for _, tool := range c.Tools {
+			if controlRestrictsTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: tool.ID})
+			}
+		}
 		if controlRestrictsConfig(control.ID) {
 			for _, runtime := range c.Runtimes {
 				if runtime.Scope == "" {
@@ -575,6 +580,27 @@ func controlRestrictsTrustInput(controlID, inputID string) bool {
 	}
 	switch controlID {
 	case "control:input-isolation", "control:trusted-source-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlRestrictsTool(controlID, toolID string) bool {
+	if toolID == "" {
+		return false
+	}
+	if controlID == "control:mcp-reviewed-pinned" {
+		return toolID == "tool:mcp-package-launch"
+	}
+	switch controlID {
+	case "control:tool-allowlist",
+		"control:tool-descriptor-integrity",
+		"control:tool-argument-validation",
+		"control:tool-auth-required",
+		"control:signed-tool-artifacts",
+		"control:tool-deployment-verification",
+		"control:tool-scope-policy":
 		return true
 	default:
 		return false
