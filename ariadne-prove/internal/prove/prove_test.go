@@ -1290,6 +1290,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
 
@@ -1335,6 +1336,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:output-boundary")
@@ -1344,6 +1346,7 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:delegation-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:response-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:governance-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:continuous-authorization-boundary")
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -1415,6 +1418,12 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:risk-assessment",
 		"control:governance-audit",
 		"control:shadow-ai-discovery",
+		"control:per-action-authorization",
+		"control:continuous-authorization",
+		"control:dynamic-privilege-scoping",
+		"control:jit-elevation",
+		"control:standing-access-denied",
+		"control:automatic-access-revocation",
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing zero trust control node %s", id)
@@ -1778,6 +1787,97 @@ network_access = false
 	}
 	if containsString(req.Controls, "control:abac-policy") || containsString(req.Controls, "control:named-caller-allowlist") {
 		t.Fatalf("sandbox/network-only fixture should not contain strong workload authorization controls: %+v", req.Controls)
+	}
+}
+
+func TestZeroTrustAuthorizationPolicyControlsContinuousAuthorization(t *testing.T) {
+	path := realPathFixture(t, "safe-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "authorization-policy")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:per-action-authorization",
+		"control:continuous-authorization",
+		"control:dynamic-privilege-scoping",
+		"control:jit-elevation",
+		"control:standing-access-denied",
+		"control:automatic-access-revocation",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("continuous authorization boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing continuous authorization control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:per-action-authorization|authorizes|authority:file-read",
+		"control:continuous-authorization|authorizes|authority:local-code-execution",
+		"control:automatic-access-revocation|authorizes|authority:local-code-execution",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing continuous authorization graph edge %s", edge)
+		}
+	}
+}
+
+func TestZeroTrustPartialAuthorizationEvidenceIsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".ariadne"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "allow": ["Read(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	policy := `{
+  "per_action_authorization": true,
+  "dynamic_privilege_scoping": true
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".ariadne", "authorization-policy.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:per-action-authorization") || !containsString(check.Controls, "control:dynamic-privilege-scoping") {
+		t.Fatalf("partial authorization should cite observed controls: %+v", check.Controls)
+	}
+	if containsString(check.Controls, "control:automatic-access-revocation") {
+		t.Fatalf("partial authorization should not invent revocation: %+v", check.Controls)
+	}
+}
+
+func TestZeroTrustStandingAuthorityWithoutContinuousAuthorizationIsBreaking(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustBreaking)
+	if len(check.Controls) != 0 {
+		t.Fatalf("standing authority without continuous authorization should not cite controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "standing") {
+		t.Fatalf("continuous authorization finding should explain standing authority risk: %q", check.Finding)
 	}
 }
 

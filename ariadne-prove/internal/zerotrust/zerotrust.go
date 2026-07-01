@@ -23,6 +23,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		memoryBoundary(c, g),
 		identityBoundary(c, g),
 		workloadAuthorizationBoundary(c, g),
+		continuousAuthorizationBoundary(c, g),
 		observabilityBoundary(c),
 		responseBoundary(c, g, exposures),
 		governanceBoundary(c, g),
@@ -521,6 +522,48 @@ func workloadAuthorizationBoundary(c model.Collection, g model.Graph) model.Zero
 			"Treat sandboxing as containment; require identity-aware authorization for the workload path.",
 		},
 		Limitations: []string{"Ariadne detects declared workload authorization controls, but does not validate identity-provider policy, ABAC evaluation, network enforcement, or runtime authorization decisions."},
+	}
+}
+
+func continuousAuthorizationBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
+	controls := controlIDs(c, continuousAuthorizationControlIDs()...)
+	controlEvidence := controlsEvidence(c, continuousAuthorizationControlIDs()...)
+	riskEvidence := firstEvidence(authorityEvidence(c), toolEvidence(c), runtimeEvidence(c))
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent authority or continuous authorization surface was observed."
+	if hasRuntimeOrAuthority(c) || len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Agent runtime or authority exists, but Ariadne did not observe per-action authorization, dynamic privilege scoping, and automatic revocation evidence."
+	}
+	if len(controlEvidence) > 0 && !hasHardContinuousAuthorization(c) {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed authorization evidence, but not enough to prove per-action authorization plus dynamic/JIT scoping plus automatic revocation."
+	}
+	if hasStandingAuthorityRisk(c) && !hasHardContinuousAuthorization(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Standing high-risk agent authority exists without observed continuous authorization, dynamic privilege scoping, and automatic revocation evidence."
+	}
+	if (hasRuntimeOrAuthority(c) || len(c.Tools) > 0 || len(controlEvidence) > 0) && hasHardContinuousAuthorization(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed hard continuous authorization evidence: per-action policy checks, dynamic or JIT scoping, and automatic revocation."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:continuous-authorization-boundary",
+		Principle:  "Never trust, always verify",
+		Boundary:   "Continuous authorization boundary",
+		Tier:       "advanced",
+		Status:     status,
+		DesignTest: "Agent authority should be re-authorized per action and elevated only for the task window, with access revoked when risk or task state changes.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, riskEvidence), 8),
+		GraphEdges: authorizationEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Evaluate authorization for each agent action or tool invocation, not only at session start.",
+			"Use dynamic privilege scoping, JIT elevation, or just-enough-access for high-risk authority.",
+			"Automatically revoke or downscope access when the task completes, policy fails, or risk changes.",
+		},
+		Limitations: []string{"Ariadne detects declared authorization controls and static authority risk, but does not validate live policy decisions, IdP rules, token revocation, or runtime enforcement."},
 	}
 }
 
@@ -1589,6 +1632,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without workload authorization evidence, Ariadne cannot prove that an authenticated agent is allowed only for the intended callers, context, network segment, and tool scope."
 		gap.NextCollector = "Collect workload policy, ABAC conditions, named-caller allowlists, network segmentation, and per-tool permission scope evidence."
+	case "zt:continuous-authorization-boundary":
+		gap.MissingEvidence = []string{
+			"per-action or per-tool authorization policy",
+			"dynamic privilege scoping, JIT elevation, or no-standing-access evidence",
+			"automatic access revocation or reauthorization on risk change",
+		}
+		gap.WhyItMatters = "Without continuous authorization evidence, a compromised agent can keep using valid standing authority after task context, risk, or policy state changes."
+		gap.NextCollector = "Collect authorization policy, real-time policy evaluation evidence, JIT/JEA elevation settings, no-standing-access declarations, revocation hooks, and policy decision logs."
 	case "zt:observability-boundary":
 		gap.MissingEvidence = []string{
 			"tool-call audit log evidence",
@@ -2098,6 +2149,40 @@ func hasStrongWorkloadAuthorization(c model.Collection) bool {
 	return callerOrCondition && isolationOrScope
 }
 
+func continuousAuthorizationControlIDs() []string {
+	return []string{
+		"control:per-action-authorization",
+		"control:continuous-authorization",
+		"control:dynamic-privilege-scoping",
+		"control:jit-elevation",
+		"control:standing-access-denied",
+		"control:automatic-access-revocation",
+		"control:abac-policy",
+		"control:tool-scope-policy",
+		"control:jit-access",
+		"control:token-lifetime-policy",
+		"control:credential-revocation",
+		"control:dynamic-access-reduction",
+	}
+}
+
+func hasHardContinuousAuthorization(c model.Collection) bool {
+	perAction := hasAnyControl(c, "control:per-action-authorization", "control:continuous-authorization")
+	scoped := hasAnyControl(c, "control:dynamic-privilege-scoping", "control:jit-elevation", "control:jit-access", "control:standing-access-denied")
+	revocable := hasAnyControl(c, "control:automatic-access-revocation", "control:credential-revocation", "control:dynamic-access-reduction")
+	return perAction && scoped && revocable
+}
+
+func hasStandingAuthorityRisk(c model.Collection) bool {
+	return hasAuthority(c, "authority:broad-local") ||
+		hasAuthority(c, "authority:local-code-execution") ||
+		hasAuthority(c, "authority:external-communication") ||
+		hasAuthority(c, "authority:delegated-agent-authority") ||
+		hasToolID(c, "tool:mcp-package-launch") ||
+		hasToolID(c, "tool:agent-command-shell") ||
+		hasBoundaryID(c, "boundary:credential-material")
+}
+
 func egressControlIDs() []string {
 	out := append([]string{}, hardEgressControlIDs()...)
 	out = append(out, softEgressControlIDs()...)
@@ -2502,6 +2587,16 @@ func outputEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func authorizationEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "authorizes" && authorizationControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func toolIntegrityControlID(id string) bool {
 	switch id {
 	case "control:tool-allowlist",
@@ -2511,6 +2606,22 @@ func toolIntegrityControlID(id string) bool {
 		"control:tool-auth-required",
 		"control:signed-tool-artifacts",
 		"control:tool-deployment-verification":
+		return true
+	default:
+		return false
+	}
+}
+
+func authorizationControlID(id string) bool {
+	switch id {
+	case "control:per-action-authorization",
+		"control:continuous-authorization",
+		"control:dynamic-privilege-scoping",
+		"control:jit-elevation",
+		"control:standing-access-denied",
+		"control:automatic-access-revocation",
+		"control:abac-policy",
+		"control:tool-scope-policy":
 		return true
 	default:
 		return false

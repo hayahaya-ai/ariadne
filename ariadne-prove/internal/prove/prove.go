@@ -537,6 +537,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			if controlRestrictsAuthority(control.ID, authority.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: authority.ID})
 			}
+			if controlAuthorizesAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "authorizes", To: authority.ID})
+			}
 		}
 		if controlGovernsDeployment(control.ID) {
 			for _, runtime := range c.Runtimes {
@@ -653,6 +656,25 @@ func controlRestrictsAuthority(controlID, authorityID string) bool {
 		return true
 	case "control:containment-quarantine":
 		return authorityID == "authority:external-communication" || authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
+	default:
+		return false
+	}
+}
+
+func controlAuthorizesAuthority(controlID, authorityID string) bool {
+	if authorityID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:per-action-authorization",
+		"control:continuous-authorization",
+		"control:dynamic-privilege-scoping",
+		"control:jit-elevation",
+		"control:standing-access-denied",
+		"control:automatic-access-revocation",
+		"control:abac-policy",
+		"control:tool-scope-policy":
+		return true
 	default:
 		return false
 	}

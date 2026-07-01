@@ -42,7 +42,7 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 
 ## Zero Trust Control Evidence
 
-Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/tool-policy.json`, `.ariadne/delegation-policy.json`, `.ariadne/input-policy.json`, `.ariadne/output-policy.json`, `.ariadne/identity-policy.json`, `.ariadne/workload-policy.json`, `.ariadne/egress-policy.json`, `.ariadne/response-policy.json`, `.ariadne/governance-policy.json`, `.ariadne/integrity-policy.json`, and `.ariadne/supply-chain-policy.json`.
+Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/tool-policy.json`, `.ariadne/delegation-policy.json`, `.ariadne/input-policy.json`, `.ariadne/output-policy.json`, `.ariadne/identity-policy.json`, `.ariadne/authorization-policy.json`, `.ariadne/workload-policy.json`, `.ariadne/egress-policy.json`, `.ariadne/response-policy.json`, `.ariadne/governance-policy.json`, `.ariadne/integrity-policy.json`, and `.ariadne/supply-chain-policy.json`.
 
 Supported control signals include:
 
@@ -64,6 +64,7 @@ Supported control signals include:
 - credential helper, vault, or keychain retrieval
 - short-lived, OAuth/OIDC, federated, JIT, or token-lifetime credential indicators
 - credential rotation, revocation, or identity lifecycle indicators
+- per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access, and automatic access revocation indicators
 - audit, tool-call, approval, telemetry, or trace logging indicators
 - request ID, trace ID, correlation ID, distributed tracing, or provenance indicators
 - input isolation, trusted instruction source, instruction provenance, schema validation, prompt-injection filtering, untrusted-content delimiting, spotlighting, or maximum input length indicators

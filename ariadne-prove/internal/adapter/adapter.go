@@ -121,6 +121,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectInputPolicy(c, s)
 	case "identity-policy":
 		collectIdentityPolicy(c, s)
+	case "authorization-policy":
+		collectAuthorizationPolicy(c, s)
 	case "workload-policy":
 		collectWorkloadPolicy(c, s)
 	case "memory-policy":
@@ -592,6 +594,31 @@ func collectGovernanceControls(c *model.Collection, runtime, source, text string
 	}
 }
 
+func collectAuthorizationControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Authorization policy"
+	if runtime != "" {
+		prefix = runtime + " authorization policy"
+	}
+	if perActionAuthorizationConfigured(text) {
+		addControl(c, "control:per-action-authorization", "per-action-authorization", runtime, source, prefix+" declares authorization checks for each agent action or tool invocation.")
+	}
+	if continuousAuthorizationConfigured(text) {
+		addControl(c, "control:continuous-authorization", "continuous-authorization", runtime, source, prefix+" declares continuous or real-time policy evaluation for agent actions.")
+	}
+	if dynamicPrivilegeScopingConfigured(text) {
+		addControl(c, "control:dynamic-privilege-scoping", "dynamic-privilege-scoping", runtime, source, prefix+" declares dynamic privilege scoping or just-enough-access boundaries.")
+	}
+	if jitElevationConfigured(text) {
+		addControl(c, "control:jit-elevation", "jit-elevation", runtime, source, prefix+" declares just-in-time privilege elevation for specific operations.")
+	}
+	if standingAccessDeniedConfigured(text) {
+		addControl(c, "control:standing-access-denied", "standing-access-denied", runtime, source, prefix+" declares no standing elevated access for agent authority.")
+	}
+	if automaticAccessRevocationConfigured(text) {
+		addControl(c, "control:automatic-access-revocation", "automatic-access-revocation", runtime, source, prefix+" declares automatic access revocation or reauthorization when risk changes.")
+	}
+}
+
 func collectOutputControls(c *model.Collection, runtime, source, text string) {
 	prefix := "Output policy"
 	if runtime != "" {
@@ -757,6 +784,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	collectResponseControls(c, "", s.Source, text)
 	collectGovernanceControls(c, "", s.Source, text)
 	collectOutputControls(c, "", s.Source, text)
+	collectAuthorizationControls(c, "", s.Source, text)
 	collectSupplyChainControls(c, "", s.Source, text)
 }
 
@@ -797,6 +825,7 @@ func collectResponsePolicy(c *model.Collection, s model.Surface) {
 		addControl(c, "control:immutable-audit-log", "immutable-audit-log", "", s.Source, "Response policy declares append-only or immutable response logs.")
 	}
 	collectResponseControls(c, "", s.Source, text)
+	collectAuthorizationControls(c, "", s.Source, text)
 }
 
 func collectGovernancePolicy(c *model.Collection, s model.Surface) {
@@ -891,6 +920,16 @@ func collectIdentityPolicy(c *model.Collection, s model.Surface) {
 	if identityLifecycleConfigured(text) {
 		addControl(c, "control:identity-lifecycle", "identity-lifecycle", "", s.Source, "Identity policy declares credential rotation, revocation, or identity lifecycle controls.")
 	}
+	collectAuthorizationControls(c, "", s.Source, text)
+}
+
+func collectAuthorizationPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	collectAuthorizationControls(c, "", s.Source, text)
 }
 
 func collectWorkloadPolicy(c *model.Collection, s model.Surface) {
@@ -914,6 +953,7 @@ func collectWorkloadPolicy(c *model.Collection, s model.Surface) {
 	if toolScopePolicyConfigured(text) {
 		addControl(c, "control:tool-scope-policy", "tool-scope-policy", "", s.Source, "Workload policy declares per-tool scope, allowlist, or permission scope controls.")
 	}
+	collectAuthorizationControls(c, "", s.Source, text)
 	collectDelegationControls(c, "", s.Source, text)
 }
 
@@ -1110,6 +1150,7 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	collectConfigIntegrityControls(c, runtime, source, text)
 	collectResponseControls(c, runtime, source, text)
 	collectOutputControls(c, runtime, source, text)
+	collectAuthorizationControls(c, runtime, source, text)
 	if inlineCredentialConfigured(text) {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:credential-material",
@@ -1463,6 +1504,73 @@ func highRiskOutputReviewConfigured(text string) bool {
 		strings.Contains(text, "human_in_loop_output") ||
 		strings.Contains(text, "output_approval") ||
 		strings.Contains(text, "approve_sensitive_output")
+}
+
+func perActionAuthorizationConfigured(text string) bool {
+	return strings.Contains(text, "per_action_authorization") ||
+		strings.Contains(text, "per-action authorization") ||
+		strings.Contains(text, "authorize_each_action") ||
+		strings.Contains(text, "authorize_every_action") ||
+		strings.Contains(text, "per_tool_authorization") ||
+		strings.Contains(text, "tool_invocation_authorization") ||
+		strings.Contains(text, "authorization_at_each_action") ||
+		strings.Contains(text, "authorize_tool_call")
+}
+
+func continuousAuthorizationConfigured(text string) bool {
+	return strings.Contains(text, "continuous_authorization") ||
+		strings.Contains(text, "continuous authorization") ||
+		strings.Contains(text, "real_time_policy_evaluation") ||
+		strings.Contains(text, "real-time policy evaluation") ||
+		strings.Contains(text, "policy_evaluation_per_action") ||
+		strings.Contains(text, "runtime_policy_evaluation") ||
+		strings.Contains(text, "reauthorize_on_risk_change") ||
+		strings.Contains(text, "risk_adaptive_authorization")
+}
+
+func dynamicPrivilegeScopingConfigured(text string) bool {
+	return strings.Contains(text, "dynamic_privilege_scoping") ||
+		strings.Contains(text, "dynamic privilege scoping") ||
+		strings.Contains(text, "dynamic_permission_scope") ||
+		strings.Contains(text, "dynamic_access_scoping") ||
+		strings.Contains(text, "just_enough_access") ||
+		strings.Contains(text, "just-enough-access") ||
+		strings.Contains(text, "jea") ||
+		strings.Contains(text, "task_scoped_privileges")
+}
+
+func jitElevationConfigured(text string) bool {
+	return strings.Contains(text, "jit_elevation") ||
+		strings.Contains(text, "jit_privilege") ||
+		strings.Contains(text, "jit_access") ||
+		strings.Contains(text, "just_in_time_access") ||
+		strings.Contains(text, "just-in-time access") ||
+		strings.Contains(text, "privilege_elevation_ttl") ||
+		strings.Contains(text, "elevate_permissions_only_when_needed")
+}
+
+func standingAccessDeniedConfigured(text string) bool {
+	return strings.Contains(text, "standing_access = false") ||
+		strings.Contains(text, "standing_access=false") ||
+		strings.Contains(text, "\"standing_access\": false") ||
+		strings.Contains(text, "\"standing_access\":false") ||
+		strings.Contains(text, "no_standing_access") ||
+		strings.Contains(text, "no standing access") ||
+		strings.Contains(text, "no_standing_privileges") ||
+		strings.Contains(text, "no_persistent_elevation") ||
+		strings.Contains(text, "standing_privileges_denied")
+}
+
+func automaticAccessRevocationConfigured(text string) bool {
+	return strings.Contains(text, "automatic_access_revocation") ||
+		strings.Contains(text, "auto_revoke_access") ||
+		strings.Contains(text, "revoke_on_risk_change") ||
+		strings.Contains(text, "revoke_when_risk_changes") ||
+		strings.Contains(text, "access_revocation_on_policy_failure") ||
+		strings.Contains(text, "revoke_after_task") ||
+		strings.Contains(text, "revoke_after_completion") ||
+		strings.Contains(text, "revoke_on_anomaly") ||
+		strings.Contains(text, "policy_failure_revocation")
 }
 
 func cryptographicIdentityConfigured(text string) bool {

@@ -31,6 +31,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Memory and context boundary: whether persisted context can be reached or needs isolation evidence.
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
 - Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
+- Continuous authorization boundary: whether high-risk agent authority is re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes.
 - Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
 - Response and containment boundary: whether suspicious agent behavior can trigger containment that terminates sessions, revokes credentials, quarantines workloads, or reduces authority.
 - Deployment governance boundary: whether observed agent deployments are registered, owned, approved, risk-assessed, and reviewed instead of unmanaged Shadow AI.
@@ -53,6 +54,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Sensitive data can leak through an agent response even without arbitrary network egress | Output controls boundary and Foundation maturity | Modeled today through output policy, sensitive-output filters, block or redaction controls, output filter logging, semantic output analysis, and high-risk output review declarations. |
 | Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
+| Agent authority is granted at session start and remains usable after task or risk context changes | Continuous authorization boundary | Modeled today through authorization policy, per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access declarations, and automatic revocation controls. |
 | Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
 | A compromised agent keeps operating while humans investigate | Response and containment boundary | Modeled today through behavioral monitoring, automated triage, session termination, credential revocation, quarantine, dynamic access reduction, and response escalation declarations. |
 | Employees or teams run agents outside accountable governance | Deployment governance boundary | Modeled today through agent inventory, accountable owner, deployment approval, risk assessment, governance review, and Shadow AI discovery declarations. |
@@ -96,6 +98,7 @@ Examples of controls Ariadne can model today:
 - hardware-bound credential posture
 - credential rotation, revocation, or identity lifecycle declarations
 - ABAC or attribute-condition policy declarations
+- per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access, and automatic access revocation declarations
 - named-caller or principal allowlists
 - network segmentation or microsegmentation declarations
 - per-tool scope, tool allowlist, MCP allowlist, or permission-scope declarations
@@ -115,6 +118,7 @@ Examples Ariadne reports as `unknown` today:
 - input validation, filtering, provenance, or delimiting evidence without input isolation or trusted-source gating
 - egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
 - output filtering and redaction evidence without output filter logging
+- per-action authorization or ABAC evidence without dynamic/JIT privilege scoping and automatic revocation evidence
 - tool sandboxing, rate limits, or circuit breakers without allowlist, provenance, authentication, descriptor integrity, or argument-validation evidence
 - AI-BOM evidence without dependency health, model provenance or provider review, and artifact signing or runtime validation evidence
 - delegation audit or subagent context isolation without explicit delegation scope, agent-to-agent authorization, original-intent verification, or delegated credential scoping
@@ -131,6 +135,7 @@ Examples Ariadne reports as `breaking` when observed:
 - authority paths that reach private context without an observed break-path control
 - reachable sensitive data without observed output filtering and block or redaction controls
 - risk-bearing agent configuration without observed hard integrity controls
+- standing high-risk authority without observed continuous authorization, dynamic/JIT scoping, and automatic revocation controls
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
 - risk-bearing agent supply-chain surfaces without observed AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence
 - delegated or sub-agent authority inheritance without observed hard delegation controls
@@ -331,6 +336,35 @@ Repositories can declare focused identity controls in `.ariadne/identity-policy.
 ```
 
 Ariadne treats helper-only evidence as partial. The identity boundary is controlled only when strong identity evidence and scoped or ephemeral credential issuance evidence are both present.
+
+Repositories can declare focused continuous authorization controls in `.ariadne/authorization-policy.json`:
+
+```json
+{
+  "per_action_authorization": true,
+  "continuous_authorization": {
+    "real_time_policy_evaluation": true,
+    "policy_evaluation_per_action": true,
+    "reauthorize_on_risk_change": true
+  },
+  "dynamic_privilege_scoping": {
+    "just_enough_access": true,
+    "task_scoped_privileges": true
+  },
+  "jit_elevation": {
+    "privilege_elevation_ttl": "15m",
+    "elevate_permissions_only_when_needed": true
+  },
+  "standing_access": false,
+  "automatic_access_revocation": {
+    "revoke_after_task": true,
+    "revoke_on_risk_change": true,
+    "revoke_on_anomaly": true
+  }
+}
+```
+
+Ariadne treats per-action or continuous authorization plus dynamic or JIT scoping plus automatic revocation or downscoping as hard continuous-authorization evidence. ABAC, tool scope, token lifetime, or JIT evidence without the full set is useful evidence, but it remains partial for this boundary.
 
 Repositories can declare focused workload authorization controls in `.ariadne/workload-policy.json`:
 

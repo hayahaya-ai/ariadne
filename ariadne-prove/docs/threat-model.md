@@ -21,6 +21,7 @@ Ariadne focuses on local AI-agent exposure management.
 - agent model, tool, framework, and dependency supply chain
 - external destinations
 - policy and control surfaces
+- continuous authorization and privilege elevation controls
 - response and containment controls
 - deployment governance records
 
@@ -35,6 +36,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can private-data reachability combine with external communication reachability?
 - Are external destinations constrained by destination allowlists, webhook allowlists, per-tool network scope, or network isolation?
 - Are agent outputs filtered, redacted or blocked, reviewed, and logged before sensitive content reaches users or external channels?
+- Is high-risk agent authority re-authorized per action, dynamically scoped, and automatically revoked when task or risk state changes?
 - Does a declared control break a modeled path?
 - Does configuration declare cryptographic or per-agent identity, scoped or short-lived credentials, least-agency scope, identity-aware workload authorization, approval, sandbox, audit, traceability, input isolation, input validation, automated triage, containment, or retention controls?
 - Is the agent deployment registered, owned, approved, risk-assessed, reviewed, or still effectively Shadow AI?
@@ -55,6 +57,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Do controls remove the path, or do they only add friction?
 - Is agent identity scoped and attributable?
 - Is the authenticated agent authorized only for named callers, context attributes, network segments, and tool scopes?
+- Is standing high-risk authority replaced with per-action authorization, dynamic/JIT scoping, and automatic revocation?
 - Is persisted memory or context isolated from unrelated sessions and broad local authority?
 - Would operators have enough audit evidence to reconstruct agent actions and approvals?
 - Can suspicious agent behavior trigger containment that terminates sessions, revokes credentials, quarantines the workload, or reduces authority?
@@ -73,6 +76,7 @@ Ariadne reports these as `breaking`, `controlled`, `unknown`, or `not_observed`.
 - cloud API collection
 - non-deterministic LLM review
 - identity provider, ABAC, JIT, token lifetime, segmentation, named-caller, or hardware-bound credential enforcement verification
+- live continuous authorization, policy-decision-point, JIT elevation, no-standing-access, or access-revocation enforcement verification
 - live inter-agent authorization, delegated credential downscoping, or subagent execution enforcement verification
 - proxy, DNS, firewall, destination allowlist, webhook allowlist, or per-tool network-scope enforcement verification
 - live prompt-injection resistance testing
