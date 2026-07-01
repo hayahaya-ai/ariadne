@@ -182,7 +182,7 @@
     },
     "zero_trust_architecture": {
       "type": "object",
-      "required": ["id", "title", "status", "severity", "principle", "tier", "boundaries", "check_ids", "finding", "why_it_matters", "evidence", "graph_edges", "control_evidence_needed", "evidence_surfaces", "actions"],
+      "required": ["id", "title", "status", "severity", "principle", "tier", "boundaries", "check_ids", "finding", "why_it_matters", "control_test", "evidence", "graph_edges", "control_evidence_needed", "evidence_surfaces", "actions"],
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -194,6 +194,7 @@
         "check_ids": { "type": "array", "items": { "type": "string" } },
         "finding": { "type": "string" },
         "why_it_matters": { "type": "string" },
+        "control_test": { "$ref": "#/$defs/architecture_control_test" },
         "evidence": {
           "type": "array",
           "items": { "$ref": "#/$defs/zero_trust_evidence" }
@@ -204,6 +205,18 @@
         "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
         "actions": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_control_test": {
+      "type": "object",
+      "required": ["question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers"],
+      "properties": {
+        "question": { "type": "string" },
+        "result": { "type": "string", "enum": ["hard_barrier_observed", "missing_hard_barrier", "partial_or_friction_only", "evidence_gap", "not_observed"] },
+        "summary": { "type": "string" },
+        "hard_barriers_observed": { "type": "array", "items": { "type": "string" } },
+        "partial_or_friction_controls": { "type": "array", "items": { "type": "string" } },
+        "missing_hard_barriers": { "type": "array", "items": { "type": "string" } }
       }
     },
     "zero_trust_evidence": {

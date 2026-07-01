@@ -343,11 +343,12 @@ func renderArchitectureFlawsDashboard(w io.Writer, z model.ZeroTrust) {
 		{"Flaw categories", fmt.Sprintf("%d", z.ArchitectureSummary.Total)},
 	})
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Architecture flaw</th><th>Why it matters</th><th>Evidence</th><th>Graph / Observed control</th><th>Breaks when</th><th>Evidence surfaces / Next action</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Architecture flaw</th><th>Control test</th><th>Why it matters</th><th>Evidence</th><th>Graph / Observed control</th><th>Breaks when</th><th>Evidence surfaces / Next action</th></tr></thead><tbody>")
 	for _, flaw := range z.ArchitectureFlaws {
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><div class="pill %s">%s</div></td>`, cssClass(string(flaw.Status)), esc(statusLabel(string(flaw.Status))), cssClass(flaw.Severity), esc(strings.ToUpper(flaw.Severity)))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(flaw.Title), esc(flaw.Principle), esc(flaw.ID), esc(strings.Join(flaw.Boundaries, ", ")))
+		fmt.Fprintf(w, `<td>%s</td>`, renderArchitectureControlTest(flaw.ControlTest))
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(flaw.Finding), esc(flaw.WhyItMatters))
 		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(flaw.Evidence))
 		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(flaw.GraphEdges, 4)), renderControlLine(flaw.Controls))
@@ -536,6 +537,34 @@ func renderControlLine(controls []string) string {
 		return ""
 	}
 	return `<h3>Controls</h3>` + renderSmallList(controls)
+}
+
+func renderArchitectureControlTest(test model.ArchitectureControlTest) string {
+	if test.Result == "" {
+		return `<span class="subtle">No control test mapped.</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<span class="pill neutral">`)
+	b.WriteString(esc(strings.ReplaceAll(test.Result, "_", " ")))
+	b.WriteString(`</span>`)
+	if test.Summary != "" {
+		b.WriteString(`<div class="subtle">`)
+		b.WriteString(esc(test.Summary))
+		b.WriteString(`</div>`)
+	}
+	if len(test.HardBarriersObserved) > 0 {
+		b.WriteString(`<h3>Hard barriers</h3>`)
+		b.WriteString(renderSmallList(limitStrings(test.HardBarriersObserved, 4)))
+	}
+	if len(test.PartialOrFrictionControls) > 0 {
+		b.WriteString(`<h3>Partial/friction</h3>`)
+		b.WriteString(renderSmallList(limitStrings(test.PartialOrFrictionControls, 4)))
+	}
+	if len(test.MissingHardBarriers) > 0 {
+		b.WriteString(`<h3>Missing hard barriers</h3>`)
+		b.WriteString(renderSmallList(limitStrings(test.MissingHardBarriers, 4)))
+	}
+	return b.String()
 }
 
 func limitStrings(items []string, limit int) []string {

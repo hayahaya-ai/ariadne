@@ -17,6 +17,7 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
 - Maps those paths to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.
+- Shows whether observed controls are hard barriers, missing hard barriers, partial/friction controls, or evidence gaps.
 - Scores Foundation Zero Trust agent requirements from observed and declared evidence.
 - Emits focused architecture JSON for single targets and fleets, including boundary coverage, evidence anchors, missing evidence, and next collectors.
 - Prioritizes graph-backed issues with deterministic rules.
@@ -222,7 +223,7 @@ Prove output adds:
 - graph path edges
 - controls that break the path
 - Zero Trust architecture checks with evidence, graph edges, controls, actions, and limitations
-- Zero Trust architecture flaw categories with control evidence needed and evidence surfaces
+- Zero Trust architecture flaw categories with control-test result, control evidence needed, and evidence surfaces
 - Zero Trust boundary coverage rows with status by target, evidence anchors, missing evidence, next collectors, and control evidence needed
 - Zero Trust Foundation maturity requirements with control quality, evidence, missing evidence, and actions
 - Zero Trust coverage gaps that name missing evidence and the next collector needed

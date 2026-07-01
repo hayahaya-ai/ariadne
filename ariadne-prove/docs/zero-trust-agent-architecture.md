@@ -31,7 +31,7 @@ This is the user-centered map of architecture flaw categories Ariadne is trying 
 - unsafe persistent memory or context
 - controls that add friction instead of removing the risky path
 
-Each flaw carries a status, severity, underlying check IDs, evidence references, graph edges, observed controls, `control_evidence_needed`, `evidence_surfaces`, actions, and limitations. The flaw map is derived from the lower-level `zero_trust.checks`; it does not introduce a second opinion layer.
+Each flaw carries a status, severity, underlying check IDs, evidence references, graph edges, observed controls, a `control_test`, `control_evidence_needed`, `evidence_surfaces`, actions, and limitations. The flaw map is derived from the lower-level `zero_trust.checks`; it does not introduce a second opinion layer.
 
 ## Architecture Boundaries
 
@@ -90,6 +90,14 @@ This gives Ariadne a product rule: a report should separate observed facts, decl
 Every check uses the same design test:
 
 > Does the control remove the capability or path, or does it merely make the attack tedious?
+
+Architecture flaws expose this as `control_test`:
+
+- `hard_barrier_observed`: Ariadne observed control evidence that removes or enforceably constrains the supported risky path.
+- `missing_hard_barrier`: Ariadne observed the risk path or risky surface, but not the hard control evidence needed to break it.
+- `partial_or_friction_only`: Ariadne observed some control evidence, but not enough to prove the risky capability is removed.
+- `evidence_gap`: Ariadne observed relevant surfaces, but not enough control evidence to decide.
+- `not_observed`: Ariadne did not observe a supported risk-bearing surface for the flaw category.
 
 Examples of controls Ariadne can model today:
 
@@ -583,7 +591,7 @@ ariadne architecture --path . --mode endpoint --include-sensitive-paths
 Start with:
 
 - `architecture_summary`: counts architecture flaw categories by status
-- `architecture_flaws`: user-centered flaw categories with evidence, graph edges, observed controls, control evidence needed, evidence surfaces, and next actions
+- `architecture_flaws`: user-centered flaw categories with evidence, graph edges, observed controls, control-test result, control evidence needed, evidence surfaces, and next actions
 - `boundary_coverage`: check-level Zero Trust boundary coverage with target counts, evidence sources, controls, missing evidence, next collectors, and control evidence needed
 - `evidence_coverage`: known versus missing Zero Trust evidence for a single target
 - `maturity`: Foundation requirement status for a single target

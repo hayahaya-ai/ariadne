@@ -60,7 +60,7 @@
     },
     "architecture_flaw_group": {
       "type": "object",
-      "required": ["id", "title", "severity", "principle", "tier", "status_counts", "target_count", "targets", "control_evidence_needed", "evidence_surfaces", "evidence_sources", "actions"],
+      "required": ["id", "title", "severity", "principle", "tier", "status_counts", "target_count", "targets", "control_test_results", "control_evidence_needed", "evidence_surfaces", "evidence_sources", "actions"],
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -70,6 +70,10 @@
         "status_counts": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/zero_trust_summary" },
         "target_count": { "type": "integer" },
         "targets": { "type": "array", "items": { "type": "string" } },
+        "control_test_results": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        },
         "control_evidence_needed": { "type": "array", "items": { "type": "string" } },
         "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
         "evidence_sources": { "type": "array", "items": { "type": "string" } },

@@ -125,13 +125,13 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `evidence_coverage`
 - `maturity`
 - `boundary_coverage`
-- `flaws`
+- `flaws`, where each flaw includes a `control_test` result for the impossible-vs-tedious design test
 
 `ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
 
 - `summary`
 - `boundary_coverage`
-- `groups`
+- `groups`, including aggregated `control_test_results`
 - `targets`
 
 LLM review mode uses two JSON payloads:

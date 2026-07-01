@@ -1363,6 +1363,12 @@ func TestZeroTrustArchitectureFlawsSummarizeBreakingBoundaries(t *testing.T) {
 		if len(flaw.EvidenceSurfaces) == 0 {
 			t.Fatalf("architecture flaw %s missing evidence surfaces: %+v", id, flaw)
 		}
+		if flaw.ControlTest.Result != "missing_hard_barrier" {
+			t.Fatalf("architecture flaw %s control test = %+v, want missing_hard_barrier", id, flaw.ControlTest)
+		}
+		if flaw.ControlTest.Question == "" || flaw.ControlTest.Summary == "" || len(flaw.ControlTest.MissingHardBarriers) == 0 {
+			t.Fatalf("architecture flaw %s should explain the missing hard barrier control test: %+v", id, flaw.ControlTest)
+		}
 	}
 	flaw := assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:untrusted-instructions-steer-privileged-tools", model.ZeroTrustBreaking)
 	if !containsString(flaw.CheckIDs, "zt:influence-boundary") {
@@ -1436,7 +1442,10 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:continuous-authorization-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:approval-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:resource-exhaustion-boundary")
-	assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:weak-agent-identity", model.ZeroTrustControlled)
+	identityFlaw := assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:weak-agent-identity", model.ZeroTrustControlled)
+	if identityFlaw.ControlTest.Result != "hard_barrier_observed" || len(identityFlaw.ControlTest.HardBarriersObserved) == 0 {
+		t.Fatalf("controlled identity architecture flaw should carry hard barrier control test: %+v", identityFlaw.ControlTest)
+	}
 	assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:missing-request-action-observability", model.ZeroTrustControlled)
 	assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:sensitive-output-leakage", model.ZeroTrustControlled)
 	for _, id := range []string{
@@ -2624,6 +2633,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		"Agent has broad standing authority instead of least agency",
 		"Boundary checks:",
 		"Evidence:",
+		"Control test:",
+		"missing hard barrier",
 		"Breaks when:",
 		"Evidence surfaces:",
 		"Next:",
@@ -2657,8 +2668,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		if flaw.Status != model.ZeroTrustBreaking {
 			t.Fatalf("filtered architecture JSON included non-breaking flaw: %+v", flaw)
 		}
-		if flaw.Finding == "" || flaw.WhyItMatters == "" || len(flaw.Actions) == 0 || len(flaw.ControlEvidenceNeeded) == 0 || len(flaw.EvidenceSurfaces) == 0 {
-			t.Fatalf("breaking flaw should include finding, why-it-matters, control evidence, evidence surfaces, and actions: %+v", flaw)
+		if flaw.Finding == "" || flaw.WhyItMatters == "" || len(flaw.Actions) == 0 || len(flaw.ControlEvidenceNeeded) == 0 || len(flaw.EvidenceSurfaces) == 0 || flaw.ControlTest.Result == "" {
+			t.Fatalf("breaking flaw should include finding, why-it-matters, control test, control evidence, evidence surfaces, and actions: %+v", flaw)
 		}
 	}
 }
@@ -2691,6 +2702,7 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 		"Flaws by target coverage:",
 		"combined",
 		"Evidence:",
+		"Control test:",
 		"Breaks when:",
 		"Evidence surfaces:",
 	} {
@@ -2749,6 +2761,9 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 		if len(group.ControlEvidenceNeeded) == 0 || len(group.EvidenceSurfaces) == 0 {
 			t.Fatalf("group should retain evidence contract fields: %+v", group)
 		}
+		if group.ControlTestResults["missing_hard_barrier"] == 0 {
+			t.Fatalf("group should aggregate control-test results: %+v", group.ControlTestResults)
+		}
 		if len(group.EvidenceSources) > 0 {
 			hasEvidenceSources = true
 		}
@@ -2771,6 +2786,11 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, zeroTrust, "architecture_summary", "architecture_flaws")
 	assertSchemaProperty(t, zeroTrust, "architecture_summary")
 	assertSchemaProperty(t, zeroTrust, "architecture_flaws")
+	reportArchitecture := schemaMap(t, reportSchema, "$defs", "zero_trust_architecture")
+	assertRequiredKeys(t, reportArchitecture, "control_test")
+	assertSchemaProperty(t, reportArchitecture, "control_test")
+	reportControlTest := schemaMap(t, reportSchema, "$defs", "architecture_control_test")
+	assertRequiredKeys(t, reportControlTest, "question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers")
 
 	architectureSchema := loadSchema(t, "ariadne-architecture-v1.schema.json")
 	assertRequiredKeys(t, architectureSchema,
@@ -2803,6 +2823,11 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"missing_evidence",
 		"next_collectors",
 	)
+	architectureFlaw := schemaMap(t, architectureSchema, "$defs", "zero_trust_architecture")
+	assertRequiredKeys(t, architectureFlaw, "control_test")
+	assertSchemaProperty(t, architectureFlaw, "control_test")
+	architectureControlTest := schemaMap(t, architectureSchema, "$defs", "architecture_control_test")
+	assertRequiredKeys(t, architectureControlTest, "question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers")
 
 	architectureScanSchema := loadSchema(t, "ariadne-architecture-scan-v1.schema.json")
 	assertRequiredKeys(t, architectureScanSchema,
@@ -2827,6 +2852,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"status_counts",
 		"target_count",
 		"targets",
+		"control_test_results",
 		"control_evidence_needed",
 		"evidence_surfaces",
 		"evidence_sources",

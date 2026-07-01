@@ -100,6 +100,7 @@ func architectureFlaws(checks []model.ZeroTrustCheck) []model.ZeroTrustArchitect
 		flaw.Evidence = dedupeEvidence(flaw.Evidence)
 		flaw.GraphEdges = uniqueStrings(flaw.GraphEdges)
 		flaw.Controls = uniqueStrings(flaw.Controls)
+		flaw.ControlTest = architectureControlTest(flaw.Status, flaw.Controls, flaw.ControlEvidenceNeeded)
 		flaw.Actions = uniqueStrings(append(def.Actions, flaw.Actions...))
 		flaw.Limitations = uniqueStrings(flaw.Limitations)
 		out = append(out, normalizeArchitectureFlaw(flaw))
@@ -134,6 +135,18 @@ func normalizeArchitectureFlaw(flaw model.ZeroTrustArchitecture) model.ZeroTrust
 	}
 	if flaw.Limitations == nil {
 		flaw.Limitations = []string{}
+	}
+	if flaw.ControlTest.Question == "" {
+		flaw.ControlTest.Question = architectureControlTestQuestion
+	}
+	if flaw.ControlTest.HardBarriersObserved == nil {
+		flaw.ControlTest.HardBarriersObserved = []string{}
+	}
+	if flaw.ControlTest.PartialOrFrictionControls == nil {
+		flaw.ControlTest.PartialOrFrictionControls = []string{}
+	}
+	if flaw.ControlTest.MissingHardBarriers == nil {
+		flaw.ControlTest.MissingHardBarriers = []string{}
 	}
 	return flaw
 }
@@ -515,6 +528,47 @@ func architectureFinding(status model.ZeroTrustStatus, primary model.ZeroTrustCh
 	default:
 		return "Not observed: " + primary.Finding
 	}
+}
+
+const architectureControlTestQuestion = "Does the observed control remove the risky capability or path, rather than merely making it tedious?"
+
+func architectureControlTest(status model.ZeroTrustStatus, controls []string, needed []string) model.ArchitectureControlTest {
+	controls = uniqueStrings(controls)
+	needed = uniqueStrings(needed)
+	missing := missingHardBarriers(needed, controls)
+	test := model.ArchitectureControlTest{
+		Question:                  architectureControlTestQuestion,
+		HardBarriersObserved:      []string{},
+		PartialOrFrictionControls: []string{},
+		MissingHardBarriers:       missing,
+	}
+	switch status {
+	case model.ZeroTrustControlled:
+		test.Result = "hard_barrier_observed"
+		test.HardBarriersObserved = observedHardBarriers(controls, needed)
+		if len(test.HardBarriersObserved) == 0 {
+			test.HardBarriersObserved = controls
+		}
+		test.MissingHardBarriers = []string{}
+		test.Summary = "Ariadne observed control evidence that removes or enforceably constrains the supported risky path."
+	case model.ZeroTrustBreaking:
+		test.Result = "missing_hard_barrier"
+		test.Summary = "Ariadne did not observe the hard control evidence needed to remove or enforceably constrain the supported risky path."
+	case model.ZeroTrustUnknown:
+		if len(controls) > 0 {
+			test.Result = "partial_or_friction_only"
+			test.PartialOrFrictionControls = controls
+			test.Summary = "Ariadne observed some control evidence, but not enough to prove the risky capability or path is removed."
+		} else {
+			test.Result = "evidence_gap"
+			test.Summary = "Ariadne observed relevant surfaces, but not enough control evidence to decide whether the risky path is broken."
+		}
+	default:
+		test.Result = "not_observed"
+		test.Summary = "Ariadne did not observe a supported risk-bearing surface for this architecture flaw."
+		test.MissingHardBarriers = []string{}
+	}
+	return test
 }
 
 func influenceBoundary(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrustCheck {
@@ -3770,4 +3824,79 @@ func uniqueStrings(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func observedHardBarriers(observed []string, required []string) []string {
+	required = uniqueStrings(required)
+	var out []string
+	for _, control := range observed {
+		if controlMatchesAnyRequired(control, required) {
+			out = append(out, control)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func missingHardBarriers(required []string, observed []string) []string {
+	var out []string
+	for _, requiredControl := range required {
+		if requiredControl == "" || observedSatisfiesRequired(observed, requiredControl) {
+			continue
+		}
+		out = append(out, requiredControl)
+	}
+	return uniqueStrings(out)
+}
+
+func observedSatisfiesRequired(observed []string, required string) bool {
+	for _, control := range observed {
+		if controlMatchesRequired(control, required) {
+			return true
+		}
+	}
+	return false
+}
+
+func controlMatchesAnyRequired(control string, required []string) bool {
+	for _, requiredControl := range required {
+		if controlMatchesRequired(control, requiredControl) {
+			return true
+		}
+	}
+	return false
+}
+
+func controlMatchesRequired(control string, required string) bool {
+	if control == required {
+		return true
+	}
+	for _, alias := range controlAliases(control) {
+		if alias == required {
+			return true
+		}
+	}
+	return false
+}
+
+func controlAliases(control string) []string {
+	switch control {
+	case "control:deny-by-default-permissions", "control:least-agency-policy":
+		return []string{"control:deny-by-default"}
+	case "control:deployment-owner":
+		return []string{"control:accountable-owner"}
+	case "control:governance-audit":
+		return []string{"control:governance-review"}
+	case "control:audit-logging":
+		return []string{"control:approval-log-evidence", "control:agent-action-log-evidence", "control:tool-call-audit-evidence"}
+	case "control:request-traceability":
+		return []string{"control:observed-request-traceability"}
+	case "review and pin MCP servers":
+		return []string{"control:mcp-reviewed-pinned", "allowlists", "capability-removing break controls"}
+	case "deny-read secret-like paths":
+		return []string{"deny rules", "capability-removing break controls"}
+	case "isolate or trust-gate untrusted instructions":
+		return []string{"isolation controls", "capability-removing break controls"}
+	default:
+		return nil
+	}
 }

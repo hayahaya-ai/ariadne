@@ -145,10 +145,20 @@ type ArchitectureFlawGroup struct {
 	StatusCounts          ZeroTrustSummary `json:"status_counts"`
 	TargetCount           int              `json:"target_count"`
 	Targets               []string         `json:"targets"`
+	ControlTestResults    map[string]int   `json:"control_test_results"`
 	ControlEvidenceNeeded []string         `json:"control_evidence_needed"`
 	EvidenceSurfaces      []string         `json:"evidence_surfaces"`
 	EvidenceSources       []string         `json:"evidence_sources"`
 	Actions               []string         `json:"actions"`
+}
+
+type ArchitectureControlTest struct {
+	Question                  string   `json:"question"`
+	Result                    string   `json:"result"`
+	Summary                   string   `json:"summary"`
+	HardBarriersObserved      []string `json:"hard_barriers_observed"`
+	PartialOrFrictionControls []string `json:"partial_or_friction_controls"`
+	MissingHardBarriers       []string `json:"missing_hard_barriers"`
 }
 
 type ArchitectureBoundary struct {
@@ -231,23 +241,24 @@ type ZeroTrustCheck struct {
 }
 
 type ZeroTrustArchitecture struct {
-	ID                    string              `json:"id"`
-	Title                 string              `json:"title"`
-	Status                ZeroTrustStatus     `json:"status"`
-	Severity              string              `json:"severity"`
-	Principle             string              `json:"principle"`
-	Tier                  string              `json:"tier"`
-	Boundaries            []string            `json:"boundaries"`
-	CheckIDs              []string            `json:"check_ids"`
-	Finding               string              `json:"finding"`
-	WhyItMatters          string              `json:"why_it_matters"`
-	Evidence              []ZeroTrustEvidence `json:"evidence"`
-	GraphEdges            []string            `json:"graph_edges"`
-	Controls              []string            `json:"controls,omitempty"`
-	ControlEvidenceNeeded []string            `json:"control_evidence_needed"`
-	EvidenceSurfaces      []string            `json:"evidence_surfaces"`
-	Actions               []string            `json:"actions"`
-	Limitations           []string            `json:"limitations,omitempty"`
+	ID                    string                  `json:"id"`
+	Title                 string                  `json:"title"`
+	Status                ZeroTrustStatus         `json:"status"`
+	Severity              string                  `json:"severity"`
+	Principle             string                  `json:"principle"`
+	Tier                  string                  `json:"tier"`
+	Boundaries            []string                `json:"boundaries"`
+	CheckIDs              []string                `json:"check_ids"`
+	Finding               string                  `json:"finding"`
+	WhyItMatters          string                  `json:"why_it_matters"`
+	ControlTest           ArchitectureControlTest `json:"control_test"`
+	Evidence              []ZeroTrustEvidence     `json:"evidence"`
+	GraphEdges            []string                `json:"graph_edges"`
+	Controls              []string                `json:"controls,omitempty"`
+	ControlEvidenceNeeded []string                `json:"control_evidence_needed"`
+	EvidenceSurfaces      []string                `json:"evidence_surfaces"`
+	Actions               []string                `json:"actions"`
+	Limitations           []string                `json:"limitations,omitempty"`
 }
 
 type ZeroTrustEvidence struct {

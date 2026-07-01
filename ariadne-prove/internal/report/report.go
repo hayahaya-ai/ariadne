@@ -153,6 +153,7 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 					Severity:              flaw.Severity,
 					Principle:             flaw.Principle,
 					Tier:                  flaw.Tier,
+					ControlTestResults:    map[string]int{},
 					ControlEvidenceNeeded: append([]string{}, flaw.ControlEvidenceNeeded...),
 					EvidenceSurfaces:      append([]string{}, flaw.EvidenceSurfaces...),
 					Actions:               append([]string{}, flaw.Actions...),
@@ -160,6 +161,12 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 				groups[flaw.ID] = group
 			}
 			incrementZeroTrustSummary(&group.StatusCounts, flaw.Status)
+			if flaw.ControlTest.Result != "" {
+				if group.ControlTestResults == nil {
+					group.ControlTestResults = map[string]int{}
+				}
+				group.ControlTestResults[flaw.ControlTest.Result]++
+			}
 			group.Targets = append(group.Targets, target.Target.ID)
 			group.EvidenceSources = append(group.EvidenceSources, zeroTrustEvidenceSources(flaw.Evidence)...)
 		}
@@ -656,6 +663,18 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 		if len(flaw.GraphEdges) > 0 {
 			fmt.Fprintf(w, "    Graph: %s\n", strings.Join(limitStrings(flaw.GraphEdges, 4), "; "))
 		}
+		if flaw.ControlTest.Result != "" {
+			fmt.Fprintf(w, "    Control test: %s - %s\n", readableToken(flaw.ControlTest.Result), flaw.ControlTest.Summary)
+			if len(flaw.ControlTest.MissingHardBarriers) > 0 {
+				fmt.Fprintf(w, "      Missing hard barriers: %s\n", strings.Join(limitStrings(flaw.ControlTest.MissingHardBarriers, 6), "; "))
+			}
+			if len(flaw.ControlTest.PartialOrFrictionControls) > 0 {
+				fmt.Fprintf(w, "      Partial/friction controls: %s\n", strings.Join(limitStrings(flaw.ControlTest.PartialOrFrictionControls, 6), "; "))
+			}
+			if len(flaw.ControlTest.HardBarriersObserved) > 0 {
+				fmt.Fprintf(w, "      Hard barriers observed: %s\n", strings.Join(limitStrings(flaw.ControlTest.HardBarriersObserved, 6), "; "))
+			}
+		}
 		if len(flaw.Controls) > 0 {
 			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(flaw.Controls, "; "))
 		}
@@ -710,6 +729,9 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 		fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(group.Targets, 6), "; "))
 		if len(group.EvidenceSources) > 0 {
 			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(group.EvidenceSources, 5), "; "))
+		}
+		if len(group.ControlTestResults) > 0 {
+			fmt.Fprintf(w, "      Control test: %s\n", architectureControlTestResultsLine(group.ControlTestResults))
 		}
 		if len(group.ControlEvidenceNeeded) > 0 {
 			fmt.Fprintf(w, "      Breaks when: %s\n", strings.Join(limitStrings(group.ControlEvidenceNeeded, 6), "; "))
@@ -1065,6 +1087,29 @@ func zeroTrustEvidenceLine(evidence []model.ZeroTrustEvidence, limit int) string
 
 func statusLabel(value string) string {
 	return strings.ToUpper(strings.ReplaceAll(value, "_", " "))
+}
+
+func readableToken(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.ReplaceAll(value, "_", " ")
+}
+
+func architectureControlTestResultsLine(results map[string]int) string {
+	if len(results) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(results))
+	for key := range results {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", readableToken(key), results[key]))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func renderIssueSummary(w io.Writer, interpretation model.Interpretation) {
