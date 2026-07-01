@@ -214,15 +214,29 @@ func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 	status := model.ZeroTrustNotObserved
 	finding := "No supported agent runtime or authority was observed."
 	credentialBoundary := boundaryEvidence(c, "boundary:credential-material")
-	identityControls := controlsEvidence(c, "control:credential-helper", "control:short-lived-credential")
-	evidence := limitEvidence(firstEvidence(append(credentialBoundary, identityControls...), runtimeEvidence(c), authorityEvidence(c), toolEvidence(c)), 8)
+	identityControls := controlsEvidence(c, identityControlIDs()...)
+	hasStrongIdentity := hasAnyControl(c, strongIdentityControlIDs()...)
+	hasScopedIssuance := hasAnyControl(c, scopedCredentialControlIDs()...)
+	evidence := limitEvidence(firstEvidence(credentialBoundary, identityControls, runtimeEvidence(c), authorityEvidence(c), toolEvidence(c)), 8)
 	if len(c.Runtimes) > 0 || len(c.Authorities) > 0 || len(c.Tools) > 0 {
 		status = model.ZeroTrustUnknown
-		finding = "Agent runtime or authority exists, but Ariadne did not collect evidence for per-agent identity, short-lived credentials, or JIT access."
+		finding = "Agent runtime or authority exists, but Ariadne did not collect evidence for strong per-agent identity and scoped credential issuance."
 	}
 	if len(identityControls) > 0 && len(credentialBoundary) == 0 {
-		status = model.ZeroTrustControlled
-		finding = "Ariadne observed credential helper, short-lived credential, or federated identity controls for agent authentication."
+		switch {
+		case hasStrongIdentity && hasScopedIssuance:
+			status = model.ZeroTrustControlled
+			finding = "Ariadne observed strong agent identity evidence plus scoped or ephemeral credential issuance evidence."
+		case hasScopedIssuance && !hasStrongIdentity:
+			status = model.ZeroTrustUnknown
+			finding = "Ariadne observed scoped credential issuance evidence, but not cryptographic, hardware-bound, or per-agent identity evidence."
+		case hasStrongIdentity && !hasScopedIssuance:
+			status = model.ZeroTrustUnknown
+			finding = "Ariadne observed strong agent identity evidence, but not short-lived, JIT, token-lifetime, or credential-helper issuance evidence."
+		default:
+			status = model.ZeroTrustUnknown
+			finding = "Ariadne observed identity-related policy evidence, but not enough to prove strong identity plus scoped credential issuance."
+		}
 	}
 	if len(credentialBoundary) > 0 {
 		status = model.ZeroTrustBreaking
@@ -238,12 +252,12 @@ func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 		Finding:    finding,
 		Evidence:   evidence,
 		GraphEdges: edgesForTypes(g, "configures", "has_authority", "can_call"),
-		Controls:   controlIDs(c, "control:credential-helper", "control:short-lived-credential"),
+		Controls:   controlIDs(c, identityControlIDs()...),
 		Actions: []string{
-			"Prefer per-agent identities, short-lived credentials, and auditable credential issuance.",
+			"Prefer cryptographic or per-agent identities with short-lived, JIT, or token-limited credential issuance.",
 			"Treat shared local user authority as an unknown until identity evidence is collected.",
 		},
-		Limitations: []string{"Ariadne detects declared credential helpers and federated identity indicators, but does not validate token lifetime, identity provider policy, JIT authorization, ABAC, or hardware binding."},
+		Limitations: []string{"Ariadne detects declared identity and credential controls, but does not validate identity-provider policy, token TTL, JIT authorization, ABAC rules, hardware binding, or runtime enforcement."},
 	}
 }
 
@@ -378,10 +392,10 @@ func maturity(c model.Collection) model.ZeroTrustMaturity {
 }
 
 func requireCryptographicIdentity(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:cryptographic-identity")
+	controls := controlIDs(c, strongIdentityControlIDs()...)
 	evidence := firstEvidence(
 		boundaryEvidence(c, "boundary:credential-material"),
-		controlsEvidence(c, "control:cryptographic-identity"),
+		controlsEvidence(c, strongIdentityControlIDs()...),
 		runtimeEvidence(c),
 	)
 	status := model.ZeroTrustNotObserved
@@ -391,12 +405,12 @@ func requireCryptographicIdentity(c model.Collection) model.ZeroTrustRequirement
 	if hasRuntimeOrAuthority(c) {
 		status = model.ZeroTrustUnknown
 		quality = "evidence_gap"
-		finding = "Agent runtime or authority exists, but Ariadne did not observe cryptographically rooted agent identity evidence."
+		finding = "Agent runtime or authority exists, but Ariadne did not observe cryptographic, hardware-bound, or per-agent identity evidence."
 	}
 	if len(controls) > 0 {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
-		finding = "Ariadne observed declared cryptographic or workload identity for agent instances."
+		finding = "Ariadne observed declared cryptographic, hardware-bound, workload, or per-agent identity evidence."
 		missing = nil
 	}
 	if hasBoundaryID(c, "boundary:credential-material") {
@@ -424,10 +438,10 @@ func requireCryptographicIdentity(c model.Collection) model.ZeroTrustRequirement
 }
 
 func requireShortLivedCredentials(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:short-lived-credential", "control:credential-helper")
+	controls := controlIDs(c, scopedCredentialControlIDs()...)
 	evidence := firstEvidence(
 		boundaryEvidence(c, "boundary:credential-material"),
-		controlsEvidence(c, "control:short-lived-credential", "control:credential-helper"),
+		controlsEvidence(c, scopedCredentialControlIDs()...),
 		runtimeEvidence(c),
 		toolEvidence(c),
 	)
@@ -440,16 +454,16 @@ func requireShortLivedCredentials(c model.Collection) model.ZeroTrustRequirement
 		quality = "evidence_gap"
 		finding = "Agent runtime, tool, or authority exists, but Ariadne did not observe short-lived credential evidence."
 	}
-	if hasControlID(c, "control:credential-helper") && !hasControlID(c, "control:short-lived-credential") {
+	if hasControlID(c, "control:credential-helper") && !hasAnyControl(c, "control:short-lived-credential", "control:jit-access", "control:token-lifetime-policy") {
 		status = model.ZeroTrustUnknown
 		quality = "partial_declared"
 		finding = "Ariadne observed a credential helper or vault pattern, but not short-lived identity-provider-issued credentials."
 		missing = []string{"short-lived credential evidence", "token lifetime policy"}
 	}
-	if hasControlID(c, "control:short-lived-credential") {
+	if hasAnyControl(c, "control:short-lived-credential", "control:jit-access", "control:token-lifetime-policy") {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
-		finding = "Ariadne observed declared short-lived, OAuth/OIDC, JIT, or federated credential posture."
+		finding = "Ariadne observed declared short-lived, OAuth/OIDC, JIT, federated, or token-lifetime credential posture."
 		missing = nil
 	}
 	if hasBoundaryID(c, "boundary:credential-material") {
@@ -906,12 +920,12 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		gap.NextCollector = "Collect memory store locations, retention settings, transcript metadata, and integrity/provenance controls."
 	case "zt:identity-boundary":
 		gap.MissingEvidence = []string{
-			"credential helper or vault evidence",
-			"short-lived credential evidence",
-			"JIT, ABAC, or hardware-bound credential evidence",
+			"cryptographic, hardware-bound, or per-agent identity evidence",
+			"short-lived, JIT, or token-lifetime credential evidence",
+			"credential helper or vault issuance evidence",
 		}
 		gap.WhyItMatters = "Without identity evidence, Ariadne cannot prove that agent actions are attributable to scoped, expiring credentials."
-		gap.NextCollector = "Collect credential-helper config, OAuth/OIDC metadata, token lifetime policy, JIT policy, and identity-provider scope evidence."
+		gap.NextCollector = "Collect identity policy, credential-helper config, OAuth/OIDC metadata, token lifetime policy, JIT policy, hardware-bound credential evidence, and per-agent identity scope evidence."
 	case "zt:observability-boundary":
 		gap.MissingEvidence = []string{
 			"tool-call audit log evidence",
@@ -1071,6 +1085,36 @@ func observabilityControlIDs() []string {
 		"control:approval-log-evidence",
 		"control:telemetry-export",
 		"control:immutable-audit-log",
+	}
+}
+
+func identityControlIDs() []string {
+	return []string{
+		"control:cryptographic-identity",
+		"control:credential-isolation",
+		"control:hardware-bound-credential",
+		"control:credential-helper",
+		"control:short-lived-credential",
+		"control:jit-access",
+		"control:token-lifetime-policy",
+		"control:identity-lifecycle",
+	}
+}
+
+func strongIdentityControlIDs() []string {
+	return []string{
+		"control:cryptographic-identity",
+		"control:credential-isolation",
+		"control:hardware-bound-credential",
+	}
+}
+
+func scopedCredentialControlIDs() []string {
+	return []string{
+		"control:credential-helper",
+		"control:short-lived-credential",
+		"control:jit-access",
+		"control:token-lifetime-policy",
 	}
 }
 

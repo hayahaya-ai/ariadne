@@ -42,18 +42,21 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 
 ## Zero Trust Control Evidence
 
-Ariadne parses declared controls from runtime configuration and `.ariadne/agent-policy.json`.
+Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/identity-policy.json`.
 
 Supported control signals include:
 
 - cryptographic identity, workload identity, mTLS, X.509, or SPIFFE indicators
+- per-agent credential isolation, non-shared credentials, or agent-scoped credential indicators
+- hardware-bound credential indicators such as passkeys, FIDO2, WebAuthn, TPM, Secure Enclave, or YubiKey posture
 - least agency, least privilege, RBAC, scoped permissions, or deny-by-default indicators
 - runtime-scoped permissions such as Claude `defaultMode: default`, scoped `Read(...)` / `Bash(...)` permissions, Codex `read-only`, or Codex `workspace-write`
 - identity-based isolation, workload isolation, network segmentation, or named-caller indicators
 - approval-required posture
 - sandbox or filesystem isolation posture
 - credential helper, vault, or keychain retrieval
-- short-lived, OAuth/OIDC, federated, or JIT credential indicators
+- short-lived, OAuth/OIDC, federated, JIT, or token-lifetime credential indicators
+- credential rotation, revocation, or identity lifecycle indicators
 - audit, tool-call, approval, telemetry, or trace logging indicators
 - request ID, trace ID, correlation ID, distributed tracing, or provenance indicators
 - input validation, schema validation, prompt-injection filtering, or maximum input length indicators

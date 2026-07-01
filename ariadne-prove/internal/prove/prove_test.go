@@ -648,6 +648,82 @@ api_key = "ZERO_TRUST_INLINE_CREDENTIAL_DO_NOT_LEAK"
 	}
 }
 
+func TestZeroTrustIdentityPolicyControlsStrongScopedIdentity(t *testing.T) {
+	path := realPathFixture(t, "identity-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "identity-policy")
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:cryptographic-identity",
+		"control:credential-isolation",
+		"control:credential-helper",
+		"control:short-lived-credential",
+		"control:jit-access",
+		"control:token-lifetime-policy",
+		"control:hardware-bound-credential",
+		"control:identity-lifecycle",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("identity boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing identity control node %s", id)
+		}
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustControlled)
+	if !containsString(req.Controls, "control:credential-isolation") || !containsString(req.Controls, "control:hardware-bound-credential") {
+		t.Fatalf("cryptographic identity requirement missing strong identity controls: %+v", req.Controls)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustControlled)
+	if !containsString(req.Controls, "control:jit-access") || !containsString(req.Controls, "control:token-lifetime-policy") {
+		t.Fatalf("short-lived requirement missing JIT/token lifetime controls: %+v", req.Controls)
+	}
+}
+
+func TestZeroTrustCredentialHelperAloneDoesNotControlIdentityBoundary(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := `{
+  "apiKeyHelper": "security find-generic-password -s ariadne-agent-token",
+  "permissions": {
+    "allow": ["Read(./src/**)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
+	if !containsString(check.Controls, "control:credential-helper") {
+		t.Fatalf("identity boundary should cite helper control: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "not cryptographic") {
+		t.Fatalf("identity boundary should explain missing strong identity: %q", check.Finding)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustUnknown)
+	if containsString(req.Controls, "control:credential-helper") {
+		t.Fatalf("credential helper should not satisfy cryptographic identity requirement: %+v", req.Controls)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustUnknown)
+	if req.ControlQuality != "partial_declared" {
+		t.Fatalf("helper-only short-lived requirement quality = %q", req.ControlQuality)
+	}
+}
+
 func TestZeroTrustMemoryBoundaryUsesGraphEvidence(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "messy-ai-surfaces")})
 	if err != nil {

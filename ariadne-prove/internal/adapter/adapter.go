@@ -108,6 +108,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectNetworkPolicy(c, s)
 	case "agent-policy":
 		collectAgentPolicy(c, s)
+	case "identity-policy":
+		collectIdentityPolicy(c, s)
 	case "memory-policy":
 		collectMemoryPolicy(c, s)
 	case "observability-policy":
@@ -366,6 +368,21 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if shortLivedCredentialConfigured(text) {
 		addControl(c, "control:short-lived-credential", "short-lived-credential", "", s.Source, "Agent policy requires short-lived or federated credentials.")
 	}
+	if credentialIsolationConfigured(text) {
+		addControl(c, "control:credential-isolation", "credential-isolation", "", s.Source, "Agent policy declares per-agent or non-shared credential isolation.")
+	}
+	if jitAccessConfigured(text) {
+		addControl(c, "control:jit-access", "jit-access", "", s.Source, "Agent policy declares just-in-time access for agent tool credentials.")
+	}
+	if tokenLifetimePolicyConfigured(text) {
+		addControl(c, "control:token-lifetime-policy", "token-lifetime-policy", "", s.Source, "Agent policy declares token lifetime limits for agent credentials.")
+	}
+	if hardwareBoundCredentialConfigured(text) {
+		addControl(c, "control:hardware-bound-credential", "hardware-bound-credential", "", s.Source, "Agent policy declares hardware-bound credential posture.")
+	}
+	if identityLifecycleConfigured(text) {
+		addControl(c, "control:identity-lifecycle", "identity-lifecycle", "", s.Source, "Agent policy declares credential rotation, revocation, or identity lifecycle controls.")
+	}
 	if auditLoggingConfigured(text) {
 		addControl(c, "control:audit-logging", "audit-logging", "", s.Source, "Agent policy requires tool-call, approval, or telemetry logging.")
 	}
@@ -395,6 +412,38 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	}
 	if contextProvenanceConfigured(text) {
 		addControl(c, "control:context-provenance", "context-provenance", "", s.Source, "Agent policy declares source attribution or provenance metadata for context.")
+	}
+}
+
+func collectIdentityPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if cryptographicIdentityConfigured(text) {
+		addControl(c, "control:cryptographic-identity", "cryptographic-identity", "", s.Source, "Identity policy declares cryptographic or workload identity for agent instances.")
+	}
+	if credentialIsolationConfigured(text) {
+		addControl(c, "control:credential-isolation", "credential-isolation", "", s.Source, "Identity policy declares per-agent or non-shared credential isolation.")
+	}
+	if credentialHelperConfigured(text) {
+		addControl(c, "control:credential-helper", "credential-helper", "", s.Source, "Identity policy requires credentials to be retrieved through a helper or vault instead of inline config.")
+	}
+	if shortLivedCredentialConfigured(text) {
+		addControl(c, "control:short-lived-credential", "short-lived-credential", "", s.Source, "Identity policy requires short-lived, OAuth/OIDC, or federated credentials.")
+	}
+	if jitAccessConfigured(text) {
+		addControl(c, "control:jit-access", "jit-access", "", s.Source, "Identity policy declares just-in-time access for agent tool credentials.")
+	}
+	if tokenLifetimePolicyConfigured(text) {
+		addControl(c, "control:token-lifetime-policy", "token-lifetime-policy", "", s.Source, "Identity policy declares token lifetime limits for agent credentials.")
+	}
+	if hardwareBoundCredentialConfigured(text) {
+		addControl(c, "control:hardware-bound-credential", "hardware-bound-credential", "", s.Source, "Identity policy declares hardware-bound credential posture.")
+	}
+	if identityLifecycleConfigured(text) {
+		addControl(c, "control:identity-lifecycle", "identity-lifecycle", "", s.Source, "Identity policy declares credential rotation, revocation, or identity lifecycle controls.")
 	}
 }
 
@@ -498,6 +547,21 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	}
 	if shortLivedCredentialConfigured(text) {
 		addControl(c, "control:short-lived-credential", "short-lived-credential", runtime, source, runtime+" config declares OAuth, OIDC, or short-lived credential posture.")
+	}
+	if credentialIsolationConfigured(text) {
+		addControl(c, "control:credential-isolation", "credential-isolation", runtime, source, runtime+" config declares per-agent or non-shared credential isolation.")
+	}
+	if jitAccessConfigured(text) {
+		addControl(c, "control:jit-access", "jit-access", runtime, source, runtime+" config declares just-in-time access for agent tool credentials.")
+	}
+	if tokenLifetimePolicyConfigured(text) {
+		addControl(c, "control:token-lifetime-policy", "token-lifetime-policy", runtime, source, runtime+" config declares token lifetime limits for agent credentials.")
+	}
+	if hardwareBoundCredentialConfigured(text) {
+		addControl(c, "control:hardware-bound-credential", "hardware-bound-credential", runtime, source, runtime+" config declares hardware-bound credential posture.")
+	}
+	if identityLifecycleConfigured(text) {
+		addControl(c, "control:identity-lifecycle", "identity-lifecycle", runtime, source, runtime+" config declares credential rotation, revocation, or identity lifecycle controls.")
 	}
 	if auditLoggingConfigured(text) {
 		addControl(c, "control:audit-logging", "audit-logging", runtime, source, runtime+" config declares tool-call, approval, or telemetry logging.")
@@ -907,6 +971,64 @@ func shortLivedCredentialConfigured(text string) bool {
 		strings.Contains(text, "federated_identity") ||
 		strings.Contains(text, "jit_access") ||
 		strings.Contains(text, "jit")
+}
+
+func credentialIsolationConfigured(text string) bool {
+	return strings.Contains(text, "credential_isolation") ||
+		strings.Contains(text, "credential-isolation") ||
+		strings.Contains(text, "per_agent_credentials") ||
+		strings.Contains(text, "per-agent credentials") ||
+		strings.Contains(text, "unique_agent_credentials") ||
+		strings.Contains(text, "unique agent credentials") ||
+		strings.Contains(text, "agent_scoped_credentials") ||
+		strings.Contains(text, "agent-scoped credentials") ||
+		strings.Contains(text, "no_shared_credentials") ||
+		strings.Contains(text, "no shared credentials")
+}
+
+func jitAccessConfigured(text string) bool {
+	return strings.Contains(text, "jit_access") ||
+		strings.Contains(text, "just_in_time") ||
+		strings.Contains(text, "just-in-time") ||
+		strings.Contains(text, "standing_access = false") ||
+		strings.Contains(text, "standing_access=false") ||
+		strings.Contains(text, "\"standing_access\": false") ||
+		strings.Contains(text, "\"standing_access\":false")
+}
+
+func tokenLifetimePolicyConfigured(text string) bool {
+	return strings.Contains(text, "token_lifetime") ||
+		strings.Contains(text, "credential_lifetime") ||
+		strings.Contains(text, "credential_ttl") ||
+		strings.Contains(text, "max_token_ttl") ||
+		strings.Contains(text, "max_session_duration") ||
+		strings.Contains(text, "ttl_minutes") ||
+		strings.Contains(text, "expires_in") ||
+		strings.Contains(text, "expiration_minutes")
+}
+
+func hardwareBoundCredentialConfigured(text string) bool {
+	return strings.Contains(text, "hardware_bound") ||
+		strings.Contains(text, "hardware-bound") ||
+		strings.Contains(text, "hardware_backed") ||
+		strings.Contains(text, "hardware-backed") ||
+		strings.Contains(text, "passkey") ||
+		strings.Contains(text, "fido2") ||
+		strings.Contains(text, "webauthn") ||
+		strings.Contains(text, "secure_enclave") ||
+		strings.Contains(text, "tpm") ||
+		strings.Contains(text, "yubikey")
+}
+
+func identityLifecycleConfigured(text string) bool {
+	return strings.Contains(text, "identity_lifecycle") ||
+		strings.Contains(text, "credential_rotation") ||
+		strings.Contains(text, "certificate_lifecycle") ||
+		strings.Contains(text, "rotation_days") ||
+		strings.Contains(text, "\"revocation\": true") ||
+		strings.Contains(text, "revocation = true") ||
+		strings.Contains(text, "revoke_on_exit") ||
+		strings.Contains(text, "deprovision")
 }
 
 func auditLoggingConfigured(text string) bool {

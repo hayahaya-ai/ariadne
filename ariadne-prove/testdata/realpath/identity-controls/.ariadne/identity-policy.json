@@ -1,0 +1,15 @@
+{
+  "cryptographic_identity": "spiffe",
+  "credential_isolation": true,
+  "credential_helper": "vault",
+  "short_lived_credentials": true,
+  "jit_access": true,
+  "token_lifetime": {
+    "max_minutes": 15
+  },
+  "hardware_bound_credentials": true,
+  "identity_lifecycle": {
+    "credential_rotation_days": 30,
+    "revocation": true
+  }
+}

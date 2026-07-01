@@ -24,7 +24,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Sensitive data boundary: whether authority reaches secrets, private context, or external destinations.
 - Tool and MCP boundary: whether model-callable tools can expand capability through mutable launch paths.
 - Memory and context boundary: whether persisted context can be reached or needs isolation evidence.
-- Agent identity boundary: whether Ariadne observed evidence for scoped agent identity, short-lived credentials, or JIT access.
+- Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
 - Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
 - Control boundary: whether controls remove a path or only add friction.
 
@@ -45,7 +45,10 @@ Examples of controls Ariadne can model today:
 - approval-required posture
 - sandbox or filesystem isolation posture
 - credential helper or vault-backed credential retrieval
-- short-lived or federated credential posture
+- per-agent or non-shared credential isolation
+- short-lived, federated, JIT, or token-lifetime credential posture
+- hardware-bound credential posture
+- credential rotation, revocation, or identity lifecycle declarations
 - audit, tool-call, approval, or telemetry logging declarations
 - observed structured transcript metadata for tool-call events, approval decisions, request IDs, trace IDs, and timestamped action records
 - telemetry export and immutable audit log declarations from observability policy or OpenTelemetry collector config
@@ -54,9 +57,10 @@ Examples of controls Ariadne can model today:
 
 Examples Ariadne reports as `unknown` today:
 
-- JIT access
 - ABAC
-- tamper-resistant audit logs
+- credential helper evidence without cryptographic, hardware-bound, or per-agent identity evidence
+- strong identity evidence without scoped or ephemeral credential issuance evidence
+- tamper-resistant audit logs without immutable-log or equivalent evidence
 - live behavioral telemetry
 
 Examples Ariadne reports as `breaking` when observed:
@@ -72,8 +76,8 @@ This is not a compliance attestation. It is an evidence map for the raised Found
 
 Foundation requirements currently modeled:
 
-- Cryptographically rooted agent identity.
-- Short-lived identity-provider-issued credentials.
+- Cryptographically rooted, hardware-bound, or per-agent identity.
+- Short-lived, JIT, or token-limited identity-provider-issued credentials.
 - Deny-by-default least-agency permissions.
 - Identity-based workload isolation.
 - Comprehensive logs of agent actions with request context.
@@ -125,6 +129,26 @@ Example:
 ```
 
 The policy is treated as declared evidence. Ariadne does not execute the policy or prove live enforcement.
+
+Repositories can declare focused identity controls in `.ariadne/identity-policy.json`:
+
+```json
+{
+  "cryptographic_identity": "spiffe",
+  "credential_isolation": true,
+  "credential_helper": "vault",
+  "short_lived_credentials": true,
+  "jit_access": true,
+  "token_lifetime": { "max_minutes": 15 },
+  "hardware_bound_credentials": true,
+  "identity_lifecycle": {
+    "credential_rotation_days": 30,
+    "revocation": true
+  }
+}
+```
+
+Ariadne treats helper-only evidence as partial. The identity boundary is controlled only when strong identity evidence and scoped or ephemeral credential issuance evidence are both present.
 
 Repositories can also declare observability controls in `.ariadne/observability-policy.json`, or provide OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`.
 
