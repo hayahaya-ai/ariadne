@@ -30,6 +30,7 @@ Ariadne currently evaluates these Zero Trust checks:
 - Agent identity boundary: whether Ariadne observed strong per-agent identity evidence plus scoped or ephemeral credential issuance.
 - Workload authorization boundary: whether agent authority is constrained by ABAC, named callers, network segments, or tool scope.
 - Observability boundary: whether Ariadne observed enough evidence to reconstruct agent actions and approvals.
+- Response and containment boundary: whether suspicious agent behavior can trigger containment that terminates sessions, revokes credentials, quarantines workloads, or reduces authority.
 - Configuration integrity boundary: whether agent settings, MCP definitions, and policy files are reviewable, tamper-evident, centrally enforced, or immutable.
 - Control boundary: whether controls remove a path or only add friction.
 
@@ -48,6 +49,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
 | Agent actions cannot be reconstructed fast enough after compromise | Observability boundary | Modeled today through audit policy, transcript metadata shape, trace/request IDs, telemetry export, and immutable log declarations. |
+| A compromised agent keeps operating while humans investigate | Response and containment boundary | Modeled today through behavioral monitoring, automated triage, session termination, credential revocation, quarantine, dynamic access reduction, and response escalation declarations. |
 | Memory or context persists across sessions without isolation or provenance | Memory and context boundary | Modeled today through private-context surfaces, retention policy, memory isolation, context integrity, and provenance declarations. |
 | Agent config can be silently changed to widen authority or disable controls | Configuration integrity boundary | Modeled today through reviewed version-controlled config, signed deployment verification, managed-settings enforcement, immutable runtime, and rollback evidence. |
 
@@ -91,6 +93,7 @@ Examples of controls Ariadne can model today:
 - audit, tool-call, approval, or telemetry logging declarations
 - observed structured transcript metadata for tool-call events, approval decisions, request IDs, trace IDs, and timestamped action records
 - telemetry export and immutable audit log declarations from observability policy or OpenTelemetry collector config
+- behavioral monitoring, automated triage, session termination, credential revocation, containment quarantine, dynamic access reduction, and response escalation declarations
 - memory, transcript, or context retention declarations
 - memory isolation, context integrity, and context provenance declarations
 - version-controlled config, config review, signed config, deployment verification, managed-settings enforcement, immutable runtime, and rollback declarations
@@ -105,6 +108,7 @@ Examples Ariadne reports as `unknown` today:
 - delegation audit or subagent context isolation without explicit delegation scope, agent-to-agent authorization, original-intent verification, or delegated credential scoping
 - sandbox or network restriction evidence without identity-aware workload authorization evidence
 - tamper-resistant audit logs without immutable-log or equivalent evidence
+- automated triage, behavioral monitoring, or response runbooks without a capability-removing action such as session termination, credential revocation, quarantine, or dynamic access reduction
 - configuration version-control evidence without review, or signed-config evidence without deployment verification
 - live behavioral telemetry
 
@@ -115,6 +119,7 @@ Examples Ariadne reports as `breaking` when observed:
 - risk-bearing agent configuration without observed hard integrity controls
 - risk-bearing model-callable tool surfaces without observed hard tool integrity controls
 - delegated or sub-agent authority inheritance without observed hard delegation controls
+- supported exposed paths without observed automated containment controls
 
 ## Foundation Maturity
 
@@ -133,7 +138,7 @@ Foundation requirements currently modeled:
 - Input isolation, trusted-source gating, and validation for untrusted agent context.
 - Approval escalation for high-risk actions.
 - Context retention policy for persisted agent memory.
-- Automated first-pass investigation for agent alerts.
+- Automated first-pass investigation and containment for agent alerts.
 
 Control quality values are intentionally blunt:
 
@@ -312,6 +317,23 @@ Ariadne treats destination allowlists, webhook allowlists, per-tool network scop
 Repositories can also declare observability controls in `.ariadne/observability-policy.json`, or provide OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`.
 
 Transcript and history JSONL files are handled differently from policy files. Ariadne samples bounded structured metadata to identify whether event-shape evidence exists for tool calls, approval decisions, request IDs, trace IDs, correlation IDs, session IDs, and timestamps. It does not emit prompt text, tool arguments, tool outputs, or transcript content.
+
+Repositories can declare focused response and containment controls in `.ariadne/response-policy.json`:
+
+```json
+{
+  "automated_triage": true,
+  "behavioral_monitoring": true,
+  "session_termination": true,
+  "credential_revocation": true,
+  "containment_quarantine": true,
+  "dynamic_access_reduction": true,
+  "response_escalation": true,
+  "audit_logging": true
+}
+```
+
+Ariadne treats response as controlled only when detection or triage evidence is paired with a capability-removing action such as session termination, credential revocation, quarantine, or dynamic access reduction, plus audit, trace, telemetry, or escalation evidence. Triage, monitoring, or runbook evidence alone is reported as partial because it does not stop a compromised agent from continuing to operate.
 
 Repositories can declare persisted-context controls in `.ariadne/memory-policy.json`:
 

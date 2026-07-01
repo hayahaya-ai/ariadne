@@ -800,6 +800,113 @@ Complete delegated tasks from the parent agent.
 	}
 }
 
+func TestZeroTrustResponsePolicyControlsContainmentBoundary(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".ariadne"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "allow": ["Read(*)", "Bash(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	responsePolicy := `{
+  "automated_triage": true,
+  "behavioral_monitoring": true,
+  "session_termination": true,
+  "credential_revocation": true,
+  "containment_quarantine": true,
+  "dynamic_access_reduction": true,
+  "response_escalation": true
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".ariadne", "response-policy.json"), []byte(responsePolicy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := RunInventory(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireSurfaceKind(t, inventory.Collection.Surfaces, "response-policy")
+
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
+	for _, id := range []string{
+		"control:automated-triage",
+		"control:behavioral-monitoring",
+		"control:session-termination",
+		"control:credential-revocation",
+		"control:containment-quarantine",
+		"control:dynamic-access-reduction",
+		"control:response-escalation",
+	} {
+		if !containsString(check.Controls, id) {
+			t.Fatalf("response boundary missing control %s: %+v", id, check.Controls)
+		}
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing response control node %s", id)
+		}
+	}
+	for _, edge := range []string{
+		"control:session-termination|restricts|authority:broad-local",
+		"control:credential-revocation|restricts|authority:broad-local",
+		"control:dynamic-access-reduction|restricts|authority:broad-local",
+		"control:containment-quarantine|restricts|authority:local-code-execution",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing response graph edge %s", edge)
+		}
+	}
+}
+
+func TestZeroTrustTriageWithoutContainmentIsNotControlled(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".ariadne"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := `{
+  "permissions": {
+    "allow": ["Read(*)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	responsePolicy := `{
+  "automated_triage": true,
+  "audit_logging": true
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, ".ariadne", "response-policy.json"), []byte(responsePolicy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustUnknown)
+	if containsString(check.Controls, "control:session-termination") || containsString(check.Controls, "control:credential-revocation") {
+		t.Fatalf("triage-only response should not invent containment controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "not enough") {
+		t.Fatalf("triage-only finding should explain partial evidence: %q", check.Finding)
+	}
+}
+
 func TestRunPathSafeControlsBreakPaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
@@ -832,6 +939,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 }
 
@@ -873,11 +981,13 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustControlled)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:config-integrity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:tool-integrity-boundary")
 	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:delegation-boundary")
+	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:response-boundary")
 	for _, id := range []string{
 		"control:approval-required",
 		"control:sandbox-isolation",
@@ -924,6 +1034,12 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 		"control:delegated-credential-scope",
 		"control:subagent-context-isolation",
 		"control:delegation-audit",
+		"control:behavioral-monitoring",
+		"control:session-termination",
+		"control:credential-revocation",
+		"control:containment-quarantine",
+		"control:dynamic-access-reduction",
+		"control:response-escalation",
 	} {
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing zero trust control node %s", id)

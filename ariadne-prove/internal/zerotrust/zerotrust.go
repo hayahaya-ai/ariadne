@@ -22,6 +22,7 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		identityBoundary(c, g),
 		workloadAuthorizationBoundary(c, g),
 		observabilityBoundary(c),
+		responseBoundary(c, g, exposures),
 		configIntegrityBoundary(c, g),
 		controlStrengthBoundary(c, g, exposures),
 	}
@@ -468,6 +469,46 @@ func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
 			"Measure whether critical agent behavior would be visible quickly enough for a human to act.",
 		},
 		Limitations: []string{"Ariadne samples structured audit metadata only; it does not emit transcript content, validate log completeness, or prove tamper resistance unless immutable-log evidence is collected."},
+	}
+}
+
+func responseBoundary(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrustCheck {
+	controls := controlIDs(c, responseControlIDs()...)
+	controlEvidence := controlsEvidence(c, responseControlIDs()...)
+	status := model.ZeroTrustNotObserved
+	finding := "No supported agent runtime, tool, or authority was observed."
+	if hasRuntimeOrAuthority(c) || len(c.Tools) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Agent runtime or authority exists, but Ariadne did not observe automated containment, session termination, credential revocation, or quarantine evidence."
+	}
+	if len(controlEvidence) > 0 {
+		status = model.ZeroTrustUnknown
+		finding = "Ariadne observed response evidence, but not enough to prove detection plus capability-removing containment with auditability."
+	}
+	if hasExposedPath(exposures) && !hasHardResponseBoundary(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Supported exposure paths exist without observed automated containment controls to terminate sessions, revoke credentials, quarantine workloads, or reduce authority."
+	}
+	if hasHardResponseBoundary(c) {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed response evidence that combines detection or triage with capability-removing containment and audit or escalation evidence."
+	}
+	return model.ZeroTrustCheck{
+		ID:         "zt:response-boundary",
+		Principle:  "Assume breach",
+		Boundary:   "Response and containment boundary",
+		Tier:       "foundation",
+		Status:     status,
+		DesignTest: "When a compromised agent path is detected, the architecture should remove or shrink the agent's authority before damage continues at machine speed.",
+		Finding:    finding,
+		Evidence:   limitEvidence(firstEvidence(controlEvidence, runtimeEvidence(c), authorityEvidence(c), toolEvidence(c)), 8),
+		GraphEdges: responseEdges(g),
+		Controls:   controls,
+		Actions: []string{
+			"Define automated response actions for suspicious agent behavior: terminate sessions, revoke credentials, quarantine workloads, or downscope access.",
+			"Require audit, trace, or escalation evidence for containment actions so humans can review high-impact decisions.",
+		},
+		Limitations: []string{"Ariadne detects declared response and containment controls, but does not validate SOAR execution, SIEM rules, identity-provider revocation, quarantine enforcement, or live session termination."},
 	}
 }
 
@@ -1044,32 +1085,39 @@ func requireContextRetention(c model.Collection) model.ZeroTrustRequirement {
 }
 
 func requireAutomatedTriage(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:automated-triage", "control:audit-logging")
+	responseIDs := append(responseControlIDs(), "control:audit-logging", "control:request-traceability", "control:telemetry-export", "control:immutable-audit-log")
+	controls := controlIDs(c, responseIDs...)
 	evidence := firstEvidence(
-		controlsEvidence(c, "control:automated-triage", "control:audit-logging"),
+		controlsEvidence(c, responseIDs...),
 		runtimeEvidence(c),
 		toolEvidence(c),
 	)
 	status := model.ZeroTrustNotObserved
 	quality := "not_applicable"
-	finding := "No supported agent runtime or tool surface was observed, so Ariadne did not evaluate automated first-pass triage."
-	missing := []string{"automated first-pass investigation evidence", "alert triage or SIEM workflow evidence"}
+	finding := "No supported agent runtime or tool surface was observed, so Ariadne did not evaluate automated first-pass triage and containment."
+	missing := []string{"automated first-pass investigation evidence", "containment action evidence", "response audit or escalation evidence"}
 	if len(c.Runtimes) > 0 || len(c.Tools) > 0 || len(c.Authorities) > 0 {
 		status = model.ZeroTrustUnknown
 		quality = "evidence_gap"
-		finding = "Agent runtime, tool, or authority exists, but Ariadne did not observe automated first-pass triage evidence."
+		finding = "Agent runtime, tool, or authority exists, but Ariadne did not observe automated first-pass triage and containment evidence."
 	}
-	if hasControlID(c, "control:automated-triage") && hasControlID(c, "control:audit-logging") {
+	if len(controls) > 0 && !hasHardResponseBoundary(c) {
+		status = model.ZeroTrustUnknown
+		quality = "partial_declared"
+		finding = "Ariadne observed response evidence, but not detection plus capability-removing containment plus audit or escalation evidence."
+		missing = []string{"session termination, credential revocation, quarantine, or dynamic access reduction evidence", "response audit, trace, telemetry, or escalation evidence"}
+	}
+	if hasHardResponseBoundary(c) {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
-		finding = "Ariadne observed declared automated first-pass investigation and audit logging controls."
+		finding = "Ariadne observed declared automated first-pass investigation, containment, and audit or escalation controls."
 		missing = nil
 	}
 	return zeroTrustRequirement(
 		"ztf:automated-first-pass-triage",
 		"foundation",
 		"Assume breach",
-		"Automated first-pass investigation for agent alerts",
+		"Automated first-pass investigation and containment for agent alerts",
 		status,
 		quality,
 		finding,
@@ -1077,8 +1125,9 @@ func requireAutomatedTriage(c model.Collection) model.ZeroTrustRequirement {
 		controls,
 		missing,
 		[]string{
-			"Route agent alerts through an automated first-pass investigation before human review.",
-			"Measure detection speed and alert coverage for critical agent behavior.",
+			"Route agent alerts through automated first-pass investigation before human review.",
+			"Define containment actions that terminate sessions, revoke credentials, quarantine workloads, or reduce authority.",
+			"Measure detection speed, response speed, and alert coverage for critical agent behavior.",
 		},
 	)
 }
@@ -1238,6 +1287,14 @@ func gapForCheck(check model.ZeroTrustCheck) model.ZeroTrustGap {
 		}
 		gap.WhyItMatters = "Without audit evidence, operators may not be able to reconstruct what the agent did or why quickly enough to respond."
 		gap.NextCollector = "Collect transcript metadata, tool-call logs, approval logs, OpenTelemetry config, and SIEM export evidence."
+	case "zt:response-boundary":
+		gap.MissingEvidence = []string{
+			"automated triage or behavioral monitoring evidence",
+			"session termination, credential revocation, quarantine, or dynamic access reduction evidence",
+			"audit, trace, telemetry, or escalation evidence for response actions",
+		}
+		gap.WhyItMatters = "Without containment evidence, a compromised agent can keep operating with valid authority while humans investigate."
+		gap.NextCollector = "Collect response policy, SOAR workflow metadata, session termination controls, credential revocation policy, quarantine actions, dynamic access reduction policy, and response audit evidence."
 	case "zt:config-integrity-boundary":
 		gap.MissingEvidence = []string{
 			"reviewed version-controlled agent configuration",
@@ -1400,6 +1457,27 @@ func observabilityControlIDs() []string {
 	}
 }
 
+func responseControlIDs() []string {
+	return []string{
+		"control:automated-triage",
+		"control:behavioral-monitoring",
+		"control:session-termination",
+		"control:credential-revocation",
+		"control:containment-quarantine",
+		"control:dynamic-access-reduction",
+		"control:response-escalation",
+	}
+}
+
+func hardResponseContainmentControlIDs() []string {
+	return []string{
+		"control:session-termination",
+		"control:credential-revocation",
+		"control:containment-quarantine",
+		"control:dynamic-access-reduction",
+	}
+}
+
 func configIntegrityControlIDs() []string {
 	return []string{
 		"control:config-version-control",
@@ -1501,6 +1579,22 @@ func hasHardConfigIntegrity(c model.Collection) bool {
 	return reviewedVersionControl ||
 		signedVerified ||
 		hasAnyControl(c, "control:managed-settings-enforced", "control:immutable-agent-runtime")
+}
+
+func hasHardResponseBoundary(c model.Collection) bool {
+	detection := hasAnyControl(c, "control:automated-triage", "control:behavioral-monitoring")
+	containment := hasAnyControl(c, hardResponseContainmentControlIDs()...)
+	auditable := hasAnyControl(c, "control:audit-logging", "control:request-traceability", "control:telemetry-export", "control:immutable-audit-log", "control:response-escalation")
+	return detection && containment && auditable
+}
+
+func hasExposedPath(exposures []model.ExposureResult) bool {
+	for _, exposure := range exposures {
+		if exposure.Status == model.StatusExposed {
+			return true
+		}
+	}
+	return false
 }
 
 func hasRiskyMutableConfig(c model.Collection) bool {
@@ -1964,6 +2058,31 @@ func delegationEdges(g model.Graph) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func responseEdges(g model.Graph) []string {
+	out := []string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "restricts" && responseControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func responseControlID(id string) bool {
+	switch id {
+	case "control:automated-triage",
+		"control:behavioral-monitoring",
+		"control:session-termination",
+		"control:credential-revocation",
+		"control:containment-quarantine",
+		"control:dynamic-access-reduction",
+		"control:response-escalation":
+		return true
+	default:
+		return false
+	}
 }
 
 func delegationControlID(id string) bool {

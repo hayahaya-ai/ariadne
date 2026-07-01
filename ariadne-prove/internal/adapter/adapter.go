@@ -129,6 +129,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectIntegrityPolicy(c, s)
 	case "observability-policy":
 		collectObservabilityPolicy(c, s)
+	case "response-policy":
+		collectResponsePolicy(c, s)
 	case "opentelemetry-config":
 		collectTelemetryConfig(c, s)
 	case "claude-plugin-config", "claude-installed-plugins":
@@ -528,6 +530,34 @@ func collectDelegationControls(c *model.Collection, runtime, source, text string
 	}
 }
 
+func collectResponseControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Response policy"
+	if runtime != "" {
+		prefix = runtime + " response policy"
+	}
+	if automatedTriageConfigured(text) {
+		addControl(c, "control:automated-triage", "automated-triage", runtime, source, prefix+" declares automated first-pass investigation or alert triage.")
+	}
+	if behavioralMonitoringConfigured(text) {
+		addControl(c, "control:behavioral-monitoring", "behavioral-monitoring", runtime, source, prefix+" declares behavioral monitoring, anomaly detection, or baseline drift detection for agent activity.")
+	}
+	if sessionTerminationConfigured(text) {
+		addControl(c, "control:session-termination", "session-termination", runtime, source, prefix+" declares automatic termination of suspicious or compromised agent sessions.")
+	}
+	if credentialRevocationConfigured(text) {
+		addControl(c, "control:credential-revocation", "credential-revocation", runtime, source, prefix+" declares credential revocation or token invalidation for compromised agent activity.")
+	}
+	if containmentQuarantineConfigured(text) {
+		addControl(c, "control:containment-quarantine", "containment-quarantine", runtime, source, prefix+" declares quarantine, isolation, or network containment for suspicious agent behavior.")
+	}
+	if dynamicAccessReductionConfigured(text) {
+		addControl(c, "control:dynamic-access-reduction", "dynamic-access-reduction", runtime, source, prefix+" declares dynamic access reduction or privilege downscoping during risky agent activity.")
+	}
+	if responseEscalationConfigured(text) {
+		addControl(c, "control:response-escalation", "response-escalation", runtime, source, prefix+" declares escalation paths or human review for high-impact automated response.")
+	}
+}
+
 func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -637,6 +667,7 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	collectDelegationControls(c, "", s.Source, text)
 	collectConfigIntegrityControls(c, "", s.Source, text)
 	collectEgressControls(c, s.Source, text)
+	collectResponseControls(c, "", s.Source, text)
 }
 
 func collectToolPolicy(c *model.Collection, s model.Surface) {
@@ -655,6 +686,27 @@ func collectDelegationPolicy(c *model.Collection, s model.Surface) {
 	}
 	text := strings.ToLower(string(data))
 	collectDelegationControls(c, "", s.Source, text)
+}
+
+func collectResponsePolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if auditLoggingConfigured(text) {
+		addControl(c, "control:audit-logging", "audit-logging", "", s.Source, "Response policy declares audit logging for containment actions.")
+	}
+	if traceabilityConfigured(text) {
+		addControl(c, "control:request-traceability", "request-traceability", "", s.Source, "Response policy declares request, trace, correlation, or provenance IDs for containment actions.")
+	}
+	if telemetryExportConfigured(text) {
+		addControl(c, "control:telemetry-export", "telemetry-export", "", s.Source, "Response policy declares telemetry export for response correlation.")
+	}
+	if immutableAuditConfigured(text) {
+		addControl(c, "control:immutable-audit-log", "immutable-audit-log", "", s.Source, "Response policy declares append-only or immutable response logs.")
+	}
+	collectResponseControls(c, "", s.Source, text)
 }
 
 func collectInputPolicy(c *model.Collection, s model.Surface) {
@@ -786,6 +838,7 @@ func collectObservabilityPolicy(c *model.Collection, s model.Surface) {
 	if immutableAuditConfigured(text) {
 		addControl(c, "control:immutable-audit-log", "immutable-audit-log", "", s.Source, "Observability policy declares append-only or immutable audit log storage.")
 	}
+	collectResponseControls(c, "", s.Source, text)
 }
 
 func collectTelemetryConfig(c *model.Collection, s model.Surface) {
@@ -929,6 +982,7 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	collectToolIntegrityControls(c, runtime, source, text)
 	collectDelegationControls(c, runtime, source, text)
 	collectConfigIntegrityControls(c, runtime, source, text)
+	collectResponseControls(c, runtime, source, text)
 	if inlineCredentialConfigured(text) {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:credential-material",
@@ -1796,6 +1850,65 @@ func automatedTriageConfigured(text string) bool {
 		strings.Contains(text, "first-pass investigation") ||
 		strings.Contains(text, "alert_triage") ||
 		strings.Contains(text, "siem_triage")
+}
+
+func behavioralMonitoringConfigured(text string) bool {
+	return strings.Contains(text, "behavioral_monitoring") ||
+		strings.Contains(text, "behavioural_monitoring") ||
+		strings.Contains(text, "anomaly_detection") ||
+		strings.Contains(text, "behavior_baseline") ||
+		strings.Contains(text, "behaviour_baseline") ||
+		strings.Contains(text, "statistical_baseline") ||
+		strings.Contains(text, "drift_detection") ||
+		strings.Contains(text, "dwell_time")
+}
+
+func sessionTerminationConfigured(text string) bool {
+	return strings.Contains(text, "session_termination") ||
+		strings.Contains(text, "terminate_session") ||
+		strings.Contains(text, "terminate_suspicious_sessions") ||
+		strings.Contains(text, "kill_session") ||
+		strings.Contains(text, "end_agent_session") ||
+		strings.Contains(text, "stop_compromised_agent")
+}
+
+func credentialRevocationConfigured(text string) bool {
+	return strings.Contains(text, "credential_revocation") ||
+		strings.Contains(text, "revoke_credentials") ||
+		strings.Contains(text, "revoke_tokens") ||
+		strings.Contains(text, "token_revocation") ||
+		strings.Contains(text, "invalidate_tokens") ||
+		strings.Contains(text, "disable_agent_credentials")
+}
+
+func containmentQuarantineConfigured(text string) bool {
+	return strings.Contains(text, "containment_quarantine") ||
+		strings.Contains(text, "automatic_containment") ||
+		strings.Contains(text, "automated_containment") ||
+		strings.Contains(text, "quarantine_agent") ||
+		strings.Contains(text, "network_quarantine") ||
+		strings.Contains(text, "isolate_workload") ||
+		strings.Contains(text, "isolate_agent") ||
+		strings.Contains(text, "containment_action")
+}
+
+func dynamicAccessReductionConfigured(text string) bool {
+	return strings.Contains(text, "dynamic_access_reduction") ||
+		strings.Contains(text, "dynamic_access_control") ||
+		strings.Contains(text, "privilege_reduction") ||
+		strings.Contains(text, "reduce_privileges") ||
+		strings.Contains(text, "step_down_permissions") ||
+		strings.Contains(text, "downscope_on_risk") ||
+		strings.Contains(text, "risk_based_access_reduction")
+}
+
+func responseEscalationConfigured(text string) bool {
+	return strings.Contains(text, "response_escalation") ||
+		strings.Contains(text, "escalation_paths") ||
+		strings.Contains(text, "containment_approval") ||
+		strings.Contains(text, "human_containment_review") ||
+		strings.Contains(text, "human_approval_for_high_impact_response") ||
+		strings.Contains(text, "incident_response_runbook")
 }
 
 func contextRetentionConfigured(text string) bool {

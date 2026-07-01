@@ -533,6 +533,11 @@ func BuildGraph(c model.Collection) model.Graph {
 				addEdge(model.Edge{From: control.ID, Type: "restricts", To: tool.ID})
 			}
 		}
+		for _, authority := range c.Authorities {
+			if controlRestrictsAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: authority.ID})
+			}
+		}
 		if controlRestrictsConfig(control.ID) {
 			for _, runtime := range c.Runtimes {
 				if runtime.Scope == "" {
@@ -574,6 +579,24 @@ func controlRestrictsBoundary(controlID, boundaryID string) bool {
 		return boundaryID == "boundary:developer-execution-boundary"
 	case "control:delegation-scope", "control:delegation-allowlist", "control:agent-to-agent-authorization", "control:origin-intent-verification", "control:delegated-credential-scope", "control:subagent-context-isolation":
 		return boundaryID == "boundary:agent-delegation-boundary"
+	case "control:containment-quarantine":
+		return boundaryID == "boundary:external-destination" || boundaryID == "boundary:developer-execution-boundary"
+	default:
+		return false
+	}
+}
+
+func controlRestrictsAuthority(controlID, authorityID string) bool {
+	if authorityID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:session-termination",
+		"control:credential-revocation",
+		"control:dynamic-access-reduction":
+		return true
+	case "control:containment-quarantine":
+		return authorityID == "authority:external-communication" || authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
 	default:
 		return false
 	}
