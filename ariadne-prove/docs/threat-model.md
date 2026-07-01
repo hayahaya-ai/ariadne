@@ -60,7 +60,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can a lower-trust delegated agent become a confused deputy for a more privileged parent agent?
 - Do controls remove the path, or do they only add friction?
 - Is high-risk agent authority scoped to attributable agent identity, rather than inherited local user authority?
-- Is the authenticated agent authorized only for named callers, context attributes, network segments, and tool scopes?
+- Is the authenticated high-risk agent authorized by named callers, context attributes, network segments, and tool scopes rather than merely sandboxed?
 - Is standing high-risk authority replaced with per-action authorization, dynamic/JIT scoping, and automatic revocation?
 - Are high-risk autonomous actions gated by explicit human approval with decision logs?
 - Are tool/API calls bounded by rate, spend, loop, timeout, concurrency, and usage-audit controls?

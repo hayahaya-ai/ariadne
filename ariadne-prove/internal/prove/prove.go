@@ -529,6 +529,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			addEdge(model.Edge{From: control.ID, Type: "restricts", To: "tool:mcp-package-launch"})
 		}
 		for _, runtime := range c.Runtimes {
+			if controlAuthorizesRuntime(control.ID, runtime.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "authorizes", To: runtime.ID})
+			}
 			if controlIdentifiesRuntime(control.ID, runtime.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "identifies", To: runtime.ID})
 			}
@@ -713,8 +716,25 @@ func controlAuthorizesAuthority(controlID, authorityID string) bool {
 		"control:jit-elevation",
 		"control:standing-access-denied",
 		"control:automatic-access-revocation",
+		"control:identity-based-isolation",
+		"control:named-caller-allowlist",
 		"control:abac-policy",
+		"control:network-segmentation",
 		"control:tool-scope-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlAuthorizesRuntime(controlID, runtimeID string) bool {
+	if runtimeID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy":
 		return true
 	default:
 		return false

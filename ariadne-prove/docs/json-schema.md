@@ -115,7 +115,7 @@ Each check includes:
 - `summary`: total requirements, requirements with enough deterministic evidence to be treated as met, relevant gaps, breaking requirements, unknowns, not-observed requirements, hard barriers, and friction-only controls
 - `requirements`: each requirement's capability, principle, status, control quality, evidence, controls, missing evidence, and actions
 
-Control quality separates hard barriers from partial or friction-only evidence. This prevents approval prompts, warnings, filtering, delimiting, or generic policy text from being treated as equivalent to input isolation, cryptographic identity, short-lived credentials, deny-by-default permissions, workload isolation, or audited traceability.
+Control quality separates hard barriers from partial or friction-only evidence. This prevents approval prompts, warnings, filtering, delimiting, sandboxing, network restriction, or generic policy text from being treated as equivalent to input isolation, cryptographic identity, short-lived credentials, deny-by-default permissions, identity-aware workload authorization, or audited traceability.
 
 `breaking` is reserved for graph-backed paths or missing break-path controls. Missing input isolation, identity, credential, workload authorization, or telemetry evidence is reported as `unknown` until Ariadne collects deterministic facts that prove the boundary.
 

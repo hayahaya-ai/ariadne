@@ -1,0 +1,7 @@
+{
+  "sandbox_required": true,
+  "network_access": false,
+  "permissions": {
+    "allow": ["Read(*)", "Bash(*)"]
+  }
+}

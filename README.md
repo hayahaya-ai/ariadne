@@ -49,7 +49,7 @@ make build
 
 Ariadne reports where agent architecture is breaking across influence, authority, sensitive data, external egress, output controls, tool/MCP, AI supply chain, memory/context, identity, workload authorization, continuous authorization, human approval, resource exhaustion, observability, response, governance, configuration integrity, and control-strength boundaries.
 
-The model is fact-first: `breaking` requires graph evidence, `controlled` requires a control edge, and unsupported identity or observability claims remain `unknown`. For identity, high-risk inherited local authority without strong scoped agent identity is `breaking`; helper-only evidence is partial. For observability, audit logs alone are partial; the stronger boundary needs action logging plus request or trace propagation.
+The model is fact-first: `breaking` requires graph evidence, `controlled` requires a control edge, and unsupported identity or observability claims remain `unknown`. For identity, high-risk inherited local authority without strong scoped agent identity is `breaking`; helper-only evidence is partial. For workload authorization, sandboxing is containment, not authorization. For observability, audit logs alone are partial; the stronger boundary needs action logging plus request or trace propagation.
 
 See [Zero Trust agent architecture](ariadne-prove/docs/zero-trust-agent-architecture.md).
 

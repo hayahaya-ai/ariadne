@@ -1295,6 +1295,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustBreaking)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:workload-authorization-boundary", model.ZeroTrustBreaking)
 }
 
 func TestZeroTrustCoverageGapsExplainUnknownBoundaries(t *testing.T) {
@@ -1305,12 +1306,12 @@ func TestZeroTrustCoverageGapsExplainUnknownBoundaries(t *testing.T) {
 	if r.ZeroTrust.Coverage.Gaps == 0 {
 		t.Fatalf("expected zero trust coverage gaps: %+v", r.ZeroTrust.Coverage)
 	}
-	gap := assertZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:workload-authorization-boundary")
-	if !containsString(gap.MissingEvidence, "ABAC") && !containsString(gap.MissingEvidence, "named-caller") {
-		t.Fatalf("workload gap should describe missing identity-aware authorization evidence: %+v", gap)
+	gap := assertZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:memory-boundary")
+	if !containsString(gap.MissingEvidence, "memory") {
+		t.Fatalf("memory gap should describe missing memory evidence: %+v", gap)
 	}
-	if !strings.Contains(strings.ToLower(gap.NextCollector), "workload") {
-		t.Fatalf("workload gap should name a workload collector: %+v", gap)
+	if !strings.Contains(strings.ToLower(gap.NextCollector), "memory") {
+		t.Fatalf("memory gap should name a memory collector: %+v", gap)
 	}
 }
 
@@ -1807,9 +1808,44 @@ func TestZeroTrustWorkloadPolicyControlsAuthorizationBoundary(t *testing.T) {
 			t.Fatalf("missing workload control node %s", id)
 		}
 	}
+	for _, edge := range []string{
+		"control:identity-based-isolation|authorizes|runtime:claude",
+		"control:named-caller-allowlist|authorizes|runtime:claude",
+		"control:abac-policy|authorizes|authority:file-read",
+		"control:network-segmentation|authorizes|authority:file-read",
+		"control:tool-scope-policy|authorizes|authority:file-read",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing workload authorization graph edge %s", edge)
+		}
+		if !containsString(check.GraphEdges, edge) {
+			t.Fatalf("workload boundary does not cite graph edge %s: %+v", edge, check.GraphEdges)
+		}
+	}
 	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:identity-based-isolation", model.ZeroTrustControlled)
 	if !containsString(req.Controls, "control:abac-policy") || !containsString(req.Controls, "control:named-caller-allowlist") {
 		t.Fatalf("workload isolation requirement missing ABAC/named caller controls: %+v", req.Controls)
+	}
+}
+
+func TestZeroTrustHighRiskSandboxNetworkStillBreaksWorkloadAuthorization(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "workload-sandbox-high-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:workload-authorization-boundary", model.ZeroTrustBreaking)
+	if !containsString(check.Controls, "control:sandbox-isolation") || !containsString(check.Controls, "control:network-restricted") {
+		t.Fatalf("workload boundary should cite sandbox/network partial controls: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "identity-aware workload authorization") {
+		t.Fatalf("workload boundary should explain missing identity-aware authorization: %q", check.Finding)
+	}
+	if !containsString(check.GraphEdges, "runtime:claude|has_authority|authority:broad-local") {
+		t.Fatalf("workload boundary should cite high-risk authority edge: %+v", check.GraphEdges)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:identity-based-isolation", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("high-risk workload isolation quality = %q", req.ControlQuality)
 	}
 }
 

@@ -518,6 +518,10 @@ func workloadAuthorizationBoundary(c model.Collection, g model.Graph) model.Zero
 		status = model.ZeroTrustUnknown
 		finding = "Ariadne observed sandbox or network restriction evidence, but not identity-aware workload authorization evidence."
 	}
+	if hasWorkloadAuthorizationRisk(c) && !hasStrongWorkloadAuthorization(c) {
+		status = model.ZeroTrustBreaking
+		finding = "High-risk agent authority or tool surfaces exist without identity-aware workload authorization by caller, context, segment, or tool scope."
+	}
 	if hasStrongWorkloadAuthorization(c) {
 		status = model.ZeroTrustControlled
 		finding = "Ariadne observed identity-aware workload authorization evidence such as ABAC, named callers, segmentation, or tool scope."
@@ -531,7 +535,7 @@ func workloadAuthorizationBoundary(c model.Collection, g model.Graph) model.Zero
 		DesignTest: "Agent identity should be authorized by caller, context, network segment, and tool scope before authority is granted.",
 		Finding:    finding,
 		Evidence:   evidence,
-		GraphEdges: edgesForTypes(g, "configures", "has_authority", "can_call", "restricts"),
+		GraphEdges: workloadEdges(g),
 		Controls:   controls,
 		Actions: []string{
 			"Declare named callers, ABAC conditions, network segments, and per-tool scopes for agent workloads.",
@@ -1213,6 +1217,12 @@ func requireIdentityBasedIsolation(c model.Collection) model.ZeroTrustRequiremen
 		quality = "partial_declared"
 		finding = "Ariadne observed sandbox or network restriction evidence, but not identity-aware workload authorization evidence."
 		missing = []string{"identity-based workload isolation evidence", "ABAC or named-caller evidence", "tool scope or network segmentation evidence"}
+	}
+	if hasWorkloadAuthorizationRisk(c) && !hasStrongWorkloadAuthorization(c) {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "High-risk agent authority exists without identity-aware workload authorization evidence."
+		missing = []string{"ABAC or named-caller authorization evidence", "network segmentation or per-tool scope evidence"}
 	}
 	if hasStrongWorkloadAuthorization(c) {
 		status = model.ZeroTrustControlled
@@ -2326,6 +2336,10 @@ func hasStrongWorkloadAuthorization(c model.Collection) bool {
 	return callerOrCondition && isolationOrScope
 }
 
+func hasWorkloadAuthorizationRisk(c model.Collection) bool {
+	return hasApprovalRelevantSurface(c) || hasRiskyToolSurface(c) || hasStandingAuthorityRisk(c)
+}
+
 func continuousAuthorizationControlIDs() []string {
 	return []string{
 		"control:per-action-authorization",
@@ -2908,6 +2922,19 @@ func authorizationEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func workloadEdges(g model.Graph) []string {
+	out := edgesForTypes(g, "configures", "has_authority", "can_call")
+	for _, edge := range g.Edges {
+		if edge.Type == "authorizes" && workloadControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+		if edge.Type == "restricts" && workloadControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func identityEdges(g model.Graph) []string {
 	out := edgesForTypes(g, "configures", "has_authority", "can_call")
 	for _, edge := range g.Edges {
@@ -2946,6 +2973,19 @@ func resourceEdges(g model.Graph) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func workloadControlID(id string) bool {
+	switch id {
+	case "control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy",
+		"control:network-segmentation",
+		"control:tool-scope-policy":
+		return true
+	default:
+		return false
+	}
 }
 
 func identityControlID(id string) bool {

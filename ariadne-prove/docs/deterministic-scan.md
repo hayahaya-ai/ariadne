@@ -83,6 +83,8 @@ Ariadne also flags inline credential field indicators as `boundary:credential-ma
 
 For the Zero Trust identity boundary, Ariadne separates helper-style credential retrieval from strong scoped agent identity. Credential helpers, vault references, or keychain retrieval are useful evidence, but they do not by themselves prove that high-risk agent actions are attributable to a cryptographic, hardware-bound, or per-agent identity with scoped or ephemeral credential issuance. High-risk local execution, broad local authority, external communication, delegated authority, or sensitive-data access without that hard identity boundary is reported as a breaking architecture path.
 
+For the Zero Trust workload authorization boundary, Ariadne treats sandboxing and network restriction as containment evidence, not as proof that the agent workload is authorized for the caller, context, segment, or tool scope. The boundary is controlled only when Ariadne observes caller or condition evidence such as named callers or ABAC plus isolation or scope evidence such as identity-based isolation, network segmentation, or per-tool scope. High-risk agent authority without that identity-aware workload authorization boundary is reported as a breaking architecture path.
+
 For the Zero Trust observability boundary, Ariadne separates partial observability from a stronger request-to-action trail. Audit, telemetry, transcript, or cache evidence is useful, but it is not enough by itself. The boundary is treated as controlled only when Ariadne observes action logging evidence plus request, trace, or correlation propagation evidence. High-risk tool or authority surfaces with no observability controls are reported as a breaking architecture path.
 
 ## Redaction
