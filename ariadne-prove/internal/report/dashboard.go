@@ -115,6 +115,36 @@ func renderArchitectureScanDashboard(w io.Writer, r model.ArchitectureScanReport
 	return nil
 }
 
+func renderControlCatalogDashboard(w io.Writer, r model.ControlCatalogReport) error {
+	title := "Ariadne Control Evidence Catalog"
+	if r.RunKind == "control_catalog_scan" {
+		title = "Ariadne Fleet Control Evidence Catalog"
+	}
+	fmt.Fprintln(w, "<!doctype html>")
+	fmt.Fprintln(w, `<html lang="en">`)
+	renderDashboardHead(w, title)
+	fmt.Fprintln(w, "<body>")
+	fmt.Fprintln(w, `<main class="shell">`)
+	fields := []kv{
+		{"Run kind", firstNonEmpty(r.RunKind, "control_catalog")},
+		{"Mode", firstNonEmpty(r.Mode, "unknown")},
+		{"Agent", firstNonEmpty(r.Agent, "unknown")},
+		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
+	}
+	if r.TargetPath != "" {
+		fields[0] = kv{"Target", r.TargetPath}
+	}
+	renderDashboardHeader(w, title, fields)
+	renderControlCatalogSummaryDashboard(w, r)
+	renderControlCatalogFamiliesDashboard(w, r.Families)
+	renderControlCatalogControlsDashboard(w, r.Controls)
+	renderRunNotes(w, nil, r.Limitations)
+	fmt.Fprintln(w, "</main>")
+	fmt.Fprintln(w, "</body>")
+	fmt.Fprintln(w, "</html>")
+	return nil
+}
+
 type kv struct {
 	Key   string
 	Value string
@@ -502,6 +532,81 @@ func renderArchitectureClosurePlanDashboard(w io.Writer, items []model.Architect
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)))
 		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderControlCatalogSummaryDashboard(w io.Writer, r model.ControlCatalogReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Control Evidence Catalog</h2><div class="subtle">Missing hard barriers from the architecture closure plan, rewritten as operator proof requests.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"Missing controls", fmt.Sprintf("%d", r.Summary.Controls)},
+		{"Critical", fmt.Sprintf("%d", r.Summary.Critical)},
+		{"High", fmt.Sprintf("%d", r.Summary.High)},
+		{"Medium", fmt.Sprintf("%d", r.Summary.Medium)},
+		{"Affected flaws", fmt.Sprintf("%d", r.Summary.Flaws)},
+	})
+	renderMetricRow(w, []kv{
+		{"Affected targets", fmt.Sprintf("%d", r.Summary.Targets)},
+		{"Families", fmt.Sprintf("%d", len(r.Families))},
+		{"Rows", fmt.Sprintf("%d", len(r.Controls))},
+		{"Status filter", firstNonEmpty(r.StatusFilter, "breaking")},
+		{"Source", "architecture closure plan"},
+	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderControlCatalogFamiliesDashboard(w io.Writer, items []model.ArchitectureClosureFamily) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Control Families</h2><div class="subtle">Capability areas ranked by the missing hard barriers needed to close architecture flaws.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(items) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No control families were returned for this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Capability family</th><th>Impact</th><th>Missing controls</th><th>Closes flaws</th><th>Where to prove this</th></tr></thead><tbody>")
+	for _, item := range items {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div></td>`, esc(item.Title), esc(item.ID))
+		fmt.Fprintf(w, `<td>%d control(s)<br>%d flaw(s)<br>%d target(s)</td>`, item.ControlCount, item.FlawCount, item.TargetCount)
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Controls, 8)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
+		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Evidence anchors</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 6)), renderSmallList(limitStrings(item.EvidenceSources, 6)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderControlCatalogControlsDashboard(w io.Writer, items []model.ArchitectureClosure) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Controls To Prove</h2><div class="subtle">Each row states the missing hard barrier, the flaw it closes, the evidence anchor, and the proof surface Ariadne expects.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(items) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No missing hard-barrier controls matched this status filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Missing hard barrier</th><th>Closes flaws</th><th>Targets</th><th>Evidence anchors</th><th>Where to prove this</th><th>What would prove it</th></tr></thead><tbody>")
+	for _, item := range items {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(item.Control), esc(strings.ReplaceAll(item.ControlTestResult, "_", " ")), esc(strings.Join(limitStrings(item.CheckIDs, 4), ", ")))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Actions, 4)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")

@@ -51,7 +51,7 @@ func runControls(args []string) {
 	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
-	format := fs.String("format", "table", "output format: table, json")
+	format := fs.String("format", "table", "output format: table, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -377,6 +377,7 @@ Examples:
   ariadne architecture --path . --format html --out architecture-dashboard.html
   ariadne controls --path .
   ariadne controls --path . --format json
+  ariadne controls --path . --format html --out controls-dashboard.html
   ariadne controls --targets targets.txt
   ariadne inventory --path .
   ariadne inventory --path . --mode endpoint --format json

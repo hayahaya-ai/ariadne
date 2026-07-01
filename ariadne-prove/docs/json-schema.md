@@ -150,6 +150,8 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 
 This catalog is derived from the architecture closure plan. It does not create a separate classification; it makes the proof request easier to act on.
 
+`ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, and actions.
+
 LLM review mode uses two JSON payloads:
 
 - request packet: `ariadne.llm_review_request/v1`

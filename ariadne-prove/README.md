@@ -108,6 +108,7 @@ Inspect the current repository:
 ./bin/ariadne prove --path .
 ./bin/ariadne architecture --path . --format html --out architecture-dashboard.html
 ./bin/ariadne controls --path .
+./bin/ariadne controls --path . --format html --out controls-dashboard.html
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
 ./bin/ariadne prove --path . --llm-request-out llm-request.json
 ```
@@ -152,7 +153,7 @@ repo-only,/srv/repos/example
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
 | `ariadne architecture --path <dir>` | Show focused Zero Trust architecture flaws for one target. |
 | `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets. |
-| `ariadne controls --path <dir>` | Show missing hard-barrier controls, proof surfaces, and the flaws they close. |
+| `ariadne controls --path <dir>` | Show missing hard-barrier controls, proof surfaces, and the flaws they close. Use `--format html` for the focused operator dashboard. |
 | `ariadne controls --targets <file>` | Group missing hard-barrier controls across many targets. |
 | `ariadne scan --targets <file>` | Run `prove` across many local or mounted targets and aggregate the results. |
 | `ariadne dashboard --path <dir>` | Write a local HTML issue dashboard for one target. |

@@ -2792,6 +2792,26 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 	if !hasClosureEvidenceSurface(decoded.Controls, ".ariadne/input-policy.json") {
 		t.Fatalf("control catalog should retain proof surfaces: %+v", decoded.Controls)
 	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderControls(&htmlOut, r, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Control Evidence Catalog",
+		"Control Evidence Catalog",
+		"Control Families",
+		"Controls To Prove",
+		"Where to prove this",
+		"What would prove it",
+		"control:input-isolation",
+		".ariadne/input-policy.json",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("control catalog dashboard missing %q:\n%s", want, rendered)
+		}
+	}
 }
 
 func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
@@ -2828,6 +2848,23 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	}
 	if !hasClosureTarget(decoded.Controls, "combined") {
 		t.Fatalf("expected fleet control catalog to retain target coverage: %+v", decoded.Controls)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderControlsScan(&htmlOut, scan, "dashboard", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Fleet Control Evidence Catalog",
+		"Control Families",
+		"Controls To Prove",
+		"combined",
+		"Where to prove this",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("fleet control catalog dashboard missing %q:\n%s", want, rendered)
+		}
 	}
 }
 

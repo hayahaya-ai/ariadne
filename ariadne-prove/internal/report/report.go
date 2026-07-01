@@ -878,6 +878,8 @@ func renderControlCatalog(w io.Writer, r model.ControlCatalogReport, format stri
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderControlCatalogDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown controls format: %s", format)
 	}
