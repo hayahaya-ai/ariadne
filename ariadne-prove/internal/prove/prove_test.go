@@ -1781,6 +1781,30 @@ func TestZeroTrustInputValidationAloneDoesNotBreakInfluencePath(t *testing.T) {
 	}
 }
 
+func TestZeroTrustHighRiskInfluenceBreaksWithoutSensitiveBoundary(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "influence-high-risk-no-boundary")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusInconclusive)
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustBreaking)
+	if !strings.Contains(strings.ToLower(check.Finding), "high-risk") {
+		t.Fatalf("influence boundary should explain high-risk authority: %q", check.Finding)
+	}
+	if containsString(check.Controls, "control:input-isolation") || containsString(check.Controls, "control:trusted-source-policy") {
+		t.Fatalf("high-risk influence fixture should not include hard input controls: %+v", check.Controls)
+	}
+	for _, edge := range []string{
+		"trustinput:repo-instruction|influences|runtime:claude",
+		"runtime:claude|has_authority|authority:broad-local",
+		"runtime:claude|has_authority|authority:local-code-execution",
+	} {
+		if !containsString(check.GraphEdges, edge) {
+			t.Fatalf("influence boundary should cite graph edge %s: %+v", edge, check.GraphEdges)
+		}
+	}
+}
+
 func TestZeroTrustWorkloadPolicyControlsAuthorizationBoundary(t *testing.T) {
 	path := realPathFixture(t, "workload-controls")
 	inventory, err := RunInventory(Options{Path: path})

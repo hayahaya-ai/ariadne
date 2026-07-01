@@ -46,7 +46,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 
 | Architecture flaw | Ariadne boundary | Current posture |
 | --- | --- | --- |
-| Untrusted instructions can steer privileged tools | Influence, authority, sensitive data, and egress boundaries | Modeled today through trust inputs, runtime authority, secret/private boundaries, egress destinations, and break-path controls. |
+| Untrusted instructions can steer privileged tools | Influence, authority, sensitive data, and egress boundaries | Modeled today through trust inputs, runtime authority, tool surfaces, secret/private boundaries, egress destinations, and break-path controls. A specific data exposure can be inconclusive while the influence boundary is still breaking if risky instructions reach high-risk authority without input isolation or trusted-source gates. |
 | Agent has broad standing authority instead of least agency | Authority boundary and Foundation maturity | Modeled today through Claude/Codex permission posture, deny-by-default evidence, broad local authority, and scoped permission controls. |
 | MCP/tooling expands capability through mutable or unpinned launch paths | Tool and MCP boundary | Modeled today for package launchers, reviewed/pinned controls, plugin surfaces, and shell-capable command surfaces. |
 | Tool descriptors, schemas, metadata, or remote tool auth can change underneath the agent | Tool integrity boundary | Modeled today through approved tool/MCP allowlists, MCP review and pinning, descriptor integrity, argument validation, tool authentication, signed artifacts, and deployment verification declarations. |
@@ -143,6 +143,7 @@ Examples Ariadne reports as `unknown` today:
 Examples Ariadne reports as `breaking` when observed:
 
 - inline credential field indicators in agent configuration
+- risky untrusted instruction input influencing high-risk runtime authority or tool surfaces without input isolation or trusted-source gates
 - high-risk agent authority or tool surfaces without strong scoped agent identity
 - high-risk agent authority or tool surfaces without identity-aware workload authorization
 - authority paths that reach private context without observed hard memory controls
@@ -347,7 +348,7 @@ Repositories can declare focused input controls in `.ariadne/input-policy.json`:
 }
 ```
 
-Ariadne treats input isolation and trusted-source policy as graph break controls for untrusted instruction influence. Validation, provenance, delimiting, and filtering are still reported as evidence, but they are partial unless Ariadne also observes an input-isolation or trusted-source gate.
+Ariadne treats input isolation and trusted-source policy as graph break controls for untrusted instruction influence. Validation, provenance, delimiting, and filtering are still reported as evidence, but they are partial unless Ariadne also observes an input-isolation or trusted-source gate. A specific secret or egress exposure can remain inconclusive while the influence boundary is still `breaking` when risky untrusted instructions can steer high-risk runtime authority or model-callable tools.
 
 Repositories can declare focused output controls in `.ariadne/output-policy.json`:
 

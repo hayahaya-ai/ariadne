@@ -63,6 +63,10 @@ func influenceBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 			finding = "Risky instruction input exists, but a graph control breaks the supported exposure path."
 		}
 	}
+	if hasInfluenceArchitectureRisk(c) && !hasHardInputControl(c) {
+		status = model.ZeroTrustBreaking
+		finding = "Risky untrusted instruction input influences a high-risk agent runtime or tool surface without input isolation or a trusted-source gate."
+	}
 	if len(inputs) > 0 && hasHardInputControl(c) {
 		status = model.ZeroTrustControlled
 		finding = "Risky instruction input exists, and Ariadne observed input-isolation or trusted-source controls that break the influence path."
@@ -77,7 +81,7 @@ func influenceBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 		DesignTest: "Untrusted natural-language inputs should not directly steer authority without a verifiable break-path control.",
 		Finding:    finding,
 		Evidence:   limitEvidence(firstEvidence(inputs, inputControls, trustInputEvidence(c, false)), 8),
-		GraphEdges: edgesForTypes(g, "influences", "restricts"),
+		GraphEdges: influenceEdges(g),
 		Controls:   uniqueStrings(controls),
 		Actions: []string{
 			"Keep repo and memory instructions outside broad endpoint authority where possible.",
@@ -2320,6 +2324,11 @@ func hasHardInputControl(c model.Collection) bool {
 	return hasAnyControl(c, hardInputControlIDs()...)
 }
 
+func hasInfluenceArchitectureRisk(c model.Collection) bool {
+	return len(trustInputEvidence(c, true)) > 0 &&
+		(hasStandingAuthorityRisk(c) || hasRiskyToolSurface(c) || hasRunawayResourceRisk(c))
+}
+
 func workloadControlIDs() []string {
 	return []string{
 		"control:identity-based-isolation",
@@ -2920,6 +2929,10 @@ func authorizationEdges(g model.Graph) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func influenceEdges(g model.Graph) []string {
+	return edgesForTypes(g, "influences", "has_authority", "can_call", "restricts")
 }
 
 func workloadEdges(g model.Graph) []string {

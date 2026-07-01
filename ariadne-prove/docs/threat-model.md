@@ -50,7 +50,7 @@ Ariadne focuses on local AI-agent exposure management.
 ## Zero Trust Architecture Questions
 
 - Is the influence boundary isolated from authority-bearing agent runtimes?
-- Are repo, memory, web, or document instructions trust-gated before they can steer authority?
+- Are repo, memory, web, or document instructions trust-gated before they can steer high-risk authority, even when no specific sensitive boundary has been proven yet?
 - Is runtime/tool authority constrained to least agency?
 - Can authority reach sensitive data, private context, execution, or external destinations?
 - Can private data leave only through approved external destinations?
