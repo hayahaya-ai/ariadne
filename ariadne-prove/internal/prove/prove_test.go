@@ -2632,6 +2632,8 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		"Untrusted instructions can steer privileged tools",
 		"Agent has broad standing authority instead of least agency",
 		"Boundary checks:",
+		"Closure plan:",
+		"control:input-isolation",
 		"Evidence:",
 		"Control test:",
 		"missing hard barrier",
@@ -2663,6 +2665,17 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 	}
 	if decoded.EvidenceCoverage.Known == 0 || decoded.Maturity.Summary.Total == 0 || len(decoded.BoundaryCoverage) == 0 {
 		t.Fatalf("architecture JSON should include evidence coverage, maturity, and boundary coverage: coverage=%+v maturity=%+v boundaries=%d", decoded.EvidenceCoverage, decoded.Maturity.Summary, len(decoded.BoundaryCoverage))
+	}
+	if len(decoded.ClosurePlan) == 0 {
+		t.Fatalf("architecture JSON should include closure plan")
+	}
+	for _, closure := range decoded.ClosurePlan {
+		if closure.Control == "" || closure.ControlTestResult != "missing_hard_barrier" || closure.Severity == "" || closure.FlawCount == 0 || closure.TargetCount == 0 {
+			t.Fatalf("closure item should identify missing hard barrier impact: %+v", closure)
+		}
+		if len(closure.Flaws) == 0 || len(closure.EvidenceSurfaces) == 0 || len(closure.Actions) == 0 {
+			t.Fatalf("closure item should retain flaws, evidence surfaces, and actions: %+v", closure)
+		}
 	}
 	for _, flaw := range decoded.Flaws {
 		if flaw.Status != model.ZeroTrustBreaking {
@@ -2699,6 +2712,7 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 		"Ariadne Zero Trust architecture fleet:",
 		"Filter: breaking",
 		"Boundary coverage:",
+		"Closure plan:",
 		"Flaws by target coverage:",
 		"combined",
 		"Evidence:",
@@ -2733,6 +2747,12 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	}
 	if len(decoded.BoundaryCoverage) == 0 {
 		t.Fatalf("expected fleet boundary coverage rows")
+	}
+	if len(decoded.ClosurePlan) == 0 {
+		t.Fatalf("expected fleet closure plan rows")
+	}
+	if !hasClosureTarget(decoded.ClosurePlan, "combined") {
+		t.Fatalf("expected fleet closure plan to retain target coverage: %+v", decoded.ClosurePlan)
 	}
 	hasBoundaryEvidence := false
 	hasBoundaryContract := false
@@ -2793,6 +2813,7 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Zero Trust Architecture",
 		"Architecture Readout",
+		"Closure Plan",
 		"Architecture Failure Map",
 		"Control test",
 		"missing hard barrier",
@@ -2819,6 +2840,7 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Fleet Zero Trust Architecture",
 		"Fleet Architecture Readout",
+		"Closure Plan",
 		"Boundary Coverage Map",
 		"Flaws By Target Coverage",
 		"Control test",
@@ -2861,6 +2883,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"maturity",
 		"boundary_coverage",
 		"flaws",
+		"closure_plan",
 		"redaction",
 		"limitations",
 	)
@@ -2882,6 +2905,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, architectureFlaw, "control_test")
 	architectureControlTest := schemaMap(t, architectureSchema, "$defs", "architecture_control_test")
 	assertRequiredKeys(t, architectureControlTest, "question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers")
+	architectureClosure := schemaMap(t, architectureSchema, "$defs", "architecture_closure")
+	assertRequiredKeys(t, architectureClosure, "control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_surfaces", "actions")
 
 	architectureScanSchema := loadSchema(t, "ariadne-architecture-scan-v1.schema.json")
 	assertRequiredKeys(t, architectureScanSchema,
@@ -2895,6 +2920,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"summary",
 		"boundary_coverage",
 		"groups",
+		"closure_plan",
 		"targets",
 		"redaction",
 		"limitations",
@@ -3286,6 +3312,17 @@ func hasSourcePrefix(nodes []model.Node, prefix string) bool {
 	for _, node := range nodes {
 		if strings.HasPrefix(node.Source, prefix) {
 			return true
+		}
+	}
+	return false
+}
+
+func hasClosureTarget(items []model.ArchitectureClosure, target string) bool {
+	for _, item := range items {
+		for _, candidate := range item.Targets {
+			if candidate == target {
+				return true
+			}
 		}
 	}
 	return false

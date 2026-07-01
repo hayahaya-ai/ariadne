@@ -97,6 +97,7 @@ type ArchitectureReport struct {
 	Maturity         ZeroTrustMaturity       `json:"maturity"`
 	BoundaryCoverage []ArchitectureBoundary  `json:"boundary_coverage"`
 	Flaws            []ZeroTrustArchitecture `json:"flaws"`
+	ClosurePlan      []ArchitectureClosure   `json:"closure_plan"`
 	Redaction        RedactionInfo           `json:"redaction"`
 	Limitations      []string                `json:"limitations"`
 }
@@ -112,6 +113,7 @@ type ArchitectureScanReport struct {
 	Summary          ArchitectureScanSummary    `json:"summary"`
 	BoundaryCoverage []ArchitectureBoundary     `json:"boundary_coverage"`
 	Groups           []ArchitectureFlawGroup    `json:"groups"`
+	ClosurePlan      []ArchitectureClosure      `json:"closure_plan"`
 	Targets          []ArchitectureTargetReport `json:"targets"`
 	Redaction        RedactionInfo              `json:"redaction"`
 	Limitations      []string                   `json:"limitations"`
@@ -159,6 +161,19 @@ type ArchitectureControlTest struct {
 	HardBarriersObserved      []string `json:"hard_barriers_observed"`
 	PartialOrFrictionControls []string `json:"partial_or_friction_controls"`
 	MissingHardBarriers       []string `json:"missing_hard_barriers"`
+}
+
+type ArchitectureClosure struct {
+	Control           string   `json:"control"`
+	ControlTestResult string   `json:"control_test_result"`
+	Severity          string   `json:"severity"`
+	FlawCount         int      `json:"flaw_count"`
+	TargetCount       int      `json:"target_count"`
+	Flaws             []string `json:"flaws"`
+	CheckIDs          []string `json:"check_ids"`
+	Targets           []string `json:"targets"`
+	EvidenceSurfaces  []string `json:"evidence_surfaces"`
+	Actions           []string `json:"actions"`
 }
 
 type ArchitectureBoundary struct {

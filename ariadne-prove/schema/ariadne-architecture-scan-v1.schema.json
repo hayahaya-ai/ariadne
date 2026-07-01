@@ -14,6 +14,7 @@
     "summary",
     "boundary_coverage",
     "groups",
+    "closure_plan",
     "targets",
     "redaction",
     "limitations"
@@ -34,6 +35,10 @@
     "groups": {
       "type": "array",
       "items": { "$ref": "#/$defs/architecture_flaw_group" }
+    },
+    "closure_plan": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure" }
     },
     "targets": {
       "type": "array",

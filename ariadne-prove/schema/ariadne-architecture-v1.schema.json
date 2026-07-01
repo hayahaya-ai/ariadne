@@ -17,6 +17,7 @@
     "maturity",
     "boundary_coverage",
     "flaws",
+    "closure_plan",
     "redaction",
     "limitations"
   ],
@@ -40,6 +41,10 @@
     "flaws": {
       "type": "array",
       "items": { "$ref": "#/$defs/zero_trust_architecture" }
+    },
+    "closure_plan": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_closure" }
     },
     "redaction": { "$ref": "#/$defs/redaction" },
     "limitations": { "type": "array", "items": { "type": "string" } }
@@ -190,6 +195,22 @@
         "hard_barriers_observed": { "type": "array", "items": { "type": "string" } },
         "partial_or_friction_controls": { "type": "array", "items": { "type": "string" } },
         "missing_hard_barriers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_closure": {
+      "type": "object",
+      "required": ["control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_surfaces", "actions"],
+      "properties": {
+        "control": { "type": "string" },
+        "control_test_result": { "type": "string", "enum": ["missing_hard_barrier"] },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+        "flaw_count": { "type": "integer" },
+        "target_count": { "type": "integer" },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } }
       }
     },
     "zero_trust_evidence": {

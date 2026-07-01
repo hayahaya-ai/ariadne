@@ -102,6 +102,7 @@ func BuildArchitectureReport(r model.Report, statusFilter string) (model.Archite
 			ZeroTrust: r.ZeroTrust,
 		}}),
 		Flaws:       flaws,
+		ClosurePlan: buildArchitectureClosurePlan([]architectureClosureInput{{TargetID: "target", Flaws: flaws}}),
 		Redaction:   r.Redaction,
 		Limitations: append([]string{}, r.Limitations...),
 	}, nil
@@ -128,6 +129,7 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 	}
 	out.Summary.Targets = r.Summary.Targets
 	groups := map[string]*model.ArchitectureFlawGroup{}
+	var closureInputs []architectureClosureInput
 	var coverageInputs []architectureCoverageInput
 	for _, target := range r.Targets {
 		targetReport := model.ArchitectureTargetReport{Target: target.Target}
@@ -178,6 +180,10 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 		if targetReport.Flaws == nil {
 			targetReport.Flaws = []model.ZeroTrustArchitecture{}
 		}
+		closureInputs = append(closureInputs, architectureClosureInput{
+			TargetID: target.Target.ID,
+			Flaws:    targetReport.Flaws,
+		})
 		out.Targets = append(out.Targets, targetReport)
 	}
 	out.Summary.DistinctFlaws = len(groups)
@@ -197,11 +203,15 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 		return severityRank(out.Groups[i].Severity) > severityRank(out.Groups[j].Severity)
 	})
 	out.BoundaryCoverage = buildArchitectureBoundaryCoverage(coverageInputs)
+	out.ClosurePlan = buildArchitectureClosurePlan(closureInputs)
 	if out.Groups == nil {
 		out.Groups = []model.ArchitectureFlawGroup{}
 	}
 	if out.BoundaryCoverage == nil {
 		out.BoundaryCoverage = []model.ArchitectureBoundary{}
+	}
+	if out.ClosurePlan == nil {
+		out.ClosurePlan = []model.ArchitectureClosure{}
 	}
 	if out.Targets == nil {
 		out.Targets = []model.ArchitectureTargetReport{}
@@ -655,6 +665,7 @@ func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
 		r.OverallSummary.NotObserved,
 	)
 	renderArchitectureBoundarySummary(w, r.BoundaryCoverage, r.EvidenceCoverage)
+	renderArchitectureClosurePlan(w, r.ClosurePlan, 8)
 	if len(r.Flaws) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
 		return nil
@@ -715,6 +726,7 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 		r.Summary.NotObserved,
 	)
 	renderArchitectureBoundaryCoverage(w, r.BoundaryCoverage, 8)
+	renderArchitectureClosurePlan(w, r.ClosurePlan, 10)
 	if len(r.Groups) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
 		return nil
@@ -823,6 +835,39 @@ func renderArchitectureBoundaryCoverage(w io.Writer, boundaries []model.Architec
 	}
 }
 
+func renderArchitectureClosurePlan(w io.Writer, items []model.ArchitectureClosure, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Closure plan:\n")
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	for _, item := range items[:limit] {
+		fmt.Fprintf(w, "    - %s %s: %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Control,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if len(item.Flaws) > 0 {
+			fmt.Fprintf(w, "      Flaws: %s\n", strings.Join(limitStrings(item.Flaws, 4), "; "))
+		}
+		if len(item.Targets) > 0 {
+			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 5), "; "))
+		}
+		if len(item.EvidenceSurfaces) > 0 {
+			fmt.Fprintf(w, "      Evidence surfaces: %s\n", strings.Join(limitStrings(item.EvidenceSurfaces, 5), "; "))
+		}
+		if len(item.Actions) > 0 {
+			fmt.Fprintf(w, "      Actions: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "    - %d more closure items in JSON output\n", len(items)-limit)
+	}
+}
+
 func summarizeArchitectureFlaws(flaws []model.ZeroTrustArchitecture) model.ZeroTrustSummary {
 	var summary model.ZeroTrustSummary
 	summary.Total = len(flaws)
@@ -872,6 +917,11 @@ func incrementArchitectureScanSummary(summary *model.ArchitectureScanSummary, st
 type architectureCoverageInput struct {
 	TargetID  string
 	ZeroTrust model.ZeroTrust
+}
+
+type architectureClosureInput struct {
+	TargetID string
+	Flaws    []model.ZeroTrustArchitecture
 }
 
 func buildArchitectureBoundaryCoverage(inputs []architectureCoverageInput) []model.ArchitectureBoundary {
@@ -938,6 +988,110 @@ func buildArchitectureBoundaryCoverage(inputs []architectureCoverageInput) []mod
 	})
 	if out == nil {
 		return []model.ArchitectureBoundary{}
+	}
+	return out
+}
+
+func buildArchitectureClosurePlan(inputs []architectureClosureInput) []model.ArchitectureClosure {
+	byControl := map[string]*architectureClosureBuilder{}
+	for _, input := range inputs {
+		targetID := input.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		for _, flaw := range input.Flaws {
+			for _, control := range flaw.ControlTest.MissingHardBarriers {
+				if control == "" {
+					continue
+				}
+				item := byControl[control]
+				if item == nil {
+					item = &architectureClosureBuilder{
+						Control:           control,
+						ControlTestResult: "missing_hard_barrier",
+						Severity:          flaw.Severity,
+						flaws:             map[string]bool{},
+						checkIDs:          map[string]bool{},
+						targets:           map[string]bool{},
+					}
+					byControl[control] = item
+				}
+				if severityRank(flaw.Severity) > severityRank(item.Severity) {
+					item.Severity = flaw.Severity
+				}
+				flawTitle := flaw.Title
+				if flawTitle == "" {
+					flawTitle = flaw.ID
+				}
+				if flawTitle != "" {
+					item.flaws[flawTitle] = true
+				}
+				for _, id := range flaw.CheckIDs {
+					if id != "" {
+						item.checkIDs[id] = true
+					}
+				}
+				item.targets[targetID] = true
+				item.EvidenceSurfaces = append(item.EvidenceSurfaces, flaw.EvidenceSurfaces...)
+				item.Actions = append(item.Actions, flaw.Actions...)
+			}
+		}
+	}
+	out := make([]model.ArchitectureClosure, 0, len(byControl))
+	for _, item := range byControl {
+		closure := model.ArchitectureClosure{
+			Control:           item.Control,
+			ControlTestResult: item.ControlTestResult,
+			Severity:          item.Severity,
+			FlawCount:         len(item.flaws),
+			TargetCount:       len(item.targets),
+			Flaws:             mapKeysSorted(item.flaws),
+			CheckIDs:          mapKeysSorted(item.checkIDs),
+			Targets:           mapKeysSorted(item.targets),
+			EvidenceSurfaces:  uniqueSortedStrings(item.EvidenceSurfaces),
+			Actions:           uniqueSortedStrings(item.Actions),
+		}
+		out = append(out, closure)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := architectureClosureRank(out[i])
+		right := architectureClosureRank(out[j])
+		if left == right {
+			return out[i].Control < out[j].Control
+		}
+		return left > right
+	})
+	if out == nil {
+		return []model.ArchitectureClosure{}
+	}
+	return out
+}
+
+type architectureClosureBuilder struct {
+	Control           string
+	ControlTestResult string
+	Severity          string
+	flaws             map[string]bool
+	checkIDs          map[string]bool
+	targets           map[string]bool
+	EvidenceSurfaces  []string
+	Actions           []string
+}
+
+func architectureClosureRank(item model.ArchitectureClosure) int {
+	return severityRank(item.Severity)*100000 + item.TargetCount*1000 + item.FlawCount
+}
+
+func mapKeysSorted(values map[string]bool) []string {
+	out := make([]string, 0, len(values))
+	for value := range values {
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	if out == nil {
+		return []string{}
 	}
 	return out
 }

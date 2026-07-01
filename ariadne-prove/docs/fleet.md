@@ -23,7 +23,7 @@ ariadne architecture --targets endpoints.txt --format html --out ariadne-fleet-a
 ariadne dashboard --targets endpoints.txt --out ariadne-fleet-dashboard.html
 ```
 
-Use `architecture --targets` or the focused fleet architecture dashboard when the question is not just "which targets have exposure paths?" but "which Zero Trust agent architecture boundaries are breaking, controlled, unknown, or not observed across the fleet?" The architecture fleet report groups flaw categories by target coverage and also emits `boundary_coverage` rows with evidence sources, missing evidence, next collectors, and control evidence needed.
+Use `architecture --targets` or the focused fleet architecture dashboard when the question is not just "which targets have exposure paths?" but "which Zero Trust agent architecture boundaries are breaking, controlled, unknown, or not observed across the fleet?" The architecture fleet report groups flaw categories by target coverage, emits `boundary_coverage` rows with evidence sources, missing evidence, next collectors, and control evidence needed, and includes a `closure_plan` that ranks missing hard barriers across affected targets.
 
 ## Collection Pattern
 
@@ -33,7 +33,7 @@ For endpoint fleets:
 2. Store JSON output in a central bucket or data lake.
 3. Index `summary`, `targets[].report.exposures`, `targets[].report.graph`, `targets[].report.evidence`, `groups`, and `boundary_coverage`.
 4. Alert on `status=exposed` for supported exposure families.
-5. Track Zero Trust closure by querying `boundary_coverage[].missing_evidence`, `boundary_coverage[].next_collectors`, and `boundary_coverage[].control_evidence_needed`.
+5. Track Zero Trust closure by querying `closure_plan[]`, `boundary_coverage[].missing_evidence`, `boundary_coverage[].next_collectors`, and `boundary_coverage[].control_evidence_needed`.
 
 ## Privacy Guidance
 
