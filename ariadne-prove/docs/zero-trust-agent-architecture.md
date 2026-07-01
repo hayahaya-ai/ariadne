@@ -54,7 +54,7 @@ The Zero Trust goal is to expose boundary failures in agent architecture, not to
 | A lower-trust delegated or sub-agent path can inherit parent authority | Agent delegation boundary | Modeled today through Claude subagent definitions, delegation language in instruction surfaces, delegation scope, delegate allowlists, agent-to-agent authorization, original-intent verification, delegated credential scoping, context isolation, and delegation audit declarations. |
 | Data can leave through arbitrary destinations | External egress boundary | Modeled today through external communication authority, destination allowlists, webhook allowlists, per-tool network scope, and network restriction evidence. |
 | Sensitive data can leak through an agent response even without arbitrary network egress | Output controls boundary and Foundation maturity | Modeled today through output policy, sensitive-output filters, block or redaction controls, output filter logging, semantic output analysis, and high-risk output review declarations. |
-| Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls; live certificate, hardware attestation, and IdP validation are future collectors. |
+| Agent identity is a label rather than a cryptographic boundary | Agent identity boundary | Modeled today from declared identity and credential controls. High-risk authority without strong scoped agent identity is breaking; helper-only evidence remains partial. Live certificate, hardware attestation, and IdP validation are future collectors. |
 | Workload isolation relies on network placement or sandbox alone | Workload authorization boundary | Modeled today as partial unless Ariadne also observes named callers, ABAC, tool scope, or identity-aware workload isolation. |
 | Agent authority is granted at session start and remains usable after task or risk context changes | Continuous authorization boundary | Modeled today through authorization policy, per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access declarations, and automatic revocation controls. |
 | Agent can execute high-risk actions without a human approval gate or approval decision log | Human approval boundary and Foundation maturity | Modeled today through runtime approval policy, ask/PreToolUse posture, approval-required declarations, approval decision logs, audit logging, and trace/request metadata. |
@@ -119,8 +119,8 @@ Examples of controls Ariadne can model today:
 
 Examples Ariadne reports as `unknown` today:
 
-- credential helper evidence without cryptographic, hardware-bound, or per-agent identity evidence
-- strong identity evidence without scoped or ephemeral credential issuance evidence
+- credential helper evidence without cryptographic, hardware-bound, or per-agent identity evidence on non-high-risk surfaces
+- strong identity evidence without scoped or ephemeral credential issuance evidence on non-high-risk surfaces
 - input validation, filtering, provenance, or delimiting evidence without input isolation or trusted-source gating
 - egress audit or output filtering evidence without destination allowlists, webhook allowlists, per-tool network scope, or network isolation
 - output filtering and redaction evidence without output filter logging
@@ -143,6 +143,7 @@ Examples Ariadne reports as `unknown` today:
 Examples Ariadne reports as `breaking` when observed:
 
 - inline credential field indicators in agent configuration
+- high-risk agent authority or tool surfaces without strong scoped agent identity
 - authority paths that reach private context without observed hard memory controls
 - credential-like material retained in private agent context without observed credential-isolation evidence
 - reachable sensitive data without observed output filtering and block or redaction controls
@@ -386,7 +387,7 @@ Repositories can declare focused identity controls in `.ariadne/identity-policy.
 }
 ```
 
-Ariadne treats helper-only evidence as partial. The identity boundary is controlled only when strong identity evidence and scoped or ephemeral credential issuance evidence are both present.
+Ariadne treats helper-only evidence as partial. The identity boundary is controlled only when strong identity evidence and scoped or ephemeral credential issuance evidence are both present. If high-risk local execution, broad local authority, external communication, delegated authority, or sensitive-data access exists without that hard identity boundary, Ariadne reports the identity boundary as `breaking` because the agent may be operating under inherited local user authority. In the graph, identity controls emit `identifies` edges to runtimes and credential controls emit `scopes_credentials` edges to authorities.
 
 Repositories can declare focused continuous authorization controls in `.ariadne/authorization-policy.json`:
 

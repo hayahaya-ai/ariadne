@@ -529,6 +529,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			addEdge(model.Edge{From: control.ID, Type: "restricts", To: "tool:mcp-package-launch"})
 		}
 		for _, runtime := range c.Runtimes {
+			if controlIdentifiesRuntime(control.ID, runtime.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "identifies", To: runtime.ID})
+			}
 			if controlObservesRuntime(control.ID, runtime.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "observes", To: runtime.ID})
 			}
@@ -559,6 +562,9 @@ func BuildGraph(c model.Collection) model.Graph {
 			}
 			if controlAuthorizesAuthority(control.ID, authority.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "authorizes", To: authority.ID})
+			}
+			if controlScopesAuthorityCredentials(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "scopes_credentials", To: authority.ID})
 			}
 			if controlObservesAuthority(control.ID, authority.ID) {
 				addEdge(model.Edge{From: control.ID, Type: "observes", To: authority.ID})
@@ -709,6 +715,41 @@ func controlAuthorizesAuthority(controlID, authorityID string) bool {
 		"control:automatic-access-revocation",
 		"control:abac-policy",
 		"control:tool-scope-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlIdentifiesRuntime(controlID, runtimeID string) bool {
+	return runtimeID != "" && identityControl(controlID)
+}
+
+func controlScopesAuthorityCredentials(controlID, authorityID string) bool {
+	return authorityID != "" && credentialScopeControl(controlID)
+}
+
+func identityControl(controlID string) bool {
+	switch controlID {
+	case "control:cryptographic-identity",
+		"control:credential-isolation",
+		"control:hardware-bound-credential",
+		"control:identity-lifecycle":
+		return true
+	default:
+		return false
+	}
+}
+
+func credentialScopeControl(controlID string) bool {
+	switch controlID {
+	case "control:credential-helper",
+		"control:credential-isolation",
+		"control:short-lived-credential",
+		"control:jit-access",
+		"control:token-lifetime-policy",
+		"control:hardware-bound-credential",
+		"control:identity-lifecycle":
 		return true
 	default:
 		return false

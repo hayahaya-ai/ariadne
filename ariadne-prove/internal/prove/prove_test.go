@@ -1294,7 +1294,7 @@ func TestZeroTrustCombinedRiskShowsBreakingArchitectureBoundaries(t *testing.T) 
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustBreaking)
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustBreaking)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustBreaking)
 }
 
 func TestZeroTrustCoverageGapsExplainUnknownBoundaries(t *testing.T) {
@@ -1305,12 +1305,12 @@ func TestZeroTrustCoverageGapsExplainUnknownBoundaries(t *testing.T) {
 	if r.ZeroTrust.Coverage.Gaps == 0 {
 		t.Fatalf("expected zero trust coverage gaps: %+v", r.ZeroTrust.Coverage)
 	}
-	gap := assertZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
-	if !containsString(gap.MissingEvidence, "credential") {
-		t.Fatalf("identity gap should describe missing credential evidence: %+v", gap)
+	gap := assertZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:workload-authorization-boundary")
+	if !containsString(gap.MissingEvidence, "ABAC") && !containsString(gap.MissingEvidence, "named-caller") {
+		t.Fatalf("workload gap should describe missing identity-aware authorization evidence: %+v", gap)
 	}
-	if !strings.Contains(strings.ToLower(gap.NextCollector), "credential") {
-		t.Fatalf("identity gap should name a credential collector: %+v", gap)
+	if !strings.Contains(strings.ToLower(gap.NextCollector), "workload") {
+		t.Fatalf("workload gap should name a workload collector: %+v", gap)
 	}
 }
 
@@ -1492,8 +1492,12 @@ func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
 	if !containsString(req.MissingEvidence, "prompt") {
 		t.Fatalf("input validation gap should mention prompt-injection filtering: %+v", req.MissingEvidence)
 	}
-	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustUnknown)
-	if req.ControlQuality != "evidence_gap" {
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("cryptographic identity requirement quality = %q", req.ControlQuality)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
 		t.Fatalf("short-lived credential requirement quality = %q", req.ControlQuality)
 	}
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:tool-integrity", model.ZeroTrustBreaking)
@@ -1597,6 +1601,19 @@ func TestZeroTrustIdentityPolicyControlsStrongScopedIdentity(t *testing.T) {
 			t.Fatalf("missing identity control node %s", id)
 		}
 	}
+	for _, edge := range []string{
+		"control:cryptographic-identity|identifies|runtime:claude",
+		"control:hardware-bound-credential|identifies|runtime:claude",
+		"control:short-lived-credential|scopes_credentials|authority:file-read",
+		"control:jit-access|scopes_credentials|authority:file-read",
+	} {
+		if !r.Graph.HasEdge(edge) {
+			t.Fatalf("missing identity graph edge %s", edge)
+		}
+		if !containsString(check.GraphEdges, edge) {
+			t.Fatalf("identity boundary does not cite graph edge %s: %+v", edge, check.GraphEdges)
+		}
+	}
 	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustControlled)
 	if !containsString(req.Controls, "control:credential-isolation") || !containsString(req.Controls, "control:hardware-bound-credential") {
 		t.Fatalf("cryptographic identity requirement missing strong identity controls: %+v", req.Controls)
@@ -1604,6 +1621,31 @@ func TestZeroTrustIdentityPolicyControlsStrongScopedIdentity(t *testing.T) {
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustControlled)
 	if !containsString(req.Controls, "control:jit-access") || !containsString(req.Controls, "control:token-lifetime-policy") {
 		t.Fatalf("short-lived requirement missing JIT/token lifetime controls: %+v", req.Controls)
+	}
+}
+
+func TestZeroTrustHighRiskCredentialHelperStillBreaksIdentityBoundary(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "identity-helper-high-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustBreaking)
+	if !containsString(check.Controls, "control:credential-helper") {
+		t.Fatalf("identity boundary should cite helper evidence: %+v", check.Controls)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "inherited local user authority") {
+		t.Fatalf("identity boundary should explain inherited authority risk: %q", check.Finding)
+	}
+	if !containsString(check.GraphEdges, "runtime:claude|has_authority|authority:broad-local") {
+		t.Fatalf("identity boundary should cite high-risk authority edge: %+v", check.GraphEdges)
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("cryptographic identity requirement quality = %q", req.ControlQuality)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
+		t.Fatalf("short-lived credential requirement quality = %q", req.ControlQuality)
 	}
 }
 

@@ -59,7 +59,7 @@ Ariadne focuses on local AI-agent exposure management.
 - Can an agent load model, tool, framework, MCP, or dependency components without AI-BOM, provenance, dependency-health, provider-review, signing, or runtime-validation evidence?
 - Can a lower-trust delegated agent become a confused deputy for a more privileged parent agent?
 - Do controls remove the path, or do they only add friction?
-- Is agent identity scoped and attributable?
+- Is high-risk agent authority scoped to attributable agent identity, rather than inherited local user authority?
 - Is the authenticated agent authorized only for named callers, context attributes, network segments, and tool scopes?
 - Is standing high-risk authority replaced with per-action authorization, dynamic/JIT scoping, and automatic revocation?
 - Are high-risk autonomous actions gated by explicit human approval with decision logs?

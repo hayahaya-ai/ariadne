@@ -456,6 +456,7 @@ func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 	identityControls := controlsEvidence(c, identityControlIDs()...)
 	hasStrongIdentity := hasAnyControl(c, strongIdentityControlIDs()...)
 	hasScopedIssuance := hasAnyControl(c, scopedCredentialControlIDs()...)
+	hasHardIdentity := hasHardIdentityBoundary(c)
 	evidence := limitEvidence(firstEvidence(credentialBoundary, identityControls, runtimeEvidence(c), authorityEvidence(c), toolEvidence(c)), 8)
 	if len(c.Runtimes) > 0 || len(c.Authorities) > 0 || len(c.Tools) > 0 {
 		status = model.ZeroTrustUnknown
@@ -477,6 +478,10 @@ func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 			finding = "Ariadne observed identity-related policy evidence, but not enough to prove strong identity plus scoped credential issuance."
 		}
 	}
+	if hasIdentityRisk(c) && !hasHardIdentity && len(credentialBoundary) == 0 {
+		status = model.ZeroTrustBreaking
+		finding = "High-risk agent authority or tool surfaces exist without strong scoped agent identity; actions may be attributable only to inherited local user authority."
+	}
 	if len(credentialBoundary) > 0 {
 		status = model.ZeroTrustBreaking
 		finding = "Ariadne observed inline credential material indicators in agent configuration, which breaks scoped credential isolation."
@@ -490,11 +495,11 @@ func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 		DesignTest: "Agent actions should be attributable to scoped identities with expiring credentials, not inherited standing user authority.",
 		Finding:    finding,
 		Evidence:   evidence,
-		GraphEdges: edgesForTypes(g, "configures", "has_authority", "can_call"),
+		GraphEdges: identityEdges(g),
 		Controls:   controlIDs(c, identityControlIDs()...),
 		Actions: []string{
 			"Prefer cryptographic or per-agent identities with short-lived, JIT, or token-limited credential issuance.",
-			"Treat shared local user authority as an unknown until identity evidence is collected.",
+			"Do not let high-risk agent actions rely only on inherited local user authority.",
 		},
 		Limitations: []string{"Ariadne detects declared identity and credential controls, but does not validate identity-provider policy, token TTL, JIT authorization, ABAC rules, hardware binding, or runtime enforcement."},
 	}
@@ -946,6 +951,12 @@ func requireCryptographicIdentity(c model.Collection) model.ZeroTrustRequirement
 		finding = "Ariadne observed declared cryptographic, hardware-bound, workload, or per-agent identity evidence."
 		missing = nil
 	}
+	if hasIdentityRisk(c) && len(controls) == 0 {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "High-risk agent authority exists without cryptographic, hardware-bound, or per-agent identity evidence."
+		missing = []string{"cryptographically rooted agent identity", "per-agent or hardware-bound identity evidence"}
+	}
 	if hasBoundaryID(c, "boundary:credential-material") {
 		status = model.ZeroTrustBreaking
 		quality = "broken_static_credential"
@@ -998,6 +1009,12 @@ func requireShortLivedCredentials(c model.Collection) model.ZeroTrustRequirement
 		quality = "hard_barrier"
 		finding = "Ariadne observed declared short-lived, OAuth/OIDC, JIT, federated, or token-lifetime credential posture."
 		missing = nil
+	}
+	if hasIdentityRisk(c) && !hasAnyControl(c, "control:short-lived-credential", "control:jit-access", "control:token-lifetime-policy") {
+		status = model.ZeroTrustBreaking
+		quality = "missing_hard_barrier"
+		finding = "High-risk agent authority exists without short-lived, JIT, or token-limited credential issuance evidence."
+		missing = []string{"short-lived credential evidence", "JIT or token lifetime policy"}
 	}
 	if hasBoundaryID(c, "boundary:credential-material") {
 		status = model.ZeroTrustBreaking
@@ -2246,6 +2263,14 @@ func identityControlIDs() []string {
 	}
 }
 
+func hasHardIdentityBoundary(c model.Collection) bool {
+	return hasAnyControl(c, strongIdentityControlIDs()...) && hasAnyControl(c, scopedCredentialControlIDs()...)
+}
+
+func hasIdentityRisk(c model.Collection) bool {
+	return hasApprovalRelevantSurface(c) || hasRiskyToolSurface(c) || hasStandingAuthorityRisk(c)
+}
+
 func strongIdentityControlIDs() []string {
 	return []string{
 		"control:cryptographic-identity",
@@ -2883,6 +2908,16 @@ func authorizationEdges(g model.Graph) []string {
 	return uniqueStrings(out)
 }
 
+func identityEdges(g model.Graph) []string {
+	out := edgesForTypes(g, "configures", "has_authority", "can_call")
+	for _, edge := range g.Edges {
+		if (edge.Type == "identifies" || edge.Type == "scopes_credentials") && identityControlID(edge.From) {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func approvalEdges(g model.Graph) []string {
 	out := []string{}
 	for _, edge := range g.Edges {
@@ -2911,6 +2946,22 @@ func resourceEdges(g model.Graph) []string {
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func identityControlID(id string) bool {
+	switch id {
+	case "control:cryptographic-identity",
+		"control:credential-isolation",
+		"control:hardware-bound-credential",
+		"control:credential-helper",
+		"control:short-lived-credential",
+		"control:jit-access",
+		"control:token-lifetime-policy",
+		"control:identity-lifecycle":
+		return true
+	default:
+		return false
+	}
 }
 
 func approvalControlID(id string) bool {

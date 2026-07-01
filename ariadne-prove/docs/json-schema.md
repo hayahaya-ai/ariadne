@@ -51,6 +51,8 @@ Edge types:
 - `requires_approval`
 - `limits`
 - `authorizes`
+- `identifies`
+- `scopes_credentials`
 - `observes`
 - `traces`
 - `governs`
