@@ -240,7 +240,7 @@ func identityBoundary(c model.Collection, g model.Graph) model.ZeroTrustCheck {
 func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
 	status := model.ZeroTrustNotObserved
 	finding := "No supported agent runtime, tool, or authority was observed."
-	auditControls := controlsEvidence(c, "control:audit-logging")
+	auditControls := controlsEvidence(c, observabilityControlIDs()...)
 	evidence := limitEvidence(firstEvidence(auditControls, surfaceEvidenceByCategory(c, "history-cache"), runtimeEvidence(c), toolEvidence(c)), 8)
 	if len(c.Runtimes) > 0 || len(c.Tools) > 0 || len(c.Authorities) > 0 {
 		status = model.ZeroTrustUnknown
@@ -253,6 +253,10 @@ func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
 		status = model.ZeroTrustControlled
 		finding = "Ariadne observed declared tool-call, approval, telemetry, or audit logging controls."
 	}
+	if hasAnyControl(c, "control:tool-call-audit-evidence", "control:approval-log-evidence", "control:agent-action-log-evidence", "control:observed-request-traceability", "control:telemetry-export") {
+		status = model.ZeroTrustControlled
+		finding = "Ariadne observed structured audit, transcript, trace, or telemetry metadata that can support agent action reconstruction."
+	}
 	return model.ZeroTrustCheck{
 		ID:         "zt:observability-boundary",
 		Principle:  "Assume breach",
@@ -262,12 +266,12 @@ func observabilityBoundary(c model.Collection) model.ZeroTrustCheck {
 		DesignTest: "A team should be able to reconstruct what the agent did, why, and which approval or policy allowed it.",
 		Finding:    finding,
 		Evidence:   evidence,
-		Controls:   controlIDs(c, "control:audit-logging"),
+		Controls:   controlIDs(c, observabilityControlIDs()...),
 		Actions: []string{
 			"Collect tool-call, approval, credential, and network audit evidence for agent sessions.",
 			"Measure whether critical agent behavior would be visible quickly enough for a human to act.",
 		},
-		Limitations: []string{"Ariadne detects declared audit and telemetry controls, but does not yet ingest live telemetry, SIEM data, or tamper-resistant log proofs."},
+		Limitations: []string{"Ariadne samples structured audit metadata only; it does not emit transcript content, validate log completeness, or prove tamper resistance unless immutable-log evidence is collected."},
 	}
 }
 
@@ -554,9 +558,9 @@ func requireIdentityBasedIsolation(c model.Collection) model.ZeroTrustRequiremen
 }
 
 func requireComprehensiveLogs(c model.Collection) model.ZeroTrustRequirement {
-	controls := controlIDs(c, "control:audit-logging", "control:request-traceability")
+	controls := controlIDs(c, observabilityControlIDs()...)
 	evidence := firstEvidence(
-		controlsEvidence(c, "control:audit-logging", "control:request-traceability"),
+		controlsEvidence(c, observabilityControlIDs()...),
 		surfaceEvidenceByCategory(c, "history-cache"),
 		runtimeEvidence(c),
 		toolEvidence(c),
@@ -576,10 +580,17 @@ func requireComprehensiveLogs(c model.Collection) model.ZeroTrustRequirement {
 		finding = "Ariadne observed audit logging, but not request or trace propagation evidence."
 		missing = []string{"request ID, trace ID, or provenance propagation evidence"}
 	}
-	if hasControlID(c, "control:audit-logging") && hasControlID(c, "control:request-traceability") {
+	if hasAnyControl(c, "control:agent-action-log-evidence", "control:tool-call-audit-evidence") && !hasAnyControl(c, "control:request-traceability", "control:observed-request-traceability") {
+		status = model.ZeroTrustUnknown
+		quality = "partial_observed"
+		finding = "Ariadne observed structured action or tool-call log metadata, but not request or trace propagation evidence."
+		missing = []string{"request ID, trace ID, or provenance propagation evidence"}
+	}
+	if (hasControlID(c, "control:audit-logging") && hasControlID(c, "control:request-traceability")) ||
+		(hasAnyControl(c, "control:agent-action-log-evidence", "control:tool-call-audit-evidence") && hasAnyControl(c, "control:request-traceability", "control:observed-request-traceability")) {
 		status = model.ZeroTrustControlled
 		quality = "hard_barrier"
-		finding = "Ariadne observed declared action logging and request traceability controls."
+		finding = "Ariadne observed action logging and request traceability evidence for agent activity reconstruction."
 		missing = nil
 	}
 	return zeroTrustRequirement(
@@ -1028,6 +1039,28 @@ func hasControlID(c model.Collection, id string) bool {
 		}
 	}
 	return false
+}
+
+func hasAnyControl(c model.Collection, ids ...string) bool {
+	for _, id := range ids {
+		if hasControlID(c, id) {
+			return true
+		}
+	}
+	return false
+}
+
+func observabilityControlIDs() []string {
+	return []string{
+		"control:audit-logging",
+		"control:request-traceability",
+		"control:observed-request-traceability",
+		"control:agent-action-log-evidence",
+		"control:tool-call-audit-evidence",
+		"control:approval-log-evidence",
+		"control:telemetry-export",
+		"control:immutable-audit-log",
+	}
 }
 
 func hasBoundaryID(c model.Collection, id string) bool {

@@ -45,6 +45,8 @@ Examples of controls Ariadne can model today:
 - credential helper or vault-backed credential retrieval
 - short-lived or federated credential posture
 - audit, tool-call, approval, or telemetry logging declarations
+- observed structured transcript metadata for tool-call events, approval decisions, request IDs, trace IDs, and timestamped action records
+- telemetry export and immutable audit log declarations from observability policy or OpenTelemetry collector config
 - memory, transcript, or context retention declarations
 
 Examples Ariadne reports as `unknown` today:
@@ -82,6 +84,7 @@ Control quality values are intentionally blunt:
 - `hard_barrier`: Ariadne observed evidence for a control that removes or cryptographically constrains a capability.
 - `friction_only`: Ariadne observed a prompt or approval-like control without enough evidence that it creates a reconstructable, enforceable boundary.
 - `partial_declared`: Ariadne observed part of the required control family, but not enough to call the requirement met.
+- `partial_observed`: Ariadne observed part of the runtime evidence, such as action-log shape without request or trace propagation.
 - `evidence_gap`: relevant agent surfaces exist, but Ariadne lacks the evidence needed to judge the requirement.
 - `missing_hard_barrier`: relevant risky authority exists without observed control evidence.
 - `broken_static_credential`: inline credential material indicators were observed in agent configuration.
@@ -118,6 +121,10 @@ Example:
 ```
 
 The policy is treated as declared evidence. Ariadne does not execute the policy or prove live enforcement.
+
+Repositories can also declare observability controls in `.ariadne/observability-policy.json`, or provide OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`.
+
+Transcript and history JSONL files are handled differently from policy files. Ariadne samples bounded structured metadata to identify whether event-shape evidence exists for tool calls, approval decisions, request IDs, trace IDs, correlation IDs, session IDs, and timestamps. It does not emit prompt text, tool arguments, tool outputs, or transcript content.
 
 ## Evidence Contract
 

@@ -1,9 +1,11 @@
 package adapter
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -106,6 +108,10 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectNetworkPolicy(c, s)
 	case "agent-policy":
 		collectAgentPolicy(c, s)
+	case "observability-policy":
+		collectObservabilityPolicy(c, s)
+	case "opentelemetry-config":
+		collectTelemetryConfig(c, s)
 	case "claude-plugin-config", "claude-installed-plugins":
 		collectPluginSurface(c, s)
 	case "claude-remote-settings", "claude-policy-limits":
@@ -358,6 +364,12 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if traceabilityConfigured(text) {
 		addControl(c, "control:request-traceability", "request-traceability", "", s.Source, "Agent policy requires request IDs, trace IDs, or provenance through agent actions.")
 	}
+	if telemetryExportConfigured(text) {
+		addControl(c, "control:telemetry-export", "telemetry-export", "", s.Source, "Agent policy declares telemetry export for audit correlation.")
+	}
+	if immutableAuditConfigured(text) {
+		addControl(c, "control:immutable-audit-log", "immutable-audit-log", "", s.Source, "Agent policy declares append-only or immutable audit log storage.")
+	}
 	if inputValidationConfigured(text) {
 		addControl(c, "control:input-validation", "input-validation", "", s.Source, "Agent policy requires schema, length, or prompt-injection validation for untrusted inputs.")
 	}
@@ -366,6 +378,43 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	}
 	if contextRetentionConfigured(text) {
 		addControl(c, "control:context-retention", "context-retention", "", s.Source, "Agent policy constrains memory, transcript, or private-context retention.")
+	}
+}
+
+func collectObservabilityPolicy(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if auditLoggingConfigured(text) {
+		addControl(c, "control:audit-logging", "audit-logging", "", s.Source, "Observability policy declares tool-call, approval, telemetry, or audit logging.")
+	}
+	if traceabilityConfigured(text) {
+		addControl(c, "control:request-traceability", "request-traceability", "", s.Source, "Observability policy declares request, trace, correlation, or provenance IDs.")
+	}
+	if telemetryExportConfigured(text) {
+		addControl(c, "control:telemetry-export", "telemetry-export", "", s.Source, "Observability policy declares telemetry export for agent audit correlation.")
+	}
+	if immutableAuditConfigured(text) {
+		addControl(c, "control:immutable-audit-log", "immutable-audit-log", "", s.Source, "Observability policy declares append-only or immutable audit log storage.")
+	}
+}
+
+func collectTelemetryConfig(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	text := strings.ToLower(string(data))
+	if telemetryExportConfigured(text) {
+		addControl(c, "control:telemetry-export", "telemetry-export", "", s.Source, "OpenTelemetry collector config exports traces, logs, or metrics for audit correlation.")
+	}
+	if strings.Contains(text, "traces") || strings.Contains(text, "trace") {
+		addControl(c, "control:request-traceability", "request-traceability", "", s.Source, "OpenTelemetry collector config includes trace pipeline evidence.")
+	}
+	if strings.Contains(text, "logs") || strings.Contains(text, "logging") {
+		addControl(c, "control:audit-logging", "audit-logging", "", s.Source, "OpenTelemetry collector config includes log pipeline evidence.")
 	}
 }
 
@@ -413,6 +462,12 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 	if traceabilityConfigured(text) {
 		addControl(c, "control:request-traceability", "request-traceability", runtime, source, runtime+" config declares request, trace, correlation, or provenance IDs.")
 	}
+	if telemetryExportConfigured(text) {
+		addControl(c, "control:telemetry-export", "telemetry-export", runtime, source, runtime+" config declares telemetry export for audit correlation.")
+	}
+	if immutableAuditConfigured(text) {
+		addControl(c, "control:immutable-audit-log", "immutable-audit-log", runtime, source, runtime+" config declares append-only or immutable audit log storage.")
+	}
 	if inputValidationConfigured(text) {
 		addControl(c, "control:input-validation", "input-validation", runtime, source, runtime+" config declares schema, length, or prompt-injection validation.")
 	}
@@ -439,9 +494,15 @@ func addControl(c *model.Collection, id, kind, runtime, source, summary string) 
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+id, "control", source, "declared", summary))
 }
 
+func addObservedControl(c *model.Collection, id, kind, runtime, source, summary string) {
+	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: id, Kind: kind, Runtime: runtime, Source: source, Summary: summary})
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+id, "control", source, "observed", summary))
+}
+
 func collectSummarySurface(c *model.Collection, s model.Surface) {
 	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:agent-private-context", Kind: "agent-private-context", Source: s.Source, Abstract: false, Summary: "Agent private context cache/history exists; contents are not inspected or emitted by default."})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:agent-private-context", "boundary", s.Source, "observed", "Private agent context surface was summarized without reading contents."))
+	collectObservabilityMetadata(c, s)
 }
 
 func collectBoundaryIndicator(c *model.Collection, s model.Surface) {
@@ -513,6 +574,152 @@ func containsAny(text string, needles []string) bool {
 
 func containsExternalCommunication(text string) bool {
 	return containsAny(text, []string{"curl ", "wget ", "http://", "https://", "webhook", "webfetch", "websearch", "post ", "upload", "send to"})
+}
+
+type observabilitySignals struct {
+	files       int
+	lines       int
+	toolCall    bool
+	approval    bool
+	requestID   bool
+	timestamp   bool
+	eventRecord bool
+}
+
+func collectObservabilityMetadata(c *model.Collection, s model.Surface) {
+	signals := inspectObservabilityMetadata(s.Path)
+	if signals.files == 0 || signals.lines == 0 {
+		return
+	}
+	if signals.toolCall && signals.timestamp {
+		addObservedControl(c, "control:tool-call-audit-evidence", "tool-call-audit-evidence", s.Runtime, s.Source, fmt.Sprintf("Structured agent transcript metadata includes tool-call event shape in %d sampled line(s); content suppressed.", signals.lines))
+	}
+	if signals.approval && signals.timestamp {
+		addObservedControl(c, "control:approval-log-evidence", "approval-log-evidence", s.Runtime, s.Source, fmt.Sprintf("Structured agent transcript metadata includes approval or permission decision event shape in %d sampled line(s); content suppressed.", signals.lines))
+	}
+	if signals.requestID {
+		addObservedControl(c, "control:observed-request-traceability", "observed-request-traceability", s.Runtime, s.Source, "Structured agent transcript metadata includes request, trace, correlation, or session identifiers.")
+	}
+	if signals.eventRecord && signals.timestamp {
+		addObservedControl(c, "control:agent-action-log-evidence", "agent-action-log-evidence", s.Runtime, s.Source, fmt.Sprintf("Structured agent transcript metadata includes timestamped event records across %d sampled file(s).", signals.files))
+	}
+}
+
+func inspectObservabilityMetadata(path string) observabilitySignals {
+	var out observabilitySignals
+	info, err := os.Stat(path)
+	if err != nil {
+		return out
+	}
+	if !info.IsDir() {
+		inspectObservabilityFile(path, &out)
+		return out
+	}
+	const maxFiles = 12
+	_ = filepath.WalkDir(path, func(child string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() || out.files >= maxFiles {
+			return nil
+		}
+		if !observabilityFileName(child) {
+			return nil
+		}
+		inspectObservabilityFile(child, &out)
+		return nil
+	})
+	return out
+}
+
+func observabilityFileName(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".jsonl") ||
+		strings.HasSuffix(lower, ".ndjson") ||
+		strings.HasSuffix(lower, ".log")
+}
+
+func inspectObservabilityFile(path string, out *observabilitySignals) {
+	if !observabilityFileName(path) {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	out.files++
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	const maxLines = 80
+	for scanner.Scan() {
+		if out.lines >= maxLines {
+			return
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var value any
+		if err := json.Unmarshal([]byte(line), &value); err != nil {
+			continue
+		}
+		out.lines++
+		inspectJSONForObservability(value, "", out)
+	}
+}
+
+func inspectJSONForObservability(value any, key string, out *observabilitySignals) {
+	lowerKey := strings.ToLower(key)
+	if strings.Contains(lowerKey, "tool") {
+		out.toolCall = true
+	}
+	if strings.Contains(lowerKey, "approval") || strings.Contains(lowerKey, "permission") || strings.Contains(lowerKey, "decision") {
+		out.approval = true
+	}
+	if strings.Contains(lowerKey, "request_id") || strings.Contains(lowerKey, "trace_id") || strings.Contains(lowerKey, "correlation_id") || strings.Contains(lowerKey, "session_id") {
+		out.requestID = true
+	}
+	if lowerKey == "timestamp" || lowerKey == "time" || lowerKey == "ts" || strings.HasSuffix(lowerKey, ".timestamp") {
+		out.timestamp = true
+	}
+	if lowerKey == "type" || strings.HasSuffix(lowerKey, ".type") || strings.Contains(lowerKey, "event") {
+		out.eventRecord = true
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		for childKey, child := range typed {
+			nextKey := childKey
+			if key != "" {
+				nextKey = key + "." + childKey
+			}
+			inspectJSONForObservability(child, nextKey, out)
+		}
+	case []any:
+		for _, child := range typed {
+			inspectJSONForObservability(child, key, out)
+		}
+	case string:
+		inspectSafeEventValue(lowerKey, strings.ToLower(typed), out)
+	}
+}
+
+func inspectSafeEventValue(key, value string, out *observabilitySignals) {
+	switch {
+	case key == "type" || strings.HasSuffix(key, ".type") || strings.Contains(key, "event"):
+		out.eventRecord = true
+		if strings.Contains(value, "tool_use") || strings.Contains(value, "tool_call") || strings.Contains(value, "tool_result") {
+			out.toolCall = true
+		}
+		if strings.Contains(value, "approval") || strings.Contains(value, "permission") || strings.Contains(value, "decision") {
+			out.approval = true
+		}
+	case strings.Contains(key, "name") || strings.Contains(key, "tool"):
+		if value != "" {
+			out.toolCall = true
+		}
+	case strings.Contains(key, "decision"):
+		if value != "" {
+			out.approval = true
+		}
+	}
 }
 
 func networkRestricted(text string) bool {
@@ -625,6 +832,31 @@ func auditLoggingConfigured(text string) bool {
 		strings.Contains(text, "opentelemetry") ||
 		strings.Contains(text, "telemetry") ||
 		strings.Contains(text, "trace")
+}
+
+func telemetryExportConfigured(text string) bool {
+	return strings.Contains(text, "telemetry_export") ||
+		strings.Contains(text, "siem_export") ||
+		strings.Contains(text, "otlp") ||
+		strings.Contains(text, "opentelemetry") ||
+		strings.Contains(text, "exporters:") ||
+		strings.Contains(text, "\"exporters\"") ||
+		strings.Contains(text, "service:") && strings.Contains(text, "pipelines:") ||
+		strings.Contains(text, "splunk") ||
+		strings.Contains(text, "datadog") ||
+		strings.Contains(text, "honeycomb") ||
+		strings.Contains(text, "cloudwatch") ||
+		strings.Contains(text, "eventhub")
+}
+
+func immutableAuditConfigured(text string) bool {
+	return strings.Contains(text, "immutable_audit") ||
+		strings.Contains(text, "append_only") ||
+		strings.Contains(text, "append-only") ||
+		strings.Contains(text, "object_lock") ||
+		strings.Contains(text, "worm") ||
+		strings.Contains(text, "tamper_resistant") ||
+		strings.Contains(text, "tamper-resistant")
 }
 
 func traceabilityConfigured(text string) bool {

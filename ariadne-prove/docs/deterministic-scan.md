@@ -58,9 +58,13 @@ Supported control signals include:
 - input validation, schema validation, prompt-injection filtering, or maximum input length indicators
 - automated first-pass investigation or alert triage indicators
 - transcript, memory, or context retention indicators
+- observed structured transcript metadata for tool-call events, approval decisions, action logs, request IDs, trace IDs, correlation IDs, or session IDs
+- telemetry export and immutable audit log indicators from observability policy or OpenTelemetry collector config
 
 Ariadne also flags inline credential field indicators as `boundary:credential-material`. It reports the field presence only; values are never emitted.
 
 ## Redaction
 
 Secret values are never emitted. Private context surfaces are summarized by file count, size, source, and category. Exact sensitive paths outside the scan root are redacted by default.
+
+For transcript and history JSONL files, Ariadne samples bounded structured metadata only. It looks at JSON keys and safe event-shape fields such as event type, request ID, trace ID, timestamp, tool-call presence, and approval-decision presence. It does not emit prompt text, tool arguments, tool outputs, or transcript content.

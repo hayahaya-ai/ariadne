@@ -13,6 +13,7 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - Discovers AI-agent configuration surfaces across repositories and endpoint-style home directories.
 - Parses known security-relevant config and instruction files.
 - Summarizes private or high-volume agent context without emitting content.
+- Samples structured transcript/log metadata for audit event shape without emitting prompts, tool inputs, or outputs.
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
 - Maps those paths to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.
@@ -170,6 +171,9 @@ Current deterministic discovery covers:
 - secret-like boundary indicators such as `.env*`, key files, and credential files
 - `.ariadne/agent-policy.json` declarations for approval, sandbox, credential, audit, and retention controls
 - `.ariadne/agent-policy.json` declarations for cryptographic identity, least agency, identity-based isolation, traceability, input validation, and automated triage controls
+- `.ariadne/observability-policy.json` declarations for audit, trace, telemetry export, and immutable log controls
+- OpenTelemetry collector config such as `.ariadne/otel-collector.yaml`
+- structured `.jsonl` transcript or history metadata for tool-call, approval, action-log, request, and trace evidence
 - inline credential field indicators in agent configuration without emitting values
 
 Exact vendor names are used only to identify supported adapters and file formats. Public classification is expressed in Ariadne's own exposure taxonomy.

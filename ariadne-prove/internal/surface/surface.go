@@ -77,6 +77,8 @@ func Registry() []Rule {
 		{Runtime: "mcp", Scope: "repo", Category: "policy", Kind: "mcp-policy", HandlingMode: "parse", Summary: "Ariadne MCP policy declares MCP review, allowlist, or package pinning controls.", Matches: exact(".ariadne/mcp-policy.json")},
 		{Runtime: "generic", Scope: "repo", Category: "policy", Kind: "network-policy", HandlingMode: "parse", Summary: "Ariadne network policy declares external communication controls.", Matches: exact(".ariadne/network-policy.json")},
 		{Runtime: "generic", Scope: "repo", Category: "policy", Kind: "agent-policy", HandlingMode: "parse", Summary: "Ariadne agent policy declares identity, approval, sandbox, audit, or retention controls.", Matches: exact(".ariadne/agent-policy.json")},
+		{Runtime: "generic", Scope: "repo", Category: "policy", Kind: "observability-policy", HandlingMode: "parse", Summary: "Ariadne observability policy declares audit, trace, telemetry, or log-integrity controls.", Matches: exact(".ariadne/observability-policy.json")},
+		{Runtime: "generic", Scope: "repo", Category: "telemetry-config", Kind: "opentelemetry-config", HandlingMode: "parse", Summary: "OpenTelemetry collector config can export agent traces or logs for audit correlation.", Matches: anyOf(exact(".ariadne/otel-collector.yaml"), exact(".ariadne/otel-collector.yml"), exact(".ariadne/otel-collector.json"), exact("otelcol.yaml"), exact("otelcol.yml"), exact("otel-collector.yaml"), exact("otel-collector.yml"))},
 
 		{Runtime: "generic", Scope: "repo", Category: "sensitive-boundary", Kind: "secret-like-file", HandlingMode: "boundary_indicator", Summary: "Secret-like file path exists; contents are not read or emitted.", Matches: secretLike},
 	}

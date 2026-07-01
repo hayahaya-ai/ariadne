@@ -639,6 +639,56 @@ func TestZeroTrustMemoryBoundaryUsesGraphEvidence(t *testing.T) {
 	}
 }
 
+func TestZeroTrustObservedTranscriptMetadataControlsObservability(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "observability-evidence")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:comprehensive-agent-logs", model.ZeroTrustControlled)
+	if req.ControlQuality != "hard_barrier" {
+		t.Fatalf("comprehensive logs control quality = %q, want hard_barrier", req.ControlQuality)
+	}
+	for _, id := range []string{
+		"control:tool-call-audit-evidence",
+		"control:approval-log-evidence",
+		"control:observed-request-traceability",
+		"control:agent-action-log-evidence",
+	} {
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing observed observability control node %s", id)
+		}
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(blob), "TRANSCRIPT_SECRET_DO_NOT_LEAK") {
+		t.Fatalf("transcript content leaked into report")
+	}
+}
+
+func TestZeroTrustTelemetryConfigControlsObservability(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "telemetry-config")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:comprehensive-agent-logs", model.ZeroTrustControlled)
+	if !containsString(req.Controls, "control:telemetry-export") {
+		t.Fatalf("expected telemetry export control in comprehensive logs requirement: %+v", req.Controls)
+	}
+	for _, id := range []string{
+		"control:telemetry-export",
+		"control:audit-logging",
+		"control:request-traceability",
+	} {
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing telemetry config control node %s", id)
+		}
+	}
+}
+
 func TestRunPathRepoOnlyRiskIsInconclusive(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "repo-only-risk")})
 	if err != nil {
