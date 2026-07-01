@@ -874,6 +874,9 @@ func renderArchitectureClosurePlan(w io.Writer, items []model.ArchitectureClosur
 		if len(item.Targets) > 0 {
 			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 5), "; "))
 		}
+		if len(item.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
+		}
 		if len(item.EvidenceSurfaces) > 0 {
 			fmt.Fprintf(w, "      Evidence surfaces: %s\n", strings.Join(limitStrings(item.EvidenceSurfaces, 5), "; "))
 		}
@@ -935,6 +938,9 @@ func renderArchitectureClosureFamilies(w io.Writer, items []model.ArchitectureCl
 		}
 		if len(item.Targets) > 0 {
 			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 5), "; "))
+		}
+		if len(item.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
 		}
 		if len(item.Actions) > 0 {
 			fmt.Fprintf(w, "      Actions: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
@@ -1176,6 +1182,7 @@ func buildArchitectureClosurePlan(inputs []architectureClosureInput) []model.Arc
 					}
 				}
 				item.targets[targetID] = true
+				item.EvidenceSources = append(item.EvidenceSources, zeroTrustEvidenceSources(flaw.Evidence)...)
 				item.EvidenceSurfaces = append(item.EvidenceSurfaces, flaw.EvidenceSurfaces...)
 				item.Actions = append(item.Actions, flaw.Actions...)
 			}
@@ -1192,6 +1199,7 @@ func buildArchitectureClosurePlan(inputs []architectureClosureInput) []model.Arc
 			Flaws:             mapKeysSorted(item.flaws),
 			CheckIDs:          mapKeysSorted(item.checkIDs),
 			Targets:           mapKeysSorted(item.targets),
+			EvidenceSources:   uniqueSortedStrings(item.EvidenceSources),
 			EvidenceSurfaces:  uniqueSortedStrings(item.EvidenceSurfaces),
 			Actions:           uniqueSortedStrings(item.Actions),
 		}
@@ -1225,6 +1233,7 @@ func buildArchitectureClosureFamilies(items []model.ArchitectureClosure) []model
 				flaws:            map[string]bool{},
 				checkIDs:         map[string]bool{},
 				targets:          map[string]bool{},
+				EvidenceSources:  []string{},
 				EvidenceSurfaces: []string{},
 				Actions:          []string{},
 			}
@@ -1251,6 +1260,7 @@ func buildArchitectureClosureFamilies(items []model.ArchitectureClosure) []model
 				builder.targets[target] = true
 			}
 		}
+		builder.EvidenceSources = append(builder.EvidenceSources, item.EvidenceSources...)
 		builder.EvidenceSurfaces = append(builder.EvidenceSurfaces, item.EvidenceSurfaces...)
 		builder.Actions = append(builder.Actions, item.Actions...)
 	}
@@ -1267,6 +1277,7 @@ func buildArchitectureClosureFamilies(items []model.ArchitectureClosure) []model
 			Flaws:            mapKeysSorted(builder.flaws),
 			CheckIDs:         mapKeysSorted(builder.checkIDs),
 			Targets:          mapKeysSorted(builder.targets),
+			EvidenceSources:  uniqueSortedStrings(builder.EvidenceSources),
 			EvidenceSurfaces: uniqueSortedStrings(builder.EvidenceSurfaces),
 			Actions:          uniqueSortedStrings(builder.Actions),
 		}
@@ -1293,6 +1304,7 @@ type architectureClosureBuilder struct {
 	flaws             map[string]bool
 	checkIDs          map[string]bool
 	targets           map[string]bool
+	EvidenceSources   []string
 	EvidenceSurfaces  []string
 	Actions           []string
 }
@@ -1316,6 +1328,7 @@ type architectureClosureFamilyBuilder struct {
 	flaws            map[string]bool
 	checkIDs         map[string]bool
 	targets          map[string]bool
+	EvidenceSources  []string
 	EvidenceSurfaces []string
 	Actions          []string
 }

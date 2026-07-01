@@ -176,6 +176,7 @@ type ArchitectureClosure struct {
 	Flaws             []string `json:"flaws"`
 	CheckIDs          []string `json:"check_ids"`
 	Targets           []string `json:"targets"`
+	EvidenceSources   []string `json:"evidence_sources"`
 	EvidenceSurfaces  []string `json:"evidence_surfaces"`
 	Actions           []string `json:"actions"`
 }
@@ -191,6 +192,7 @@ type ArchitectureClosureFamily struct {
 	Flaws            []string `json:"flaws"`
 	CheckIDs         []string `json:"check_ids"`
 	Targets          []string `json:"targets"`
+	EvidenceSources  []string `json:"evidence_sources"`
 	EvidenceSurfaces []string `json:"evidence_surfaces"`
 	Actions          []string `json:"actions"`
 }

@@ -2689,6 +2689,9 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 	if !hasClosureFamily(decoded.ClosureFamilies, "input-trust-boundary") {
 		t.Fatalf("architecture JSON should group input controls into a closure family: %+v", decoded.ClosureFamilies)
 	}
+	if !hasClosureFamilyEvidenceSource(decoded.ClosureFamilies) {
+		t.Fatalf("architecture closure families should retain at least one evidence source anchor: %+v", decoded.ClosureFamilies)
+	}
 	for _, family := range decoded.ClosureFamilies {
 		if family.ID == "" || family.Title == "" || family.Severity == "" || family.ControlCount == 0 || family.FlawCount == 0 || family.TargetCount == 0 {
 			t.Fatalf("closure family should identify capability impact: %+v", family)
@@ -2696,6 +2699,9 @@ func TestArchitectureReportFiltersBreakingFlaws(t *testing.T) {
 		if len(family.Controls) == 0 || len(family.Flaws) == 0 || len(family.EvidenceSurfaces) == 0 || len(family.Actions) == 0 {
 			t.Fatalf("closure family should retain controls, flaws, evidence surfaces, and actions: %+v", family)
 		}
+	}
+	if !hasClosureEvidenceSource(decoded.ClosurePlan) {
+		t.Fatalf("architecture closure plan should retain at least one evidence source anchor: %+v", decoded.ClosurePlan)
 	}
 	for _, closure := range decoded.ClosurePlan {
 		if closure.Control == "" || closure.ControlTestResult != "missing_hard_barrier" || closure.Severity == "" || closure.FlawCount == 0 || closure.TargetCount == 0 {
@@ -2956,9 +2962,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	architectureControlTest := schemaMap(t, architectureSchema, "$defs", "architecture_control_test")
 	assertRequiredKeys(t, architectureControlTest, "question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers")
 	architectureClosure := schemaMap(t, architectureSchema, "$defs", "architecture_closure")
-	assertRequiredKeys(t, architectureClosure, "control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_surfaces", "actions")
+	assertRequiredKeys(t, architectureClosure, "control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_sources", "evidence_surfaces", "actions")
 	architectureClosureFamily := schemaMap(t, architectureSchema, "$defs", "architecture_closure_family")
-	assertRequiredKeys(t, architectureClosureFamily, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "check_ids", "targets", "evidence_surfaces", "actions")
+	assertRequiredKeys(t, architectureClosureFamily, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "check_ids", "targets", "evidence_sources", "evidence_surfaces", "actions")
 
 	architectureScanSchema := loadSchema(t, "ariadne-architecture-scan-v1.schema.json")
 	assertRequiredKeys(t, architectureScanSchema,
@@ -3382,12 +3388,30 @@ func hasClosureTarget(items []model.ArchitectureClosure, target string) bool {
 	return false
 }
 
+func hasClosureEvidenceSource(items []model.ArchitectureClosure) bool {
+	for _, item := range items {
+		if len(item.EvidenceSources) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func hasEvidencePlanTarget(items []model.ArchitectureEvidencePlan, target string) bool {
 	for _, item := range items {
 		for _, candidate := range item.Targets {
 			if candidate == target {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func hasClosureFamilyEvidenceSource(items []model.ArchitectureClosureFamily) bool {
+	for _, item := range items {
+		if len(item.EvidenceSources) > 0 {
+			return true
 		}
 	}
 	return false
