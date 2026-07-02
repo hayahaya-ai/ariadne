@@ -631,6 +631,9 @@ expect_contains "$compare_html" "Missing controls before"
 expect_contains "$compare_html" "Observed controls after"
 expect_contains "$compare_html" ".ariadne/egress-policy.json"
 expect_contains "$compare_html" ".ariadne/output-policy.json"
+expect_contains "$compare_html" 'data-copy-value=".ariadne/egress-policy.json"'
+expect_contains "$compare_html" 'data-copy-value=".ariadne/output-policy.json"'
+expect_contains "$compare_html" "Copy path</button>"
 
 echo "First-run verification passed"
 echo "  artifacts: $workdir"

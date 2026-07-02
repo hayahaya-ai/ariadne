@@ -430,7 +430,7 @@ func renderCaseCompareDecisionDashboard(w io.Writer, decision model.CaseCompareD
 	fmt.Fprintln(w, `<h3>Added Controls</h3>`)
 	fmt.Fprintln(w, renderSmallList(decision.AddedControls))
 	fmt.Fprintln(w, `<h3>Added Evidence Sources</h3>`)
-	fmt.Fprintln(w, renderSmallList(decision.AddedEvidenceSources))
+	fmt.Fprintln(w, renderDashboardPathList("", decision.AddedEvidenceSources))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Open After Rerun</h3>`)
@@ -2669,9 +2669,9 @@ func renderCaseCompareCasesDashboard(w io.Writer, cases []model.CaseCompareResul
 			item.AfterProofPatches,
 			item.BeforeEvidenceRefs,
 			item.AfterEvidenceRefs,
-			renderSmallList(evidenceReferenceLines(item.AfterEvidence, 3)),
-			renderSmallList(evidenceReferenceLines(item.AddedEvidence, 3)),
-			renderSmallList(evidenceReferenceLines(item.RemovedEvidence, 3)),
+			renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines("", item.AfterEvidence, 3)),
+			renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines("", item.AddedEvidence, 3)),
+			renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines("", item.RemovedEvidence, 3)),
 		)
 		fmt.Fprintf(w, `<td>%s<h3>After rerun</h3>%s<h3>After compare loop</h3>%s</td>`,
 			esc(firstNonEmpty(item.AfterNextStep, "none")),
@@ -4516,6 +4516,13 @@ func dashboardFileRefWithLabelHTML(root, value, label string) string {
 	}
 	path := dashboardFilePath(root, value)
 	if path == "" {
+		if dashboardLooksLikeLocalPath(value) {
+			return fmt.Sprintf(
+				`<span class="file-ref"><span class="mono">%s</span><button type="button" class="copy-inline" data-copy-value="%s">Copy path</button></span>`,
+				esc(firstNonEmpty(label, value)),
+				esc(value),
+			)
+		}
 		return fmt.Sprintf(`<span class="mono">%s</span>`, esc(firstNonEmpty(label, value)))
 	}
 	href := (&url.URL{Scheme: "file", Path: path}).String()
