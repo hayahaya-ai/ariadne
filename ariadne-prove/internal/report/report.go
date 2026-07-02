@@ -389,7 +389,8 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		Inconclusive: r.Summary.Inconclusive,
 		TopPaths:     []model.ExposureResult{},
 	}
-	summary := buildAssessSummary(model.AssessInventory{}, exposure, zeroTrustSummaryFromArchitectureScan(architecture.Summary), caseBoard.Summary, caseBoard.OperatorCases)
+	inventorySummary := buildAssessScanInventory(r)
+	summary := buildAssessSummary(inventorySummary, exposure, zeroTrustSummaryFromArchitectureScan(architecture.Summary), caseBoard.Summary, caseBoard.OperatorCases)
 	summary.Targets = r.Summary.Targets
 	summary.CompletedTargets = r.Summary.Completed
 	summary.Errors = r.Summary.Errors
@@ -402,7 +403,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
-	triage := buildAssessTriage(summary, model.AssessInventory{}, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
+	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -418,7 +419,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		ControlFilter:    focus.ControlFilter,
 		Summary:          summary,
 		Triage:           triage,
-		Inventory:        model.AssessInventory{},
+		Inventory:        inventorySummary,
 		Exposure:         exposure,
 		ClosureEvidence:  closureEvidence,
 		ArchitectureScan: &architecture,
@@ -430,7 +431,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		NextCommands:     nextCommands,
 		Redaction:        r.Redaction,
 		Warnings:         append([]string{}, r.Warnings...),
-		Limitations:      append([]string{}, r.Limitations...),
+		Limitations:      uniqueSortedStrings(append(append([]string{}, r.Limitations...), inventorySummary.Limitations...)),
 	}, nil
 }
 
@@ -1829,6 +1830,256 @@ func buildAssessInventory(r model.InventoryReport) model.AssessInventory {
 		SurfaceMap:        append([]model.SurfaceMap{}, r.SurfaceMap...),
 		Limitations:       append([]string{}, r.Limitations...),
 	}
+}
+
+type assessScanSurfaceGroup struct {
+	Runtime      string
+	Scope        string
+	SourceRefs   map[string]bool
+	Categories   map[string]int
+	Authorities  map[string]bool
+	Tools        map[string]bool
+	Controls     map[string]bool
+	BoundaryRefs map[string]bool
+}
+
+func buildAssessScanInventory(r model.ScanReport) model.AssessInventory {
+	inventory := model.AssessInventory{
+		TargetPath:        r.TargetsFile,
+		SurfaceCategories: []model.AssessCount{},
+		HandlingModes:     []model.AssessCount{},
+		SurfaceMap:        []model.SurfaceMap{},
+		Limitations: []string{
+			"Fleet inspected summary is aggregated from completed target reports.",
+			"Surface counts are unique target/source references, not raw file counts.",
+			"Low-level collector handling modes are unavailable in scan assessment reports.",
+		},
+	}
+	sourceRefs := map[string]bool{}
+	categoryCounts := map[string]int{}
+	runtimes := map[string]bool{}
+	trustInputs := map[string]bool{}
+	tools := map[string]bool{}
+	authorities := map[string]bool{}
+	controls := map[string]bool{}
+	boundaries := map[string]bool{}
+	groups := map[string]*assessScanSurfaceGroup{}
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		targetID := assessScanTargetID(target)
+		inventory.Facts += len(target.Report.Evidence)
+		inventory.GraphNodes += len(target.Report.Graph.Nodes)
+		inventory.GraphEdges += len(target.Report.Graph.Edges)
+		for _, evidence := range target.Report.Evidence {
+			kind := strings.TrimSpace(evidence.Kind)
+			if kind != "" {
+				categoryCounts[kind]++
+			}
+			source := strings.TrimSpace(evidence.Source)
+			if source == "" {
+				continue
+			}
+			ref := assessScanSourceRef(targetID, source)
+			sourceRefs[ref] = true
+			group := assessScanSurfaceGroupFor(groups, assessScanRuntime(evidence.Runtime, source), "fleet")
+			group.SourceRefs[ref] = true
+			if kind != "" {
+				group.Categories[kind]++
+			}
+		}
+		for _, node := range target.Report.Graph.Nodes {
+			nodeKey := assessScanSourceRef(targetID, firstNonEmpty(node.ID, node.Label, node.Type))
+			nodeType := strings.TrimSpace(node.Type)
+			switch {
+			case nodeType == "runtime":
+				runtimes[nodeKey] = true
+			case nodeType == "trust-input" || nodeType == "trust_input":
+				trustInputs[nodeKey] = true
+			case nodeType == "tool" || nodeType == "mcp-tool-config" || nodeType == "agent-delegation":
+				tools[nodeKey] = true
+			case nodeType == "authority":
+				authorities[nodeKey] = true
+			case nodeType == "control":
+				controls[nodeKey] = true
+			case nodeType == "boundary" || nodeType == "sensitive-boundary":
+				boundaries[nodeKey] = true
+			}
+			source := strings.TrimSpace(node.Source)
+			runtime := assessScanRuntime(node.Runtime, source)
+			if source != "" {
+				ref := assessScanSourceRef(targetID, source)
+				sourceRefs[ref] = true
+				group := assessScanSurfaceGroupFor(groups, runtime, "fleet")
+				group.SourceRefs[ref] = true
+				switch {
+				case nodeType == "boundary" || nodeType == "sensitive-boundary":
+					group.BoundaryRefs[ref] = true
+				}
+			}
+			group := assessScanSurfaceGroupFor(groups, runtime, "fleet")
+			name := assessScanNodeName(node)
+			switch {
+			case nodeType == "tool" || nodeType == "mcp-tool-config" || nodeType == "agent-delegation":
+				group.Tools[name] = true
+			case nodeType == "authority":
+				group.Authorities[name] = true
+			case nodeType == "control":
+				group.Controls[name] = true
+			}
+		}
+	}
+	inventory.Surfaces = len(sourceRefs)
+	inventory.Runtimes = len(runtimes)
+	inventory.TrustInputs = len(trustInputs)
+	inventory.Tools = len(tools)
+	inventory.Authorities = len(authorities)
+	inventory.Controls = len(controls)
+	inventory.Boundaries = len(boundaries)
+	inventory.SurfaceCategories = assessCountsFromMap(categoryCounts)
+	inventory.SurfaceMap = assessScanSurfaceMaps(groups)
+	return inventory
+}
+
+func assessScanSurfaceGroupFor(groups map[string]*assessScanSurfaceGroup, runtime string, scope string) *assessScanSurfaceGroup {
+	runtime = firstNonEmpty(strings.TrimSpace(runtime), "generic")
+	scope = firstNonEmpty(strings.TrimSpace(scope), "fleet")
+	key := runtime + "\x00" + scope
+	group, ok := groups[key]
+	if ok {
+		return group
+	}
+	group = &assessScanSurfaceGroup{
+		Runtime:      runtime,
+		Scope:        scope,
+		SourceRefs:   map[string]bool{},
+		Categories:   map[string]int{},
+		Authorities:  map[string]bool{},
+		Tools:        map[string]bool{},
+		Controls:     map[string]bool{},
+		BoundaryRefs: map[string]bool{},
+	}
+	groups[key] = group
+	return group
+}
+
+func assessScanSurfaceMaps(groups map[string]*assessScanSurfaceGroup) []model.SurfaceMap {
+	items := make([]model.SurfaceMap, 0, len(groups))
+	for _, group := range groups {
+		if len(group.SourceRefs) == 0 && len(group.Authorities) == 0 && len(group.Tools) == 0 && len(group.Controls) == 0 {
+			continue
+		}
+		items = append(items, model.SurfaceMap{
+			Runtime:            group.Runtime,
+			Scope:              group.Scope,
+			SurfaceCount:       len(group.SourceRefs),
+			BoundaryIndicators: len(group.BoundaryRefs),
+			SourceRefs:         mapKeysSorted(group.SourceRefs),
+			Categories:         assessCountsFromMap(group.Categories),
+			Authorities:        mapKeysSorted(group.Authorities),
+			Tools:              mapKeysSorted(group.Tools),
+			Controls:           mapKeysSorted(group.Controls),
+			Limitations: []string{
+				"Aggregated from scan report graph and evidence references.",
+			},
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].SurfaceCount == items[j].SurfaceCount {
+			if items[i].Runtime == items[j].Runtime {
+				return items[i].Scope < items[j].Scope
+			}
+			return items[i].Runtime < items[j].Runtime
+		}
+		return items[i].SurfaceCount > items[j].SurfaceCount
+	})
+	if items == nil {
+		return []model.SurfaceMap{}
+	}
+	return items
+}
+
+func assessCountsFromMap(counts map[string]int) []model.AssessCount {
+	normalized := map[string]int{}
+	for key, count := range counts {
+		key = strings.TrimSpace(key)
+		if key != "" && count > 0 {
+			normalized[key] += count
+		}
+	}
+	keys := make([]string, 0, len(normalized))
+	for key := range normalized {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]model.AssessCount, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, model.AssessCount{Name: key, Count: normalized[key]})
+	}
+	if out == nil {
+		return []model.AssessCount{}
+	}
+	return out
+}
+
+func assessScanTargetID(target model.ScanTargetResult) string {
+	return firstNonEmpty(target.Target.ID, target.Target.Path, "target")
+}
+
+func assessScanSourceRef(targetID string, source string) string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return ""
+	}
+	return firstNonEmpty(strings.TrimSpace(targetID), "target") + ":" + source
+}
+
+func assessScanRuntime(runtime string, source string) string {
+	if strings.TrimSpace(runtime) != "" {
+		return strings.TrimSpace(runtime)
+	}
+	source = strings.ToLower(strings.TrimSpace(source))
+	switch {
+	case strings.Contains(source, ".claude/") || strings.HasPrefix(source, ".claude/"):
+		return "claude"
+	case strings.Contains(source, ".codex/") || strings.HasPrefix(source, ".codex/"):
+		return "codex"
+	case strings.Contains(source, ".cursor/"),
+		strings.HasPrefix(source, ".cursor/"),
+		source == ".cursorrules",
+		strings.HasSuffix(source, "/.cursorrules"):
+		return "cursor"
+	case strings.Contains(source, ".windsurf/"),
+		strings.HasPrefix(source, ".windsurf/"),
+		source == ".windsurfrules",
+		strings.HasSuffix(source, "/.windsurfrules"):
+		return "windsurf"
+	case strings.Contains(source, ".continue/") || strings.HasPrefix(source, ".continue/"):
+		return "continue"
+	case strings.Contains(source, ".aider") || strings.HasPrefix(source, ".aider"):
+		return "aider"
+	case strings.Contains(source, ".gemini/") || strings.HasPrefix(source, ".gemini/"):
+		return "gemini"
+	case strings.Contains(source, "opencode") || strings.Contains(source, ".opencode/"):
+		return "opencode"
+	case source == "mcp.json",
+		source == ".mcp.json",
+		strings.HasSuffix(source, "/mcp.json"),
+		strings.HasSuffix(source, "/.mcp.json"),
+		strings.Contains(source, "mcp-policy"):
+		return "mcp"
+	default:
+		return "generic"
+	}
+}
+
+func assessScanNodeName(node model.Node) string {
+	value := firstNonEmpty(node.Label, node.ID, node.Type)
+	if idx := strings.Index(value, ":"); idx >= 0 && idx+1 < len(value) {
+		value = value[idx+1:]
+	}
+	return value
 }
 
 func buildAssessExposure(exposures []model.ExposureResult) model.AssessExposure {

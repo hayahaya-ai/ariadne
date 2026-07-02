@@ -4234,6 +4234,10 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assess",
 		"Targets:",
+		"What was inspected:",
+		"Runtime surface map:",
+		"combined:.claude/settings.json",
+		"combined:.codex/config.toml",
 		"Architecture break paths:",
 		"Operator cases:",
 		"case:egress-output-boundary",
@@ -4245,6 +4249,26 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	}
 	if strings.Contains(out, "<targets-file>") {
 		t.Fatalf("fleet assessment table should not contain placeholder targets file:\n%s", out)
+	}
+	var action bytes.Buffer
+	if err := report.RenderAssessScan(&action, scan, "action", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	actionOut := action.String()
+	for _, want := range []string{
+		"What was inspected:",
+		"AI surfaces:",
+		"Runtime surface map:",
+		"Normal capability:",
+		"agent runtime surface(s) were observed",
+		"combined:.claude/settings.json",
+	} {
+		if !strings.Contains(actionOut, want) {
+			t.Fatalf("fleet assessment action missing %q:\n%s", want, actionOut)
+		}
+	}
+	if strings.Contains(actionOut, "No standalone normal-capability counts are available") {
+		t.Fatalf("fleet assessment action should include aggregate normal capability counts:\n%s", actionOut)
 	}
 	var jsonOut bytes.Buffer
 	if err := report.RenderAssessScan(&jsonOut, scan, "json", "breaking"); err != nil {
@@ -4262,6 +4286,39 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	}
 	if len(decoded.TopCases) == 0 || decoded.CaseBoard.RunKind != "case_board_scan" {
 		t.Fatalf("fleet assessment should include fleet case board: %+v", decoded.CaseBoard)
+	}
+	if decoded.Inventory.Surfaces == 0 || decoded.Inventory.Facts == 0 || decoded.Inventory.GraphNodes == 0 || decoded.Inventory.GraphEdges == 0 {
+		t.Fatalf("fleet assessment should include aggregate inspected inventory: %+v", decoded.Inventory)
+	}
+	if decoded.Summary.Surfaces != decoded.Inventory.Surfaces || decoded.Summary.Facts != decoded.Inventory.Facts || decoded.Summary.GraphNodes != decoded.Inventory.GraphNodes || decoded.Summary.GraphEdges != decoded.Inventory.GraphEdges {
+		t.Fatalf("fleet assessment summary should mirror aggregate inspected inventory: summary=%+v inventory=%+v", decoded.Summary, decoded.Inventory)
+	}
+	if decoded.Inventory.Runtimes == 0 || decoded.Inventory.TrustInputs == 0 || decoded.Inventory.Authorities == 0 || decoded.Inventory.Controls == 0 || decoded.Inventory.Boundaries == 0 {
+		t.Fatalf("fleet assessment inventory should include graph-shaped capability counts: %+v", decoded.Inventory)
+	}
+	claudeMap := requireSurfaceMapRuntime(t, decoded.Inventory.SurfaceMap, "claude", "fleet")
+	if !containsString(claudeMap.SourceRefs, "combined:.claude/settings.json") || !containsString(claudeMap.SourceRefs, "safe:.claude/settings.json") {
+		t.Fatalf("fleet assessment should expose Claude source refs in surface map: %+v", claudeMap)
+	}
+	codexMap := requireSurfaceMapRuntime(t, decoded.Inventory.SurfaceMap, "codex", "fleet")
+	if !containsString(codexMap.SourceRefs, "combined:.codex/config.toml") || !containsString(codexMap.SourceRefs, "safe:.codex/requirements.toml") {
+		t.Fatalf("fleet assessment should expose Codex source refs in surface map: %+v", codexMap)
+	}
+	genericMap := requireSurfaceMapRuntime(t, decoded.Inventory.SurfaceMap, "generic", "fleet")
+	if !containsString(genericMap.SourceRefs, "safe:.ariadne/agent-policy.json") || !containsString(genericMap.SourceRefs, "repo-only:CLAUDE.md") {
+		t.Fatalf("fleet assessment should expose generic policy and repo instruction refs in surface map: %+v", genericMap)
+	}
+	mcpMap := requireSurfaceMapRuntime(t, decoded.Inventory.SurfaceMap, "mcp", "fleet")
+	if !containsString(mcpMap.SourceRefs, "combined:mcp.json") || !containsString(mcpMap.SourceRefs, "safe:.ariadne/mcp-policy.json") {
+		t.Fatalf("fleet assessment should expose MCP source refs in surface map: %+v", mcpMap)
+	}
+	if containsString(decoded.Triage.NormalCapabilities, "No standalone normal-capability counts are available") ||
+		!containsString(decoded.Triage.NormalCapabilities, "agent runtime surface(s) were observed") ||
+		!containsString(decoded.Triage.NormalCapabilities, "authority surface(s) were observed") {
+		t.Fatalf("fleet assessment should separate normal capability counts from risk signals: %+v", decoded.Triage.NormalCapabilities)
+	}
+	if !containsString(decoded.Inventory.Limitations, "aggregated from completed target reports") || !containsString(decoded.Limitations, "Low-level collector handling modes are unavailable") {
+		t.Fatalf("fleet assessment should disclose aggregate inventory limitations: inventory=%+v report=%+v", decoded.Inventory.Limitations, decoded.Limitations)
 	}
 	if !containsString(decoded.NextCommands, "ariadne cases --targets "+targetFile) {
 		t.Fatalf("fleet assessment should include focused fleet case command: %+v", decoded.NextCommands)
