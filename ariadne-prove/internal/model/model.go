@@ -439,6 +439,7 @@ type AssessSignal struct {
 	Disposition        string              `json:"disposition"`
 	Summary            string              `json:"summary"`
 	WhyItMatters       string              `json:"why_it_matters"`
+	RiskBoundary       string              `json:"risk_boundary"`
 	GraphEdges         []string            `json:"graph_edges"`
 	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
 	RelatedControls    []string            `json:"related_controls"`

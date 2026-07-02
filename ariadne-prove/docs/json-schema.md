@@ -137,7 +137,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 
 - `summary`, combining inspected-surface counts, exposure path counts, architecture flaw counts, missing hard-barrier controls, and the top case
 - optional `case_filter` and `control_filter`, when `ariadne assess --case` or `ariadne assess --control` narrows the operator queue to a focused remediation path
-- `triage`, separating hard risk signal from normal/expected agent capability, missing hard barriers, partial/friction controls, present hard barriers, unknown evidence gaps, evidence refs, next action, and proof loop. `triage.signal_details` is the stable signal-vs-noise contract: each row has an `id`, `category`, `disposition`, `summary`, `why_it_matters`, `graph_edges`, `evidence_refs`, `related_controls`, and `limitations`.
+- `triage`, separating hard risk signal from normal/expected agent capability, missing hard barriers, partial/friction controls, present hard barriers, unknown evidence gaps, evidence refs, next action, and proof loop. `triage.signal_details` is the stable signal-vs-noise contract: each row has an `id`, `category`, `disposition`, `summary`, `why_it_matters`, `risk_boundary`, `graph_edges`, `evidence_refs`, `related_controls`, and `limitations`.
 - `inventory`, summarizing discovered AI surfaces, typed facts, graph size, runtime/tool/authority/control/boundary counts, surface categories, and handling modes
 - `exposure`, summarizing exposed, protected, and inconclusive paths with a bounded list of top path records
 - `closure_evidence`, summarizing protected exposure paths, controlled architecture flaws, partial/friction-only control evidence, hard barriers observed, remaining missing hard barriers, and source-backed closure paths

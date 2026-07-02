@@ -849,7 +849,7 @@ func renderAssessSignalDetailsDashboard(w io.Writer, root string, signals []mode
 	}
 	fmt.Fprintln(w, `<h3>Signal Details</h3>`)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, `<thead><tr><th>Signal</th><th>Disposition</th><th>Why it matters</th><th>Graph / evidence / controls</th></tr></thead><tbody>`)
+	fmt.Fprintln(w, `<thead><tr><th>Signal</th><th>Disposition</th><th>Why it matters</th><th>Risk boundary</th><th>Graph / evidence / controls</th></tr></thead><tbody>`)
 	limit := len(signals)
 	if limit > 6 {
 		limit = 6
@@ -859,6 +859,7 @@ func renderAssessSignalDetailsDashboard(w io.Writer, root string, signals []mode
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(signal.Summary), esc(signal.ID), esc(readableToken(signal.Category)))
 		fmt.Fprintf(w, `<td><div class="pill %s">%s</div></td>`, cssClass(signal.Disposition), esc(readableToken(signal.Disposition)))
 		fmt.Fprintf(w, `<td>%s</td>`, esc(signal.WhyItMatters))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(signal.RiskBoundary))
 		fmt.Fprintf(w, `<td><h3>Graph edges</h3>%s<h3>Evidence</h3>%s<h3>Controls</h3>%s<h3>Limitations</h3>%s</td>`,
 			renderSmallList(limitStrings(signal.GraphEdges, 5)),
 			renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, signal.EvidenceReferences, 4)),
@@ -867,7 +868,7 @@ func renderAssessSignalDetailsDashboard(w io.Writer, root string, signals []mode
 		fmt.Fprintln(w, `</tr>`)
 	}
 	if len(signals) > limit {
-		fmt.Fprintf(w, `<tr><td colspan="4"><span class="subtle">%d more signal detail(s) in JSON output.</span></td></tr>`, len(signals)-limit)
+		fmt.Fprintf(w, `<tr><td colspan="5"><span class="subtle">%d more signal detail(s) in JSON output.</span></td></tr>`, len(signals)-limit)
 	}
 	fmt.Fprintln(w, `</tbody></table></div>`)
 }

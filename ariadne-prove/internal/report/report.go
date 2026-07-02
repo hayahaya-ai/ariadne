@@ -2429,6 +2429,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        disposition,
 			Summary:            summaryText,
 			WhyItMatters:       whyItMatters,
+			RiskBoundary:       assessTopCaseRiskBoundary(closedAction),
 			GraphEdges:         actionGraphEdges,
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(action.StartingControls),
@@ -2442,6 +2443,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "action_required",
 			Summary:            fmt.Sprintf("%d breaking architecture flaw(s) remain after deterministic graph correlation.", summary.BreakingArchitectureFlaws),
 			WhyItMatters:       "A breaking architecture path means Ariadne found a supported path that still lacks the hard barrier modeled for that path.",
+			RiskBoundary:       "Normal agent capability becomes risk when deterministic graph correlation shows the path is still breaking after control evidence is applied.",
 			GraphEdges:         assessGraphEdgesForStatus(flaws, model.ZeroTrustBreaking),
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
@@ -2455,6 +2457,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "action_required",
 			Summary:            fmt.Sprintf("%d exposed path(s) reach a sensitive boundary without a breaking control.", exposure.Exposed),
 			WhyItMatters:       "Exposure is reported only after influence, runtime authority, boundary reachability, and missing control evidence are connected.",
+			RiskBoundary:       "Normal authority crosses into exposure when influence can reach a sensitive boundary and no observed control edge breaks that path.",
 			GraphEdges:         assessExposureGraphEdges(exposure.TopPaths, model.StatusExposed),
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
@@ -2469,6 +2472,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Summary: fmt.Sprintf("Observed %d runtime, %d authority, %d tool, and %d trust-input surface(s).",
 				inventory.Runtimes, inventory.Authorities, inventory.Tools, inventory.TrustInputs),
 			WhyItMatters: "These are expected for useful agents; Ariadne treats them as risk only when graph correlation shows untrusted influence can reach sensitive boundaries without hard barriers.",
+			RiskBoundary: "Expected capability only; not a finding by itself unless it connects to untrusted influence, sensitive boundary reachability, and missing hard barriers.",
 			Limitations:  []string{"Normal capability counts come from inventory summaries; inspect inventory JSON for the full surface map."},
 		})
 	}
@@ -2483,6 +2487,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "missing_hard_barrier",
 			Summary:            missingSummary,
 			WhyItMatters:       "Ariadne prioritizes controls that break the modeled path, not soft guidance or friction-only mitigations.",
+			RiskBoundary:       "Missing controls become action-required when they are hard barriers for a graph-supported open case, not merely because a checklist item is absent.",
 			GraphEdges:         actionGraphEdges,
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
@@ -2496,6 +2501,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "breaks_path",
 			Summary:            fmt.Sprintf("%d hard-barrier control(s) were observed closing supported paths.", len(closure.HardBarriersObserved)),
 			WhyItMatters:       "Observed hard barriers explain why some paths are protected or controlled instead of open.",
+			RiskBoundary:       "Capability stays acceptable when observed control evidence removes or restricts the supported path to the sensitive boundary.",
 			GraphEdges:         assessClosurePathGraphEdges(closure.ControlledPaths),
 			EvidenceReferences: assessClosurePathEvidenceReferences(closure.ControlledPaths),
 			RelatedControls:    uniqueStrings(closure.HardBarriersObserved),
@@ -2509,6 +2515,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "does_not_break_path",
 			Summary:            fmt.Sprintf("%d partial or friction-only control(s) were observed.", len(closure.PartialOrFrictionControls)),
 			WhyItMatters:       "Partial controls may reduce misuse but do not by themselves close the modeled exposure path.",
+			RiskBoundary:       "Friction is not enough when the underlying authority path still exists; Ariadne keeps the case open until a hard barrier is observed.",
 			GraphEdges:         assessClosurePathGraphEdges(closure.PartialPaths),
 			EvidenceReferences: assessClosurePathEvidenceReferences(closure.PartialPaths),
 			RelatedControls:    uniqueStrings(closure.PartialOrFrictionControls),
@@ -2522,10 +2529,18 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:  "needs_evidence",
 			Summary:      fmt.Sprintf("%d evidence gap(s) remain before Ariadne can classify every path.", len(triage.UnknownEvidence)),
 			WhyItMatters: "Unknown evidence should not be treated as either safe or exposed until the deterministic collector observes enough authority, boundary, or control facts.",
+			RiskBoundary: "Unknown means Ariadne lacks required facts; it is neither a safe finding nor an exposed finding until authority, boundary, or control evidence is collected.",
 			Limitations:  uniqueStrings(triage.UnknownEvidence),
 		})
 	}
 	return nonNilAssessSignals(signals)
+}
+
+func assessTopCaseRiskBoundary(closed bool) string {
+	if closed {
+		return "The selected capability is treated as controlled because Ariadne observed hard-barrier evidence that breaks the modeled path."
+	}
+	return "Normal agent capability becomes the top risk only after Ariadne connects it to a ranked open case with evidence-backed missing hard barriers."
 }
 
 func assessClosurePathEvidenceReferences(paths []model.AssessClosurePath) []model.EvidenceReference {
@@ -2602,6 +2617,7 @@ func nonNilAssessSignals(items []model.AssessSignal) []model.AssessSignal {
 		items[idx].EvidenceReferences = dedupeEvidenceReferences(items[idx].EvidenceReferences)
 		items[idx].RelatedControls = uniqueStrings(items[idx].RelatedControls)
 		items[idx].Limitations = uniqueStrings(items[idx].Limitations)
+		items[idx].RiskBoundary = strings.TrimSpace(items[idx].RiskBoundary)
 		if items[idx].GraphEdges == nil {
 			items[idx].GraphEdges = []string{}
 		}
@@ -3523,6 +3539,9 @@ func renderAssessSignalDetails(w io.Writer, signals []model.AssessSignal, limit 
 		fmt.Fprintf(w, "    - %s [%s/%s]: %s\n", signal.ID, readableToken(signal.Category), readableToken(signal.Disposition), signal.Summary)
 		if signal.WhyItMatters != "" {
 			fmt.Fprintf(w, "      Why it matters: %s\n", signal.WhyItMatters)
+		}
+		if signal.RiskBoundary != "" {
+			fmt.Fprintf(w, "      Risk boundary: %s\n", signal.RiskBoundary)
 		}
 		if len(signal.GraphEdges) > 0 {
 			fmt.Fprintf(w, "      Graph: %s\n", strings.Join(limitStrings(signal.GraphEdges, 4), "; "))

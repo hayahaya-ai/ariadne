@@ -3883,6 +3883,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Signal triage:",
 		"Status: action required",
 		"Hard signal:",
+		"Risk boundary:",
 		"Normal capability:",
 		"Missing hard barrier:",
 		"Closure plan:",
@@ -3988,6 +3989,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if !hasAssessSignal(decoded.Triage.SignalDetails, "normal_capability", "expected_capability", "expected for useful agents") {
 		t.Fatalf("triage signal details should separate normal agent capability: %+v", decoded.Triage.SignalDetails)
+	}
+	if !hasAssessSignalRiskBoundary(decoded.Triage.SignalDetails, "signal:normal-agent-capability", "Expected capability only") ||
+		!hasAssessSignalRiskBoundary(decoded.Triage.SignalDetails, "signal:exposed-boundary-paths", "Normal authority crosses into exposure") ||
+		!hasAssessSignalRiskBoundary(decoded.Triage.SignalDetails, "signal:missing-hard-barriers", "graph-supported open case") {
+		t.Fatalf("triage signals should explain the normal-vs-risk boundary: %+v", decoded.Triage.SignalDetails)
 	}
 	if !hasAssessSignal(decoded.Triage.SignalDetails, "missing_control", "missing_hard_barrier", "hard-barrier control") {
 		t.Fatalf("triage signal details should include missing hard barriers: %+v", decoded.Triage.SignalDetails)
@@ -4116,6 +4122,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"starting hard-barrier control(s) are missing or unproven for the top case",
 		"missing hard-barrier control instance(s) remain across all open cases",
 		"Graph:",
+		"Risk boundary:",
 		"Closure plan:",
 		"control:egress-destination-allowlist -> Egress And Output Boundary",
 		"What it closes:",
@@ -4169,6 +4176,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Signal Triage",
 		"Signal Details",
 		"Graph / evidence / controls",
+		"Risk boundary",
 		"Graph edges",
 		"Hard Signal",
 		"Normal Capability",
@@ -5431,7 +5439,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
 	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "signal_details", "evidence_refs", "next_action", "proof_loop")
 	assessSignal := schemaMap(t, assessSchema, "$defs", "assess_signal")
-	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "graph_edges", "evidence_refs", "related_controls", "limitations")
+	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "risk_boundary", "graph_edges", "evidence_refs", "related_controls", "limitations")
 	assessClosurePlanItem := schemaMap(t, assessSchema, "$defs", "assess_closure_plan_item")
 	assertRequiredKeys(t, assessClosurePlanItem, "rank", "control", "case_id", "case_title", "severity", "state", "why_this_control", "what_it_closes", "affected_flaws", "affected_targets", "evidence_refs", "proof_surface", "rerun_command", "compare_command", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessClosurePlanItem, "proof_patch")
@@ -5982,6 +5990,15 @@ func hasAssessSignal(values []model.AssessSignal, category string, disposition s
 		}
 		joined := strings.Join([]string{value.ID, value.Summary, value.WhyItMatters, strings.Join(value.RelatedControls, " "), strings.Join(value.Limitations, " ")}, " ")
 		if strings.Contains(joined, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAssessSignalRiskBoundary(values []model.AssessSignal, id string, fragment string) bool {
+	for _, value := range values {
+		if value.ID == id && strings.Contains(value.RiskBoundary, fragment) {
 			return true
 		}
 	}
