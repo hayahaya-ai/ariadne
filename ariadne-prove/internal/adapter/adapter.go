@@ -95,7 +95,7 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 	}
 
 	switch s.Kind {
-	case "claude-md", "agents-md", "nested-agents-md", "cursor-rules", "windsurf-rules", "continue-rules", "gemini-md", "codex-agents-md", "claude-command", "gemini-command", "claude-project-memory":
+	case "claude-md", "agents-md", "nested-agents-md", "cursor-rules", "windsurf-rules", "continue-rules", "gemini-md", "codex-agents-md", "copilot-instructions", "copilot-path-instructions", "cline-rules", "roo-rules", "claude-command", "gemini-command", "claude-project-memory":
 		collectInstruction(c, s)
 	case "claude-subagent":
 		collectDelegationSurface(c, s)
@@ -103,11 +103,11 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectCodexConfig(c, s)
 	case "claude-settings", "claude-local-settings":
 		collectClaudeSettings(c, s)
-	case "cursor-settings", "windsurf-settings", "continue-config", "aider-config", "gemini-settings", "opencode-config":
+	case "cursor-settings", "windsurf-settings", "continue-config", "aider-config", "gemini-settings", "opencode-config", "vscode-settings":
 		collectGenericAgentConfig(c, s)
-	case "aider-ignore":
-		collectAiderIgnore(c, s)
-	case "mcp-config", "claude-mcp-config", "cursor-mcp-config", "windsurf-mcp-config", "continue-mcp-config":
+	case "aider-ignore", "cline-ignore":
+		collectIgnorePolicy(c, s)
+	case "mcp-config", "claude-mcp-config", "cursor-mcp-config", "windsurf-mcp-config", "continue-mcp-config", "vscode-mcp-config", "cline-mcp-config", "roo-mcp-config":
 		collectMCPConfig(c, s)
 	case "mcp-policy":
 		collectMCPPolicy(c, s)
@@ -392,11 +392,15 @@ func collectGenericAgentConfig(c *model.Collection, s model.Surface) {
 	}
 }
 
-func collectAiderIgnore(c *model.Collection, s model.Surface) {
+func collectIgnorePolicy(c *model.Collection, s model.Surface) {
 	if _, err := os.Stat(s.Path); err != nil {
 		return
 	}
-	addControl(c, "control:scoped-permissions", "scoped-permissions", "aider", s.Source, "Aider ignore policy exists and can constrain files available to the agent.")
+	runtime := runtimeForSurface(s)
+	if runtime == "" {
+		runtime = "aider"
+	}
+	addControl(c, "control:scoped-permissions", "scoped-permissions", runtime, s.Source, displayRuntime(runtime)+" ignore policy exists and can constrain files available to the agent.")
 }
 
 func collectMCPConfig(c *model.Collection, s model.Surface) {
@@ -404,12 +408,18 @@ func collectMCPConfig(c *model.Collection, s model.Surface) {
 	if err != nil {
 		return
 	}
+	type mcpServer struct {
+		Type           string   `json:"type"`
+		Command        string   `json:"command"`
+		Args           []string `json:"args"`
+		URL            string   `json:"url"`
+		Disabled       bool     `json:"disabled"`
+		SandboxEnabled bool     `json:"sandboxEnabled"`
+		AlwaysAllow    []string `json:"alwaysAllow"`
+	}
 	var root struct {
-		MCPServers map[string]struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
-			URL     string   `json:"url"`
-		} `json:"mcpServers"`
+		MCPServers map[string]mcpServer `json:"mcpServers"`
+		Servers    map[string]mcpServer `json:"servers"`
 	}
 	if err := json.Unmarshal(data, &root); err != nil {
 		return
@@ -417,7 +427,18 @@ func collectMCPConfig(c *model.Collection, s model.Surface) {
 	if runtime := runtimeForSurface(s); runtime != "" {
 		c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{ID: "runtime:" + runtime, Kind: runtime, Source: s.Source, Scope: s.Scope, Summary: displayRuntime(runtime) + " MCP configuration evidence was found."})
 	}
-	for serverName, server := range root.MCPServers {
+	servers := root.MCPServers
+	if servers == nil {
+		servers = map[string]mcpServer{}
+	}
+	for name, server := range root.Servers {
+		servers[name] = server
+	}
+	for serverName, server := range servers {
+		if server.Disabled {
+			addControl(c, "control:tool-allowlist", "tool-allowlist", runtimeForSurface(s), s.Source, "MCP server "+serverName+" is disabled in configuration.")
+			continue
+		}
 		commandLine := strings.TrimSpace(server.Command + " " + strings.Join(server.Args, " "))
 		lower := strings.ToLower(commandLine)
 		if commandLine == "" && server.URL != "" {
@@ -454,6 +475,12 @@ func collectMCPConfig(c *model.Collection, s model.Surface) {
 		}
 		if looksPinned(lower) {
 			c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:mcp-reviewed-pinned", Kind: "mcp-reviewed-pinned", Source: s.Source, Summary: "MCP command pinning constrains package-manager drift."})
+		}
+		if server.SandboxEnabled || strings.Contains(lower, "sandboxenabled") {
+			addControl(c, "control:tool-sandbox-execution", "tool-sandbox-execution", runtimeForSurface(s), s.Source, "MCP server "+serverName+" declares sandboxed tool execution.")
+		}
+		if len(server.AlwaysAllow) > 0 {
+			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "MCP server " + serverName + " declares always-allowed tool calls."})
 		}
 	}
 }
@@ -1350,6 +1377,12 @@ func displayRuntime(runtime string) string {
 		return "Gemini CLI"
 	case "opencode":
 		return "OpenCode"
+	case "copilot":
+		return "GitHub Copilot"
+	case "cline":
+		return "Cline"
+	case "roo":
+		return "Roo Code"
 	case "":
 		return "Agent"
 	default:
@@ -2743,7 +2776,7 @@ func appendUniqueTrustInput(in []model.TrustInput, next model.TrustInput) []mode
 
 func appendUniqueTool(in []model.Tool, next model.Tool) []model.Tool {
 	for _, item := range in {
-		if item.ID == next.ID && item.Source == next.Source {
+		if item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source {
 			return in
 		}
 	}

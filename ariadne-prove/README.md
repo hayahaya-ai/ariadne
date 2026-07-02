@@ -215,10 +215,10 @@ Custom deterministic rules can also live at `.ariadne/rules.json`. See [docs/pri
 
 Current deterministic discovery covers:
 
-- runtime config under `.claude/**`, `.codex/**`, `.cursor/**`, `.windsurf/**`, `.continue/**`, `.gemini/**`, `.opencode/**`, and supported Aider config files
+- runtime config under `.claude/**`, `.codex/**`, `.cursor/**`, `.windsurf/**`, `.continue/**`, `.gemini/**`, `.opencode/**`, `.vscode/**`, and supported Aider config files
 - `CLAUDE.md`, `AGENTS.md`, and nested agent instruction files
-- Cursor, Windsurf, Continue, and Gemini instruction or rule files
-- MCP configuration
+- Cursor, Windsurf, Continue, Gemini, GitHub Copilot, Cline, and Roo instruction or rule files
+- MCP configuration, including VS Code `.vscode/mcp.json`, Cline `.cline/mcp.json`, and Roo `.roo/mcp.json`
 - plugin, skill, extension, and config surfaces
 - command files and command-like workflow surfaces
 - Claude subagent definitions under `.claude/agents/*.md`

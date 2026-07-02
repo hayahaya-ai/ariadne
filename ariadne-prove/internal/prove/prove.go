@@ -957,6 +957,8 @@ func controlRestrictsBoundary(controlID, boundaryID string) bool {
 		return boundaryID == "boundary:external-destination"
 	case "control:mcp-reviewed-pinned":
 		return boundaryID == "boundary:developer-execution-boundary"
+	case "control:tool-sandbox-execution":
+		return boundaryID == "boundary:developer-execution-boundary"
 	case "control:delegation-scope", "control:delegation-allowlist", "control:agent-to-agent-authorization", "control:origin-intent-verification", "control:delegated-credential-scope", "control:subagent-context-isolation":
 		return boundaryID == "boundary:agent-delegation-boundary"
 	case "control:containment-quarantine":
@@ -1263,6 +1265,7 @@ func controlRestrictsTool(controlID, toolID string) bool {
 		"control:tool-auth-required",
 		"control:signed-tool-artifacts",
 		"control:tool-deployment-verification",
+		"control:tool-sandbox-execution",
 		"control:tool-scope-policy":
 		return true
 	case "control:delegation-scope",

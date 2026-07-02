@@ -2245,7 +2245,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 		for _, line := range evidenceReferenceLinesBySource(action.CurrentAction.EvidenceReferences, 4) {
 			fmt.Fprintf(w, "  - %s\n", line)
 		}
-		renderEvidenceSourceListBlock(w, evidenceReferenceSources(action.CurrentAction.EvidenceReferences, false), 8)
+		renderEvidenceSourceListBlock(w, evidenceReferenceSources(action.CurrentAction.EvidenceReferences, false), 16)
 	}
 	if example := assessCurrentEvidenceExampleLine(action); example != "" {
 		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
@@ -3317,7 +3317,7 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 		decision.StartHere = firstNonEmpty(summary.TopCaseID, action.CaseID)
 	}
 	if len(decision.EvidenceSources) == 0 && len(action.EvidenceReferences) > 0 {
-		decision.EvidenceSources = firstStrings(uniqueStrings(evidenceReferenceSources(action.EvidenceReferences, false)), 8)
+		decision.EvidenceSources = firstStrings(uniqueStrings(evidenceReferenceSources(action.EvidenceReferences, false)), 16)
 	}
 	if len(decision.EvidenceReferences) == 0 && len(triage.EvidenceReferences) > 0 {
 		decision.EvidenceReferences = firstEvidenceReferences(triage.EvidenceReferences, 5)
@@ -5176,7 +5176,7 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 	renderAssessFirstActionWorkflow(w, action.Workflow)
 	if len(action.EvidenceReferences) > 0 {
 		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLinesBySource(action.EvidenceReferences, 3), "; "))
-		renderEvidenceSourceLines(w, "  - ", evidenceReferenceSources(action.EvidenceReferences, false), 8)
+		renderEvidenceSourceLines(w, "  - ", evidenceReferenceSources(action.EvidenceReferences, false), 16)
 	}
 	if len(action.ProofSurfaces) > 0 {
 		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(action.ProofSurfaces, 8), "; "))

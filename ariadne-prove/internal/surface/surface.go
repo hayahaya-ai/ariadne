@@ -105,6 +105,20 @@ func Registry() []Rule {
 		{Runtime: "opencode", Scope: "repo", Category: "runtime-config", Kind: "opencode-config", HandlingMode: "parse", Summary: "OpenCode config can declare model, provider, tool, and runtime posture.", Matches: anyOf(exact("opencode.json"), exact("opencode.jsonc"), exact("opencode.yml"), exact("opencode.yaml"), exact(".opencode.json"), exact(".opencode/config.json"), exact(".opencode/config.jsonc"), exact(".opencode/config.yml"), exact(".opencode/config.yaml"))},
 		{Runtime: "opencode", Scope: "repo", Category: "history-cache", Kind: "opencode-private-context", HandlingMode: "summarize", Summary: "OpenCode session or cache context may contain prompts, code context, or pasted material; contents are not emitted.", Matches: anyOf(prefix(".opencode/sessions/"), prefix(".opencode/cache/"))},
 
+		{Runtime: "copilot", Scope: "repo", Category: "runtime-config", Kind: "vscode-settings", HandlingMode: "parse", Summary: "VS Code settings can configure GitHub Copilot, chat, agent, and MCP posture.", Matches: exact(".vscode/settings.json")},
+		{Runtime: "copilot", Scope: "repo", Category: "mcp-tool-config", Kind: "vscode-mcp-config", HandlingMode: "parse", Summary: "VS Code MCP config declares Copilot-callable tools for the workspace.", Matches: exact(".vscode/mcp.json")},
+		{Runtime: "copilot", Scope: "repo", Category: "trust-input", Kind: "copilot-instructions", HandlingMode: "parse", Summary: "GitHub Copilot repository instructions can influence Copilot and agent behavior.", Matches: exact(".github/copilot-instructions.md")},
+		{Runtime: "copilot", Scope: "repo", Category: "trust-input", Kind: "copilot-path-instructions", HandlingMode: "parse", Summary: "GitHub Copilot path-specific instructions can influence Copilot and agent behavior for matching files.", Matches: prefixSuffix(".github/instructions/", ".instructions.md")},
+
+		{Runtime: "cline", Scope: "repo", Category: "trust-input", Kind: "cline-rules", HandlingMode: "parse", Summary: "Cline rules can influence Cline agent behavior.", Matches: anyOf(prefixSuffix(".clinerules/", ".md"), prefixSuffix(".clinerules/", ".txt"), prefixSuffix("Documents/Cline/Rules/", ".md"), prefixSuffix("Documents/Cline/Rules/", ".txt"))},
+		{Runtime: "cline", Scope: "repo", Category: "mcp-tool-config", Kind: "cline-mcp-config", HandlingMode: "parse", Summary: "Cline MCP config declares model-callable tools.", Matches: exact(".cline/mcp.json")},
+		{Runtime: "cline", Scope: "repo", Category: "policy", Kind: "cline-ignore", HandlingMode: "parse", Summary: "Cline ignore policy can constrain files available to the agent.", Matches: exact(".clineignore")},
+		{Runtime: "cline", Scope: "repo", Category: "history-cache", Kind: "cline-private-context", HandlingMode: "summarize", Summary: "Cline task, cache, or history context may contain prompts, code context, or pasted material; contents are not emitted.", Matches: anyOf(prefix(".cline/tasks/"), prefix(".cline/cache/"), prefix(".cline/history/"))},
+
+		{Runtime: "roo", Scope: "repo", Category: "mcp-tool-config", Kind: "roo-mcp-config", HandlingMode: "parse", Summary: "Roo Code MCP config declares model-callable tools for the workspace.", Matches: anyOf(exact(".roo/mcp.json"), exact("mcp_settings.json"))},
+		{Runtime: "roo", Scope: "repo", Category: "trust-input", Kind: "roo-rules", HandlingMode: "parse", Summary: "Roo Code rule files can influence agent behavior.", Matches: anyOf(prefixSuffix(".roo/rules/", ".md"), prefixSuffix(".roo/rules/", ".txt"))},
+		{Runtime: "roo", Scope: "repo", Category: "history-cache", Kind: "roo-private-context", HandlingMode: "summarize", Summary: "Roo Code private context or cache may contain prompts or local context; contents are not emitted.", Matches: anyOf(prefix(".roo/tasks/"), prefix(".roo/cache/"), prefix(".roo/history/"))},
+
 		{Runtime: "generic", Scope: "repo", Category: "trust-input", Kind: "claude-md", HandlingMode: "parse", Summary: "CLAUDE.md can influence local coding-agent behavior.", Matches: exact("CLAUDE.md")},
 		{Runtime: "generic", Scope: "repo", Category: "trust-input", Kind: "agents-md", HandlingMode: "parse", Summary: "AGENTS.md can influence local coding-agent behavior.", Matches: exact("AGENTS.md")},
 		{Runtime: "generic", Scope: "repo", Category: "trust-input", Kind: "nested-agents-md", HandlingMode: "parse", Summary: "Nested AGENTS.md can influence agent behavior in a subtree.", Matches: suffix("/AGENTS.md")},
@@ -320,6 +334,7 @@ func endpointFileCandidates() []string {
 		"opencode.yml",
 		"opencode.yaml",
 		".opencode.json",
+		"mcp_settings.json",
 	}
 }
 
@@ -373,6 +388,10 @@ func roots(opts Options) []struct {
 			{filepath.Join(opts.HomePath, ".aider"), "endpoint", ".aider"},
 			{filepath.Join(opts.HomePath, ".gemini"), "endpoint", ".gemini"},
 			{filepath.Join(opts.HomePath, ".opencode"), "endpoint", ".opencode"},
+			{filepath.Join(opts.HomePath, ".vscode"), "endpoint", ".vscode"},
+			{filepath.Join(opts.HomePath, ".cline"), "endpoint", ".cline"},
+			{filepath.Join(opts.HomePath, ".roo"), "endpoint", ".roo"},
+			{filepath.Join(opts.HomePath, "Documents", "Cline", "Rules"), "endpoint", "Documents/Cline/Rules"},
 			{filepath.Join(opts.HomePath, ".ariadne"), "endpoint", ".ariadne"},
 		}
 	}
@@ -441,7 +460,19 @@ func shouldSummarizeDir(relPath string) bool {
 		relPath == ".opencode/sessions" ||
 		strings.HasPrefix(relPath, ".opencode/sessions/") ||
 		relPath == ".opencode/cache" ||
-		strings.HasPrefix(relPath, ".opencode/cache/")
+		strings.HasPrefix(relPath, ".opencode/cache/") ||
+		relPath == ".cline/tasks" ||
+		strings.HasPrefix(relPath, ".cline/tasks/") ||
+		relPath == ".cline/cache" ||
+		strings.HasPrefix(relPath, ".cline/cache/") ||
+		relPath == ".cline/history" ||
+		strings.HasPrefix(relPath, ".cline/history/") ||
+		relPath == ".roo/tasks" ||
+		strings.HasPrefix(relPath, ".roo/tasks/") ||
+		relPath == ".roo/cache" ||
+		strings.HasPrefix(relPath, ".roo/cache/") ||
+		relPath == ".roo/history" ||
+		strings.HasPrefix(relPath, ".roo/history/")
 }
 
 func skippedSurface(path, relPath, scope string, opts Options) model.Surface {
@@ -483,6 +514,12 @@ func summarizeDir(path, relPath, scope string, opts Options) model.Surface {
 	} else if strings.HasPrefix(relPath, ".opencode/") {
 		runtime = "opencode"
 		kind = "opencode-private-context"
+	} else if strings.HasPrefix(relPath, ".cline/") {
+		runtime = "cline"
+		kind = "cline-private-context"
+	} else if strings.HasPrefix(relPath, ".roo/") {
+		runtime = "roo"
+		kind = "roo-private-context"
 	}
 	return model.Surface{
 		ID:                 surfaceID(runtime, kind, safeRel(opts, path)),

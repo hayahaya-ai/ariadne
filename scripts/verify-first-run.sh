@@ -358,6 +358,9 @@ expect_contains "$endpoint_action" ".claude/settings.local.json"
 expect_contains "$endpoint_action" ".codex/config.toml"
 expect_contains "$endpoint_action" ".continue/config.json"
 expect_contains "$endpoint_action" ".cursor/mcp.json"
+expect_contains "$endpoint_action" ".vscode/settings.json"
+expect_contains "$endpoint_action" ".cline/mcp.json"
+expect_contains "$endpoint_action" ".roo/cache"
 expect_contains "$endpoint_action" ".gemini/settings.json"
 expect_contains "$endpoint_action" "Proof loop:"
 expect_contains "$endpoint_action" "case-compare.html"
@@ -392,6 +395,9 @@ expect_contains "$endpoint_json" '"apply_command": "cd proof-patches'
 expect_contains "$endpoint_json" '"present_hard_barriers"'
 expect_contains "$endpoint_json" 'control:network-restricted'
 expect_contains "$endpoint_json" '.claude/.mcp.json'
+expect_contains "$endpoint_json" '.vscode/mcp.json'
+expect_contains "$endpoint_json" '.cline/mcp.json'
+expect_contains "$endpoint_json" '.roo/mcp.json'
 expect_contains "$endpoint_json" '.gemini/settings.json'
 
 expect_contains "$endpoint_html" "Ariadne Assessment"
@@ -419,6 +425,9 @@ expect_contains "$endpoint_html" "Save baseline proof before changes"
 expect_contains "$endpoint_html" "Save after proof after rerun"
 expect_contains "$endpoint_html" "Proof Loop"
 expect_contains "$endpoint_html" ".claude/.mcp.json"
+expect_contains "$endpoint_html" ".vscode/mcp.json"
+expect_contains "$endpoint_html" ".cline/mcp.json"
+expect_contains "$endpoint_html" ".roo/mcp.json"
 expect_contains "$endpoint_html" ".gemini/settings.json"
 expect_contains "$endpoint_html" "copy-command"
 
@@ -426,6 +435,7 @@ expect_contains "$endpoint_cases" "Case: case:least-agency-authority"
 expect_contains "$endpoint_cases" "Evidence files:"
 expect_contains "$endpoint_cases" ".claude/.mcp.json"
 expect_contains "$endpoint_cases" ".codex/config.toml"
+expect_contains "$endpoint_cases" ".roo/mcp.json"
 expect_contains "$endpoint_cases" ".gemini/settings.json"
 expect_contains "$endpoint_cases" "Prove at:"
 

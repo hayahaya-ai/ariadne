@@ -77,7 +77,7 @@ Use endpoint mode when the target looks like a developer home directory or mount
 ./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format json
 ```
 
-Endpoint mode discovers AI surfaces such as Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, MCP, and Ariadne proof policy files. It parses known security-relevant files, summarizes private context surfaces, models authorities and boundaries, and then ranks operator cases. The self-assessment bundle is the recommended handoff artifact when you need to inspect results later, attach evidence to a ticket, or share the readout with another operator.
+Endpoint mode discovers AI surfaces such as Claude, Codex, GitHub Copilot in VS Code, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, Cline, Roo Code, MCP, and Ariadne proof policy files. It parses known security-relevant files, summarizes private context surfaces, models authorities and boundaries, and then ranks operator cases. The self-assessment bundle is the recommended handoff artifact when you need to inspect results later, attach evidence to a ticket, or share the readout with another operator.
 
 ## Fact Contract
 

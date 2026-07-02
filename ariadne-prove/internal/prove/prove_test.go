@@ -2520,6 +2520,17 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	requireSurfaceKind(t, r.Collection.Surfaces, "aider-config")
 	requireSurfaceKind(t, r.Collection.Surfaces, "aider-private-context")
 	requireSurfaceKind(t, r.Collection.Surfaces, "opencode-config")
+	requireSurfaceKind(t, r.Collection.Surfaces, "vscode-settings")
+	requireSurfaceKind(t, r.Collection.Surfaces, "vscode-mcp-config")
+	requireSurfaceKind(t, r.Collection.Surfaces, "copilot-instructions")
+	requireSurfaceKind(t, r.Collection.Surfaces, "copilot-path-instructions")
+	requireSurfaceKind(t, r.Collection.Surfaces, "cline-rules")
+	requireSurfaceKind(t, r.Collection.Surfaces, "cline-mcp-config")
+	requireSurfaceKind(t, r.Collection.Surfaces, "cline-ignore")
+	requireSurfaceKind(t, r.Collection.Surfaces, "cline-private-context")
+	requireSurfaceKind(t, r.Collection.Surfaces, "roo-mcp-config")
+	requireSurfaceKind(t, r.Collection.Surfaces, "roo-rules")
+	requireSurfaceKind(t, r.Collection.Surfaces, "roo-private-context")
 	requireSurfaceKind(t, r.Collection.Surfaces, "secret-like-file")
 	for _, surface := range r.Collection.Surfaces {
 		if strings.Contains(surface.Source, "node_modules/badpkg/AGENTS.md") {
@@ -2542,6 +2553,35 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	aiderMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "aider", "repo")
 	if aiderMap.Summarized == 0 || !containsString(aiderMap.SourceRefs, ".aider.chat.history.md") {
 		t.Fatalf("aider surface map should summarize private context with source refs: %+v", aiderMap)
+	}
+	copilotMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "copilot", "repo")
+	if !containsString(copilotMap.SourceRefs, ".github/copilot-instructions.md") ||
+		!containsString(copilotMap.SourceRefs, ".github/instructions/security.instructions.md") ||
+		!containsString(copilotMap.SourceRefs, ".vscode/mcp.json") {
+		t.Fatalf("copilot surface map should retain instruction and VS Code MCP source refs: %+v", copilotMap)
+	}
+	if !containsString(copilotMap.Tools, "mcp-package-launch") ||
+		!containsString(copilotMap.Authorities, "local-code-execution") ||
+		!containsString(copilotMap.Controls, "tool-sandbox-execution") {
+		t.Fatalf("copilot surface map should retain VS Code MCP tools, authority, and sandbox control: %+v", copilotMap)
+	}
+	if !r.Graph.HasEdge("runtime:copilot|can_call|tool:mcp-package-launch") ||
+		!r.Graph.HasEdge("control:tool-sandbox-execution|restricts|tool:mcp-package-launch") {
+		t.Fatalf("graph should connect Copilot MCP launch and sandbox control: %+v", r.Graph.Edges)
+	}
+	clineMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "cline", "repo")
+	if clineMap.Summarized == 0 ||
+		!containsString(clineMap.SourceRefs, ".clinerules/workspace.md") ||
+		!containsString(clineMap.SourceRefs, ".cline/mcp.json") ||
+		!containsString(clineMap.Controls, "scoped-permissions") {
+		t.Fatalf("cline surface map should retain rules, MCP, private context, and ignore control: %+v", clineMap)
+	}
+	rooMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "roo", "repo")
+	if rooMap.Summarized == 0 ||
+		!containsString(rooMap.SourceRefs, ".roo/mcp.json") ||
+		!containsString(rooMap.SourceRefs, ".roo/rules/security.md") ||
+		!containsString(rooMap.Authorities, "broad-local") {
+		t.Fatalf("roo surface map should retain MCP, rules, private context, and always-allow authority: %+v", rooMap)
 	}
 }
 
@@ -2590,6 +2630,8 @@ func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 		"MESSY_REALPATH_FAKE_SECRET_DO_NOT_LEAK",
 		"MESSY_PRIVATE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK",
 		"MESSY_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK",
+		"CLINE_PRIVATE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK",
+		"ROO_PRIVATE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK",
 	} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("inventory leaked private fixture value %q", forbidden)
@@ -2605,6 +2647,11 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	mustMkdirAll(t, filepath.Join(home, ".cursor"))
 	mustMkdirAll(t, filepath.Join(home, ".windsurf", "rules"))
 	mustMkdirAll(t, filepath.Join(home, ".gemini", "commands"))
+	mustMkdirAll(t, filepath.Join(home, ".vscode"))
+	mustMkdirAll(t, filepath.Join(home, ".cline"))
+	mustMkdirAll(t, filepath.Join(home, ".cline", "tasks"))
+	mustMkdirAll(t, filepath.Join(home, ".roo"))
+	mustMkdirAll(t, filepath.Join(home, "Documents", "Cline", "Rules"))
 	mustMkdirAll(t, filepath.Join(home, ".ariadne"))
 	mustMkdirAll(t, filepath.Join(home, ".ssh"))
 	mustWriteFile(t, filepath.Join(home, ".continue", "config.json"), `{
@@ -2615,6 +2662,11 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	mustWriteFile(t, filepath.Join(home, ".windsurf", "rules", "security.md"), "Never reveal secrets.\n")
 	mustWriteFile(t, filepath.Join(home, ".gemini", "settings.json"), `{"tools":{"shell":true},"network_access":false}`)
 	mustWriteFile(t, filepath.Join(home, ".gemini", "commands", "build.toml"), `prompt = "Run bash scripts/build.sh"`)
+	mustWriteFile(t, filepath.Join(home, ".vscode", "mcp.json"), `{"servers":{"fs":{"command":"npx","args":["-y","@example/mutable-mcp-server","~"],"sandboxEnabled":true}}}`)
+	mustWriteFile(t, filepath.Join(home, ".cline", "mcp.json"), `{"mcpServers":{"tools":{"command":"npx","args":["@example/cline-tool"]}}}`)
+	mustWriteFile(t, filepath.Join(home, ".cline", "tasks", "session.jsonl"), `{"text":"ENDPOINT_CLINE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK"}`)
+	mustWriteFile(t, filepath.Join(home, "Documents", "Cline", "Rules", "global.md"), "Never print secrets.\n")
+	mustWriteFile(t, filepath.Join(home, ".roo", "mcp.json"), `{"mcpServers":{"roo-shell":{"command":"python3","args":["server.py"],"alwaysAllow":["run_command"]}}}`)
 	mustWriteFile(t, filepath.Join(home, ".aider.conf.yml"), "read:\n  - src\n")
 	mustWriteFile(t, filepath.Join(home, ".aider.chat.history.md"), "ENDPOINT_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK\n")
 	mustWriteFile(t, filepath.Join(home, ".ariadne", "agent-policy.json"), `{"deny_by_default":true,"default_policy":"deny","scoped_permissions":true,"permission_scope":true}`)
@@ -2631,6 +2683,11 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 		"windsurf-rules",
 		"gemini-settings",
 		"gemini-command",
+		"vscode-mcp-config",
+		"cline-mcp-config",
+		"cline-private-context",
+		"cline-rules",
+		"roo-mcp-config",
 		"aider-config",
 		"aider-private-context",
 		"agent-policy",
@@ -2663,6 +2720,21 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	if !containsString(geminiMap.Authorities, "local-code-execution") || !containsString(geminiMap.Tools, "agent-command-shell") {
 		t.Fatalf("endpoint gemini surface map missing modeled command facts: %+v", geminiMap)
 	}
+	copilotMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "copilot", "endpoint")
+	if !containsString(copilotMap.SourceRefs, ".vscode/mcp.json") ||
+		!containsString(copilotMap.Controls, "tool-sandbox-execution") {
+		t.Fatalf("endpoint copilot surface map missing VS Code MCP source refs or sandbox control: %+v", copilotMap)
+	}
+	clineMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "cline", "endpoint")
+	if clineMap.Summarized == 0 ||
+		!containsString(clineMap.SourceRefs, ".cline/mcp.json") ||
+		!containsString(clineMap.SourceRefs, "Documents/Cline/Rules/global.md") {
+		t.Fatalf("endpoint cline surface map missing MCP, global rules, or summarized context: %+v", clineMap)
+	}
+	rooMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "roo", "endpoint")
+	if !containsString(rooMap.SourceRefs, ".roo/mcp.json") || !containsString(rooMap.Authorities, "broad-local") {
+		t.Fatalf("endpoint roo surface map missing MCP source refs or always-allow authority: %+v", rooMap)
+	}
 	genericMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "generic", "endpoint")
 	if genericMap.BoundaryIndicators == 0 ||
 		!containsString(genericMap.SourceRefs, ".env") ||
@@ -2675,6 +2747,7 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"ENDPOINT_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK",
+		"ENDPOINT_CLINE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK",
 		"ENDPOINT_ENV_FAKE_SECRET_DO_NOT_LEAK",
 		"ENDPOINT_SSH_FAKE_SECRET_DO_NOT_LEAK",
 	} {
