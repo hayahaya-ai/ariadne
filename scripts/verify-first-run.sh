@@ -332,7 +332,7 @@ expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
 
-for bundle_file in assessment.txt assessment.json operator-packet.txt dashboard.html inventory.json cases.txt cases.json proof-action.txt proof-plan.json README.md manifest.json; do
+for bundle_file in assessment.txt assessment.json operator-packet.txt operator-packet.json dashboard.html inventory.json cases.txt cases.json proof-action.txt proof-plan.json README.md manifest.json; do
   if [ ! -f "$self_bundle/$bundle_file" ]; then
     echo "missing self bundle file: $self_bundle/$bundle_file" >&2
     echo "artifacts left in: $workdir" >&2
@@ -344,6 +344,7 @@ expect_contains "$self_bundle/README.md" "What This Bundle Answers"
 expect_contains "$self_bundle/README.md" "Suggested Review Order"
 expect_contains "$self_bundle/README.md" "Proof Loop Commands"
 expect_contains "$self_bundle/README.md" "operator-packet.txt"
+expect_contains "$self_bundle/README.md" "operator-packet.json"
 expect_contains "$self_bundle/README.md" "dashboard.html"
 expect_contains "$self_bundle/README.md" "proof-action.txt"
 expect_contains "$self_bundle/README.md" "--patch-dir proof-patches"
@@ -363,6 +364,11 @@ expect_contains "$self_bundle/operator-packet.txt" "Proof checkpoint:"
 expect_contains "$self_bundle/operator-packet.txt" "Compare before and after:"
 expect_not_contains "$self_bundle/operator-packet.txt" "additional items in JSON"
 expect_not_contains "$self_bundle/operator-packet.txt" "more evidence source(s) in JSON"
+expect_contains "$self_bundle/operator-packet.json" '"run_kind": "operator_packet"'
+expect_contains "$self_bundle/operator-packet.json" '"source_run_kind": "assess"'
+expect_contains "$self_bundle/operator-packet.json" '"operator_packet"'
+expect_contains "$self_bundle/operator-packet.json" '"case_id": "case:identity-credentials"'
+expect_contains "$self_bundle/operator-packet.json" '"compare_state"'
 expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
@@ -378,6 +384,7 @@ expect_contains "$self_bundle/proof-plan.json" '"case_filter": "case:identity-cr
 expect_contains "$self_bundle/manifest.json" '"name": "README.md"'
 expect_contains "$self_bundle/manifest.json" '"name": "manifest.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.txt"'
+expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.json"'
 expect_contains "$self_bundle/manifest.json" '"review_order"'
 expect_contains "$self_bundle/manifest.json" '"proof_loop"'
 expect_contains "$self_bundle/manifest.json" "--patch-dir proof-patches"

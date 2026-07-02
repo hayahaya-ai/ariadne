@@ -66,7 +66,7 @@ func runAssess(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:input-isolation")
-	format := fs.String("format", "summary", "output format: summary, operator, table, action, json, html")
+	format := fs.String("format", "summary", "output format: summary, operator, operator-json, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -135,7 +135,7 @@ func runSelf(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:identity-credentials")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:credential-isolation")
-	format := fs.String("format", "summary", "output format: summary, operator, table, action, json, html")
+	format := fs.String("format", "summary", "output format: summary, operator, operator-json, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -244,6 +244,7 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 			{Name: "assessment.txt", Path: filepath.Join(absDir, "assessment.txt"), Description: "Compact human readout with the decision, evidence, first action, and rerun commands."},
 			{Name: "assessment.json", Path: filepath.Join(absDir, "assessment.json"), Description: "Structured assessment contract for automation and UI consumers."},
 			{Name: "operator-packet.txt", Path: filepath.Join(absDir, "operator-packet.txt"), Description: "Small ticket-style handoff with source refs, graph path, controls, proof checkpoint, commands, and done criteria."},
+			{Name: "operator-packet.json", Path: filepath.Join(absDir, "operator-packet.json"), Description: "Structured operator packet for ticketing, workflow systems, and automation."},
 			{Name: "dashboard.html", Path: filepath.Join(absDir, "dashboard.html"), Description: "Local operator dashboard with the same assessment evidence."},
 			{Name: "inventory.json", Path: filepath.Join(absDir, "inventory.json"), Description: "Deterministic AI surface inventory facts without exposure classification."},
 			{Name: "cases.txt", Path: filepath.Join(absDir, "cases.txt"), Description: "Operator case board showing the prioritized closure work."},
@@ -273,6 +274,11 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	}
 	if err := add("operator-packet.txt", func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "operator", status, focus)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("operator-packet.json", func(w io.Writer) error {
+		return report.RenderAssessFocused(w, inventory, r, "operator-json", status, focus)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -342,7 +348,7 @@ func selfAssessmentBundleCaseID(assess model.AssessReport, focus report.AssessFo
 func selfAssessmentBundleReviewOrder() []string {
 	return []string{
 		"Read `assessment.txt` for the executive readout, decision, signal/noise boundary, and first action.",
-		"Use `operator-packet.txt` as the compact ticket or handoff: source refs, graph path, controls, proof checkpoint, commands, and done criteria.",
+		"Use `operator-packet.txt` as the compact ticket or handoff: source refs, graph path, controls, proof checkpoint, commands, and done criteria. Use `operator-packet.json` for automation.",
 		"Open `dashboard.html` for the operator dashboard with evidence links, proof bundle rows, lifecycle, and case queue.",
 		"Use `proof-action.txt` to inspect the exact proof evidence Ariadne expects for the focused case.",
 		"Use `proof-plan.json`, `assessment.json`, `inventory.json`, and `cases.json` for automation, ticket metadata, or deeper review.",
@@ -459,6 +465,7 @@ func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleR
 	}
 	fmt.Fprintf(w, "Open first: %s\n", filepath.Join(result.Directory, "assessment.txt"))
 	fmt.Fprintf(w, "Operator packet: %s\n", filepath.Join(result.Directory, "operator-packet.txt"))
+	fmt.Fprintf(w, "Operator packet JSON: %s\n", filepath.Join(result.Directory, "operator-packet.json"))
 	fmt.Fprintf(w, "Dashboard: %s\n", filepath.Join(result.Directory, "dashboard.html"))
 	fmt.Fprintf(w, "Proof action: %s\n", filepath.Join(result.Directory, "proof-action.txt"))
 }
@@ -1029,6 +1036,7 @@ Examples:
   ariadne self --case case:identity-credentials
   ariadne assess --path .
   ariadne assess --path . --format operator
+  ariadne assess --path . --format operator-json --out operator-packet.json
   ariadne assess --path . --format table
   ariadne assess --path . --format action
   ariadne assess --path . --format html --out ariadne-assessment.html

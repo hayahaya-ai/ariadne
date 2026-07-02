@@ -31,6 +31,7 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	root := t.TempDir()
 	summaryPath := filepath.Join(root, "assess-summary.txt")
 	operatorPath := filepath.Join(root, "assess-operator.txt")
+	operatorJSONPath := filepath.Join(root, "assess-operator.json")
 	tablePath := filepath.Join(root, "assess-table.txt")
 	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
 
@@ -42,6 +43,11 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 		"--path", target,
 		"--format", "operator",
 		"--out", operatorPath,
+	})
+	runAssess([]string{
+		"--path", target,
+		"--format", "operator-json",
+		"--out", operatorJSONPath,
 	})
 	runAssess([]string{
 		"--path", target,
@@ -79,6 +85,19 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	}
 	if strings.Contains(operator, "Architecture break paths:") {
 		t.Fatalf("operator assess output should stay compact:\n%s", operator)
+	}
+
+	operatorJSON := readTestFile(t, operatorJSONPath)
+	for _, want := range []string{
+		`"run_kind": "operator_packet"`,
+		`"source_run_kind": "assess"`,
+		`"operator_packet"`,
+		`"case_id": "case:egress-output-boundary"`,
+		`"compare_state"`,
+	} {
+		if !strings.Contains(operatorJSON, want) {
+			t.Fatalf("operator-json assess output missing %q:\n%s", want, operatorJSON)
+		}
 	}
 
 	table := readTestFile(t, tablePath)
@@ -203,6 +222,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"assessment.txt",
 		"assessment.json",
 		"operator-packet.txt",
+		"operator-packet.json",
 		"dashboard.html",
 		"inventory.json",
 		"cases.txt",
@@ -235,6 +255,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"Ariadne Self-Assessment Bundle",
 		"assessment.txt",
 		"operator-packet.txt",
+		"operator-packet.json",
 		"dashboard.html",
 		"proof-action.txt",
 		"What This Bundle Answers",
@@ -287,6 +308,22 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	}
 	if strings.Contains(operatorPacket, "Architecture break paths:") || strings.Contains(operatorPacket, "additional items in JSON") || strings.Contains(operatorPacket, "more evidence source(s) in JSON") {
 		t.Fatalf("self bundle operator packet should stay compact:\n%s", operatorPacket)
+	}
+
+	operatorPacketJSON := readTestFile(t, filepath.Join(bundleDir, "operator-packet.json"))
+	for _, want := range []string{
+		`"run_kind": "operator_packet"`,
+		`"source_run_kind": "assess"`,
+		`"mode": "endpoint"`,
+		`"operator_packet"`,
+		`"case_id": "case:identity-credentials"`,
+		`"current_control": "control:credential-isolation"`,
+		`"commands"`,
+		`"compare_state"`,
+	} {
+		if !strings.Contains(operatorPacketJSON, want) {
+			t.Fatalf("self bundle operator packet JSON missing %q:\n%s", want, operatorPacketJSON)
+		}
 	}
 
 	inventoryJSON := readTestFile(t, filepath.Join(bundleDir, "inventory.json"))
@@ -348,6 +385,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"name": "README.md"`,
 		`"name": "manifest.json"`,
 		`"name": "operator-packet.txt"`,
+		`"name": "operator-packet.json"`,
 		`"name": "proof-action.txt"`,
 	} {
 		if !strings.Contains(manifest, want) {

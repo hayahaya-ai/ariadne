@@ -1942,6 +1942,10 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		return renderAssessSummary(w, r)
 	case "operator", "packet":
 		return renderAssessOperatorPacket(w, r)
+	case "operator-json", "packet-json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(BuildAssessOperatorPacketReport(r))
 	case "action":
 		return renderAssessAction(w, r)
 	case "json":
@@ -1952,6 +1956,28 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		return renderAssessDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown assess format: %s", format)
+	}
+}
+
+func BuildAssessOperatorPacketReport(r model.AssessReport) model.AssessOperatorPacketReport {
+	return model.AssessOperatorPacketReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         r.RunID,
+		GeneratedAt:   r.GeneratedAt,
+		RunKind:       "operator_packet",
+		SourceRunKind: r.RunKind,
+		TargetPath:    r.TargetPath,
+		TargetsFile:   r.TargetsFile,
+		Targets:       r.Targets,
+		Mode:          r.Mode,
+		Agent:         r.Agent,
+		StatusFilter:  r.StatusFilter,
+		CaseFilter:    r.CaseFilter,
+		ControlFilter: r.ControlFilter,
+		Packet:        r.OperatorPacket,
+		Redaction:     r.Redaction,
+		Warnings:      r.Warnings,
+		Limitations:   nonNilStrings(uniqueSortedStrings(append(append([]string{}, r.OperatorPacket.Limitations...), r.Limitations...))),
 	}
 }
 

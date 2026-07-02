@@ -154,7 +154,7 @@ The assessment contract is a composition layer. It does not create a separate cl
 
 `ariadne assess --case <case-id>` narrows `case_board`, `top_cases`, `top_case_proof_plan`, `first_action`, and `closure_plan` to the selected case. `ariadne assess --control <control-id>` selects the first ranked case containing that missing hard barrier and focuses the current action on that control. Both keep deterministic inventory, exposure, architecture, evidence, and limitation context in the same assessment artifact.
 
-`ariadne assess --format operator` renders `operator_packet` as the compact terminal handoff for tickets and reviews. It answers what to open, why it is actionable, which controls are missing, what proof artifacts define before/after state, which commands to run, and what closes the case. `ariadne assess --format action` renders a fuller workflow view with signal triage, ranked closure plan, and `first_action.current_action`. `--format table` remains the full terminal audit trail.
+`ariadne assess --format operator` renders `operator_packet` as the compact terminal handoff for tickets and reviews. It answers what to open, why it is actionable, which controls are missing, what proof artifacts define before/after state, which commands to run, and what closes the case. `ariadne assess --format operator-json` emits the same packet as `ariadne-operator-packet-v1.schema.json`, with run metadata, redaction metadata, warnings, and limitations. `ariadne assess --format action` renders a fuller workflow view with signal triage, ranked closure plan, and `first_action.current_action`. `--format table` remains the full terminal audit trail.
 
 `ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
 
@@ -250,3 +250,4 @@ Draft schemas are available in:
 - [schema/ariadne-architecture-v1.schema.json](../schema/ariadne-architecture-v1.schema.json)
 - [schema/ariadne-architecture-scan-v1.schema.json](../schema/ariadne-architecture-scan-v1.schema.json)
 - [schema/ariadne-control-catalog-v1.schema.json](../schema/ariadne-control-catalog-v1.schema.json)
+- [schema/ariadne-operator-packet-v1.schema.json](../schema/ariadne-operator-packet-v1.schema.json)

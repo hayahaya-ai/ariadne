@@ -5002,6 +5002,25 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		}
 	}
 
+	var operatorJSON bytes.Buffer
+	if err := report.RenderAssess(&operatorJSON, inventory, r, "operator-json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decodedOperator model.AssessOperatorPacketReport
+	if err := json.Unmarshal(operatorJSON.Bytes(), &decodedOperator); err != nil {
+		t.Fatal(err)
+	}
+	if decodedOperator.RunKind != "operator_packet" ||
+		decodedOperator.SourceRunKind != "assess" ||
+		decodedOperator.Mode != "repo" ||
+		decodedOperator.Packet.CaseID != "case:egress-output-boundary" ||
+		decodedOperator.Packet.CurrentControl != "control:egress-destination-allowlist" ||
+		!hasOperatorPacketCommand(decodedOperator.Packet.Commands, "compare_state", "ariadne compare --before before-proof.json --after after-proof.json", "case-compare.html") ||
+		!containsString(decodedOperator.Packet.EvidenceSources, ".claude/settings.json") ||
+		len(decodedOperator.Limitations) == 0 {
+		t.Fatalf("assessment operator-json should expose standalone packet contract: %+v", decodedOperator)
+	}
+
 	var actionOut bytes.Buffer
 	if err := report.RenderAssess(&actionOut, inventory, r, "action", "breaking"); err != nil {
 		t.Fatal(err)
@@ -6695,6 +6714,11 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessClosureEvidence, "protected_exposure_paths", "controlled_architecture_flaws", "partial_architecture_flaws", "hard_barriers_observed", "partial_or_friction_controls", "remaining_missing_hard_barriers", "controlled_paths", "partial_paths")
 	assessClosurePath := schemaMap(t, assessSchema, "$defs", "assess_closure_path")
 	assertRequiredKeys(t, assessClosurePath, "id", "title", "status", "control_test_result", "controls", "hard_barriers_observed", "partial_or_friction_controls", "remaining_missing_hard_barriers", "graph_edges", "evidence_refs")
+
+	operatorPacketSchema := loadSchema(t, "ariadne-operator-packet-v1.schema.json")
+	assertRequiredKeys(t, operatorPacketSchema, "schema_version", "run_id", "generated_at", "run_kind", "source_run_kind", "mode", "agent", "status_filter", "operator_packet", "redaction", "limitations")
+	assertSchemaProperty(t, operatorPacketSchema, "target_path")
+	assertSchemaProperty(t, operatorPacketSchema, "targets_file")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
@@ -6728,6 +6752,7 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertJSONHasSchemaRequiredFields(t, "ariadne-assess-v1.schema.json", assessment)
+	assertJSONHasSchemaRequiredFields(t, "ariadne-operator-packet-v1.schema.json", report.BuildAssessOperatorPacketReport(assessment))
 
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
