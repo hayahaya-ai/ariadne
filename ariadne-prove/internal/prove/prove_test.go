@@ -2654,6 +2654,60 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	}
 }
 
+func TestEndpointScanUsesMountedTargetHomes(t *testing.T) {
+	fallbackHome := t.TempDir()
+	t.Setenv("HOME", fallbackHome)
+	endpointOne := t.TempDir()
+	endpointTwo := t.TempDir()
+	mustMkdirAll(t, filepath.Join(endpointOne, ".gemini"))
+	mustMkdirAll(t, filepath.Join(endpointTwo, ".continue"))
+	mustWriteFile(t, filepath.Join(endpointOne, ".gemini", "settings.json"), `{"tools":{"shell":true},"network_access":true}`)
+	mustWriteFile(t, filepath.Join(endpointTwo, ".continue", "config.json"), `{
+  "contextProviders": [{"name": "code", "params": {"workspace": true}}],
+  "mcpServers": {"fs": {"command": "npx", "args": ["@example/mutable-mcp-server", "~"]}}
+}`)
+
+	scan, err := RunScan(Options{
+		Mode: "endpoint",
+		Targets: []model.ScanTarget{
+			{ID: "endpoint-one", Path: endpointOne},
+			{ID: "endpoint-two", Path: endpointTwo},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scan.Summary.Targets != 2 || scan.Summary.Completed != 2 || len(scan.Targets) != 2 {
+		t.Fatalf("endpoint scan should complete both mounted targets: %+v", scan.Summary)
+	}
+	if !hasEvidenceSource(scan.Targets[0].Report.Evidence, ".gemini/settings.json") {
+		t.Fatalf("first endpoint target should collect Gemini evidence from its mounted home: %+v", scan.Targets[0].Report.Evidence)
+	}
+	if !hasEvidenceSource(scan.Targets[1].Report.Evidence, ".continue/config.json") {
+		t.Fatalf("second endpoint target should collect Continue evidence from its mounted home: %+v", scan.Targets[1].Report.Evidence)
+	}
+	if hasEvidenceSource(scan.Targets[0].Report.Evidence, ".continue/config.json") ||
+		hasEvidenceSource(scan.Targets[1].Report.Evidence, ".gemini/settings.json") {
+		t.Fatalf("endpoint target reports should not mix mounted homes: first=%+v second=%+v", scan.Targets[0].Report.Evidence, scan.Targets[1].Report.Evidence)
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderAssessScan(&jsonOut, scan, "json", "all"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "assess_scan" || len(decoded.Targets) != 2 || decoded.Mode != "endpoint" {
+		t.Fatalf("endpoint assessment scan should retain target coverage and mode: %+v", decoded)
+	}
+	if !hasAssessSignal(decoded.Triage.SignalDetails, "risk", "action_required", "operator case") &&
+		decoded.Summary.BreakingArchitectureFlaws > 0 {
+		t.Fatalf("endpoint assessment scan should retain structured risk signal details: %+v", decoded.Triage.SignalDetails)
+	}
+}
+
 func TestRunPathMessyAISurfacesProducesExposurePaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "messy-ai-surfaces")})
 	if err != nil {
@@ -5289,6 +5343,15 @@ func assessSignalHasGraph(values []model.AssessSignal, id string) bool {
 }
 
 func containsEvidenceReferenceSource(values []model.EvidenceReference, fragment string) bool {
+	for _, value := range values {
+		if strings.Contains(value.Source, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEvidenceSource(values []model.Evidence, fragment string) bool {
 	for _, value := range values {
 		if strings.Contains(value.Source, fragment) {
 			return true

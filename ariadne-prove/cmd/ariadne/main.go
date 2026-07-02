@@ -57,7 +57,7 @@ func main() {
 func runAssess(args []string) {
 	fs := flag.NewFlagSet("assess", flag.ExitOnError)
 	targetsFile := fs.String("targets", "", "file of assessment targets, one path per line or id,path")
-	path := fs.String("path", ".", "repo or workspace path to assess")
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to assess")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
@@ -127,7 +127,7 @@ func runAssess(args []string) {
 func runCases(args []string) {
 	fs := flag.NewFlagSet("cases", flag.ExitOnError)
 	targetsFile := fs.String("targets", "", "file of operator case targets, one path per line or id,path")
-	path := fs.String("path", ".", "repo or workspace path to inspect")
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to inspect")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
@@ -178,7 +178,7 @@ func runCases(args []string) {
 func runProofs(args []string) {
 	fs := flag.NewFlagSet("proofs", flag.ExitOnError)
 	targetsFile := fs.String("targets", "", "file of proof-plan targets, one path per line or id,path")
-	path := fs.String("path", ".", "repo or workspace path to inspect")
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to inspect")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
@@ -245,7 +245,7 @@ func runProofs(args []string) {
 func runControls(args []string) {
 	fs := flag.NewFlagSet("controls", flag.ExitOnError)
 	targetsFile := fs.String("targets", "", "file of control catalog targets, one path per line or id,path")
-	path := fs.String("path", ".", "repo or workspace path to inspect")
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to inspect")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
@@ -295,7 +295,7 @@ func runControls(args []string) {
 func runArchitecture(args []string) {
 	fs := flag.NewFlagSet("architecture", flag.ExitOnError)
 	targetsFile := fs.String("targets", "", "file of architecture scan targets, one path per line or id,path")
-	path := fs.String("path", ".", "repo or workspace path to inspect")
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to inspect")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
@@ -418,7 +418,7 @@ func runScan(args []string) {
 
 func runInventory(args []string) {
 	fs := flag.NewFlagSet("inventory", flag.ExitOnError)
-	path := fs.String("path", ".", "repo or workspace path to inventory")
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to inventory")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	format := fs.String("format", "table", "output format: table, json, html, dot, mermaid")
@@ -443,7 +443,7 @@ func runProve(args []string) {
 	fs := flag.NewFlagSet("prove", flag.ExitOnError)
 	storyID := fs.String("story", "", "story id to prove")
 	storyRoot := fs.String("story-root", "testdata/storylab", "story lab root")
-	path := fs.String("path", ".", "repo or workspace path to prove when --story is not set")
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to prove when --story is not set")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	format := fs.String("format", "table", "output format: table, json, dot, mermaid")

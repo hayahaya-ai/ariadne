@@ -130,10 +130,8 @@ func RunPath(opts Options) (model.Report, error) {
 	home := ""
 	base := root
 	if opts.Mode == "endpoint" {
-		home, _ = os.UserHomeDir()
-		if home != "" {
-			base = home
-		}
+		home = resolveEndpointHome(root)
+		base = home
 	}
 	collection := adapter.Collect(adapter.Options{
 		RepoPath:              root,
@@ -230,11 +228,9 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 	target := root
 	base := root
 	if opts.Mode == "endpoint" {
-		home, _ = os.UserHomeDir()
+		home = resolveEndpointHome(root)
 		target = home
-		if home != "" {
-			base = home
-		}
+		base = home
 	}
 	collection := adapter.Collect(adapter.Options{
 		RepoPath:              root,
@@ -269,6 +265,52 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, MCP, and generic repo instruction surfaces are supported in this milestone.",
 		},
 	}, nil
+}
+
+func resolveEndpointHome(root string) string {
+	if pathLooksLikeEndpointHome(root) {
+		return root
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return home
+	}
+	return root
+}
+
+func pathLooksLikeEndpointHome(root string) bool {
+	for _, marker := range endpointHomeMarkers() {
+		if _, err := os.Stat(filepath.Join(root, marker)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func endpointHomeMarkers() []string {
+	return []string{
+		".claude",
+		".codex",
+		".cursor",
+		".windsurf",
+		".continue",
+		".aider",
+		".gemini",
+		".opencode",
+		".aider.conf.yml",
+		".aider.conf.yaml",
+		".aider.conf",
+		".aider.chat.history.md",
+		".aider.input.history",
+		".aider.model.settings.yml",
+		".aider.model.metadata.json",
+		".cursorrules",
+		".windsurfrules",
+		"opencode.json",
+		"opencode.jsonc",
+		"opencode.yml",
+		"opencode.yaml",
+		".opencode.json",
+	}
 }
 
 func BuildSurfaceMap(c model.Collection) []model.SurfaceMap {
