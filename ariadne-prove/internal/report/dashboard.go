@@ -188,6 +188,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
+	renderAssessOperatorRunbookDashboard(w, r)
 	renderAssessSourceReferenceWorkbenchDashboard(w, r)
 	renderAssessOperatorPacketDashboard(w, r)
 	renderAssessOperatorWorkbenchDashboard(w, r)
@@ -859,6 +860,119 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</section>`)
 }
 
+func renderAssessOperatorRunbookDashboard(w io.Writer, r model.AssessReport) {
+	workbench := r.OperatorWorkbench
+	if !workbench.Available {
+		return
+	}
+	currentStep := assessCurrentClosureLoopStep(workbench.ClosureLoop)
+	if currentStep.ID == "" {
+		return
+	}
+	nextStep := assessNextClosureLoopStep(workbench.ClosureLoop, currentStep.Step)
+	closed := workbench.Mode == "closed_case"
+	subtitle := "Action-first view: open evidence, run the current proof step, and compare deterministic artifacts."
+	if closed {
+		subtitle = "Action-first view: inspect observed evidence and keep the focused case closed as the environment changes."
+	}
+
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintf(w, `<div class="section-head"><div><h2>Operator Runbook</h2><div class="subtle">%s</div></div></div>`, esc(subtitle))
+	renderMetricRow(w, []kv{
+		{"Current step", fmt.Sprintf("%d. %s", currentStep.Step, firstNonEmpty(currentStep.Title, currentStep.ID))},
+		{"Case", firstNonEmpty(workbench.Case.ID, "not recorded")},
+		{"State", firstNonEmpty(workbench.Case.State, "unknown")},
+		{"Control", firstNonEmpty(workbench.Proof.Control, firstString(workbench.Proof.Controls), "not recorded")},
+		{"Proof surface", firstNonEmpty(workbench.Proof.Surface, firstString(workbench.Proof.Surfaces), "not recorded")},
+	})
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Open First</h3>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(r.TargetPath, workbench.EvidenceToOpen, 5)))
+	fmt.Fprintln(w, `<div class="subtle">The Source Reference Workbench below has exact rows, line labels, and inspect commands.</div>`)
+	fmt.Fprintln(w, `<h3>Why This Case</h3>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+		workbench.Case.Title+" ("+workbench.Case.ID+")",
+		workbench.Case.WhyFirst,
+		workbench.Case.NextStep,
+	)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Do Next</h3>`)
+	fmt.Fprintln(w, renderSmallList(assessRunbookStepLines(currentStep, nextStep)))
+	fmt.Fprintln(w, `<h3>Files / Artifacts</h3>`)
+	fmt.Fprintln(w, assessRunbookFilesArtifactsHTML(r.TargetPath, currentStep, nextStep))
+	fmt.Fprintln(w, `<h3>Commands</h3>`)
+	fmt.Fprintln(w, renderCommandList(firstNonEmptyStrings(currentStep.Commands, nextStep.Commands)))
+	fmt.Fprintln(w, `<h3>Done When</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(firstNonEmptyStrings(currentStep.DoneCriteria, workbench.DoneCriteria), 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<h3>Closure Workflow</h3>`)
+	fmt.Fprintln(w, renderSmallList(assessClosureLoopStepLines(workbench.ClosureLoop, 6)))
+	fmt.Fprintln(w, `</section>`)
+}
+
+func assessCurrentClosureLoopStep(steps []model.AssessClosureLoopStep) model.AssessClosureLoopStep {
+	for _, step := range steps {
+		if strings.EqualFold(step.Status, "current") {
+			return step
+		}
+	}
+	if len(steps) == 0 {
+		return model.AssessClosureLoopStep{}
+	}
+	return steps[0]
+}
+
+func assessNextClosureLoopStep(steps []model.AssessClosureLoopStep, current int) model.AssessClosureLoopStep {
+	for _, step := range steps {
+		if step.Step > current {
+			return step
+		}
+	}
+	return model.AssessClosureLoopStep{}
+}
+
+func assessRunbookStepLines(current model.AssessClosureLoopStep, next model.AssessClosureLoopStep) []string {
+	lines := nonEmptyStrings(
+		current.Title + ": " + current.Summary,
+	)
+	if next.ID != "" {
+		lines = append(lines, next.Title+": "+next.Summary)
+	}
+	return lines
+}
+
+func assessRunbookFilesArtifactsHTML(root string, current model.AssessClosureLoopStep, next model.AssessClosureLoopStep) string {
+	parts := []string{assessClosureLoopFilesArtifactsHTML(root, current)}
+	if next.ID != "" && (len(next.Files) > 0 || len(next.Artifacts) > 0) {
+		parts = append(parts, `<div class="subtle">Next step</div>`+assessClosureLoopFilesArtifactsHTML(root, next))
+	}
+	return strings.Join(parts, "")
+}
+
+func assessClosureLoopStepLines(steps []model.AssessClosureLoopStep, limit int) []string {
+	var lines []string
+	for _, step := range limitAssessClosureLoopSteps(steps, limit) {
+		lines = append(lines, fmt.Sprintf("%d. %s (%s)", step.Step, firstNonEmpty(step.Title, step.ID), readableToken(step.Status)))
+	}
+	if limit > 0 && len(steps) > limit {
+		lines = append(lines, fmt.Sprintf("%d additional step(s) in JSON output", len(steps)-limit))
+	}
+	if lines == nil {
+		return []string{}
+	}
+	return lines
+}
+
+func limitAssessClosureLoopSteps(steps []model.AssessClosureLoopStep, limit int) []model.AssessClosureLoopStep {
+	if limit <= 0 || len(steps) <= limit {
+		return steps
+	}
+	return steps[:limit]
+}
+
 func renderAssessOperatorPacketDashboard(w io.Writer, r model.AssessReport) {
 	packet := r.OperatorPacket
 	if !packet.Available {
@@ -1117,11 +1231,7 @@ func assessClosureLoopFilesArtifactsHTML(root string, step model.AssessClosureLo
 		parts = append(parts, `<div class="subtle">Files</div>`+renderDashboardActionFileList(root, limitStrings(step.Files, 5)))
 	}
 	if len(step.Artifacts) > 0 {
-		lines := make([]string, 0, len(step.Artifacts))
-		for _, artifact := range limitStrings(step.Artifacts, 5) {
-			lines = append(lines, dashboardCopyablePathLineHTML("Artifact", artifact))
-		}
-		parts = append(parts, `<div class="subtle">Artifacts</div>`+renderDashboardHTMLList(lines))
+		parts = append(parts, `<div class="subtle">Artifacts</div>`+renderDashboardArtifactList(limitStrings(step.Artifacts, 5)))
 	}
 	if len(parts) == 0 {
 		return `<span class="subtle">none</span>`
@@ -1269,7 +1379,7 @@ func renderAssessLifecycleCommandArtifactHTML(root string, step model.AssessCase
 		parts = append(parts, `<h3>Commands</h3>`+renderCommandList(limitStrings(step.Commands, 4)))
 	}
 	if len(step.Artifacts) > 0 {
-		parts = append(parts, `<h3>Artifacts</h3>`+renderDashboardActionFileList(root, limitStrings(step.Artifacts, 5)))
+		parts = append(parts, `<h3>Artifacts</h3>`+renderDashboardArtifactList(limitStrings(step.Artifacts, 5)))
 	}
 	if len(step.ProofSurfaces) > 0 {
 		parts = append(parts, `<h3>Surfaces</h3>`+renderDashboardPathList(root, limitStrings(step.ProofSurfaces, 5)))
@@ -1278,6 +1388,17 @@ func renderAssessLifecycleCommandArtifactHTML(root string, step model.AssessCase
 		return `<span class="subtle">none</span>`
 	}
 	return strings.Join(parts, "")
+}
+
+func renderDashboardArtifactList(items []string) string {
+	if len(items) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		lines = append(lines, dashboardCopyablePathLineHTML("Artifact", item))
+	}
+	return renderDashboardHTMLList(lines)
 }
 
 func renderAssessLifecycleEvidenceClosureHTML(root string, step model.AssessCaseLifecycleStep) string {

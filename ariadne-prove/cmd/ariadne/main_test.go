@@ -136,9 +136,11 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 	assessment := readTestFile(t, assessmentPath)
 	for _, want := range []string{
 		"Ariadne Assessment",
+		"Operator Runbook",
 		"Operator Packet",
 		"Operator Cases",
 		"Closure Loop",
+		"Artifact: before-proof.json",
 		"Export proof files",
 		"--patch-dir proof-patches",
 	} {
@@ -357,6 +359,11 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assessment",
 		"Source Reference Workbench",
+		"Operator Runbook",
+		"Open First",
+		"Do Next",
+		"Closure Workflow",
+		"Artifact: before-proof.json",
 		"Exact files and lines to open first",
 		"Inspect command",
 		"sed -n",
