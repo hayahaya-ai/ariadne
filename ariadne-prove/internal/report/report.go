@@ -1628,6 +1628,8 @@ func renderProofPlan(w io.Writer, r model.ProofPlanReport, format string) error 
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderProofPlanDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown proofs format: %s", format)
 	}

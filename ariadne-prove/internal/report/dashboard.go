@@ -223,6 +223,41 @@ func renderControlCaseBoardDashboard(w io.Writer, r model.ControlCatalogReport) 
 	return nil
 }
 
+func renderProofPlanDashboard(w io.Writer, r model.ProofPlanReport) error {
+	title := "Ariadne Proof Plan"
+	if r.RunKind == "proof_plan_scan" {
+		title = "Ariadne Fleet Proof Plan"
+	}
+	fmt.Fprintln(w, "<!doctype html>")
+	fmt.Fprintln(w, `<html lang="en">`)
+	renderDashboardHead(w, title)
+	fmt.Fprintln(w, "<body>")
+	fmt.Fprintln(w, `<main class="shell">`)
+	fields := []kv{
+		{"Run kind", firstNonEmpty(r.RunKind, "proof_plan")},
+		{"Mode", firstNonEmpty(r.Mode, "unknown")},
+		{"Agent", firstNonEmpty(r.Agent, "unknown")},
+		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
+	}
+	if r.TargetPath != "" {
+		fields[0] = kv{"Target", r.TargetPath}
+	}
+	if r.CaseFilter != "" {
+		fields = append(fields, kv{"Case", r.CaseFilter})
+	}
+	renderDashboardHeader(w, title, fields)
+	renderProofPlanSummaryDashboard(w, r)
+	renderControlOperatorCasesDashboard(w, r.Cases)
+	renderProofPlanPatchesDashboard(w, r.ProofPatches)
+	renderProofPlanEvidenceDashboard(w, r.EvidenceReferences)
+	renderProofPlanCommandsDashboard(w, r)
+	renderRunNotes(w, nil, r.Limitations)
+	fmt.Fprintln(w, "</main>")
+	fmt.Fprintln(w, "</body>")
+	fmt.Fprintln(w, "</html>")
+	return nil
+}
+
 type kv struct {
 	Key   string
 	Value string
@@ -1094,6 +1129,24 @@ func renderCaseBoardSummaryDashboard(w io.Writer, r model.ControlCatalogReport) 
 	fmt.Fprintln(w, "</section>")
 }
 
+func renderProofPlanSummaryDashboard(w io.Writer, r model.ProofPlanReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Proof Plan</h2><div class="subtle">Focused evidence patches and rerun criteria for closing selected operator cases.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"Cases", fmt.Sprintf("%d", r.Summary.Cases)},
+		{"Proof patches", fmt.Sprintf("%d", r.Summary.ProofPatches)},
+		{"Evidence refs", fmt.Sprintf("%d", r.Summary.EvidenceReferences)},
+		{"Controls", fmt.Sprintf("%d", r.Summary.Controls)},
+		{"Targets", fmt.Sprintf("%d", r.Summary.Targets)},
+	})
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, `<div><strong>Focused case:</strong> <span class="mono">%s</span></div>`, esc(r.CaseFilter))
+	}
+	fmt.Fprintln(w, "</section>")
+}
+
 func renderCaseBoardEvidenceModelDashboard(w io.Writer) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
@@ -1114,6 +1167,69 @@ func renderCaseBoardEvidenceModelDashboard(w io.Writer) {
 		fmt.Fprintf(w, "<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td></tr>", esc(row.layer), esc(row.fact), esc(row.use))
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderProofPlanPatchesDashboard(w io.Writer, patches []model.ControlProofPatch) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Proof Patches</h2><div class="subtle">Parser-recognized evidence Ariadne can verify on the next run. These are not enforcement claims.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(patches) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No proof patches matched this filter.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Control</th><th>Surface</th><th>Fields</th><th>Example</th><th>Rerun / done when</th></tr></thead><tbody>")
+	limit := len(patches)
+	if limit > 16 {
+		limit = 16
+	}
+	for _, patch := range patches[:limit] {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div></td>`, esc(patch.Control), esc(patch.Operation))
+		fmt.Fprintf(w, `<td><span class="mono">%s</span><div class="subtle">%s</div></td>`, esc(patch.Surface), esc(patch.Format))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(controlProofPatchFieldLines(patch.Fields)))
+		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(compactExample(patch.Example)))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limit</h3>%s</td>`, renderSmallList(limitStrings(patch.RerunCommands, 2)), renderSmallList(limitStrings(patch.SuccessCriteria, 3)), renderSmallList(limitStrings(patch.Limitations, 1)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(patches) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="5"><span class="subtle">%d more proof patch(es) in JSON output.</span></td></tr>`, len(patches)-limit)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderProofPlanEvidenceDashboard(w io.Writer, refs []model.EvidenceReference) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Evidence References</h2><div class="subtle">Source facts that caused this proof request.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	refs = dedupeEvidenceReferences(refs)
+	if len(refs) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No evidence references were returned for this proof plan.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, renderSmallList(evidenceReferenceLines(refs, 12)))
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderProofPlanCommandsDashboard(w io.Writer, r model.ProofPlanReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Rerun Commands</h2><div class="subtle">Run these after adding or verifying real control evidence.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div><h3>Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(r.RerunCommands, 6)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div><h3>Done When</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(r.SuccessCriteria, 6)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, "</section>")
 }
 

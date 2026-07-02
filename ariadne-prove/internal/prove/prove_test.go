@@ -3129,6 +3129,29 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if !containsString(decoded.Limitations, "deterministic evidence") {
 		t.Fatalf("proof plan should keep declared-evidence limitation: %+v", decoded.Limitations)
 	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderProofs(&htmlOut, r, "html", "breaking", "case:input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Proof Plan",
+		"Proof Plan",
+		"Operator Cases",
+		"Proof Patches",
+		"Evidence References",
+		"Rerun Commands",
+		"case:input-trust-boundary",
+		".ariadne/input-policy.json",
+		"input_isolation=true",
+		"trusted_instruction_sources=true",
+		"Proof patches declare evidence Ariadne can parse",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("proof plan dashboard missing %q:\n%s", want, rendered)
+		}
+	}
 }
 
 func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
