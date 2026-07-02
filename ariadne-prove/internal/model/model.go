@@ -1098,10 +1098,12 @@ type ZeroTrustArchitecture struct {
 }
 
 type ZeroTrustEvidence struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Source  string `json:"source,omitempty"`
-	Summary string `json:"summary"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Source    string `json:"source,omitempty"`
+	LineStart int    `json:"line_start,omitempty"`
+	LineEnd   int    `json:"line_end,omitempty"`
+	Summary   string `json:"summary"`
 }
 
 type ZeroTrustCoverage struct {

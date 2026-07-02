@@ -3684,7 +3684,12 @@ func renderZeroTrustEvidence(root string, evidence []model.ZeroTrustEvidence) st
 	for _, item := range limitEvidence(evidence, 5) {
 		b.WriteString("<li>")
 		if item.Source != "" {
-			b.WriteString(dashboardFileRefHTML(root, item.Source))
+			label := evidenceReferenceSourceLabel(item.Source, model.EvidenceReference{
+				Source:    item.Source,
+				LineStart: item.LineStart,
+				LineEnd:   item.LineEnd,
+			})
+			b.WriteString(dashboardFileRefWithLabelHTML(root, item.Source, label))
 		} else if item.ID != "" {
 			b.WriteString(`<span class="mono">`)
 			b.WriteString(esc(item.ID))

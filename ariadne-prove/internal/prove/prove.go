@@ -52,6 +52,7 @@ func RunStory(opts Options) (model.Report, error) {
 	exposure := Evaluate(collection, graph, manifest)
 	exposure = attachExposureEvidenceReferences(collection, graph, exposure)
 	zeroTrust := zerotrust.Assess(collection, graph, []model.ExposureResult{exposure})
+	zeroTrust = attachZeroTrustEvidenceLocations(collection, zeroTrust)
 	policy, err := loadPolicy(story.Dir, opts.RulesPath)
 	if err != nil {
 		return model.Report{}, err
@@ -146,6 +147,7 @@ func RunPath(opts Options) (model.Report, error) {
 	normalizeRealPathExposures(exposures)
 	attachExposureSetEvidenceReferences(collection, graph, exposures)
 	zeroTrust := zerotrust.Assess(collection, graph, exposures)
+	zeroTrust = attachZeroTrustEvidenceLocations(collection, zeroTrust)
 	primary := model.ExposureResult{}
 	if len(exposures) > 0 {
 		primary = exposures[0]
@@ -667,6 +669,41 @@ func attachExposureSetEvidenceReferences(c model.Collection, g model.Graph, expo
 func attachExposureEvidenceReferences(c model.Collection, g model.Graph, exposure model.ExposureResult) model.ExposureResult {
 	exposure.EvidenceReferences = evidenceReferencesForExposure(c, g, exposure)
 	return exposure
+}
+
+func attachZeroTrustEvidenceLocations(c model.Collection, zeroTrust model.ZeroTrust) model.ZeroTrust {
+	locations := evidenceSourceLocations(c)
+	for i := range zeroTrust.Checks {
+		zeroTrust.Checks[i].Evidence = zeroTrustEvidenceWithLocations(locations, zeroTrust.Checks[i].Evidence)
+	}
+	for i := range zeroTrust.ArchitectureFlaws {
+		zeroTrust.ArchitectureFlaws[i].Evidence = zeroTrustEvidenceWithLocations(locations, zeroTrust.ArchitectureFlaws[i].Evidence)
+	}
+	for i := range zeroTrust.Maturity.Requirements {
+		zeroTrust.Maturity.Requirements[i].Evidence = zeroTrustEvidenceWithLocations(locations, zeroTrust.Maturity.Requirements[i].Evidence)
+	}
+	return zeroTrust
+}
+
+func zeroTrustEvidenceWithLocations(locations map[string]evidenceSourceLocation, values []model.ZeroTrustEvidence) []model.ZeroTrustEvidence {
+	if len(values) == 0 {
+		return []model.ZeroTrustEvidence{}
+	}
+	out := make([]model.ZeroTrustEvidence, 0, len(values))
+	for _, value := range values {
+		ref := withEvidenceLocation(locations, model.EvidenceReference{
+			ID:        value.ID,
+			Kind:      value.Kind,
+			Source:    value.Source,
+			LineStart: value.LineStart,
+			LineEnd:   value.LineEnd,
+			Summary:   value.Summary,
+		})
+		value.LineStart = ref.LineStart
+		value.LineEnd = ref.LineEnd
+		out = append(out, value)
+	}
+	return out
 }
 
 func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure model.ExposureResult) []model.EvidenceReference {

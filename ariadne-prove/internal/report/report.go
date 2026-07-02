@@ -9980,11 +9980,13 @@ func evidenceReferencesFromZeroTrust(target string, evidence []model.ZeroTrustEv
 			continue
 		}
 		ref := model.EvidenceReference{
-			Target:  target,
-			ID:      item.ID,
-			Kind:    item.Kind,
-			Source:  item.Source,
-			Summary: item.Summary,
+			Target:    target,
+			ID:        item.ID,
+			Kind:      item.Kind,
+			Source:    item.Source,
+			LineStart: item.LineStart,
+			LineEnd:   item.LineEnd,
+			Summary:   item.Summary,
 		}
 		if ref.ID == "" {
 			ref.ID = ref.Source
@@ -10197,15 +10199,23 @@ func zeroTrustEvidenceLine(evidence []model.ZeroTrustEvidence, limit int) string
 		if source == "" {
 			source = item.Kind
 		}
-		if source == "" || seen[source] {
+		key := source
+		if item.LineStart > 0 {
+			key += fmt.Sprintf(":%d", item.LineStart)
+		}
+		if source == "" || seen[key] {
 			continue
 		}
 		if len(parts) >= limit {
 			parts = append(parts, fmt.Sprintf("%d more", len(evidence)-len(parts)))
 			break
 		}
-		seen[source] = true
-		parts = append(parts, source)
+		seen[key] = true
+		parts = append(parts, evidenceReferenceSourceLabel(source, model.EvidenceReference{
+			Source:    item.Source,
+			LineStart: item.LineStart,
+			LineEnd:   item.LineEnd,
+		}))
 	}
 	return strings.Join(parts, "; ")
 }

@@ -3935,7 +3935,7 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		`class="file-ref"`,
 		`data-copy-value="`,
 		`Copy path</button>`,
-		">CLAUDE.md</a>",
+		">CLAUDE.md:1</a>",
 		"Missing hard barriers",
 		"Evidence payload",
 		"Operator Cases",
@@ -4355,6 +4355,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	zeroTrustEvidence, ok := findZeroTrustEvidenceSource(r.ZeroTrust.ArchitectureFlaws, ".claude/settings.json")
+	if !ok || zeroTrustEvidence.LineStart <= 0 || zeroTrustEvidence.LineEnd != zeroTrustEvidence.LineStart {
+		t.Fatalf("zero trust architecture evidence should carry an actionable source line: %+v", zeroTrustEvidence)
+	}
 	var table bytes.Buffer
 	if err := report.RenderAssess(&table, inventory, r, "table", "breaking"); err != nil {
 		t.Fatal(err)
@@ -4628,6 +4632,17 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.OperatorWorkbench.DoneCriteria) == 0 ||
 		!containsString(decoded.OperatorWorkbench.ChangeReadout, "compare report is the readout") {
 		t.Fatalf("assessment should expose a structured operator workbench contract: %+v", decoded.OperatorWorkbench)
+	}
+	claudeWorkbenchRef, ok := findEvidenceReferenceSource(decoded.OperatorWorkbench.EvidenceToOpen, ".claude/settings.json")
+	if !ok || claudeWorkbenchRef.LineStart <= 0 || claudeWorkbenchRef.LineEnd != claudeWorkbenchRef.LineStart {
+		t.Fatalf("operator workbench should point to an actionable Claude source line: %+v", claudeWorkbenchRef)
+	}
+	codexWorkbenchRef, ok := findEvidenceReferenceSource(decoded.OperatorWorkbench.EvidenceToOpen, ".codex/config.toml")
+	if !ok || codexWorkbenchRef.LineStart <= 0 || codexWorkbenchRef.LineEnd != codexWorkbenchRef.LineStart {
+		t.Fatalf("operator workbench should point to an actionable Codex source line: %+v", codexWorkbenchRef)
+	}
+	if !strings.Contains(jsonOut.String(), `"line_start"`) || !strings.Contains(jsonOut.String(), `"line_end"`) {
+		t.Fatalf("assessment JSON should include source line anchors in evidence references:\n%s", jsonOut.String())
 	}
 	if !decoded.CaseLifecycle.Available ||
 		decoded.CaseLifecycle.CaseID != decoded.FirstAction.CaseID ||
@@ -5061,8 +5076,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`class="file-ref"`,
 		`data-copy-value="`,
 		`Copy path</button>`,
-		`.claude/settings.json">.claude/settings.json</a>`,
-		`.codex/config.toml">.codex/config.toml</a>`,
+		`.claude/settings.json">.claude/settings.json:`,
+		`.codex/config.toml">.codex/config.toml:`,
 		`.ariadne/egress-policy.json">.ariadne/egress-policy.json</a>`,
 		"Proof patch:",
 		"Accepted evidence:",
@@ -5172,7 +5187,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	operatorBlock := rendered[operatorStart:operatorEnd]
 	for _, want := range []string{
 		`id="case-case-egress-output-boundary"`,
-		`.claude/settings.json">.claude/settings.json</a>`,
+		`.claude/settings.json">.claude/settings.json:`,
 		`.ariadne/egress-policy.json">.ariadne/egress-policy.json</a>`,
 		"Proof patches",
 	} {
@@ -5187,8 +5202,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	architectureBlock := rendered[architectureStart:architectureEnd]
 	for _, want := range []string{
-		`.claude/settings.json">.claude/settings.json</a>`,
-		`.codex/config.toml">.codex/config.toml</a>`,
+		`.claude/settings.json">.claude/settings.json:`,
+		`.codex/config.toml">.codex/config.toml:`,
 		".ariadne/egress-policy.json",
 	} {
 		if !strings.Contains(architectureBlock, want) {
@@ -7128,6 +7143,17 @@ func findEvidenceReferenceSource(values []model.EvidenceReference, fragment stri
 		}
 	}
 	return model.EvidenceReference{}, false
+}
+
+func findZeroTrustEvidenceSource(values []model.ZeroTrustArchitecture, fragment string) (model.ZeroTrustEvidence, bool) {
+	for _, flaw := range values {
+		for _, value := range flaw.Evidence {
+			if strings.Contains(value.Source, fragment) {
+				return value, true
+			}
+		}
+	}
+	return model.ZeroTrustEvidence{}, false
 }
 
 func containsEvidenceReferenceSummary(values []model.EvidenceReference, fragment string) bool {
