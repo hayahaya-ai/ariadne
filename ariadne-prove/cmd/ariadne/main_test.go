@@ -75,6 +75,8 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 		"Decision:",
 		"Evidence files:",
 		"Next action:",
+		"Create closure workspace:",
+		"ariadne closure --path",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("default assess summary missing %q:\n%s", want, summary)
@@ -123,6 +125,7 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 		"Save Baseline Proof",
 		"Add Or Verify Proof",
 		"Commands:",
+		"ariadne closure --path",
 		"Closure workflow:",
 	} {
 		if !strings.Contains(runbook, want) {
@@ -139,6 +142,7 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 		`"current_step"`,
 		`"next_step"`,
 		`"open_first"`,
+		`"ariadne closure --path`,
 		`"closure_workflow"`,
 		`"save_baseline_proof"`,
 		`"add_or_verify_proof"`,
@@ -184,6 +188,7 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 		"Ariadne Assessment",
 		"Operator Runbook",
 		"Current Action",
+		"Create closure workspace",
 		"Open these first",
 		"Current proof command",
 		"Operator Packet",
@@ -320,6 +325,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"proof-action.txt",
 		"What This Bundle Answers",
 		"Proof Loop Commands",
+		"ariadne closure --path",
 		"before-proof.json",
 		"--patch-dir proof-patches",
 		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
@@ -451,6 +457,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"Source Reference Workbench",
 		"Operator Runbook",
 		"Current Action",
+		"Create closure workspace",
 		"Open these first",
 		"Current proof command",
 		"Files and artifacts",

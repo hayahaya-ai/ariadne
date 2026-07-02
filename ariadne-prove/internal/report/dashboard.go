@@ -904,7 +904,7 @@ func renderAssessOperatorRunbookDashboard(w io.Writer, r model.AssessReport) {
 		{"Control", firstNonEmpty(runbook.CurrentControl, "not recorded")},
 		{"Proof surface", firstNonEmpty(runbook.ProofSurface, "not recorded")},
 	})
-	renderAssessRunbookCurrentActionDashboard(w, r.TargetPath, runbook, currentStep, nextStep)
+	renderAssessRunbookCurrentActionDashboard(w, r.TargetPath, runbook, currentStep, nextStep, r.NextCommands)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Open First</h3>`)
@@ -929,11 +929,12 @@ func renderAssessOperatorRunbookDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</section>`)
 }
 
-func renderAssessRunbookCurrentActionDashboard(w io.Writer, root string, runbook model.AssessOperatorRunbook, current model.AssessClosureLoopStep, next model.AssessClosureLoopStep) {
+func renderAssessRunbookCurrentActionDashboard(w io.Writer, root string, runbook model.AssessOperatorRunbook, current model.AssessClosureLoopStep, next model.AssessClosureLoopStep, nextCommands []string) {
 	commands := firstNonEmptyStrings(current.Commands, runbook.Commands)
 	files := firstNonEmptyStrings(current.Files, runbook.Files)
 	artifacts := firstNonEmptyStrings(current.Artifacts, runbook.Artifacts)
 	doneCriteria := firstNonEmptyStrings(current.DoneCriteria, runbook.DoneCriteria)
+	closureCommand := assessClosureCommandFromNextCommands(nextCommands)
 	fmt.Fprintln(w, `<div class="action-callout">`)
 	fmt.Fprintln(w, `<div class="action-grid">`)
 	fmt.Fprintln(w, `<div>`)
@@ -956,6 +957,10 @@ func renderAssessRunbookCurrentActionDashboard(w io.Writer, root string, runbook
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<div class="action-label">Run / Save</div>`)
+	if closureCommand != "" {
+		fmt.Fprintln(w, `<h3>Create closure workspace</h3>`)
+		fmt.Fprintln(w, renderCommandList([]string{closureCommand}))
+	}
 	fmt.Fprintln(w, `<h3>Current proof command</h3>`)
 	fmt.Fprintln(w, renderCommandList(commands))
 	fmt.Fprintln(w, `<h3>Files and artifacts</h3>`)

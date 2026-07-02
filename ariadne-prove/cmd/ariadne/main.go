@@ -605,7 +605,15 @@ func selfAssessmentBundleProofLoop(targetPath string, mode string, agent string,
 		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(status, "breaking")),
 		selfBundleShellQuoteArg(caseID),
 	)
+	closure := fmt.Sprintf("ariadne closure --path %s --mode %s --agent %s --status %s --case %s --dir ariadne-closure",
+		selfBundleShellQuoteArg(targetPath),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(mode, "endpoint")),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(agent, "all")),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(status, "breaking")),
+		selfBundleShellQuoteArg(caseID),
+	)
 	return []string{
+		closure,
 		base + " --format action",
 		base + " --format json --out before-proof.json",
 		base + " --patch-dir proof-patches",

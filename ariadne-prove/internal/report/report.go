@@ -335,6 +335,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	sourceReferences := buildAssessSourceReferenceWorkbench(r.TargetPath, operatorPacket, operatorWorkbench, decision, signalQuality, triage, firstAction, topCases)
 	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
+	operatorWorkbench = attachAssessRunbookClosureCommand(operatorWorkbench, nextCommands)
 	return model.AssessReport{
 		SchemaVersion:     model.SchemaVersion,
 		RunID:             r.RunID,
@@ -2410,11 +2411,18 @@ func renderAssessSummaryNextAction(w io.Writer, r model.AssessReport) {
 	} else if action.NextStep != "" {
 		fmt.Fprintf(w, "  - Do this: %s\n", action.NextStep)
 	}
-	if current.Control != "" {
-		fmt.Fprintf(w, "  - Control: %s\n", current.Control)
+	if current.Control != "" || current.Surface != "" {
+		detail := current.Control
+		if detail == "" {
+			detail = "not recorded"
+		}
+		if current.Surface != "" {
+			detail = fmt.Sprintf("%s; proof surface: %s", detail, current.Surface)
+		}
+		fmt.Fprintf(w, "  - Control: %s\n", detail)
 	}
-	if current.Surface != "" {
-		fmt.Fprintf(w, "  - Proof surface: %s\n", current.Surface)
+	if closureCommand := assessClosureCommandFromNextCommands(r.NextCommands); closureCommand != "" {
+		fmt.Fprintf(w, "  - Create closure workspace: %s\n", closureCommand)
 	}
 	if example := assessCurrentEvidenceExampleLine(action); example != "" {
 		fmt.Fprintf(w, "  - Accepted evidence: %s\n", example)
@@ -2460,10 +2468,24 @@ func renderAssessSummaryNextAction(w io.Writer, r model.AssessReport) {
 	renderAssessDecisionLines(w, "Done when", r.Decision.DoneCriteria, 3)
 	if len(r.NextCommands) > 0 {
 		fmt.Fprintf(w, "\nMore detail:\n")
-		for _, command := range firstStrings(r.NextCommands, 3) {
+		for _, command := range firstStrings(assessNonClosureCommands(r.NextCommands), 3) {
 			fmt.Fprintf(w, "  - %s\n", command)
 		}
 	}
+}
+
+func assessNonClosureCommands(commands []string) []string {
+	var out []string
+	for _, command := range commands {
+		if isAriadneSubcommand(command, "closure") {
+			continue
+		}
+		out = append(out, command)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func renderAssessSummaryProofBundle(w io.Writer, action model.AssessFirstAction) {
@@ -4449,6 +4471,18 @@ func buildAssessOperatorRunbook(workbench model.AssessOperatorWorkbench) model.A
 	return normalizeAssessOperatorRunbook(runbook)
 }
 
+func attachAssessRunbookClosureCommand(workbench model.AssessOperatorWorkbench, nextCommands []string) model.AssessOperatorWorkbench {
+	closureCommand := assessClosureCommandFromNextCommands(nextCommands)
+	if closureCommand == "" || !workbench.Runbook.Available {
+		return workbench
+	}
+	if !containsReportString(workbench.Runbook.Commands, closureCommand) {
+		workbench.Runbook.Commands = append([]string{closureCommand}, workbench.Runbook.Commands...)
+	}
+	workbench.Runbook = normalizeAssessOperatorRunbook(workbench.Runbook)
+	return workbench
+}
+
 func assessRunbookCurrentStep(steps []model.AssessClosureLoopStep) model.AssessClosureLoopStep {
 	for _, step := range steps {
 		if strings.EqualFold(step.Status, "current") {
@@ -6224,6 +6258,9 @@ func assessPathCommands(path, mode, agent, statusFilter string, cases []model.Co
 	base := assessFocusCommand(fmt.Sprintf("%s assess --path %s --mode %s --agent %s --status %s --format table", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
 	commands := []string{base}
 	if len(cases) > 0 {
+		if closureCommand := assessClosureWorkspaceCommand(path, mode, agent, statusFilter, cases[0].ID); closureCommand != "" {
+			commands = append(commands, closureCommand)
+		}
 		commands = append(commands, fmt.Sprintf("%s cases --path %s --mode %s --agent %s --status %s --case %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 		commands = append(commands, fmt.Sprintf("%s proofs --path %s --mode %s --agent %s --status %s --case %s --format action", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 	}
@@ -6232,6 +6269,32 @@ func assessPathCommands(path, mode, agent, statusFilter string, cases []model.Co
 		fmt.Sprintf("%s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 	)
 	return commands
+}
+
+func assessClosureWorkspaceCommand(path, mode, agent, statusFilter string, caseID string) string {
+	path = strings.TrimSpace(path)
+	caseID = strings.TrimSpace(caseID)
+	if path == "" || caseID == "" {
+		return ""
+	}
+	cli := ariadneCommand()
+	return fmt.Sprintf("%s closure --path %s --mode %s --agent %s --status %s --case %s --dir ariadne-closure",
+		cli,
+		shellQuoteCommandArg(path),
+		shellQuoteCommandArg(mode),
+		shellQuoteCommandArg(agent),
+		shellQuoteCommandArg(statusFilter),
+		shellQuoteCommandArg(caseID),
+	)
+}
+
+func assessClosureCommandFromNextCommands(commands []string) string {
+	for _, command := range commands {
+		if isAriadneSubcommand(command, "closure") {
+			return command
+		}
+	}
+	return ""
 }
 
 func assessPathEvidenceGapActions(path, mode, agent string, triage model.AssessTriage, inventory model.AssessInventory) []string {
