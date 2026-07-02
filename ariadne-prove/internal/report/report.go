@@ -2798,6 +2798,9 @@ func assessTriageProofLoop(action model.AssessFirstAction) []string {
 	if command := assessProofActionCommand(action); command != "" {
 		out = append(out, "Open focused proof action: "+command)
 	}
+	if len(action.CompareCommands) > 0 {
+		out = append(out, "Save baseline proof before changes: "+action.CompareCommands[0])
+	}
 	if action.CurrentAction.PatchExportCommand != "" {
 		out = append(out, "Export suggested proof files: "+action.CurrentAction.PatchExportCommand)
 	} else if action.PatchExportCommand != "" {
@@ -2809,8 +2812,16 @@ func assessTriageProofLoop(action model.AssessFirstAction) []string {
 	if rerun := assessCurrentRerunCommand(action); rerun != "" {
 		out = append(out, "Rerun after evidence changes: "+rerun)
 	}
-	for _, command := range action.CompareCommands {
-		out = append(out, "Compare proof state: "+command)
+	if len(action.CompareCommands) > 1 {
+		out = append(out, "Save after proof after rerun: "+action.CompareCommands[1])
+	}
+	if len(action.CompareCommands) > 2 {
+		out = append(out, "Compare proof state: "+action.CompareCommands[2])
+	}
+	if len(action.CompareCommands) > 3 {
+		for _, command := range action.CompareCommands[3:] {
+			out = append(out, "Additional compare proof state: "+command)
+		}
 	}
 	if out == nil {
 		return []string{}

@@ -4133,11 +4133,24 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if len(decoded.Triage.ProofLoop) != 7 ||
 		!containsString(decoded.Triage.ProofLoop, "Open focused proof action: ariadne proofs --path") ||
+		!containsString(decoded.Triage.ProofLoop, "Save baseline proof before changes: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Export suggested proof files: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Review/apply generated proof file: cd proof-patches") ||
 		!containsString(decoded.Triage.ProofLoop, "Rerun after evidence changes: ariadne cases --path") ||
+		!containsString(decoded.Triage.ProofLoop, "Save after proof after rerun: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Compare proof state: ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html") {
 		t.Fatalf("triage proof loop should preserve every command needed for proof/rerun/compare: %+v", decoded.Triage.ProofLoop)
+	}
+	if !proofLoopLabelsInOrder(decoded.Triage.ProofLoop,
+		"Open focused proof action:",
+		"Save baseline proof before changes:",
+		"Export suggested proof files:",
+		"Review/apply generated proof file:",
+		"Rerun after evidence changes:",
+		"Save after proof after rerun:",
+		"Compare proof state:",
+	) {
+		t.Fatalf("triage proof loop should save baseline before proof changes and compare after rerun: %+v", decoded.Triage.ProofLoop)
 	}
 	if decoded.Summary.OperatorCases == 0 || len(decoded.TopCases) == 0 || decoded.TopCases[0].Rank != 1 || decoded.TopCases[0].NextStep == "" {
 		t.Fatalf("assessment should include ranked top cases: summary=%+v cases=%+v", decoded.Summary, decoded.TopCases)
@@ -4269,7 +4282,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Accepted evidence:",
 		"Proof patch:",
 		"Proof loop: Open focused proof action:",
+		"Proof loop: Save baseline proof before changes:",
 		"Proof loop: Review/apply generated proof file:",
+		"Proof loop: Save after proof after rerun:",
 		"--format action",
 		"Export suggested files:",
 		"--patch-dir proof-patches",
@@ -4396,8 +4411,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	proofLoopBlock := boundedBlock(t, rendered, "<h3>Proof Loop</h3>", "<h2>Ranked Closure Plan</h2>")
 	for _, want := range []string{
 		"Open focused proof action",
+		"Save baseline proof before changes",
 		"Export suggested proof files",
 		"Rerun after evidence changes",
+		"Save after proof after rerun",
 		"Compare proof state",
 		`data-command="ariadne proofs --path`,
 		`data-command="ariadne cases --path`,
@@ -4572,9 +4589,11 @@ func TestAssessCommandsHonorCommandEnvironment(t *testing.T) {
 	actionRendered := actionOut.String()
 	for _, want := range []string{
 		"Open focused proof action: ./bin/ariadne proofs --path",
+		"Save baseline proof before changes: ./bin/ariadne proofs --path",
 		"Export suggested proof files: ./bin/ariadne proofs --path",
 		"Review/apply generated proof file: cd proof-patches",
 		"Rerun after evidence changes: ./bin/ariadne cases --path",
+		"Save after proof after rerun: ./bin/ariadne proofs --path",
 		"Compare proof state: ./bin/ariadne compare --before before-proof.json --after after-proof.json",
 	} {
 		if !strings.Contains(actionRendered, want) {
@@ -6197,6 +6216,19 @@ func containsString(values []string, fragment string) bool {
 		}
 	}
 	return false
+}
+
+func proofLoopLabelsInOrder(values []string, labels ...string) bool {
+	next := 0
+	for _, value := range values {
+		if next >= len(labels) {
+			break
+		}
+		if strings.Contains(value, labels[next]) {
+			next++
+		}
+	}
+	return next == len(labels)
 }
 
 func boundedBlock(t *testing.T, value string, start string, end string) string {
