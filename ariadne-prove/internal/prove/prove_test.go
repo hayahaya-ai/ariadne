@@ -3402,6 +3402,12 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	if compare.RunKind != "case_compare" || compare.Summary.Cases != 1 || compare.Summary.Closed != 1 {
 		t.Fatalf("compare should show one closed case: %+v", compare)
 	}
+	if compare.Outcome.TotalCases != 1 || compare.Outcome.AfterOpen != 0 || compare.Outcome.AfterClosed != 1 || compare.Outcome.AfterAbsent != 0 || compare.Outcome.MaterialChanges != 1 {
+		t.Fatalf("compare outcome should summarize the after-rerun state: %+v", compare.Outcome)
+	}
+	if len(compare.Outcome.ClosedCases) != 1 || len(compare.Outcome.ActionCases) != 0 || !strings.Contains(compare.Outcome.NextAction, "No open case remains") {
+		t.Fatalf("compare outcome should show the case closed with no remaining action: %+v", compare.Outcome)
+	}
 	if got := compare.Cases[0]; got.Disposition != "closed" || got.BeforeState != "open" || got.AfterState != "closed" {
 		t.Fatalf("compare should show open -> closed: %+v", got)
 	}
@@ -3430,6 +3436,10 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	tableOut := table.String()
 	for _, want := range []string{
 		"Ariadne case compare:",
+		"Outcome:",
+		"1 case(s) compared: 0 open after rerun, 1 closed after rerun, 0 absent after rerun, 1 material change(s).",
+		"Next action: No open case remains",
+		"Closed after rerun:",
 		"CLOSED Input Trust Boundary",
 		"open -> closed",
 		"After controls: control:input-isolation; control:trusted-source-policy",
@@ -3454,6 +3464,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Case Compare",
 		"Compare Summary",
+		"Outcome",
+		"After closed",
+		"Next Action",
 		"Case Changes",
 		"CLOSED",
 		"control:input-isolation",
@@ -3476,6 +3489,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	}
 	if reopened.Summary.Reopened != 1 || reopened.Cases[0].Disposition != "reopened" || reopened.Cases[0].BeforeState != "closed" || reopened.Cases[0].AfterState != "open" {
 		t.Fatalf("reverse compare should show reopened: %+v", reopened)
+	}
+	if reopened.Outcome.AfterOpen != 1 || len(reopened.Outcome.ActionCases) != 1 || !strings.Contains(reopened.Outcome.NextAction, reopened.Cases[0].ID) {
+		t.Fatalf("reverse compare should make the reopened case actionable: %+v", reopened.Outcome)
 	}
 }
 
@@ -4271,11 +4287,16 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"before_source",
 		"after_source",
 		"summary",
+		"outcome",
 		"cases",
 		"limitations",
 	)
 	caseCompareSummary := schemaMap(t, caseCompareSchema, "$defs", "case_compare_summary")
 	assertRequiredKeys(t, caseCompareSummary, "cases", "closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed")
+	caseCompareOutcome := schemaMap(t, caseCompareSchema, "$defs", "case_compare_outcome")
+	assertRequiredKeys(t, caseCompareOutcome, "summary", "total_cases", "after_open", "after_closed", "after_absent", "material_changes", "action_cases", "closed_cases", "absent_cases", "next_action")
+	caseCompareOutcomeCase := schemaMap(t, caseCompareSchema, "$defs", "case_compare_outcome_case")
+	assertRequiredKeys(t, caseCompareOutcomeCase, "id", "title", "severity", "disposition", "before_state", "after_state", "state_reason", "next_step", "after_evidence_refs", "after_proof_patches")
 	caseCompareResult := schemaMap(t, caseCompareSchema, "$defs", "case_compare_result")
 	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_evidence_details", "after_evidence_details", "added_evidence_refs", "removed_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_rerun_commands", "after_rerun_commands", "before_compare_commands", "after_compare_commands", "before_next_step", "after_next_step")
 

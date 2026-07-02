@@ -194,6 +194,7 @@ type CaseCompareReport struct {
 	BeforeSource  string              `json:"before_source"`
 	AfterSource   string              `json:"after_source"`
 	Summary       CaseCompareSummary  `json:"summary"`
+	Outcome       CaseCompareOutcome  `json:"outcome"`
 	Cases         []CaseCompareResult `json:"cases"`
 	Limitations   []string            `json:"limitations"`
 }
@@ -207,6 +208,32 @@ type CaseCompareSummary struct {
 	Changed      int `json:"changed"`
 	Added        int `json:"added"`
 	Removed      int `json:"removed"`
+}
+
+type CaseCompareOutcome struct {
+	Summary         string                   `json:"summary"`
+	TotalCases      int                      `json:"total_cases"`
+	AfterOpen       int                      `json:"after_open"`
+	AfterClosed     int                      `json:"after_closed"`
+	AfterAbsent     int                      `json:"after_absent"`
+	MaterialChanges int                      `json:"material_changes"`
+	ActionCases     []CaseCompareOutcomeCase `json:"action_cases"`
+	ClosedCases     []CaseCompareOutcomeCase `json:"closed_cases"`
+	AbsentCases     []CaseCompareOutcomeCase `json:"absent_cases"`
+	NextAction      string                   `json:"next_action"`
+}
+
+type CaseCompareOutcomeCase struct {
+	ID                string `json:"id"`
+	Title             string `json:"title"`
+	Severity          string `json:"severity"`
+	Disposition       string `json:"disposition"`
+	BeforeState       string `json:"before_state"`
+	AfterState        string `json:"after_state"`
+	StateReason       string `json:"state_reason"`
+	NextStep          string `json:"next_step"`
+	AfterEvidenceRefs int    `json:"after_evidence_refs"`
+	AfterProofPatches int    `json:"after_proof_patches"`
 }
 
 type CaseCompareResult struct {

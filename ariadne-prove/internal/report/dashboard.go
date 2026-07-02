@@ -380,6 +380,7 @@ func renderCaseCompareDashboard(w io.Writer, r model.CaseCompareReport) error {
 		{"Cases", fmt.Sprintf("%d", r.Summary.Cases)},
 	})
 	renderCaseCompareSummaryDashboard(w, r)
+	renderCaseCompareOutcomeDashboard(w, r.Outcome)
 	renderCaseCompareCasesDashboard(w, r.Cases)
 	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
@@ -1421,6 +1422,35 @@ func renderCaseCompareSummaryDashboard(w io.Writer, r model.CaseCompareReport) {
 		{"Stayed closed", fmt.Sprintf("%d", r.Summary.StayedClosed)},
 		{"Changed", fmt.Sprintf("%d", r.Summary.Changed)},
 	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderCaseCompareOutcomeDashboard(w io.Writer, outcome model.CaseCompareOutcome) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Outcome</h2><div class="subtle">After-rerun state and next action derived from case facts.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"After open", fmt.Sprintf("%d", outcome.AfterOpen)},
+		{"After closed", fmt.Sprintf("%d", outcome.AfterClosed)},
+		{"After absent", fmt.Sprintf("%d", outcome.AfterAbsent)},
+		{"Material changes", fmt.Sprintf("%d", outcome.MaterialChanges)},
+		{"Cases", fmt.Sprintf("%d", outcome.TotalCases)},
+	})
+	fmt.Fprintf(w, `<h3>Summary</h3><div>%s</div>`, esc(firstNonEmpty(outcome.Summary, "No outcome summary recorded.")))
+	fmt.Fprintf(w, `<h3>Next Action</h3><div>%s</div>`, esc(firstNonEmpty(outcome.NextAction, "No next action recorded.")))
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div><h3>Still Open After Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(caseCompareOutcomeCaseLines(outcome.ActionCases, 5)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div><h3>Closed After Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(caseCompareOutcomeCaseLines(outcome.ClosedCases, 5)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	if len(outcome.AbsentCases) > 0 {
+		fmt.Fprintln(w, `<h3>Absent After Rerun</h3>`)
+		fmt.Fprintln(w, renderSmallList(caseCompareOutcomeCaseLines(outcome.AbsentCases, 5)))
+	}
 	fmt.Fprintln(w, "</section>")
 }
 

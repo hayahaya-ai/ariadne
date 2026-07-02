@@ -504,6 +504,7 @@ func BuildCaseCompareReport(beforeRaw []byte, afterRaw []byte, beforeSource stri
 	if out.Cases == nil {
 		out.Cases = []model.CaseCompareResult{}
 	}
+	out.Outcome = buildCaseCompareOutcome(out.Cases, out.Summary)
 	return out, nil
 }
 
@@ -804,6 +805,105 @@ func incrementCaseCompareSummary(summary *model.CaseCompareSummary, disposition 
 	}
 }
 
+func buildCaseCompareOutcome(cases []model.CaseCompareResult, summary model.CaseCompareSummary) model.CaseCompareOutcome {
+	out := model.CaseCompareOutcome{
+		TotalCases:      len(cases),
+		MaterialChanges: summary.Closed + summary.Reopened + summary.Changed + summary.Added + summary.Removed,
+	}
+	for _, item := range cases {
+		caseSummary := caseCompareOutcomeCase(item)
+		switch item.AfterState {
+		case "open":
+			out.AfterOpen++
+			out.ActionCases = append(out.ActionCases, caseSummary)
+		case "closed":
+			out.AfterClosed++
+			out.ClosedCases = append(out.ClosedCases, caseSummary)
+		case "absent":
+			out.AfterAbsent++
+			out.AbsentCases = append(out.AbsentCases, caseSummary)
+		}
+	}
+	out.Summary = fmt.Sprintf("%d case(s) compared: %d open after rerun, %d closed after rerun, %d absent after rerun, %d material change(s).",
+		out.TotalCases,
+		out.AfterOpen,
+		out.AfterClosed,
+		out.AfterAbsent,
+		out.MaterialChanges,
+	)
+	out.NextAction = caseCompareOutcomeNextAction(out)
+	if out.ActionCases == nil {
+		out.ActionCases = []model.CaseCompareOutcomeCase{}
+	}
+	if out.ClosedCases == nil {
+		out.ClosedCases = []model.CaseCompareOutcomeCase{}
+	}
+	if out.AbsentCases == nil {
+		out.AbsentCases = []model.CaseCompareOutcomeCase{}
+	}
+	return out
+}
+
+func caseCompareOutcomeCase(item model.CaseCompareResult) model.CaseCompareOutcomeCase {
+	nextStep := item.AfterNextStep
+	if nextStep == "" && item.AfterState == "open" {
+		nextStep = item.BeforeNextStep
+	}
+	return model.CaseCompareOutcomeCase{
+		ID:                item.ID,
+		Title:             item.Title,
+		Severity:          item.Severity,
+		Disposition:       item.Disposition,
+		BeforeState:       item.BeforeState,
+		AfterState:        item.AfterState,
+		StateReason:       firstNonEmpty(item.AfterStateReason, item.BeforeStateReason),
+		NextStep:          nextStep,
+		AfterEvidenceRefs: item.AfterEvidenceRefs,
+		AfterProofPatches: item.AfterProofPatches,
+	}
+}
+
+func caseCompareOutcomeNextAction(out model.CaseCompareOutcome) string {
+	if len(out.ActionCases) > 0 {
+		item := out.ActionCases[0]
+		return fmt.Sprintf("%s: %s", firstNonEmpty(item.ID, item.Title, "case"), firstNonEmpty(item.NextStep, item.StateReason, "case remains open in the after artifact"))
+	}
+	if out.TotalCases == 0 {
+		return "No comparable cases found; create before/after Ariadne JSON for the same case scope."
+	}
+	if out.AfterAbsent > 0 {
+		return "No open case remains in the after artifact; confirm absent cases are expected scope changes before treating them as resolved."
+	}
+	return "No open case remains in the after artifact."
+}
+
+func caseCompareOutcomeCaseLines(cases []model.CaseCompareOutcomeCase, limit int) []string {
+	var out []string
+	for _, item := range limitCaseCompareOutcomeCases(cases, limit) {
+		out = append(out, fmt.Sprintf("%s %s (%s): %s -> %s",
+			strings.ToUpper(strings.ReplaceAll(item.Disposition, "_", " ")),
+			firstNonEmpty(item.Title, item.ID),
+			item.ID,
+			item.BeforeState,
+			item.AfterState,
+		))
+	}
+	if limit > 0 && len(cases) > limit {
+		out = append(out, fmt.Sprintf("%d more case(s) omitted", len(cases)-limit))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func limitCaseCompareOutcomeCases(cases []model.CaseCompareOutcomeCase, limit int) []model.CaseCompareOutcomeCase {
+	if limit <= 0 || len(cases) <= limit {
+		return cases
+	}
+	return cases[:limit]
+}
+
 func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 	fmt.Fprintf(w, "Ariadne case compare:\n")
 	fmt.Fprintf(w, "  Before: %s\n", firstNonEmpty(r.BeforeSource, "<before>"))
@@ -818,6 +918,28 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 		r.Summary.Added,
 		r.Summary.Removed,
 	)
+	fmt.Fprintf(w, "Outcome:\n")
+	fmt.Fprintf(w, "  %s\n", firstNonEmpty(r.Outcome.Summary, "No outcome summary recorded."))
+	fmt.Fprintf(w, "  Next action: %s\n", firstNonEmpty(r.Outcome.NextAction, "No next action recorded."))
+	if len(r.Outcome.ActionCases) > 0 {
+		fmt.Fprintf(w, "  Still open after rerun:\n")
+		for _, line := range caseCompareOutcomeCaseLines(r.Outcome.ActionCases, 5) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+	if len(r.Outcome.ClosedCases) > 0 {
+		fmt.Fprintf(w, "  Closed after rerun:\n")
+		for _, line := range caseCompareOutcomeCaseLines(r.Outcome.ClosedCases, 5) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+	if len(r.Outcome.AbsentCases) > 0 {
+		fmt.Fprintf(w, "  Absent after rerun:\n")
+		for _, line := range caseCompareOutcomeCaseLines(r.Outcome.AbsentCases, 5) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+	fmt.Fprintln(w)
 	if len(r.Cases) == 0 {
 		fmt.Fprintf(w, "Cases:\n  - no comparable cases found\n\n")
 		return nil
