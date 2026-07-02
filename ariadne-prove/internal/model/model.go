@@ -409,9 +409,21 @@ type AssessTriage struct {
 	PartialOrFrictionControls []string            `json:"partial_or_friction_controls"`
 	PresentHardBarriers       []string            `json:"present_hard_barriers"`
 	UnknownEvidence           []string            `json:"unknown_evidence"`
+	SignalDetails             []AssessSignal      `json:"signal_details"`
 	EvidenceReferences        []EvidenceReference `json:"evidence_refs"`
 	NextAction                string              `json:"next_action"`
 	ProofLoop                 []string            `json:"proof_loop"`
+}
+
+type AssessSignal struct {
+	ID                 string              `json:"id"`
+	Category           string              `json:"category"`
+	Disposition        string              `json:"disposition"`
+	Summary            string              `json:"summary"`
+	WhyItMatters       string              `json:"why_it_matters"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	RelatedControls    []string            `json:"related_controls"`
+	Limitations        []string            `json:"limitations"`
 }
 
 type AssessInventory struct {

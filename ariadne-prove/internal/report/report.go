@@ -1888,6 +1888,7 @@ func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInvent
 		PartialOrFrictionControls: []string{},
 		PresentHardBarriers:       []string{},
 		UnknownEvidence:           []string{},
+		SignalDetails:             []model.AssessSignal{},
 		EvidenceReferences:        []model.EvidenceReference{},
 		ProofLoop:                 []string{},
 	}
@@ -1938,7 +1939,136 @@ func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInvent
 	if triage.NextAction == "" {
 		triage.NextAction = assessTriageNextAction(triage.Status)
 	}
+	triage.SignalDetails = buildAssessSignalDetails(summary, inventory, exposure, closure, action, triage)
 	return triage
+}
+
+func buildAssessSignalDetails(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, triage model.AssessTriage) []model.AssessSignal {
+	var signals []model.AssessSignal
+	actionEvidence := dedupeEvidenceReferences(action.EvidenceReferences)
+	if action.Available {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:top-operator-case",
+			Category:           "risk",
+			Disposition:        "action_required",
+			Summary:            fmt.Sprintf("%s (%s) is the highest-ranked open operator case.", firstNonEmpty(action.Title, action.CaseID), action.CaseID),
+			WhyItMatters:       firstNonEmpty(action.WhyFirst, "The ranked case board correlated influence, authority, boundary reachability, and missing hard barriers."),
+			EvidenceReferences: actionEvidence,
+			RelatedControls:    uniqueStrings(action.StartingControls),
+			Limitations:        []string{},
+		})
+	}
+	if summary.BreakingArchitectureFlaws > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:breaking-architecture-paths",
+			Category:           "risk",
+			Disposition:        "action_required",
+			Summary:            fmt.Sprintf("%d breaking architecture flaw(s) remain after deterministic graph correlation.", summary.BreakingArchitectureFlaws),
+			WhyItMatters:       "A breaking architecture path means Ariadne found a supported path that still lacks the hard barrier modeled for that path.",
+			EvidenceReferences: actionEvidence,
+			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
+			Limitations:        []string{},
+		})
+	}
+	if exposure.Exposed > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:exposed-boundary-paths",
+			Category:           "risk",
+			Disposition:        "action_required",
+			Summary:            fmt.Sprintf("%d exposed path(s) reach a sensitive boundary without a breaking control.", exposure.Exposed),
+			WhyItMatters:       "Exposure is reported only after influence, runtime authority, boundary reachability, and missing control evidence are connected.",
+			EvidenceReferences: actionEvidence,
+			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
+			Limitations:        []string{},
+		})
+	}
+	if inventory.Runtimes+inventory.Authorities+inventory.Tools+inventory.TrustInputs > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:          "signal:normal-agent-capability",
+			Category:    "normal_capability",
+			Disposition: "expected_capability",
+			Summary: fmt.Sprintf("Observed %d runtime, %d authority, %d tool, and %d trust-input surface(s).",
+				inventory.Runtimes, inventory.Authorities, inventory.Tools, inventory.TrustInputs),
+			WhyItMatters: "These are expected for useful agents; Ariadne treats them as risk only when graph correlation shows untrusted influence can reach sensitive boundaries without hard barriers.",
+			Limitations:  []string{"Normal capability counts come from inventory summaries; inspect inventory JSON for the full surface map."},
+		})
+	}
+	if len(triage.MissingHardBarriers) > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:missing-hard-barriers",
+			Category:           "missing_control",
+			Disposition:        "missing_hard_barrier",
+			Summary:            fmt.Sprintf("%d hard-barrier control(s) are missing or unproven for open cases.", len(triage.MissingHardBarriers)),
+			WhyItMatters:       "Ariadne prioritizes controls that break the modeled path, not soft guidance or friction-only mitigations.",
+			EvidenceReferences: actionEvidence,
+			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
+			Limitations:        []string{},
+		})
+	}
+	if len(closure.HardBarriersObserved) > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:present-hard-barriers",
+			Category:           "present_control",
+			Disposition:        "breaks_path",
+			Summary:            fmt.Sprintf("%d hard-barrier control(s) were observed closing supported paths.", len(closure.HardBarriersObserved)),
+			WhyItMatters:       "Observed hard barriers explain why some paths are protected or controlled instead of open.",
+			EvidenceReferences: assessClosurePathEvidenceReferences(closure.ControlledPaths),
+			RelatedControls:    uniqueStrings(closure.HardBarriersObserved),
+			Limitations:        []string{},
+		})
+	}
+	if len(closure.PartialOrFrictionControls) > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:partial-friction-controls",
+			Category:           "partial_control",
+			Disposition:        "does_not_break_path",
+			Summary:            fmt.Sprintf("%d partial or friction-only control(s) were observed.", len(closure.PartialOrFrictionControls)),
+			WhyItMatters:       "Partial controls may reduce misuse but do not by themselves close the modeled exposure path.",
+			EvidenceReferences: assessClosurePathEvidenceReferences(closure.PartialPaths),
+			RelatedControls:    uniqueStrings(closure.PartialOrFrictionControls),
+			Limitations:        []string{},
+		})
+	}
+	if len(triage.UnknownEvidence) > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:           "signal:unknown-evidence-gaps",
+			Category:     "evidence_gap",
+			Disposition:  "needs_evidence",
+			Summary:      fmt.Sprintf("%d evidence gap(s) remain before Ariadne can classify every path.", len(triage.UnknownEvidence)),
+			WhyItMatters: "Unknown evidence should not be treated as either safe or exposed until the deterministic collector observes enough authority, boundary, or control facts.",
+			Limitations:  uniqueStrings(triage.UnknownEvidence),
+		})
+	}
+	return nonNilAssessSignals(signals)
+}
+
+func assessClosurePathEvidenceReferences(paths []model.AssessClosurePath) []model.EvidenceReference {
+	var refs []model.EvidenceReference
+	for _, path := range paths {
+		refs = append(refs, path.EvidenceReferences...)
+	}
+	return dedupeEvidenceReferences(refs)
+}
+
+func nonNilAssessSignals(items []model.AssessSignal) []model.AssessSignal {
+	if items == nil {
+		return []model.AssessSignal{}
+	}
+	for idx := range items {
+		items[idx].EvidenceReferences = dedupeEvidenceReferences(items[idx].EvidenceReferences)
+		items[idx].RelatedControls = uniqueStrings(items[idx].RelatedControls)
+		items[idx].Limitations = uniqueStrings(items[idx].Limitations)
+		if items[idx].EvidenceReferences == nil {
+			items[idx].EvidenceReferences = []model.EvidenceReference{}
+		}
+		if items[idx].RelatedControls == nil {
+			items[idx].RelatedControls = []string{}
+		}
+		if items[idx].Limitations == nil {
+			items[idx].Limitations = []string{}
+		}
+	}
+	return items
 }
 
 func assessTriageStatus(summary model.AssessSummary, exposure model.AssessExposure, action model.AssessFirstAction) string {
@@ -2642,6 +2772,7 @@ func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
 	if triage.StartHere != "" {
 		fmt.Fprintf(w, "  - Start here: %s\n", triage.StartHere)
 	}
+	renderAssessSignalDetails(w, triage.SignalDetails, 6)
 	renderAssessTriageLines(w, "Hard signal", triage.HardRiskSignals, 6)
 	renderAssessTriageLines(w, "Normal capability", triage.NormalCapabilities, 4)
 	renderAssessTriageLines(w, "Missing hard barrier", triage.MissingHardBarriers, 6)
@@ -2656,6 +2787,31 @@ func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
 	}
 	renderAssessTriageLines(w, "Proof loop", triage.ProofLoop, 6)
 	fmt.Fprintln(w)
+}
+
+func renderAssessSignalDetails(w io.Writer, signals []model.AssessSignal, limit int) {
+	if len(signals) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(signals) {
+		limit = len(signals)
+	}
+	fmt.Fprintf(w, "  - Signal details:\n")
+	for _, signal := range signals[:limit] {
+		fmt.Fprintf(w, "    - %s [%s/%s]: %s\n", signal.ID, readableToken(signal.Category), readableToken(signal.Disposition), signal.Summary)
+		if signal.WhyItMatters != "" {
+			fmt.Fprintf(w, "      Why it matters: %s\n", signal.WhyItMatters)
+		}
+		if len(signal.RelatedControls) > 0 {
+			fmt.Fprintf(w, "      Controls: %s\n", strings.Join(limitStrings(signal.RelatedControls, 4), ", "))
+		}
+		if len(signal.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(signal.EvidenceReferences, 3), "; "))
+		}
+		if len(signal.Limitations) > 0 {
+			fmt.Fprintf(w, "      Limitations: %s\n", strings.Join(limitStrings(signal.Limitations, 2), "; "))
+		}
+	}
 }
 
 func renderAssessFocusLine(w io.Writer, r model.AssessReport) {

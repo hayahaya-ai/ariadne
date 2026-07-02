@@ -787,6 +787,7 @@ func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTr
 		{"Status", statusLabel(firstNonEmpty(triage.Status, "unknown"))},
 		{"Start here", firstNonEmpty(triage.StartHere, "none")},
 		{"Hard signals", fmt.Sprintf("%d", len(triage.HardRiskSignals))},
+		{"Signal details", fmt.Sprintf("%d", len(triage.SignalDetails))},
 		{"Missing barriers", fmt.Sprintf("%d", len(triage.MissingHardBarriers))},
 		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(triage.EvidenceReferences)))},
 	})
@@ -796,6 +797,7 @@ func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTr
 	if triage.NextAction != "" {
 		fmt.Fprintf(w, `<p><strong>Next action:</strong> %s</p>`, esc(triage.NextAction))
 	}
+	renderAssessSignalDetailsDashboard(w, root, triage.SignalDetails)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Hard Signal</h3>`)
@@ -819,6 +821,34 @@ func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTr
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessSignalDetailsDashboard(w io.Writer, root string, signals []model.AssessSignal) {
+	if len(signals) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Signal Details</h3>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, `<thead><tr><th>Signal</th><th>Disposition</th><th>Why it matters</th><th>Evidence / controls</th></tr></thead><tbody>`)
+	limit := len(signals)
+	if limit > 6 {
+		limit = 6
+	}
+	for _, signal := range signals[:limit] {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(signal.Summary), esc(signal.ID), esc(readableToken(signal.Category)))
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div></td>`, cssClass(signal.Disposition), esc(readableToken(signal.Disposition)))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(signal.WhyItMatters))
+		fmt.Fprintf(w, `<td><h3>Evidence</h3>%s<h3>Controls</h3>%s<h3>Limitations</h3>%s</td>`,
+			renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, signal.EvidenceReferences, 4)),
+			renderSmallList(limitStrings(signal.RelatedControls, 5)),
+			renderSmallList(limitStrings(signal.Limitations, 3)))
+		fmt.Fprintln(w, `</tr>`)
+	}
+	if len(signals) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="4"><span class="subtle">%d more signal detail(s) in JSON output.</span></td></tr>`, len(signals)-limit)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
 }
 
 func renderAssessClosurePlanDashboard(w io.Writer, root string, plan []model.AssessClosurePlanItem) {

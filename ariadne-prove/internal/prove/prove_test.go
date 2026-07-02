@@ -3667,10 +3667,23 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.Triage.HardRiskSignals) == 0 ||
 		len(decoded.Triage.NormalCapabilities) == 0 ||
 		len(decoded.Triage.MissingHardBarriers) == 0 ||
+		len(decoded.Triage.SignalDetails) == 0 ||
 		len(decoded.Triage.EvidenceReferences) == 0 ||
 		decoded.Triage.NextAction == "" ||
 		len(decoded.Triage.ProofLoop) == 0 {
 		t.Fatalf("assessment should include fact-first signal triage: %+v", decoded.Triage)
+	}
+	if !hasAssessSignal(decoded.Triage.SignalDetails, "risk", "action_required", "case:egress-output-boundary") {
+		t.Fatalf("triage signal details should include the top risk case: %+v", decoded.Triage.SignalDetails)
+	}
+	if !hasAssessSignal(decoded.Triage.SignalDetails, "normal_capability", "expected_capability", "expected for useful agents") {
+		t.Fatalf("triage signal details should separate normal agent capability: %+v", decoded.Triage.SignalDetails)
+	}
+	if !hasAssessSignal(decoded.Triage.SignalDetails, "missing_control", "missing_hard_barrier", "hard-barrier control") {
+		t.Fatalf("triage signal details should include missing hard barriers: %+v", decoded.Triage.SignalDetails)
+	}
+	if !assessSignalHasEvidence(decoded.Triage.SignalDetails, "signal:top-operator-case") {
+		t.Fatalf("top risk signal should retain evidence references: %+v", decoded.Triage.SignalDetails)
 	}
 	if !containsString(decoded.Triage.MissingHardBarriers, "control:egress-destination-allowlist") {
 		t.Fatalf("triage should identify the top missing hard barrier: %+v", decoded.Triage.MissingHardBarriers)
@@ -3767,6 +3780,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Action",
 		"Signal triage:",
+		"Signal details:",
+		"signal:top-operator-case",
+		"signal:normal-agent-capability",
 		"Closure plan:",
 		"control:egress-destination-allowlist -> Egress And Output Boundary",
 		"What it closes:",
@@ -3809,8 +3825,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assessment",
 		"Assessment Readout",
 		"Signal Triage",
+		"Signal Details",
 		"Hard Signal",
 		"Normal Capability",
+		"signal:top-operator-case",
+		"signal:normal-agent-capability",
+		"expected capability",
 		"Missing Hard Barriers",
 		"Ranked Closure Plan",
 		"First control",
@@ -4725,7 +4745,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
-	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "evidence_refs", "next_action", "proof_loop")
+	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "signal_details", "evidence_refs", "next_action", "proof_loop")
+	assessSignal := schemaMap(t, assessSchema, "$defs", "assess_signal")
+	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "evidence_refs", "related_controls", "limitations")
 	assessClosurePlanItem := schemaMap(t, assessSchema, "$defs", "assess_closure_plan_item")
 	assertRequiredKeys(t, assessClosurePlanItem, "rank", "control", "case_id", "case_title", "severity", "state", "why_this_control", "what_it_closes", "affected_flaws", "affected_targets", "evidence_refs", "proof_surface", "rerun_command", "compare_command", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessClosurePlanItem, "proof_patch")
@@ -5218,6 +5240,28 @@ func containsExactString(values []string, target string) bool {
 func containsString(values []string, fragment string) bool {
 	for _, value := range values {
 		if strings.Contains(value, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAssessSignal(values []model.AssessSignal, category string, disposition string, fragment string) bool {
+	for _, value := range values {
+		if value.Category != category || value.Disposition != disposition {
+			continue
+		}
+		joined := strings.Join([]string{value.ID, value.Summary, value.WhyItMatters, strings.Join(value.RelatedControls, " "), strings.Join(value.Limitations, " ")}, " ")
+		if strings.Contains(joined, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func assessSignalHasEvidence(values []model.AssessSignal, id string) bool {
+	for _, value := range values {
+		if value.ID == id && len(value.EvidenceReferences) > 0 {
 			return true
 		}
 	}
