@@ -473,10 +473,15 @@ func RunScan(opts Options) (model.ScanReport, error) {
 		opts.Mode = "repo"
 	}
 	targets := opts.Targets
+	targetsFile := ""
 	if opts.TargetsFile != "" {
 		loaded, err := LoadTargets(opts.TargetsFile)
 		if err != nil {
 			return model.ScanReport{}, err
+		}
+		targetsFile = opts.TargetsFile
+		if abs, err := filepath.Abs(opts.TargetsFile); err == nil {
+			targetsFile = abs
 		}
 		targets = append(targets, loaded...)
 	}
@@ -497,6 +502,7 @@ func RunScan(opts Options) (model.ScanReport, error) {
 		RunID:         randomID(),
 		GeneratedAt:   time.Now().UTC(),
 		RunKind:       "scan",
+		TargetsFile:   targetsFile,
 		Mode:          opts.Mode,
 		Agent:         opts.Agent,
 		Redaction: model.RedactionInfo{

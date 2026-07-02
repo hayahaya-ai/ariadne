@@ -9,6 +9,7 @@
     "run_id": { "type": "string" },
     "generated_at": { "type": "string", "format": "date-time" },
     "run_kind": { "const": "scan" },
+    "targets_file": { "type": "string" },
     "mode": { "type": "string" },
     "agent": { "type": "string" },
     "summary": {

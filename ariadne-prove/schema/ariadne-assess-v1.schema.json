@@ -30,6 +30,7 @@
     "generated_at": { "type": "string", "format": "date-time" },
     "run_kind": { "type": "string", "enum": ["assess", "assess_scan"] },
     "target_path": { "type": "string" },
+    "targets_file": { "type": "string" },
     "targets": {
       "type": "array",
       "items": { "$ref": "#/$defs/scan_target" }

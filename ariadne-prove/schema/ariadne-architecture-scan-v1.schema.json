@@ -27,6 +27,7 @@
     "run_id": { "type": "string" },
     "generated_at": { "type": "string", "format": "date-time" },
     "run_kind": { "const": "architecture_scan" },
+    "targets_file": { "type": "string" },
     "mode": { "type": "string" },
     "agent": { "type": "string" },
     "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },

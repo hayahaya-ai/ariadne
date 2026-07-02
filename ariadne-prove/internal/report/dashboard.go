@@ -249,7 +249,7 @@ func renderArchitectureScanDashboard(w io.Writer, r model.ArchitectureScanReport
 		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
 	})
 	renderArchitectureScanSummaryDashboard(w, r)
-	renderArchitectureCaseWorkflowDashboard(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
+	renderArchitectureCaseWorkflowDashboard(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board_scan", TargetsFile: r.TargetsFile, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
 	renderArchitectureFrameworkCoverageDashboard(w, "", r.FrameworkCoverage)
 	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
 	renderArchitectureClosureFamiliesDashboard(w, "", r.ClosureFamilies)

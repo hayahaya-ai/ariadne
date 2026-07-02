@@ -110,6 +110,7 @@ type ArchitectureScanReport struct {
 	RunID             string                      `json:"run_id"`
 	GeneratedAt       time.Time                   `json:"generated_at"`
 	RunKind           string                      `json:"run_kind"`
+	TargetsFile       string                      `json:"targets_file,omitempty"`
 	Mode              string                      `json:"mode"`
 	Agent             string                      `json:"agent"`
 	StatusFilter      string                      `json:"status_filter"`
@@ -143,6 +144,7 @@ type ControlCatalogReport struct {
 	GeneratedAt       time.Time                    `json:"generated_at"`
 	RunKind           string                       `json:"run_kind"`
 	TargetPath        string                       `json:"target_path,omitempty"`
+	TargetsFile       string                       `json:"targets_file,omitempty"`
 	Mode              string                       `json:"mode"`
 	Agent             string                       `json:"agent"`
 	StatusFilter      string                       `json:"status_filter"`
@@ -164,6 +166,7 @@ type ProofPlanReport struct {
 	GeneratedAt        time.Time             `json:"generated_at"`
 	RunKind            string                `json:"run_kind"`
 	TargetPath         string                `json:"target_path,omitempty"`
+	TargetsFile        string                `json:"targets_file,omitempty"`
 	Mode               string                `json:"mode"`
 	Agent              string                `json:"agent"`
 	StatusFilter       string                `json:"status_filter"`
@@ -276,6 +279,7 @@ type AssessReport struct {
 	GeneratedAt      time.Time               `json:"generated_at"`
 	RunKind          string                  `json:"run_kind"`
 	TargetPath       string                  `json:"target_path,omitempty"`
+	TargetsFile      string                  `json:"targets_file,omitempty"`
 	Targets          []ScanTarget            `json:"targets,omitempty"`
 	Mode             string                  `json:"mode"`
 	Agent            string                  `json:"agent"`
@@ -1029,6 +1033,7 @@ type ScanReport struct {
 	RunID          string             `json:"run_id"`
 	GeneratedAt    time.Time          `json:"generated_at"`
 	RunKind        string             `json:"run_kind"`
+	TargetsFile    string             `json:"targets_file,omitempty"`
 	Mode           string             `json:"mode"`
 	Agent          string             `json:"agent"`
 	Summary        ScanSummary        `json:"summary"`

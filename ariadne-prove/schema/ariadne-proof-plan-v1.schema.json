@@ -28,6 +28,7 @@
     "generated_at": { "type": "string", "format": "date-time" },
     "run_kind": { "type": "string", "enum": ["proof_plan", "proof_plan_scan"] },
     "target_path": { "type": "string" },
+    "targets_file": { "type": "string" },
     "mode": { "type": "string" },
     "agent": { "type": "string" },
     "status_filter": { "type": "string" },

@@ -157,6 +157,8 @@ repo-only,/srv/repos/example
 
 For endpoint scans, a target path can be a mounted home snapshot such as `/mnt/laptops/alex` containing `.claude`, `.codex`, `.cursor`, `.continue`, `.gemini`, `.aider.conf.yml`, or similar home-level AI surfaces. If the supplied endpoint path does not look like a mounted endpoint home, Ariadne falls back to the current machine's `HOME` so `--mode endpoint` still works for local self-assessment.
 
+Fleet JSON and next-step readouts preserve the concrete `targets_file` path when `--targets` is used, so follow-up `assess`, `cases`, `proofs`, `controls`, and `architecture` commands can be rerun directly.
+
 ## Commands
 
 | Command | Purpose |

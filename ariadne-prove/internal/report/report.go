@@ -403,12 +403,13 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
 	triage := buildAssessTriage(summary, model.AssessInventory{}, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
-	nextCommands := assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
+	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
 		RunID:            r.RunID,
 		GeneratedAt:      r.GeneratedAt,
 		RunKind:          "assess_scan",
+		TargetsFile:      r.TargetsFile,
 		Targets:          targets,
 		Mode:             r.Mode,
 		Agent:            r.Agent,
@@ -708,6 +709,7 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 		GeneratedAt:        catalog.GeneratedAt,
 		RunKind:            runKind,
 		TargetPath:         catalog.TargetPath,
+		TargetsFile:        catalog.TargetsFile,
 		Mode:               catalog.Mode,
 		Agent:              catalog.Agent,
 		StatusFilter:       catalog.StatusFilter,
@@ -732,7 +734,7 @@ func proofPlanCommand(catalog model.ControlCatalogReport, caseID string) string 
 	var command string
 	switch catalog.RunKind {
 	case "case_board_scan", "control_catalog_scan":
-		command = fmt.Sprintf("ariadne proofs --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+		command = fmt.Sprintf("ariadne proofs --targets %s --mode %s --agent %s --status %s", targetsFileCommandArg(catalog.TargetsFile), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
 	default:
 		path := firstNonEmpty(catalog.TargetPath, "<target-path>")
 		command = fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
@@ -1322,13 +1324,14 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 
 func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
-	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
+	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", TargetsFile: r.TargetsFile, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
 	workstreams := buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks)
 	catalog := model.ControlCatalogReport{
 		SchemaVersion:     model.SchemaVersion,
 		RunID:             r.RunID,
 		GeneratedAt:       r.GeneratedAt,
 		RunKind:           "control_catalog_scan",
+		TargetsFile:       r.TargetsFile,
 		Mode:              r.Mode,
 		Agent:             r.Agent,
 		StatusFilter:      r.StatusFilter,
@@ -1435,6 +1438,7 @@ func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model
 		RunID:         r.RunID,
 		GeneratedAt:   r.GeneratedAt,
 		RunKind:       "architecture_scan",
+		TargetsFile:   r.TargetsFile,
 		Mode:          r.Mode,
 		Agent:         r.Agent,
 		StatusFilter:  filter,
@@ -2577,16 +2581,17 @@ func assessPathCommands(path, mode, agent, statusFilter string, cases []model.Co
 	return commands
 }
 
-func assessScanCommands(mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
-	base := assessFocusCommand(fmt.Sprintf("ariadne assess --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
+func assessScanCommands(targetsFile, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
+	targetsArg := targetsFileCommandArg(targetsFile)
+	base := assessFocusCommand(fmt.Sprintf("ariadne assess --targets %s --mode %s --agent %s --status %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
 	commands := []string{base}
 	if len(cases) > 0 {
-		commands = append(commands, fmt.Sprintf("ariadne cases --targets <targets-file> --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
-		commands = append(commands, fmt.Sprintf("ariadne proofs --targets <targets-file> --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("ariadne cases --targets %s --mode %s --agent %s --status %s --case %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("ariadne proofs --targets %s --mode %s --agent %s --status %s --case %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 	}
 	commands = append(commands,
-		fmt.Sprintf("ariadne controls --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
-		fmt.Sprintf("ariadne architecture --targets <targets-file> --mode %s --agent %s --status all", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("ariadne controls --targets %s --mode %s --agent %s --status %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
+		fmt.Sprintf("ariadne architecture --targets %s --mode %s --agent %s --status all", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 	)
 	return commands
 }
@@ -3559,7 +3564,7 @@ func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) er
 	renderArchitectureFrameworkCoverage(w, r.FrameworkCoverage, 10)
 	renderArchitectureEvidencePlan(w, r.EvidencePlan, 8)
 	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 10)
-	renderArchitectureCaseWorkflow(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}, 8)
+	renderArchitectureCaseWorkflow(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board_scan", TargetsFile: r.TargetsFile, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}, 8)
 	renderArchitectureClosurePlan(w, r.ClosurePlan, 10)
 	if len(r.Groups) == 0 {
 		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
@@ -4023,7 +4028,7 @@ func buildFocusedClosedCaseBoardReport(r model.Report, statusFilter string, case
 	if !ok {
 		return model.ControlCatalogReport{}, false, nil
 	}
-	return focusedClosedCaseCatalog(architecture.RunID, architecture.GeneratedAt, "case_board", architecture.TargetPath, architecture.Mode, architecture.Agent, ctx.StatusFilter, item, architecture.Redaction, architecture.Limitations), true, nil
+	return focusedClosedCaseCatalog(architecture.RunID, architecture.GeneratedAt, "case_board", architecture.TargetPath, "", architecture.Mode, architecture.Agent, ctx.StatusFilter, item, architecture.Redaction, architecture.Limitations), true, nil
 }
 
 func buildFocusedClosedCaseBoardScanReport(r model.ScanReport, statusFilter string, caseFilter string) (model.ControlCatalogReport, bool, error) {
@@ -4055,6 +4060,7 @@ func buildFocusedClosedCaseBoardScanReport(r model.ScanReport, statusFilter stri
 	}
 	ctx := controlVerificationCommandContext{
 		RunKind:      "case_board_scan",
+		TargetsFile:  architecture.TargetsFile,
 		Mode:         architecture.Mode,
 		Agent:        architecture.Agent,
 		StatusFilter: firstNonEmpty(statusFilter, "breaking"),
@@ -4063,16 +4069,17 @@ func buildFocusedClosedCaseBoardScanReport(r model.ScanReport, statusFilter stri
 	if !ok {
 		return model.ControlCatalogReport{}, false, nil
 	}
-	return focusedClosedCaseCatalog(architecture.RunID, architecture.GeneratedAt, "case_board_scan", "", architecture.Mode, architecture.Agent, ctx.StatusFilter, item, architecture.Redaction, architecture.Limitations), true, nil
+	return focusedClosedCaseCatalog(architecture.RunID, architecture.GeneratedAt, "case_board_scan", "", architecture.TargetsFile, architecture.Mode, architecture.Agent, ctx.StatusFilter, item, architecture.Redaction, architecture.Limitations), true, nil
 }
 
-func focusedClosedCaseCatalog(runID string, generatedAt time.Time, runKind string, targetPath string, mode string, agent string, statusFilter string, item model.ControlOperatorCase, redaction model.RedactionInfo, limitations []string) model.ControlCatalogReport {
+func focusedClosedCaseCatalog(runID string, generatedAt time.Time, runKind string, targetPath string, targetsFile string, mode string, agent string, statusFilter string, item model.ControlOperatorCase, redaction model.RedactionInfo, limitations []string) model.ControlCatalogReport {
 	catalog := model.ControlCatalogReport{
 		SchemaVersion:     model.SchemaVersion,
 		RunID:             runID,
 		GeneratedAt:       generatedAt,
 		RunKind:           runKind,
 		TargetPath:        targetPath,
+		TargetsFile:       targetsFile,
 		Mode:              mode,
 		Agent:             agent,
 		StatusFilter:      firstNonEmpty(statusFilter, "breaking"),
@@ -4216,9 +4223,10 @@ func focusedClosedCaseCommands(ctx controlVerificationCommandContext, caseID str
 	agent := firstNonEmpty(ctx.Agent, "all")
 	status := firstNonEmpty(ctx.StatusFilter, "breaking")
 	if ctx.RunKind == "case_board_scan" {
+		targetsArg := targetsFileCommandArg(ctx.TargetsFile)
 		return []string{
-			fmt.Sprintf("ariadne cases --targets <targets-file> --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
-			fmt.Sprintf("ariadne architecture --targets <targets-file> --mode %s --agent %s --status all", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+			fmt.Sprintf("ariadne cases --targets %s --mode %s --agent %s --status %s --case %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
+			fmt.Sprintf("ariadne architecture --targets %s --mode %s --agent %s --status all", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 		}
 	}
 	path := firstNonEmpty(ctx.Path, "<target-path>")
@@ -4580,7 +4588,7 @@ func architectureCaseBoardCommand(ctx controlVerificationCommandContext) string 
 	agent := firstNonEmpty(ctx.Agent, "all")
 	status := firstNonEmpty(ctx.StatusFilter, "breaking")
 	if ctx.RunKind == "case_board_scan" {
-		return fmt.Sprintf("ariadne cases --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+		return fmt.Sprintf("ariadne cases --targets %s --mode %s --agent %s --status %s", targetsFileCommandArg(ctx.TargetsFile), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
 	}
 	path := firstNonEmpty(ctx.Path, "<target-path>")
 	return fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
@@ -5072,6 +5080,7 @@ func renderControlVerificationTasks(w io.Writer, tasks []model.ControlVerificati
 type controlVerificationCommandContext struct {
 	RunKind      string
 	Path         string
+	TargetsFile  string
 	Mode         string
 	Agent        string
 	StatusFilter string
@@ -5160,9 +5169,10 @@ func controlVerificationCommands(ctx controlVerificationCommandContext) []string
 		status = "breaking"
 	}
 	if ctx.RunKind == "control_catalog_scan" {
+		targetsArg := targetsFileCommandArg(ctx.TargetsFile)
 		return []string{
-			fmt.Sprintf("ariadne controls --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
-			fmt.Sprintf("ariadne architecture --targets <targets-file> --mode %s --agent %s --status all", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+			fmt.Sprintf("ariadne controls --targets %s --mode %s --agent %s --status %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
+			fmt.Sprintf("ariadne architecture --targets %s --mode %s --agent %s --status all", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 		}
 	}
 	path := ctx.Path
@@ -5480,6 +5490,10 @@ func shellQuoteCommandArg(value string) string {
 		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 	}
 	return value
+}
+
+func targetsFileCommandArg(value string) string {
+	return shellQuoteCommandArg(firstNonEmpty(value, "<targets-file>"))
 }
 
 func buildControlProofSpecs(items []model.ArchitectureClosure) []model.ControlProofSpec {

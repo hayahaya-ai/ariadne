@@ -2481,6 +2481,9 @@ func TestRunScanAggregatesMultipleTargets(t *testing.T) {
 	if r.RunKind != "scan" {
 		t.Fatalf("run kind = %s, want scan", r.RunKind)
 	}
+	if r.TargetsFile != targetFile {
+		t.Fatalf("targets file = %q, want %q", r.TargetsFile, targetFile)
+	}
 	if r.Summary.Targets != 3 || r.Summary.Completed != 3 || r.Summary.Errors != 0 {
 		t.Fatalf("unexpected scan summary: %+v", r.Summary)
 	}
@@ -4181,7 +4184,8 @@ func TestAssessReportSupportsFocusedCaseAndControl(t *testing.T) {
 }
 
 func TestAssessScanAggregatesFleetCases(t *testing.T) {
-	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	targetFile := realPathFixture(t, "targets.txt")
+	scan, err := RunScan(Options{TargetsFile: targetFile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4196,11 +4200,14 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 		"Architecture break paths:",
 		"Operator cases:",
 		"case:egress-output-boundary",
-		"ariadne cases --targets <targets-file>",
+		"ariadne cases --targets " + targetFile,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("fleet assessment table missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "<targets-file>") {
+		t.Fatalf("fleet assessment table should not contain placeholder targets file:\n%s", out)
 	}
 	var jsonOut bytes.Buffer
 	if err := report.RenderAssessScan(&jsonOut, scan, "json", "breaking"); err != nil {
@@ -4213,19 +4220,26 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	if decoded.RunKind != "assess_scan" || decoded.ArchitectureScan == nil || decoded.Summary.Targets == 0 || len(decoded.Targets) == 0 {
 		t.Fatalf("fleet assessment should include scan architecture and targets: %+v", decoded)
 	}
+	if decoded.TargetsFile != targetFile || decoded.ArchitectureScan.TargetsFile != targetFile || decoded.CaseBoard.TargetsFile != targetFile {
+		t.Fatalf("fleet assessment should preserve concrete targets file: assess=%q architecture=%q case_board=%q want=%q", decoded.TargetsFile, decoded.ArchitectureScan.TargetsFile, decoded.CaseBoard.TargetsFile, targetFile)
+	}
 	if len(decoded.TopCases) == 0 || decoded.CaseBoard.RunKind != "case_board_scan" {
 		t.Fatalf("fleet assessment should include fleet case board: %+v", decoded.CaseBoard)
 	}
-	if !containsString(decoded.NextCommands, "ariadne cases --targets <targets-file>") {
+	if !containsString(decoded.NextCommands, "ariadne cases --targets "+targetFile) {
 		t.Fatalf("fleet assessment should include focused fleet case command: %+v", decoded.NextCommands)
 	}
-	if !containsString(decoded.NextCommands, "ariadne proofs --targets <targets-file>") {
+	if !containsString(decoded.NextCommands, "ariadne proofs --targets "+targetFile) {
 		t.Fatalf("fleet assessment should include focused fleet proof plan command: %+v", decoded.NextCommands)
+	}
+	if containsString(decoded.NextCommands, "<targets-file>") {
+		t.Fatalf("fleet assessment next commands should not contain placeholder targets file: %+v", decoded.NextCommands)
 	}
 }
 
 func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
-	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	targetFile := realPathFixture(t, "targets.txt")
+	scan, err := RunScan(Options{TargetsFile: targetFile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4255,6 +4269,9 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 			t.Fatalf("control catalog scan table missing %q:\n%s", want, out)
 		}
 	}
+	if !strings.Contains(out, "ariadne controls --targets "+targetFile) || strings.Contains(out, "<targets-file>") {
+		t.Fatalf("control catalog scan table should use concrete targets file:\n%s", out)
+	}
 
 	var jsonOut bytes.Buffer
 	if err := report.RenderControlsScan(&jsonOut, scan, "json", "breaking"); err != nil {
@@ -4266,6 +4283,9 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	}
 	if decoded.RunKind != "control_catalog_scan" {
 		t.Fatalf("unexpected run kind: %+v", decoded)
+	}
+	if decoded.TargetsFile != targetFile {
+		t.Fatalf("control catalog scan should preserve targets file: %q want %q", decoded.TargetsFile, targetFile)
 	}
 	if !hasControlProofIndicator(decoded.ProofSpecs, "control:input-isolation", "input_isolation") {
 		t.Fatalf("fleet control catalog should include proof specs: %+v", decoded.ProofSpecs)
@@ -4284,6 +4304,23 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	}
 	if !hasClosureEvidenceReference(decoded.Controls, "CLAUDE.md") {
 		t.Fatalf("fleet control catalog should retain evidence references: %+v", decoded.Controls)
+	}
+	var proofsJSON bytes.Buffer
+	if err := report.RenderProofsScan(&proofsJSON, scan, "json", "breaking", "case:input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	var proofPlan model.ProofPlanReport
+	if err := json.Unmarshal(proofsJSON.Bytes(), &proofPlan); err != nil {
+		t.Fatal(err)
+	}
+	if proofPlan.RunKind != "proof_plan_scan" || proofPlan.TargetsFile != targetFile {
+		t.Fatalf("fleet proof plan should preserve targets file: kind=%q targets_file=%q want=%q", proofPlan.RunKind, proofPlan.TargetsFile, targetFile)
+	}
+	if !containsString(proofPlan.RerunCommands, "ariadne cases --targets "+targetFile) || !containsString(proofPlan.CompareCommands, "ariadne proofs --targets "+targetFile) {
+		t.Fatalf("fleet proof plan should include concrete target commands: rerun=%+v compare=%+v", proofPlan.RerunCommands, proofPlan.CompareCommands)
+	}
+	if containsString(proofPlan.RerunCommands, "<targets-file>") || containsString(proofPlan.CompareCommands, "<targets-file>") {
+		t.Fatalf("fleet proof plan commands should not contain placeholder targets file: rerun=%+v compare=%+v", proofPlan.RerunCommands, proofPlan.CompareCommands)
 	}
 
 	var htmlOut bytes.Buffer
@@ -4313,7 +4350,8 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 }
 
 func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
-	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	targetFile := realPathFixture(t, "targets.txt")
+	scan, err := RunScan(Options{TargetsFile: targetFile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4330,11 +4368,14 @@ func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
 		"Priority:",
 		"State:",
 		"Next step:",
-		"ariadne cases --targets <targets-file>",
+		"ariadne cases --targets " + targetFile,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("operator case board scan table missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "<targets-file>") {
+		t.Fatalf("operator case board scan table should not contain placeholder targets file:\n%s", out)
 	}
 
 	var jsonOut bytes.Buffer
@@ -4348,10 +4389,13 @@ func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
 	if decoded.RunKind != "case_board_scan" {
 		t.Fatalf("unexpected fleet case board run kind: %+v", decoded)
 	}
+	if decoded.TargetsFile != targetFile {
+		t.Fatalf("fleet case board should preserve targets file: %q want %q", decoded.TargetsFile, targetFile)
+	}
 	if !hasControlOperatorCase(decoded.OperatorCases, "case:input-trust-boundary", "control:input-isolation", ".ariadne/input-policy.json", "input_isolation") {
 		t.Fatalf("fleet case board should include actionable cases: %+v", decoded.OperatorCases)
 	}
-	if !operatorCaseHasRerun(decoded.OperatorCases, "case:input-trust-boundary", "ariadne cases --targets <targets-file>") {
+	if !operatorCaseHasRerun(decoded.OperatorCases, "case:input-trust-boundary", "ariadne cases --targets "+targetFile) {
 		t.Fatalf("fleet case board should point reruns back to ariadne cases: %+v", decoded.OperatorCases)
 	}
 
@@ -4365,16 +4409,20 @@ func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
 		"Case Queue",
 		"Operator Cases",
 		"case:input-trust-boundary",
-		"ariadne cases --targets &lt;targets-file&gt;",
+		"ariadne cases --targets " + targetFile,
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("fleet operator case board dashboard missing %q:\n%s", want, rendered)
 		}
 	}
+	if strings.Contains(rendered, "&lt;targets-file&gt;") {
+		t.Fatalf("fleet operator case board dashboard should not contain placeholder targets file:\n%s", rendered)
+	}
 }
 
 func TestArchitectureScanReportGroupsTargets(t *testing.T) {
-	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	targetFile := realPathFixture(t, "targets.txt")
+	scan, err := RunScan(Options{TargetsFile: targetFile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4392,7 +4440,7 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 		"Evidence plan:",
 		"Closure families:",
 		"Operator case workflow:",
-		"ariadne cases --targets <targets-file>",
+		"ariadne cases --targets " + targetFile,
 		"--case case:input-trust-boundary",
 		"Closure plan:",
 		"Flaws by target coverage:",
@@ -4406,6 +4454,9 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 			t.Fatalf("architecture scan table missing %q:\n%s", want, out)
 		}
 	}
+	if strings.Contains(out, "<targets-file>") {
+		t.Fatalf("architecture scan table should not contain placeholder targets file:\n%s", out)
+	}
 
 	var jsonOut bytes.Buffer
 	if err := report.RenderArchitectureScan(&jsonOut, scan, "json", "breaking"); err != nil {
@@ -4417,6 +4468,9 @@ func TestArchitectureScanReportGroupsTargets(t *testing.T) {
 	}
 	if decoded.RunKind != "architecture_scan" {
 		t.Fatalf("run kind = %q", decoded.RunKind)
+	}
+	if decoded.TargetsFile != targetFile {
+		t.Fatalf("architecture scan should preserve targets file: %q want %q", decoded.TargetsFile, targetFile)
 	}
 	if decoded.StatusFilter != "breaking" {
 		t.Fatalf("status filter = %q", decoded.StatusFilter)
@@ -4535,7 +4589,8 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 		}
 	}
 
-	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	targetFile := realPathFixture(t, "targets.txt")
+	scan, err := RunScan(Options{TargetsFile: targetFile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4551,7 +4606,7 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 		"Zero Trust for AI Agents",
 		"Evidence Plan",
 		"Operator Case Workflow",
-		"ariadne cases --targets &lt;targets-file&gt;",
+		"ariadne cases --targets " + targetFile,
 		"case:input-trust-boundary",
 		"Closure Families",
 		"Closure Plan",
@@ -4567,6 +4622,9 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("fleet architecture dashboard missing %q:\n%s", want, rendered)
 		}
+	}
+	if strings.Contains(rendered, "&lt;targets-file&gt;") {
+		t.Fatalf("fleet architecture dashboard should not contain placeholder targets file:\n%s", rendered)
 	}
 }
 
