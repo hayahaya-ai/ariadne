@@ -14,11 +14,11 @@ The active implementation is in [`ariadne-prove/`](ariadne-prove/).
 
 ```bash
 make build
-./ariadne-prove/bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces
-./ariadne-prove/bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk
-./ariadne-prove/bin/ariadne scan --targets ariadne-prove/testdata/realpath/targets.txt
-./ariadne-prove/bin/ariadne dashboard --path ariadne-prove/testdata/realpath/combined-risk --out ariadne-dashboard.html
-./ariadne-prove/bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk --format mermaid --out ariadne-graph.mmd
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
+./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces
+./bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk
+./bin/ariadne scan --targets ariadne-prove/testdata/realpath/targets.txt
+./bin/ariadne dashboard --path ariadne-prove/testdata/realpath/combined-risk --out ariadne-dashboard.html
 ```
 
 ## What It Does
@@ -63,6 +63,8 @@ From the repository root:
 ```bash
 make test
 make build
+./bin/ariadne help
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 make scan
 ```
 

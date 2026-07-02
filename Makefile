@@ -1,35 +1,47 @@
 PROJECT ?= ariadne-prove
-BIN ?= $(PROJECT)/bin/ariadne
+ROOT_BIN ?= bin/ariadne
 GOCACHE ?= /private/tmp/ariadne-gocache
 
-.PHONY: check fmt test vet build stories inventory prove scan clean
+.PHONY: check fmt test vet build root-build product-build stories inventory prove assess scan clean
 
-check:
-	$(MAKE) -C $(PROJECT) check
+check: fmt vet test build
 
 fmt:
+	test -z "$$(gofmt -l cmd)"
 	$(MAKE) -C $(PROJECT) fmt
 
 test:
+	GOCACHE=$(GOCACHE) go test ./cmd/ariadne
 	$(MAKE) -C $(PROJECT) test
 
 vet:
+	GOCACHE=$(GOCACHE) go vet ./cmd/ariadne
 	$(MAKE) -C $(PROJECT) vet
 
-build:
+build: product-build root-build
+
+product-build:
 	$(MAKE) -C $(PROJECT) build
 
-stories:
-	$(MAKE) -C $(PROJECT) stories
+root-build:
+	mkdir -p bin
+	GOCACHE=$(GOCACHE) go build -o $(ROOT_BIN) ./cmd/ariadne
 
-inventory:
-	cd $(PROJECT) && GOCACHE=$(GOCACHE) go run ./cmd/ariadne inventory --path testdata/realpath/messy-ai-surfaces
+stories: build
+	$(ROOT_BIN) stories list
 
-prove:
-	cd $(PROJECT) && GOCACHE=$(GOCACHE) go run ./cmd/ariadne prove --path testdata/realpath/combined-risk
+inventory: build
+	$(ROOT_BIN) inventory --path $(PROJECT)/testdata/realpath/messy-ai-surfaces
 
-scan:
-	$(MAKE) -C $(PROJECT) scan
+prove: build
+	$(ROOT_BIN) prove --path $(PROJECT)/testdata/realpath/combined-risk
+
+assess: build
+	$(ROOT_BIN) assess --path $(PROJECT)/testdata/realpath/combined-risk --format action
+
+scan: build
+	$(ROOT_BIN) scan --targets $(PROJECT)/testdata/realpath/targets.txt
 
 clean:
 	$(MAKE) -C $(PROJECT) clean
+	rm -rf bin

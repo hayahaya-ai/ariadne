@@ -14,7 +14,7 @@ func main() {
 		return
 	}
 	if sourceExists(filepath.Join("ariadne-prove", "cmd", "ariadne")) {
-		run("go", append([]string{"run", "./ariadne-prove/cmd/ariadne"}, args...)...)
+		runInDir("ariadne-prove", "go", append([]string{"run", "./cmd/ariadne"}, args...)...)
 		return
 	}
 	fmt.Fprintln(os.Stderr, `ariadne: the active CLI lives in ariadne-prove.
@@ -39,7 +39,14 @@ func sourceExists(path string) bool {
 }
 
 func run(name string, args ...string) {
+	runInDir("", name, args...)
+}
+
+func runInDir(dir string, name string, args ...string) {
 	cmd := exec.Command(name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
