@@ -47,6 +47,7 @@ func runInDir(dir string, name string, args ...string) {
 	if dir != "" {
 		cmd.Dir = dir
 	}
+	cmd.Env = append(os.Environ(), "ARIADNE_COMMAND=./bin/ariadne")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
 )
+
+const commandNameEnv = "ARIADNE_COMMAND"
 
 func Render(w io.Writer, r model.Report, format string) error {
 	switch strings.ToLower(format) {
@@ -731,16 +734,17 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 }
 
 func proofPlanCommand(catalog model.ControlCatalogReport, caseID string) string {
+	cli := ariadneCommand()
 	mode := firstNonEmpty(catalog.Mode, "repo")
 	agent := firstNonEmpty(catalog.Agent, "all")
 	status := firstNonEmpty(catalog.StatusFilter, "breaking")
 	var command string
 	switch catalog.RunKind {
 	case "case_board_scan", "control_catalog_scan":
-		command = fmt.Sprintf("ariadne proofs --targets %s --mode %s --agent %s --status %s", targetsFileCommandArg(catalog.TargetsFile), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+		command = fmt.Sprintf("%s proofs --targets %s --mode %s --agent %s --status %s", cli, targetsFileCommandArg(catalog.TargetsFile), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
 	default:
 		path := firstNonEmpty(catalog.TargetPath, "<target-path>")
-		command = fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+		command = fmt.Sprintf("%s proofs --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
 	}
 	caseID = strings.TrimSpace(caseID)
 	if caseID != "" {
@@ -774,7 +778,7 @@ func proofPlanCompareCommands(catalog model.ControlCatalogReport) []string {
 	return []string{
 		proofCommand(before),
 		proofCommand(after),
-		fmt.Sprintf("ariadne compare --before %s --after %s --format html --out case-compare.html", shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
+		fmt.Sprintf("%s compare --before %s --after %s --format html --out case-compare.html", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
 	}
 }
 
@@ -3192,30 +3196,32 @@ func reportExposures(r model.Report) []model.ExposureResult {
 }
 
 func assessPathCommands(path, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
-	base := assessFocusCommand(fmt.Sprintf("ariadne assess --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
+	cli := ariadneCommand()
+	base := assessFocusCommand(fmt.Sprintf("%s assess --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
 	commands := []string{base}
 	if len(cases) > 0 {
-		commands = append(commands, fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
-		commands = append(commands, fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s --case %s --format action", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("%s cases --path %s --mode %s --agent %s --status %s --case %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("%s proofs --path %s --mode %s --agent %s --status %s --case %s --format action", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 	}
 	commands = append(commands,
-		fmt.Sprintf("ariadne controls --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
-		fmt.Sprintf("ariadne architecture --path %s --mode %s --agent %s --status all", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("%s controls --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
+		fmt.Sprintf("%s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 	)
 	return commands
 }
 
 func assessScanCommands(targetsFile, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
+	cli := ariadneCommand()
 	targetsArg := targetsFileCommandArg(targetsFile)
-	base := assessFocusCommand(fmt.Sprintf("ariadne assess --targets %s --mode %s --agent %s --status %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
+	base := assessFocusCommand(fmt.Sprintf("%s assess --targets %s --mode %s --agent %s --status %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
 	commands := []string{base}
 	if len(cases) > 0 {
-		commands = append(commands, fmt.Sprintf("ariadne cases --targets %s --mode %s --agent %s --status %s --case %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
-		commands = append(commands, fmt.Sprintf("ariadne proofs --targets %s --mode %s --agent %s --status %s --case %s --format action", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("%s cases --targets %s --mode %s --agent %s --status %s --case %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("%s proofs --targets %s --mode %s --agent %s --status %s --case %s --format action", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 	}
 	commands = append(commands,
-		fmt.Sprintf("ariadne controls --targets %s --mode %s --agent %s --status %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
-		fmt.Sprintf("ariadne architecture --targets %s --mode %s --agent %s --status all", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("%s controls --targets %s --mode %s --agent %s --status %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
+		fmt.Sprintf("%s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 	)
 	return commands
 }
@@ -3228,6 +3234,28 @@ func assessFocusCommand(command string, focus AssessFocus) string {
 		command += " --control " + shellQuoteCommandArg(focus.ControlFilter)
 	}
 	return command
+}
+
+func ariadneCommand() string {
+	value := strings.TrimSpace(os.Getenv(commandNameEnv))
+	if value == "" {
+		return "ariadne"
+	}
+	return shellQuoteCommandArg(value)
+}
+
+func isAriadneSubcommand(command string, subcommand string) bool {
+	command = strings.TrimSpace(command)
+	subcommand = strings.TrimSpace(subcommand)
+	return strings.HasPrefix(command, ariadneCommand()+" "+subcommand+" ") ||
+		strings.HasPrefix(command, "ariadne "+subcommand+" ")
+}
+
+func rewriteAriadneSubcommand(command string, from string, to string) string {
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	command = strings.ReplaceAll(command, ariadneCommand()+" "+from, ariadneCommand()+" "+to)
+	return strings.ReplaceAll(command, "ariadne "+from, "ariadne "+to)
 }
 
 func renderGraphDOT(w io.Writer, title string, g model.Graph) error {
@@ -4629,8 +4657,8 @@ func renderControlCaseBoardTable(w io.Writer, r model.ControlCatalogReport) erro
 	renderControlOperatorCases(w, r.OperatorCases, 10)
 	fmt.Fprintf(w, "  Evidence model:\n")
 	fmt.Fprintf(w, "    - Cases are derived from deterministic facts, graph edges, architecture flaws, and missing hard-barrier controls.\n")
-	fmt.Fprintf(w, "    - Use `ariadne proofs --case <case-id>` for the focused proof patches and rerun criteria for one case.\n")
-	fmt.Fprintf(w, "    - Use `ariadne controls --format json` for the full control catalog and lower-level verification tasks.\n")
+	fmt.Fprintf(w, "    - Use `%s proofs --case <case-id>` for the focused proof patches and rerun criteria for one case.\n", ariadneCommand())
+	fmt.Fprintf(w, "    - Use `%s controls --format json` for the full control catalog and lower-level verification tasks.\n", ariadneCommand())
 	fmt.Fprintln(w)
 	return nil
 }
@@ -5052,20 +5080,21 @@ func controlledFlawMatchesFamily(flaw model.ZeroTrustArchitecture, familyID stri
 }
 
 func focusedClosedCaseCommands(ctx controlVerificationCommandContext, caseID string) []string {
+	cli := ariadneCommand()
 	mode := firstNonEmpty(ctx.Mode, "repo")
 	agent := firstNonEmpty(ctx.Agent, "all")
 	status := firstNonEmpty(ctx.StatusFilter, "breaking")
 	if ctx.RunKind == "case_board_scan" {
 		targetsArg := targetsFileCommandArg(ctx.TargetsFile)
 		return []string{
-			fmt.Sprintf("ariadne cases --targets %s --mode %s --agent %s --status %s --case %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
-			fmt.Sprintf("ariadne architecture --targets %s --mode %s --agent %s --status all", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+			fmt.Sprintf("%s cases --targets %s --mode %s --agent %s --status %s --case %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
+			fmt.Sprintf("%s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 		}
 	}
 	path := firstNonEmpty(ctx.Path, "<target-path>")
 	return []string{
-		fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
-		fmt.Sprintf("ariadne architecture --path %s --mode %s --agent %s --status all", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("%s cases --path %s --mode %s --agent %s --status %s --case %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
+		fmt.Sprintf("%s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 	}
 }
 
@@ -5084,7 +5113,7 @@ func proofPatchesWithRerunCommands(patches []model.ControlProofPatch, rewrite fu
 func caseBoardFocusedRerunCommands(commands []string, caseID string) []string {
 	out := make([]string, 0, len(commands))
 	for _, command := range commands {
-		if strings.HasPrefix(command, "ariadne cases ") && !strings.Contains(command, " --case ") {
+		if isAriadneSubcommand(command, "cases") && !strings.Contains(command, " --case ") {
 			command += " --case " + shellQuoteCommandArg(caseID)
 		}
 		out = append(out, command)
@@ -5160,7 +5189,7 @@ func nonNilControlOperatorCases(items []model.ControlOperatorCase) []model.Contr
 func caseBoardRerunCommands(commands []string) []string {
 	out := make([]string, 0, len(commands))
 	for _, command := range commands {
-		out = append(out, strings.ReplaceAll(command, "ariadne controls", "ariadne cases"))
+		out = append(out, rewriteAriadneSubcommand(command, "controls", "cases"))
 	}
 	return out
 }
@@ -5412,19 +5441,20 @@ func renderArchitectureCaseWorkflow(w io.Writer, families []model.ArchitectureCl
 		)
 	}
 	if len(families) > limit {
-		fmt.Fprintf(w, "      - %d more operator cases in `ariadne cases` output\n", len(families)-limit)
+		fmt.Fprintf(w, "      - %d more operator cases in `%s cases` output\n", len(families)-limit, ariadneCommand())
 	}
 }
 
 func architectureCaseBoardCommand(ctx controlVerificationCommandContext) string {
+	cli := ariadneCommand()
 	mode := firstNonEmpty(ctx.Mode, "repo")
 	agent := firstNonEmpty(ctx.Agent, "all")
 	status := firstNonEmpty(ctx.StatusFilter, "breaking")
 	if ctx.RunKind == "case_board_scan" {
-		return fmt.Sprintf("ariadne cases --targets %s --mode %s --agent %s --status %s", targetsFileCommandArg(ctx.TargetsFile), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+		return fmt.Sprintf("%s cases --targets %s --mode %s --agent %s --status %s", cli, targetsFileCommandArg(ctx.TargetsFile), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
 	}
 	path := firstNonEmpty(ctx.Path, "<target-path>")
-	return fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+	return fmt.Sprintf("%s cases --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
 }
 
 func architectureCaseFocusCommand(ctx controlVerificationCommandContext, family model.ArchitectureClosureFamily) string {
@@ -5989,6 +6019,7 @@ func controlVerificationWhy(item model.ArchitectureClosure) string {
 }
 
 func controlVerificationCommands(ctx controlVerificationCommandContext) []string {
+	cli := ariadneCommand()
 	mode := ctx.Mode
 	if mode == "" {
 		mode = "repo"
@@ -6004,8 +6035,8 @@ func controlVerificationCommands(ctx controlVerificationCommandContext) []string
 	if ctx.RunKind == "control_catalog_scan" {
 		targetsArg := targetsFileCommandArg(ctx.TargetsFile)
 		return []string{
-			fmt.Sprintf("ariadne controls --targets %s --mode %s --agent %s --status %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
-			fmt.Sprintf("ariadne architecture --targets %s --mode %s --agent %s --status all", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+			fmt.Sprintf("%s controls --targets %s --mode %s --agent %s --status %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
+			fmt.Sprintf("%s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 		}
 	}
 	path := ctx.Path
@@ -6013,8 +6044,8 @@ func controlVerificationCommands(ctx controlVerificationCommandContext) []string
 		path = "<target-path>"
 	}
 	return []string{
-		fmt.Sprintf("ariadne controls --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
-		fmt.Sprintf("ariadne architecture --path %s --mode %s --agent %s --status all", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("%s controls --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
+		fmt.Sprintf("%s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 	}
 }
 

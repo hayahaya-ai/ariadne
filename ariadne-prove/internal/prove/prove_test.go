@@ -4266,6 +4266,80 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 }
 
+func TestAssessCommandsHonorCommandEnvironment(t *testing.T) {
+	t.Setenv("ARIADNE_COMMAND", "./bin/ariadne")
+	path := realPathFixture(t, "combined-risk")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderAssess(&jsonOut, inventory, r, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, values := range [][]string{
+		decoded.NextCommands,
+		decoded.Triage.ProofLoop,
+		decoded.FirstAction.RerunCommands,
+		decoded.FirstAction.CompareCommands,
+		decoded.TopCaseProofPlan.RerunCommands,
+		decoded.TopCaseProofPlan.CompareCommands,
+	} {
+		if !containsString(values, "./bin/ariadne ") {
+			t.Fatalf("commands should honor ARIADNE_COMMAND: %+v", values)
+		}
+	}
+	if decoded.FirstAction.PatchExportCommand == "" || !strings.Contains(decoded.FirstAction.PatchExportCommand, "./bin/ariadne proofs ") {
+		t.Fatalf("patch export command should honor ARIADNE_COMMAND: %q", decoded.FirstAction.PatchExportCommand)
+	}
+	if decoded.ClosurePlan[0].RerunCommand == "" || !strings.Contains(decoded.ClosurePlan[0].RerunCommand, "./bin/ariadne cases ") {
+		t.Fatalf("closure rerun command should honor ARIADNE_COMMAND: %q", decoded.ClosurePlan[0].RerunCommand)
+	}
+	if decoded.ClosurePlan[0].CompareCommand == "" || !strings.Contains(decoded.ClosurePlan[0].CompareCommand, "./bin/ariadne compare ") {
+		t.Fatalf("closure compare command should honor ARIADNE_COMMAND: %q", decoded.ClosurePlan[0].CompareCommand)
+	}
+
+	var actionOut bytes.Buffer
+	if err := report.RenderAssess(&actionOut, inventory, r, "action", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	actionRendered := actionOut.String()
+	for _, want := range []string{
+		"Open focused proof action: ./bin/ariadne proofs --path",
+		"Export suggested proof files: ./bin/ariadne proofs --path",
+		"Rerun after evidence changes: ./bin/ariadne cases --path",
+		"Compare proof state: ./bin/ariadne compare --before before-proof.json --after after-proof.json",
+	} {
+		if !strings.Contains(actionRendered, want) {
+			t.Fatalf("assessment action should render copyable source-checkout command %q:\n%s", want, actionRendered)
+		}
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		`data-command="./bin/ariadne proofs --path`,
+		`data-command="./bin/ariadne cases --path`,
+		`data-command="./bin/ariadne compare --before before-proof.json --after after-proof.json`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("assessment dashboard should render copyable source-checkout command %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	path := realPathFixture(t, "egress-controls")
 	inventory, err := RunInventory(Options{Path: path})
