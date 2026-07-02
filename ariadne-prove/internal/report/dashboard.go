@@ -2801,7 +2801,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model
 		return
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Case</th><th>State / next step</th><th>Why it exists</th><th>Evidence references</th><th>Start with</th><th>Evidence / proof</th><th>Rerun / done when</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Case</th><th>State / next step</th><th>Why it exists</th><th>Evidence references</th><th>Start with</th><th>Evidence / proof</th><th>Export / rerun / done when</th></tr></thead><tbody>")
 	limit := len(cases)
 	if limit > 10 {
 		limit = 10
@@ -2823,7 +2823,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model
 		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderOperatorCaseStartCell(item))
 		fmt.Fprintf(w, `<td><h3>%s</h3>%s%s<h3>Proof patches</h3>%s<h3>%s</h3>%s</td>`, esc(surfaceHeading), renderDashboardPathList(root, limitStrings(surfaces, 6)), controlOperatorCaseClosureBundleHTML(item), renderDashboardHTMLList(controlProofPatchHTMLLines(root, item.ProofPatches, 2)), esc(exampleHeading), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, item.EvidenceExamples, 2)))
-		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderCommandList(limitStrings(item.RerunCommands, 2)), renderCommandList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
+		fmt.Fprintf(w, `<td>%s<h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderOperatorCaseExportCommandBlock(item), renderCommandList(limitStrings(item.RerunCommands, 2)), renderCommandList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(cases) > limit {
@@ -2831,6 +2831,13 @@ func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderOperatorCaseExportCommandBlock(item model.ControlOperatorCase) string {
+	if item.PatchExportCommand == "" {
+		return ""
+	}
+	return `<h3>Export proof files</h3>` + renderCommandList([]string{item.PatchExportCommand})
 }
 
 func renderOperatorCaseStartCell(item model.ControlOperatorCase) string {
