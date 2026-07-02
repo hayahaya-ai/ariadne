@@ -1929,12 +1929,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 		for _, line := range evidenceReferenceLinesBySource(action.CurrentAction.EvidenceReferences, 4) {
 			fmt.Fprintf(w, "  - %s\n", line)
 		}
-		if sources := evidenceReferenceSources(action.CurrentAction.EvidenceReferences, false); len(sources) > 0 {
-			fmt.Fprintf(w, "\nEvidence sources:\n")
-			for _, source := range limitStrings(sources, 8) {
-				fmt.Fprintf(w, "  - %s\n", source)
-			}
-		}
+		renderEvidenceSourceListBlock(w, evidenceReferenceSources(action.CurrentAction.EvidenceReferences, false), 8)
 	}
 	if example := assessCurrentEvidenceExampleLine(action); example != "" {
 		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
@@ -4353,12 +4348,32 @@ func renderAssessControlState(w io.Writer, state model.AssessControlState) {
 }
 
 func renderAssessEvidenceSources(w io.Writer, sources []string, limit int) {
+	renderEvidenceSourceLines(w, "  - ", sources, limit)
+}
+
+func renderEvidenceSourceLines(w io.Writer, prefix string, sources []string, limit int) {
 	files, modeled := splitEvidenceSources(sources)
 	if len(files) > 0 {
-		fmt.Fprintf(w, "  - Evidence files: %s\n", strings.Join(limitStrings(files, limit), "; "))
+		fmt.Fprintf(w, "%sEvidence files: %s\n", prefix, strings.Join(limitStrings(files, limit), "; "))
 	}
 	if len(modeled) > 0 {
-		fmt.Fprintf(w, "  - Modeled/internal evidence: %s\n", strings.Join(limitStrings(modeled, limit), "; "))
+		fmt.Fprintf(w, "%sModeled/internal evidence: %s\n", prefix, strings.Join(limitStrings(modeled, limit), "; "))
+	}
+}
+
+func renderEvidenceSourceListBlock(w io.Writer, sources []string, limit int) {
+	files, modeled := splitEvidenceSources(sources)
+	if len(files) > 0 {
+		fmt.Fprintf(w, "\nEvidence files:\n")
+		for _, source := range limitStrings(files, limit) {
+			fmt.Fprintf(w, "  - %s\n", source)
+		}
+	}
+	if len(modeled) > 0 {
+		fmt.Fprintf(w, "\nModeled/internal evidence:\n")
+		for _, source := range limitStrings(modeled, limit) {
+			fmt.Fprintf(w, "  - %s\n", source)
+		}
 	}
 }
 
@@ -4516,9 +4531,7 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 	renderAssessFirstActionWorkflow(w, action.Workflow)
 	if len(action.EvidenceReferences) > 0 {
 		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLinesBySource(action.EvidenceReferences, 3), "; "))
-		if sources := evidenceReferenceSources(action.EvidenceReferences, false); len(sources) > 0 {
-			fmt.Fprintf(w, "  - Evidence sources: %s\n", strings.Join(limitStrings(sources, 8), "; "))
-		}
+		renderEvidenceSourceLines(w, "  - ", evidenceReferenceSources(action.EvidenceReferences, false), 8)
 	}
 	if len(action.ProofSurfaces) > 0 {
 		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(action.ProofSurfaces, 8), "; "))
@@ -5324,12 +5337,7 @@ func renderProofPlanAction(w io.Writer, r model.ProofPlanReport) error {
 		for _, line := range evidenceReferenceLinesBySource(evidenceRefs, 4) {
 			fmt.Fprintf(w, "  - %s\n", line)
 		}
-		if sources := evidenceReferenceSources(evidenceRefs, false); len(sources) > 0 {
-			fmt.Fprintf(w, "\nEvidence sources:\n")
-			for _, source := range limitStrings(sources, 8) {
-				fmt.Fprintf(w, "  - %s\n", source)
-			}
-		}
+		renderEvidenceSourceListBlock(w, evidenceReferenceSources(evidenceRefs, false), 8)
 	}
 
 	if hasPatch {
@@ -6487,9 +6495,7 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		}
 		if len(item.EvidenceReferences) > 0 {
 			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 2), "; "))
-			if sources := evidenceReferenceSources(item.EvidenceReferences, false); len(sources) > 0 {
-				fmt.Fprintf(w, "      Evidence sources: %s\n", strings.Join(limitStrings(sources, 8), "; "))
-			}
+			renderEvidenceSourceLines(w, "      ", evidenceReferenceSources(item.EvidenceReferences, false), 8)
 		}
 		if len(item.StartingControls) > 0 {
 			fmt.Fprintf(w, "      Start with: %s\n", strings.Join(limitStrings(item.StartingControls, 4), "; "))

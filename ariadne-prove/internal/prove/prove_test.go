@@ -2756,7 +2756,7 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 	actionRendered := actionOut.String()
 	if !strings.Contains(actionRendered, "Case:\n  - Identity And Credentials") ||
 		!strings.Contains(actionRendered, "Evidence to inspect:") ||
-		!strings.Contains(actionRendered, "Evidence sources:") {
+		!strings.Contains(actionRendered, "Evidence files:") {
 		t.Fatalf("endpoint assessment action should include the top case evidence packet:\n%s", actionRendered)
 	}
 	decisionBlock := boundedBlock(t, actionRendered, "Decision:", "What was inspected:")
@@ -2769,7 +2769,7 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 			t.Fatalf("endpoint decision packet should separate present and missing controls; missing %q:\n%s", want, decisionBlock)
 		}
 	}
-	sourceBlock := boundedBlock(t, actionRendered, "Evidence sources:", "Accepted evidence:")
+	sourceBlock := boundedBlock(t, actionRendered, "Evidence files:", "Accepted evidence:")
 	for _, want := range []string{
 		".aider.chat.history.md",
 		".aider.conf.yml",
@@ -3168,7 +3168,8 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"State:",
 		"Next step:",
 		"Evidence references:",
-		"Evidence sources:",
+		"Evidence files:",
+		"Modeled/internal evidence:",
 		".claude/settings.json",
 		".codex/config.toml",
 		".env",
@@ -3195,7 +3196,8 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 	}
 	topCaseBlock := boundedBlock(t, out, "case:egress-output-boundary", "case:least-agency-authority")
 	for _, want := range []string{
-		"Evidence sources:",
+		"Evidence files:",
+		"Modeled/internal evidence:",
 		".claude/settings.json",
 		".codex/config.toml",
 		".env",
@@ -3279,7 +3281,8 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"Priority:",
 		"State: open",
 		"Next step:",
-		"Evidence sources:",
+		"Evidence files:",
+		"Modeled/internal evidence:",
 		"CLAUDE.md",
 		"Compare loop:",
 		"before-proof.json",
@@ -3555,7 +3558,8 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"Input Trust Boundary (case:input-trust-boundary)",
 		"State: open",
 		"Evidence to inspect:",
-		"Evidence sources:",
+		"Evidence files:",
+		"Modeled/internal evidence:",
 		"CLAUDE.md",
 		"Proof to add or verify:",
 		"Control: control:input-isolation",
@@ -3579,16 +3583,18 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 			t.Fatalf("proof action output missing %q:\n%s", want, actionOut)
 		}
 	}
-	actionSourceBlock := boundedBlock(t, actionOut, "Evidence sources:", "Proof to add or verify:")
-	if !strings.Contains(actionSourceBlock, "CLAUDE.md") {
-		t.Fatalf("proof action evidence sources should include CLAUDE.md:\n%s", actionSourceBlock)
+	actionSourceBlock := boundedBlock(t, actionOut, "Evidence files:", "Proof to add or verify:")
+	for _, want := range []string{"CLAUDE.md", "Modeled/internal evidence:", "zt:control-strength"} {
+		if !strings.Contains(actionSourceBlock, want) {
+			t.Fatalf("proof action evidence section should include %q:\n%s", want, actionSourceBlock)
+		}
 	}
 
 	var egressAction bytes.Buffer
 	if err := report.RenderProofs(&egressAction, r, "action", "breaking", "case:egress-output-boundary"); err != nil {
 		t.Fatal(err)
 	}
-	egressSourceBlock := boundedBlock(t, egressAction.String(), "Evidence sources:", "Proof to add or verify:")
+	egressSourceBlock := boundedBlock(t, egressAction.String(), "Evidence files:", "Proof to add or verify:")
 	for _, want := range []string{".claude/settings.json", ".codex/config.toml", ".env"} {
 		if !strings.Contains(egressSourceBlock, want) {
 			t.Fatalf("egress proof action evidence sources should include %q:\n%s", want, egressSourceBlock)
@@ -4097,7 +4103,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Evidence references:",
 		"Prove at:",
 		".ariadne/egress-policy.json",
-		"Evidence sources:",
+		"Evidence files:",
+		"Modeled/internal evidence:",
 		"Top case proof packet:",
 		"Compare loop:",
 		"before-proof.json",
@@ -4122,7 +4129,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!strings.Contains(firstActionBlock, "Command: ariadne proofs --path") ||
 		!strings.Contains(firstActionBlock, "--patch-dir proof-patches") ||
 		!strings.Contains(firstActionBlock, "4. Compare Before And After:") ||
-		!strings.Contains(firstActionBlock, "Evidence sources: .claude/settings.json; .codex/config.toml; .env") ||
+		!strings.Contains(firstActionBlock, "Evidence files: .claude/settings.json; .codex/config.toml; .env") ||
+		!strings.Contains(firstActionBlock, "Modeled/internal evidence: zt:control-strength") ||
 		!strings.Contains(firstActionBlock, "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/input-policy.json") {
 		t.Fatalf("first action should include the compare loop commands:\n%s", firstActionBlock)
 	}
