@@ -5443,6 +5443,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	rendered := htmlOut.String()
 	for _, want := range []string{
 		"Ariadne Assessment",
+		"Operator Console",
+		"The current case, source tasks, and proof loop in one place.",
+		"Open / Verify",
+		"Create Workspace",
 		"Assessment Readout",
 		"Operator Packet",
 		"Smallest source-backed handoff",
@@ -5619,6 +5623,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("assessment dashboard missing %q:\n%s", want, rendered)
 		}
+	}
+	consoleStart := strings.Index(rendered, "Operator Console")
+	readoutStart := strings.Index(rendered, "Assessment Readout")
+	if consoleStart < 0 || readoutStart < 0 || readoutStart <= consoleStart {
+		t.Fatalf("assessment dashboard should put the operator console before the full readout:\n%s", rendered)
 	}
 	if strings.Contains(rendered, `data-command="1 additional items in JSON"`) {
 		t.Fatalf("assessment dashboard should not render summary text as a copyable command:\n%s", rendered)

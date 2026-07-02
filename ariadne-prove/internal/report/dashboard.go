@@ -187,6 +187,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 		fields[0] = kv{"Target", firstNonEmpty(r.TargetPath, "not recorded")}
 	}
 	renderDashboardHeader(w, title, fields)
+	renderAssessOperatorConsoleDashboard(w, r)
 	renderAssessSummaryDashboard(w, r)
 	renderAssessOperatorRunbookDashboard(w, r)
 	renderAssessSourceReferenceWorkbenchDashboard(w, r)
@@ -212,6 +213,119 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintln(w, "</body>")
 	fmt.Fprintln(w, "</html>")
 	return nil
+}
+
+func renderAssessOperatorConsoleDashboard(w io.Writer, r model.AssessReport) {
+	packet := r.OperatorPacket
+	runbook := r.OperatorWorkbench.Runbook
+	action := r.FirstAction
+	actions := sourceActionsForTerminal(r.SourceReferences.ActionBoard, 6)
+	if !packet.Available && !runbook.Available && len(actions) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel operator-console">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Operator Console</h2><div class="subtle">The current case, source tasks, and proof loop in one place.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Verdict", statusLabel(firstNonEmpty(packet.Status, r.Triage.Status, "unknown"))},
+		{"Case", firstNonEmpty(packet.CaseID, action.CaseID, r.Summary.TopCaseID, "none")},
+		{"Current step", firstNonEmpty(packet.CurrentStep, action.CurrentAction.WorkflowStepTitle, runbook.CurrentStep.Title, "not recorded")},
+		{"Control", firstNonEmpty(packet.CurrentControl, action.CurrentAction.Control, runbook.CurrentControl, "not recorded")},
+		{"Proof surface", firstNonEmpty(packet.ProofSurface, action.CurrentAction.Surface, runbook.ProofSurface, "not recorded")},
+	})
+	fmt.Fprintln(w, `<div class="console-grid">`)
+	renderAssessOperatorConsoleCaseLane(w, r)
+	renderAssessOperatorConsoleSourceLane(w, r.TargetPath, actions)
+	renderAssessOperatorConsoleProofLane(w, r)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessOperatorConsoleCaseLane(w io.Writer, r model.AssessReport) {
+	packet := r.OperatorPacket
+	action := r.FirstAction
+	fmt.Fprintln(w, `<div class="console-lane">`)
+	fmt.Fprintln(w, `<div class="console-kicker">Case</div>`)
+	fmt.Fprintf(w, `<h3>%s</h3>`, esc(firstNonEmpty(packet.CaseTitle, action.Title, r.Summary.TopCaseTitle, "No active case")))
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+		"ID: "+firstNonEmpty(packet.CaseID, action.CaseID, r.Summary.TopCaseID),
+		"State: "+firstNonEmpty(packet.State, action.State, "unknown"),
+		"Severity: "+strings.ToUpper(firstNonEmpty(packet.Severity, action.Severity, "unknown")),
+		firstNonEmpty(packet.Headline, r.Decision.Headline),
+		firstNonEmpty(action.WhyFirst, r.Decision.WhyPrioritized),
+	)))
+	if len(packet.MissingControls) > 0 || len(packet.PresentControls) > 0 {
+		fmt.Fprintln(w, `<h3>Controls</h3>`)
+		fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+			"Missing: "+firstNonEmpty(strings.Join(limitStrings(packet.MissingControls, 4), "; "), "none"),
+			"Observed: "+firstNonEmpty(strings.Join(limitStrings(packet.PresentControls, 3), "; "), "none"),
+		)))
+	}
+	fmt.Fprintln(w, `</div>`)
+}
+
+func renderAssessOperatorConsoleSourceLane(w io.Writer, root string, actions []model.AssessSourceAction) {
+	fmt.Fprintln(w, `<div class="console-lane">`)
+	fmt.Fprintln(w, `<div class="console-kicker">Open / Verify</div>`)
+	if len(actions) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No source actions available for this assessment.</div>`)
+		fmt.Fprintln(w, `</div>`)
+		return
+	}
+	for _, action := range actions {
+		fmt.Fprintln(w, `<div class="console-action">`)
+		fmt.Fprintln(w, `<div class="console-action-title">`)
+		fmt.Fprintf(w, `<strong>%s</strong>`, dashboardSourceActionSourceHTML(action))
+		fmt.Fprintf(w, `<span class="pill neutral">%s</span>`, esc(firstNonEmpty(action.ActionKind, "inspect_evidence")))
+		fmt.Fprintln(w, `</div>`)
+		if len(action.Facts) > 0 {
+			fmt.Fprintf(w, `<div class="subtle">%s</div>`, esc(firstString(action.Facts)))
+		}
+		if len(action.RelatedControls) > 0 {
+			fmt.Fprintf(w, `<div class="subtle">Control: %s</div>`, esc(strings.Join(limitStrings(action.RelatedControls, 2), "; ")))
+		}
+		if len(action.InspectCommands) > 0 {
+			fmt.Fprintln(w, renderCommandList(firstStrings(action.InspectCommands, 1)))
+		} else if action.LocalPath != "" {
+			fmt.Fprintln(w, renderDashboardPathList(root, []string{action.LocalPath}))
+		}
+		fmt.Fprintln(w, `</div>`)
+	}
+	fmt.Fprintln(w, `</div>`)
+}
+
+func renderAssessOperatorConsoleProofLane(w io.Writer, r model.AssessReport) {
+	action := r.FirstAction
+	state := r.OperatorPacket.ProofState
+	runbook := r.OperatorWorkbench.Runbook
+	fmt.Fprintln(w, `<div class="console-lane">`)
+	fmt.Fprintln(w, `<div class="console-kicker">Proof Loop</div>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+		"Current state: "+firstNonEmpty(state.CurrentState, action.State, "unknown"),
+		state.ClosureCondition,
+		"Artifacts: "+strings.Join(nonEmptyStrings(state.BaselineArtifact, state.AfterArtifact, state.CompareArtifact), " -> "),
+	)))
+	closureCommand := assessClosureCommandFromNextCommands(r.NextCommands)
+	if closureCommand != "" {
+		fmt.Fprintln(w, `<h3>Create Workspace</h3>`)
+		fmt.Fprintln(w, renderCommandList([]string{closureCommand}))
+	}
+	commands := nonEmptyStrings(
+		state.BaselineCommand,
+		firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand),
+		firstString(action.ApplyCommands),
+		firstNonEmpty(assessCurrentRerunCommand(action), firstString(action.RerunCommands)),
+		state.AfterCommand,
+		firstNonEmpty(state.CompareCommand, action.CurrentAction.CompareCommand),
+	)
+	if len(commands) == 0 {
+		commands = firstNonEmptyStrings(runbook.Commands, r.NextCommands)
+	}
+	fmt.Fprintln(w, `<h3>Commands</h3>`)
+	fmt.Fprintln(w, renderCommandList(firstStrings(commands, 5)))
+	done := firstNonEmptyStrings(firstNonEmptyStrings(action.SuccessCriteria, runbook.DoneCriteria), r.OperatorPacket.DoneCriteria)
+	fmt.Fprintln(w, `<h3>Done When</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(done, 3)))
+	fmt.Fprintln(w, `</div>`)
 }
 
 func renderAssessSourceReferenceWorkbenchDashboard(w io.Writer, r model.AssessReport) {
@@ -783,6 +897,43 @@ tr:last-child td { border-bottom: 0; }
   padding-top: 10px;
   border-top: 1px solid var(--line);
 }
+.console-grid {
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.console-lane {
+  min-width: 0;
+}
+.console-lane + .console-lane {
+  border-left: 1px solid var(--line);
+  padding-left: 16px;
+}
+.console-kicker {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.console-action {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.console-action:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.console-action-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.console-action-title strong {
+  overflow-wrap: anywhere;
+}
 .nav-row {
   display: flex;
   flex-wrap: wrap;
@@ -826,7 +977,8 @@ tr:target {
 }
 @media (max-width: 980px) {
   .shell { width: min(100vw - 20px, 1440px); padding-top: 12px; }
-  .topbar, .grid, .two-col, .action-grid { grid-template-columns: 1fr; }
+  .topbar, .grid, .two-col, .action-grid, .console-grid { grid-template-columns: 1fr; }
+  .console-lane + .console-lane { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; padding-top: 12px; }
   .command-row { grid-template-columns: 1fr; }
 }
 </style>`)

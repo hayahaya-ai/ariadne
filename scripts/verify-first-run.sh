@@ -357,6 +357,10 @@ expect_contains "$assess_json" '.claude/settings.json'
 expect_contains "$assess_json" '.codex/config.toml'
 
 expect_contains "$assess_html" "Ariadne Assessment"
+expect_contains "$assess_html" "Operator Console"
+expect_contains "$assess_html" "The current case, source tasks, and proof loop in one place."
+expect_contains "$assess_html" "Open / Verify"
+expect_contains "$assess_html" "Create Workspace"
 expect_contains "$assess_html" "Source Reference Workbench"
 expect_contains "$assess_html" "Source Action Board"
 expect_contains "$assess_html" "add_or_verify_control"
@@ -602,6 +606,10 @@ expect_contains "$managed_inventory" '"ci-secret-boundary"'
 expect_contains "$managed_inventory" '"repository-integrity-boundary"'
 expect_contains "$managed_inventory" '"cloud-identity-boundary"'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
+expect_contains "$self_bundle/dashboard.html" "Operator Console"
+expect_contains "$self_bundle/dashboard.html" "The current case, source tasks, and proof loop in one place."
+expect_contains "$self_bundle/dashboard.html" "Open / Verify"
+expect_contains "$self_bundle/dashboard.html" "Create Workspace"
 expect_contains "$self_bundle/dashboard.html" "Source Reference Workbench"
 expect_contains "$self_bundle/dashboard.html" "Source Action Board"
 expect_contains "$self_bundle/dashboard.html" "add_or_verify_control"
@@ -768,6 +776,10 @@ expect_contains "$endpoint_json" '.roo/mcp.json'
 expect_contains "$endpoint_json" '.gemini/settings.json'
 
 expect_contains "$endpoint_html" "Ariadne Assessment"
+expect_contains "$endpoint_html" "Operator Console"
+expect_contains "$endpoint_html" "The current case, source tasks, and proof loop in one place."
+expect_contains "$endpoint_html" "Open / Verify"
+expect_contains "$endpoint_html" "Create Workspace"
 expect_contains "$endpoint_html" "Source Reference Workbench"
 expect_contains "$endpoint_html" "Source Action Board"
 expect_contains "$endpoint_html" "add_or_verify_control"

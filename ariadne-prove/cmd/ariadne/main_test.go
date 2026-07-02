@@ -186,6 +186,10 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 	assessment := readTestFile(t, assessmentPath)
 	for _, want := range []string{
 		"Ariadne Assessment",
+		"Operator Console",
+		"The current case, source tasks, and proof loop in one place.",
+		"Open / Verify",
+		"Create Workspace",
 		"Operator Runbook",
 		"Current Action",
 		"Source Action Board",
@@ -645,6 +649,10 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	dashboard := readTestFile(t, filepath.Join(bundleDir, "dashboard.html"))
 	for _, want := range []string{
 		"Ariadne Assessment",
+		"Operator Console",
+		"The current case, source tasks, and proof loop in one place.",
+		"Open / Verify",
+		"Create Workspace",
 		"Source Reference Workbench",
 		"Source Action Board",
 		"add_or_verify_control",
