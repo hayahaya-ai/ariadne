@@ -30,6 +30,7 @@ Assess the current developer machine:
 
 ```bash
 ariadne self
+ariadne self --bundle-dir ariadne-self
 ariadne self --format html --out ariadne-self.html
 ```
 
@@ -53,6 +54,7 @@ Endpoint mode inspects known user-level agent configuration locations for the cu
 
 ```bash
 ariadne self
+ariadne self --bundle-dir ariadne-self
 ariadne assess --path "$HOME" --mode endpoint
 ariadne dashboard --path "$HOME" --mode endpoint --out ariadne-self.html
 ```

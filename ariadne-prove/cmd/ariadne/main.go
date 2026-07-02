@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -143,6 +144,7 @@ func runSelf(args []string) {
 	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
 	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	bundleDir := fs.String("bundle-dir", "", "write a first-run evidence bundle with summary, dashboard, inventory, cases, and proof plan")
 	fs.Parse(args)
 	targetPath := strings.TrimSpace(*path)
 	if targetPath == "" {
@@ -175,9 +177,197 @@ func runSelf(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	if err := report.RenderAssessFocused(writer, inventory, r, *format, *status, report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID}); err != nil {
+	focus := report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID}
+	if *bundleDir != "" {
+		exported, err := writeSelfAssessmentBundle(*bundleDir, inventory, r, *status, focus)
+		if err != nil {
+			fatal(err)
+		}
+		renderSelfAssessmentBundleSummary(os.Stderr, exported)
+	}
+	if err := report.RenderAssessFocused(writer, inventory, r, *format, *status, focus); err != nil {
 		fatal(err)
 	}
+}
+
+type selfAssessmentBundleResult struct {
+	Directory     string                     `json:"directory"`
+	TargetPath    string                     `json:"target_path"`
+	Mode          string                     `json:"mode"`
+	Agent         string                     `json:"agent"`
+	StatusFilter  string                     `json:"status_filter"`
+	CaseFilter    string                     `json:"case_filter,omitempty"`
+	ControlFilter string                     `json:"control_filter,omitempty"`
+	TopCaseID     string                     `json:"top_case_id,omitempty"`
+	Files         []selfAssessmentBundleFile `json:"files"`
+}
+
+type selfAssessmentBundleFile struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Description string `json:"description"`
+}
+
+func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r model.Report, status string, focus report.AssessFocus) (selfAssessmentBundleResult, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return selfAssessmentBundleResult{}, fmt.Errorf("--bundle-dir requires a directory")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		absDir = dir
+	}
+	assess, err := report.BuildAssessReport(inventory, r, status, focus)
+	if err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	topCaseID := selfAssessmentBundleCaseID(assess, focus)
+	result := selfAssessmentBundleResult{
+		Directory:     absDir,
+		TargetPath:    r.TargetPath,
+		Mode:          r.Story.Mode,
+		Agent:         r.Story.Runtime,
+		StatusFilter:  assess.StatusFilter,
+		CaseFilter:    assess.CaseFilter,
+		ControlFilter: assess.ControlFilter,
+		TopCaseID:     topCaseID,
+		Files: []selfAssessmentBundleFile{
+			{Name: "assessment.txt", Path: filepath.Join(absDir, "assessment.txt"), Description: "Compact human readout with the decision, evidence, first action, and rerun commands."},
+			{Name: "assessment.json", Path: filepath.Join(absDir, "assessment.json"), Description: "Structured assessment contract for automation and UI consumers."},
+			{Name: "dashboard.html", Path: filepath.Join(absDir, "dashboard.html"), Description: "Local operator dashboard with the same assessment evidence."},
+			{Name: "inventory.json", Path: filepath.Join(absDir, "inventory.json"), Description: "Deterministic AI surface inventory facts without exposure classification."},
+			{Name: "cases.txt", Path: filepath.Join(absDir, "cases.txt"), Description: "Operator case board showing the prioritized closure work."},
+			{Name: "cases.json", Path: filepath.Join(absDir, "cases.json"), Description: "Structured operator case board."},
+			{Name: "proof-action.txt", Path: filepath.Join(absDir, "proof-action.txt"), Description: "Focused proof action for the top case or selected case."},
+			{Name: "proof-plan.json", Path: filepath.Join(absDir, "proof-plan.json"), Description: "Structured proof plan for the top case or selected case."},
+			{Name: "README.md", Path: filepath.Join(absDir, "README.md"), Description: "Bundle guide with suggested review order."},
+			{Name: "manifest.json", Path: filepath.Join(absDir, "manifest.json"), Description: "Machine-readable list of bundle files."},
+		},
+	}
+	add := func(name string, render func(io.Writer) error) error {
+		fullPath := filepath.Join(absDir, name)
+		if err := writeRenderedFile(fullPath, render); err != nil {
+			return err
+		}
+		return nil
+	}
+	if err := add("assessment.txt", func(w io.Writer) error {
+		return report.RenderAssessFocused(w, inventory, r, "summary", status, focus)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("assessment.json", func(w io.Writer) error {
+		return report.RenderAssessFocused(w, inventory, r, "json", status, focus)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("dashboard.html", func(w io.Writer) error {
+		return report.RenderAssessFocused(w, inventory, r, "html", status, focus)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("inventory.json", func(w io.Writer) error {
+		return report.RenderInventory(w, inventory, "json")
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("cases.txt", func(w io.Writer) error {
+		return report.RenderCases(w, r, "table", status, focus.CaseFilter)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("cases.json", func(w io.Writer) error {
+		return report.RenderCases(w, r, "json", status, focus.CaseFilter)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("proof-action.txt", func(w io.Writer) error {
+		return report.RenderProofs(w, r, "action", status, topCaseID)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("proof-plan.json", func(w io.Writer) error {
+		return report.RenderProofs(w, r, "json", status, topCaseID)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("README.md", func(w io.Writer) error {
+		_, err := io.WriteString(w, selfAssessmentBundleReadme(result))
+		return err
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("manifest.json", func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	return result, nil
+}
+
+func selfAssessmentBundleCaseID(assess model.AssessReport, focus report.AssessFocus) string {
+	for _, candidate := range []string{
+		focus.CaseFilter,
+		assess.CaseFilter,
+		assess.Decision.TopCaseID,
+		assess.FirstAction.CaseID,
+	} {
+		if strings.TrimSpace(candidate) != "" {
+			return strings.TrimSpace(candidate)
+		}
+	}
+	if len(assess.TopCases) > 0 {
+		return assess.TopCases[0].ID
+	}
+	return ""
+}
+
+func writeRenderedFile(path string, render func(io.Writer) error) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return render(file)
+}
+
+func selfAssessmentBundleReadme(result selfAssessmentBundleResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Ariadne Self-Assessment Bundle\n\n")
+	fmt.Fprintf(&b, "Target: `%s`\n", result.TargetPath)
+	fmt.Fprintf(&b, "Mode: `%s`  Agent: `%s`  Filter: `%s`\n", result.Mode, result.Agent, result.StatusFilter)
+	if result.TopCaseID != "" {
+		fmt.Fprintf(&b, "Start case: `%s`\n", result.TopCaseID)
+	}
+	if result.ControlFilter != "" {
+		fmt.Fprintf(&b, "Focused control: `%s`\n", result.ControlFilter)
+	}
+	fmt.Fprintf(&b, "\n## Suggested Review Order\n\n")
+	fmt.Fprintf(&b, "1. Read `assessment.txt` for the executive readout and first action.\n")
+	fmt.Fprintf(&b, "2. Open `dashboard.html` for the local operator dashboard.\n")
+	fmt.Fprintf(&b, "3. Use `proof-action.txt` to add or verify the top proof evidence.\n")
+	fmt.Fprintf(&b, "4. Use `assessment.json`, `inventory.json`, `cases.json`, and `proof-plan.json` for automation or deeper inspection.\n")
+	fmt.Fprintf(&b, "\nThese files are generated from deterministic inventory, typed facts, and graph evidence. The bundle does not mutate the scanned target.\n\n")
+	fmt.Fprintf(&b, "## Files\n\n")
+	for _, file := range result.Files {
+		fmt.Fprintf(&b, "- `%s`: %s\n", file.Name, file.Description)
+	}
+	return b.String()
+}
+
+func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleResult) {
+	fmt.Fprintf(w, "Exported Ariadne self-assessment bundle to %s\n", result.Directory)
+	if result.TopCaseID != "" {
+		fmt.Fprintf(w, "Top case: %s\n", result.TopCaseID)
+	}
+	fmt.Fprintf(w, "Open first: %s\n", filepath.Join(result.Directory, "assessment.txt"))
+	fmt.Fprintf(w, "Dashboard: %s\n", filepath.Join(result.Directory, "dashboard.html"))
+	fmt.Fprintf(w, "Proof action: %s\n", filepath.Join(result.Directory, "proof-action.txt"))
 }
 
 func runCases(args []string) {
@@ -741,6 +931,7 @@ Commands:
 
 Examples:
   ariadne self
+  ariadne self --bundle-dir ariadne-self
   ariadne self --format html --out ariadne-self-assessment.html
   ariadne self --case case:identity-credentials
   ariadne assess --path .

@@ -160,6 +160,134 @@ func TestRunSelfDefaultsToEndpointAssessment(t *testing.T) {
 	}
 }
 
+func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
+	root := t.TempDir()
+	target, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "messy-ai-surfaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaryPath := filepath.Join(root, "self-summary.txt")
+	bundleDir := filepath.Join(root, "ariadne-self")
+
+	runSelf([]string{
+		"--path", target,
+		"--bundle-dir", bundleDir,
+		"--out", summaryPath,
+	})
+
+	for _, name := range []string{
+		"assessment.txt",
+		"assessment.json",
+		"dashboard.html",
+		"inventory.json",
+		"cases.txt",
+		"cases.json",
+		"proof-action.txt",
+		"proof-plan.json",
+		"README.md",
+		"manifest.json",
+	} {
+		if _, err := os.Stat(filepath.Join(bundleDir, name)); err != nil {
+			t.Fatalf("self bundle missing %s: %v", name, err)
+		}
+	}
+
+	summary := readTestFile(t, summaryPath)
+	for _, want := range []string{
+		"Ariadne Summary",
+		"Mode: endpoint",
+		"Identity And Credentials",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("self summary missing %q:\n%s", want, summary)
+		}
+	}
+
+	readme := readTestFile(t, filepath.Join(bundleDir, "README.md"))
+	for _, want := range []string{
+		"Ariadne Self-Assessment Bundle",
+		"assessment.txt",
+		"dashboard.html",
+		"proof-action.txt",
+		"manifest.json",
+		"case:identity-credentials",
+	} {
+		if !strings.Contains(readme, want) {
+			t.Fatalf("self bundle README missing %q:\n%s", want, readme)
+		}
+	}
+
+	assessmentJSON := readTestFile(t, filepath.Join(bundleDir, "assessment.json"))
+	for _, want := range []string{
+		`"run_kind": "assess"`,
+		`"mode": "endpoint"`,
+		`"top_case_id": "case:identity-credentials"`,
+		`"first_action"`,
+	} {
+		if !strings.Contains(assessmentJSON, want) {
+			t.Fatalf("self bundle assessment JSON missing %q:\n%s", want, assessmentJSON)
+		}
+	}
+
+	inventoryJSON := readTestFile(t, filepath.Join(bundleDir, "inventory.json"))
+	for _, want := range []string{
+		`"run_kind": "inventory"`,
+		`"mode": "endpoint"`,
+		`".claude/settings.local.json"`,
+		`".codex/config.toml"`,
+	} {
+		if !strings.Contains(inventoryJSON, want) {
+			t.Fatalf("self bundle inventory JSON missing %q:\n%s", want, inventoryJSON)
+		}
+	}
+
+	dashboard := readTestFile(t, filepath.Join(bundleDir, "dashboard.html"))
+	for _, want := range []string{
+		"Ariadne Assessment",
+		"Operator Cases",
+		"Export proof files",
+	} {
+		if !strings.Contains(dashboard, want) {
+			t.Fatalf("self bundle dashboard missing %q:\n%s", want, dashboard)
+		}
+	}
+
+	proofAction := readTestFile(t, filepath.Join(bundleDir, "proof-action.txt"))
+	for _, want := range []string{
+		"Ariadne Proof Action",
+		"case:identity-credentials",
+		"Proof to add or verify:",
+		"Export suggested files:",
+	} {
+		if !strings.Contains(proofAction, want) {
+			t.Fatalf("self bundle proof action missing %q:\n%s", want, proofAction)
+		}
+	}
+
+	proofPlan := readTestFile(t, filepath.Join(bundleDir, "proof-plan.json"))
+	for _, want := range []string{
+		`"run_kind": "proof_plan"`,
+		`"case_filter": "case:identity-credentials"`,
+		`"proof_patches"`,
+	} {
+		if !strings.Contains(proofPlan, want) {
+			t.Fatalf("self bundle proof plan missing %q:\n%s", want, proofPlan)
+		}
+	}
+
+	manifest := readTestFile(t, filepath.Join(bundleDir, "manifest.json"))
+	for _, want := range []string{
+		`"top_case_id": "case:identity-credentials"`,
+		`"name": "README.md"`,
+		`"name": "manifest.json"`,
+		`"name": "proof-action.txt"`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("self bundle manifest missing %q:\n%s", want, manifest)
+		}
+	}
+}
+
 func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 	root := t.TempDir()
 	outPath := filepath.Join(root, "proof-plan.json")

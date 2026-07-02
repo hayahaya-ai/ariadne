@@ -233,8 +233,9 @@ endpoint_html="$workdir/endpoint-assess.html"
 endpoint_cases="$workdir/endpoint-cases.txt"
 self_summary="$workdir/self-summary.txt"
 self_html="$workdir/self.html"
+self_bundle="$workdir/ariadne-self"
 
-"$bin" self --path "$endpoint_fixture" --out "$self_summary"
+"$bin" self --path "$endpoint_fixture" --bundle-dir "$self_bundle" --out "$self_summary"
 "$bin" self --path "$endpoint_fixture" --format html --out "$self_html"
 "$bin" assess --path "$endpoint_fixture" --mode endpoint --format action --out "$endpoint_action"
 "$bin" assess --path "$endpoint_fixture" --mode endpoint --format json --out "$endpoint_json"
@@ -250,6 +251,29 @@ expect_contains "$self_html" "Ariadne Assessment"
 expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
+
+for bundle_file in assessment.txt assessment.json dashboard.html inventory.json cases.txt cases.json proof-action.txt proof-plan.json README.md manifest.json; do
+  if [ ! -f "$self_bundle/$bundle_file" ]; then
+    echo "missing self bundle file: $self_bundle/$bundle_file" >&2
+    echo "artifacts left in: $workdir" >&2
+    exit 1
+  fi
+done
+expect_contains "$self_bundle/README.md" "Ariadne Self-Assessment Bundle"
+expect_contains "$self_bundle/README.md" "dashboard.html"
+expect_contains "$self_bundle/README.md" "proof-action.txt"
+expect_contains "$self_bundle/README.md" "case:identity-credentials"
+expect_contains "$self_bundle/assessment.json" '"run_kind": "assess"'
+expect_contains "$self_bundle/assessment.json" '"top_case_id": "case:identity-credentials"'
+expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
+expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
+expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
+expect_contains "$self_bundle/proof-action.txt" "Ariadne Proof Action"
+expect_contains "$self_bundle/proof-action.txt" "case:identity-credentials"
+expect_contains "$self_bundle/proof-plan.json" '"run_kind": "proof_plan"'
+expect_contains "$self_bundle/proof-plan.json" '"case_filter": "case:identity-credentials"'
+expect_contains "$self_bundle/manifest.json" '"name": "README.md"'
+expect_contains "$self_bundle/manifest.json" '"name": "manifest.json"'
 
 expect_contains "$endpoint_action" "What was inspected:"
 expect_contains "$endpoint_action" "Decision:"

@@ -16,12 +16,13 @@ The active implementation is in [`ariadne-prove/`](ariadne-prove/).
 make build
 make verify-first-run
 ./bin/ariadne self
+./bin/ariadne self --bundle-dir /tmp/ariadne-self
 ./bin/ariadne self --format html --out /tmp/ariadne-self.html
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format html --out /tmp/ariadne-assess.html
 ```
 
-The first command builds the CLI. The second command runs the product verification loop against known fixtures. `ariadne self` is the local developer-machine assessment: it inspects the current `HOME` in endpoint mode and returns the first operator action. `ariadne assess --path ...` is the repo or mounted-path assessment. Both tell you what Ariadne inspected, what facts it collected, which operator case is first, what evidence supports it, what is normal agent capability, what is real risk, what hard barrier is missing, and how to prove the fix worked. Use `--format table` when you want the full terminal audit trail.
+The first command builds the CLI. The second command runs the product verification loop against known fixtures. `ariadne self` is the local developer-machine assessment: it inspects the current `HOME` in endpoint mode and returns the first operator action. Add `--bundle-dir` when you want a durable first-run folder containing `assessment.txt`, `dashboard.html`, `inventory.json`, `cases.json`, `proof-action.txt`, `proof-plan.json`, and a `README.md`. `ariadne assess --path ...` is the repo or mounted-path assessment. Both tell you what Ariadne inspected, what facts it collected, which operator case is first, what evidence supports it, what is normal agent capability, what is real risk, what hard barrier is missing, and how to prove the fix worked. Use `--format table` when you want the full terminal audit trail.
 
 ## First-Run Triage Loop
 
@@ -70,12 +71,13 @@ Use endpoint mode when the target looks like a developer home directory or mount
 
 ```bash
 ./bin/ariadne self
+./bin/ariadne self --bundle-dir ariadne-self
 ./bin/ariadne self --format html --out /tmp/ariadne-self.html
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format action
 ./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format json
 ```
 
-Endpoint mode discovers AI surfaces such as Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, MCP, and Ariadne proof policy files. It parses known security-relevant files, summarizes private context surfaces, models authorities and boundaries, and then ranks operator cases.
+Endpoint mode discovers AI surfaces such as Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, MCP, and Ariadne proof policy files. It parses known security-relevant files, summarizes private context surfaces, models authorities and boundaries, and then ranks operator cases. The self-assessment bundle is the recommended handoff artifact when you need to inspect results later, attach evidence to a ticket, or share the readout with another operator.
 
 ## Fact Contract
 
@@ -134,6 +136,7 @@ make build
 make verify-first-run
 ./bin/ariadne help
 ./bin/ariadne self
+./bin/ariadne self --bundle-dir ariadne-self
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 make scan
 ```
@@ -142,6 +145,7 @@ From `ariadne-prove/`:
 
 ```bash
 ./bin/ariadne self
+./bin/ariadne self --bundle-dir ariadne-self
 ./bin/ariadne self --format html --out ariadne-self.html
 ./bin/ariadne architecture --path .
 ./bin/ariadne architecture --targets targets.txt
