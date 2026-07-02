@@ -3103,6 +3103,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assessment",
 		"Assessment Readout",
+		"Active Case Workbench",
+		"Current State",
+		"Evidence To Inspect",
+		"Controls To Start With",
+		"Proof Surfaces",
+		"Accepted Evidence Examples",
+		"Done When",
 		"What Was Inspected",
 		"Operator Cases",
 		"Architecture Break Paths",

@@ -81,9 +81,10 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
-	renderAssessInventoryDashboard(w, r.Inventory)
+	renderAssessActiveCaseDashboard(w, r)
 	renderControlOperatorCasesDashboard(w, r.TopCases)
 	renderAssessArchitectureDashboard(w, r)
+	renderAssessInventoryDashboard(w, r.Inventory)
 	renderAssessCommandsDashboard(w, r.NextCommands)
 	renderRunNotes(w, r.Warnings, r.Limitations)
 	fmt.Fprintln(w, "</main>")
@@ -436,6 +437,63 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</section>`)
 }
 
+func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
+	if len(r.TopCases) == 0 {
+		fmt.Fprintln(w, `<section class="panel">`)
+		fmt.Fprintln(w, `<div class="section-head"><div><h2>Active Case Workbench</h2><div class="subtle">No operator case matched this assessment filter.</div></div></div>`)
+		fmt.Fprintln(w, `<div class="empty">No case is currently active. Change the status filter or inspect the architecture output for unknown and not-observed gaps.</div>`)
+		fmt.Fprintln(w, `</section>`)
+		return
+	}
+	item := r.TopCases[0]
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Active Case Workbench</h2><div class="subtle">Start with the highest-priority break path, then prove the hard barrier that closes it.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Case", fmt.Sprintf("#%d %s", item.Rank, item.ID)},
+		{"Severity", strings.ToUpper(item.Severity)},
+		{"State", firstNonEmpty(item.State, "open")},
+		{"Missing controls", fmt.Sprintf("%d", item.ControlCount)},
+		{"Affected flaws", fmt.Sprintf("%d", item.FlawCount)},
+	})
+	fmt.Fprintf(w, `<h3>%s</h3>`, esc(item.Title))
+	fmt.Fprintf(w, `<div class="subtle">%s</div>`, esc(item.Question))
+	if item.Finding != "" {
+		fmt.Fprintf(w, `<p>%s</p>`, esc(item.Finding))
+	}
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Current State</h3>`)
+	fmt.Fprintf(w, `<div>%s</div>`, esc(item.StateReason))
+	if item.PriorityReason != "" {
+		fmt.Fprintf(w, `<div class="subtle">%s</div>`, esc(item.PriorityReason))
+	}
+	fmt.Fprintln(w, `<h3>Next Step</h3>`)
+	fmt.Fprintf(w, `<div>%s</div>`, esc(item.NextStep))
+	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
+	fmt.Fprintln(w, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 6)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(item.StartingControls, 6)))
+	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(item.ProofSurfaces, 8)))
+	fmt.Fprintln(w, `<h3>Accepted Evidence Examples</h3>`)
+	fmt.Fprintln(w, renderSmallList(controlEvidenceExampleLines(item.EvidenceExamples, 3)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(assessCaseCommands(r.NextCommands, item), 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Done When</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(item.SuccessCriteria, 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
 func renderAssessInventoryDashboard(w io.Writer, inventory model.AssessInventory) {
 	if inventory.Surfaces == 0 && inventory.Facts == 0 && inventory.GraphNodes == 0 {
 		return
@@ -511,6 +569,24 @@ func assessCountLines(items []model.AssessCount) []string {
 	}
 	if out == nil {
 		return []string{"none"}
+	}
+	return out
+}
+
+func assessCaseCommands(commands []string, item model.ControlOperatorCase) []string {
+	out := make([]string, 0, len(commands)+len(item.RerunCommands))
+	for _, command := range commands {
+		if strings.Contains(command, "ariadne cases ") || strings.Contains(command, "ariadne assess ") {
+			out = append(out, command)
+		}
+	}
+	for _, command := range item.RerunCommands {
+		if !contains(out, command) {
+			out = append(out, command)
+		}
+	}
+	if out == nil {
+		return []string{}
 	}
 	return out
 }
