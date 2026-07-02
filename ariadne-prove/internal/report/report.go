@@ -319,7 +319,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
 	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
 	closurePlan := buildAssessClosurePlan(topCases, 5)
-	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction)
+	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -402,7 +402,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
-	triage := buildAssessTriage(summary, model.AssessInventory{}, exposure, closureEvidence, firstAction)
+	triage := buildAssessTriage(summary, model.AssessInventory{}, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
 	nextCommands := assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -1822,6 +1822,7 @@ func assessClosurePath(targetID string, flaw model.ZeroTrustArchitecture) model.
 		HardBarriersObserved:         nonNilStrings(flaw.ControlTest.HardBarriersObserved),
 		PartialOrFrictionControls:    nonNilStrings(flaw.ControlTest.PartialOrFrictionControls),
 		RemainingMissingHardBarriers: nonNilStrings(flaw.ControlTest.MissingHardBarriers),
+		GraphEdges:                   nonNilStrings(flaw.GraphEdges),
 		EvidenceReferences:           assessEvidenceReferences(targetID, flaw.Evidence),
 	}
 }
@@ -1879,7 +1880,7 @@ func buildAssessSummary(inventory model.AssessInventory, exposure model.AssessEx
 	return summary
 }
 
-func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction) model.AssessTriage {
+func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, flaws []model.ZeroTrustArchitecture) model.AssessTriage {
 	triage := model.AssessTriage{
 		Status:                    assessTriageStatus(summary, exposure, action),
 		HardRiskSignals:           []string{},
@@ -1939,13 +1940,14 @@ func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInvent
 	if triage.NextAction == "" {
 		triage.NextAction = assessTriageNextAction(triage.Status)
 	}
-	triage.SignalDetails = buildAssessSignalDetails(summary, inventory, exposure, closure, action, triage)
+	triage.SignalDetails = buildAssessSignalDetails(summary, inventory, exposure, closure, action, triage, flaws)
 	return triage
 }
 
-func buildAssessSignalDetails(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, triage model.AssessTriage) []model.AssessSignal {
+func buildAssessSignalDetails(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, triage model.AssessTriage, flaws []model.ZeroTrustArchitecture) []model.AssessSignal {
 	var signals []model.AssessSignal
 	actionEvidence := dedupeEvidenceReferences(action.EvidenceReferences)
+	actionGraphEdges := assessGraphEdgesForCase(action, flaws, exposure.TopPaths)
 	if action.Available {
 		signals = append(signals, model.AssessSignal{
 			ID:                 "signal:top-operator-case",
@@ -1953,6 +1955,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "action_required",
 			Summary:            fmt.Sprintf("%s (%s) is the highest-ranked open operator case.", firstNonEmpty(action.Title, action.CaseID), action.CaseID),
 			WhyItMatters:       firstNonEmpty(action.WhyFirst, "The ranked case board correlated influence, authority, boundary reachability, and missing hard barriers."),
+			GraphEdges:         actionGraphEdges,
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(action.StartingControls),
 			Limitations:        []string{},
@@ -1965,6 +1968,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "action_required",
 			Summary:            fmt.Sprintf("%d breaking architecture flaw(s) remain after deterministic graph correlation.", summary.BreakingArchitectureFlaws),
 			WhyItMatters:       "A breaking architecture path means Ariadne found a supported path that still lacks the hard barrier modeled for that path.",
+			GraphEdges:         assessGraphEdgesForStatus(flaws, model.ZeroTrustBreaking),
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
 			Limitations:        []string{},
@@ -1977,6 +1981,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "action_required",
 			Summary:            fmt.Sprintf("%d exposed path(s) reach a sensitive boundary without a breaking control.", exposure.Exposed),
 			WhyItMatters:       "Exposure is reported only after influence, runtime authority, boundary reachability, and missing control evidence are connected.",
+			GraphEdges:         assessExposureGraphEdges(exposure.TopPaths, model.StatusExposed),
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
 			Limitations:        []string{},
@@ -2000,6 +2005,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "missing_hard_barrier",
 			Summary:            fmt.Sprintf("%d hard-barrier control(s) are missing or unproven for open cases.", len(triage.MissingHardBarriers)),
 			WhyItMatters:       "Ariadne prioritizes controls that break the modeled path, not soft guidance or friction-only mitigations.",
+			GraphEdges:         actionGraphEdges,
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
 			Limitations:        []string{},
@@ -2012,6 +2018,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "breaks_path",
 			Summary:            fmt.Sprintf("%d hard-barrier control(s) were observed closing supported paths.", len(closure.HardBarriersObserved)),
 			WhyItMatters:       "Observed hard barriers explain why some paths are protected or controlled instead of open.",
+			GraphEdges:         assessClosurePathGraphEdges(closure.ControlledPaths),
 			EvidenceReferences: assessClosurePathEvidenceReferences(closure.ControlledPaths),
 			RelatedControls:    uniqueStrings(closure.HardBarriersObserved),
 			Limitations:        []string{},
@@ -2024,6 +2031,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Disposition:        "does_not_break_path",
 			Summary:            fmt.Sprintf("%d partial or friction-only control(s) were observed.", len(closure.PartialOrFrictionControls)),
 			WhyItMatters:       "Partial controls may reduce misuse but do not by themselves close the modeled exposure path.",
+			GraphEdges:         assessClosurePathGraphEdges(closure.PartialPaths),
 			EvidenceReferences: assessClosurePathEvidenceReferences(closure.PartialPaths),
 			RelatedControls:    uniqueStrings(closure.PartialOrFrictionControls),
 			Limitations:        []string{},
@@ -2050,14 +2058,75 @@ func assessClosurePathEvidenceReferences(paths []model.AssessClosurePath) []mode
 	return dedupeEvidenceReferences(refs)
 }
 
+func assessClosurePathGraphEdges(paths []model.AssessClosurePath) []string {
+	var out []string
+	for _, path := range paths {
+		out = append(out, path.GraphEdges...)
+	}
+	return uniqueStrings(out)
+}
+
+func assessScanArchitectureFlaws(architecture model.ArchitectureScanReport) []model.ZeroTrustArchitecture {
+	var out []model.ZeroTrustArchitecture
+	for _, target := range architecture.Targets {
+		out = append(out, target.Flaws...)
+	}
+	if out == nil {
+		return []model.ZeroTrustArchitecture{}
+	}
+	return out
+}
+
+func assessGraphEdgesForCase(action model.AssessFirstAction, flaws []model.ZeroTrustArchitecture, exposures []model.ExposureResult) []string {
+	var out []string
+	caseFlaws := map[string]bool{}
+	for _, flaw := range action.Flaws {
+		caseFlaws[flaw] = true
+	}
+	for _, flaw := range flaws {
+		if len(caseFlaws) > 0 && !caseFlaws[flaw.ID] && !caseFlaws[flaw.Title] {
+			continue
+		}
+		out = append(out, flaw.GraphEdges...)
+	}
+	if len(out) == 0 {
+		out = append(out, assessExposureGraphEdges(exposures, model.StatusExposed)...)
+	}
+	return uniqueStrings(out)
+}
+
+func assessGraphEdgesForStatus(flaws []model.ZeroTrustArchitecture, status model.ZeroTrustStatus) []string {
+	var out []string
+	for _, flaw := range flaws {
+		if flaw.Status == status {
+			out = append(out, flaw.GraphEdges...)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func assessExposureGraphEdges(exposures []model.ExposureResult, status model.Status) []string {
+	var out []string
+	for _, exposure := range exposures {
+		if exposure.Status == status {
+			out = append(out, exposure.PathEdges...)
+		}
+	}
+	return uniqueStrings(out)
+}
+
 func nonNilAssessSignals(items []model.AssessSignal) []model.AssessSignal {
 	if items == nil {
 		return []model.AssessSignal{}
 	}
 	for idx := range items {
+		items[idx].GraphEdges = uniqueStrings(items[idx].GraphEdges)
 		items[idx].EvidenceReferences = dedupeEvidenceReferences(items[idx].EvidenceReferences)
 		items[idx].RelatedControls = uniqueStrings(items[idx].RelatedControls)
 		items[idx].Limitations = uniqueStrings(items[idx].Limitations)
+		if items[idx].GraphEdges == nil {
+			items[idx].GraphEdges = []string{}
+		}
 		if items[idx].EvidenceReferences == nil {
 			items[idx].EvidenceReferences = []model.EvidenceReference{}
 		}
@@ -2207,6 +2276,8 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 		CompareCommands:    []string{},
 		PatchExportCommand: "",
 		SuccessCriteria:    []string{},
+		Targets:            []string{},
+		Flaws:              []string{},
 		Workflow:           []model.AssessWorkflowStep{},
 		CurrentAction:      emptyAssessCurrentAction(),
 	}
@@ -2221,6 +2292,8 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 	action.State = item.State
 	action.WhyFirst = item.PriorityReason
 	action.NextStep = item.NextStep
+	action.Targets = append([]string{}, item.Targets...)
+	action.Flaws = append([]string{}, item.Flaws...)
 	action.EvidenceReferences = append([]model.EvidenceReference{}, item.EvidenceReferences...)
 	action.StartingControls = append([]string{}, item.StartingControls...)
 	action.ProofSurfaces = append([]string{}, item.ProofSurfaces...)
@@ -2261,6 +2334,12 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 	}
 	if action.SuccessCriteria == nil {
 		action.SuccessCriteria = []string{}
+	}
+	if action.Targets == nil {
+		action.Targets = []string{}
+	}
+	if action.Flaws == nil {
+		action.Flaws = []string{}
 	}
 	action.Workflow = buildAssessFirstActionWorkflow(action)
 	action.CurrentAction = buildAssessCurrentAction(action)
@@ -2801,6 +2880,9 @@ func renderAssessSignalDetails(w io.Writer, signals []model.AssessSignal, limit 
 		fmt.Fprintf(w, "    - %s [%s/%s]: %s\n", signal.ID, readableToken(signal.Category), readableToken(signal.Disposition), signal.Summary)
 		if signal.WhyItMatters != "" {
 			fmt.Fprintf(w, "      Why it matters: %s\n", signal.WhyItMatters)
+		}
+		if len(signal.GraphEdges) > 0 {
+			fmt.Fprintf(w, "      Graph: %s\n", strings.Join(limitStrings(signal.GraphEdges, 4), "; "))
 		}
 		if len(signal.RelatedControls) > 0 {
 			fmt.Fprintf(w, "      Controls: %s\n", strings.Join(limitStrings(signal.RelatedControls, 4), ", "))

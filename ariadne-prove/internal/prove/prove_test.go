@@ -3685,6 +3685,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !assessSignalHasEvidence(decoded.Triage.SignalDetails, "signal:top-operator-case") {
 		t.Fatalf("top risk signal should retain evidence references: %+v", decoded.Triage.SignalDetails)
 	}
+	if !assessSignalHasGraph(decoded.Triage.SignalDetails, "signal:top-operator-case") ||
+		!assessSignalHasGraph(decoded.Triage.SignalDetails, "signal:exposed-boundary-paths") {
+		t.Fatalf("risk signal details should retain graph path evidence: %+v", decoded.Triage.SignalDetails)
+	}
 	if !containsString(decoded.Triage.MissingHardBarriers, "control:egress-destination-allowlist") {
 		t.Fatalf("triage should identify the top missing hard barrier: %+v", decoded.Triage.MissingHardBarriers)
 	}
@@ -3715,6 +3719,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.FirstAction.CaseID != decoded.TopCases[0].ID ||
 		decoded.FirstAction.NextStep == "" ||
 		len(decoded.FirstAction.EvidenceReferences) == 0 ||
+		len(decoded.FirstAction.Targets) == 0 ||
+		len(decoded.FirstAction.Flaws) == 0 ||
 		len(decoded.FirstAction.ProofSurfaces) == 0 ||
 		len(decoded.FirstAction.EvidenceExamples) == 0 ||
 		len(decoded.FirstAction.ProofPatches) == 0 ||
@@ -3783,6 +3789,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Signal details:",
 		"signal:top-operator-case",
 		"signal:normal-agent-capability",
+		"Graph:",
 		"Closure plan:",
 		"control:egress-destination-allowlist -> Egress And Output Boundary",
 		"What it closes:",
@@ -3826,6 +3833,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Assessment Readout",
 		"Signal Triage",
 		"Signal Details",
+		"Graph / evidence / controls",
+		"Graph edges",
 		"Hard Signal",
 		"Normal Capability",
 		"signal:top-operator-case",
@@ -3984,8 +3993,10 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	if !containsString(decoded.ClosureEvidence.RemainingMissingHardBarriers, "control:output-sensitive-data-filter") {
 		t.Fatalf("assessment closure evidence should retain remaining output hard barrier: %+v", decoded.ClosureEvidence)
 	}
-	if len(decoded.ClosureEvidence.ControlledPaths) == 0 || len(decoded.ClosureEvidence.ControlledPaths[0].EvidenceReferences) == 0 {
-		t.Fatalf("assessment closure paths should retain evidence refs: %+v", decoded.ClosureEvidence.ControlledPaths)
+	if len(decoded.ClosureEvidence.ControlledPaths) == 0 ||
+		len(decoded.ClosureEvidence.ControlledPaths[0].EvidenceReferences) == 0 ||
+		len(decoded.ClosureEvidence.ControlledPaths[0].GraphEdges) == 0 {
+		t.Fatalf("assessment closure paths should retain evidence refs and graph edges: %+v", decoded.ClosureEvidence.ControlledPaths)
 	}
 	if !containsString(decoded.Triage.PresentHardBarriers, "control:egress-destination-allowlist") {
 		t.Fatalf("triage should separate present hard barriers: %+v", decoded.Triage)
@@ -4747,12 +4758,12 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
 	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "signal_details", "evidence_refs", "next_action", "proof_loop")
 	assessSignal := schemaMap(t, assessSchema, "$defs", "assess_signal")
-	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "evidence_refs", "related_controls", "limitations")
+	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "graph_edges", "evidence_refs", "related_controls", "limitations")
 	assessClosurePlanItem := schemaMap(t, assessSchema, "$defs", "assess_closure_plan_item")
 	assertRequiredKeys(t, assessClosurePlanItem, "rank", "control", "case_id", "case_title", "severity", "state", "why_this_control", "what_it_closes", "affected_flaws", "affected_targets", "evidence_refs", "proof_surface", "rerun_command", "compare_command", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessClosurePlanItem, "proof_patch")
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
-	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "patch_export_command", "success_criteria", "workflow", "current_action")
+	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "patch_export_command", "success_criteria", "targets", "flaws", "workflow", "current_action")
 	assessCurrentAction := schemaMap(t, assessSchema, "$defs", "assess_current_action")
 	assertRequiredKeys(t, assessCurrentAction, "available", "workflow_step_id", "workflow_step_title", "instruction", "control", "surface", "evidence_refs", "proof_patch_index", "evidence_example_index", "rerun_command", "compare_command", "patch_export_command", "success_criteria")
 	assertSchemaProperty(t, assessCurrentAction, "proof_patch")
@@ -4768,7 +4779,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessClosureEvidence := schemaMap(t, assessSchema, "$defs", "assess_closure_evidence")
 	assertRequiredKeys(t, assessClosureEvidence, "protected_exposure_paths", "controlled_architecture_flaws", "partial_architecture_flaws", "hard_barriers_observed", "partial_or_friction_controls", "remaining_missing_hard_barriers", "controlled_paths", "partial_paths")
 	assessClosurePath := schemaMap(t, assessSchema, "$defs", "assess_closure_path")
-	assertRequiredKeys(t, assessClosurePath, "id", "title", "status", "control_test_result", "controls", "hard_barriers_observed", "partial_or_friction_controls", "remaining_missing_hard_barriers", "evidence_refs")
+	assertRequiredKeys(t, assessClosurePath, "id", "title", "status", "control_test_result", "controls", "hard_barriers_observed", "partial_or_friction_controls", "remaining_missing_hard_barriers", "graph_edges", "evidence_refs")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
@@ -5262,6 +5273,15 @@ func hasAssessSignal(values []model.AssessSignal, category string, disposition s
 func assessSignalHasEvidence(values []model.AssessSignal, id string) bool {
 	for _, value := range values {
 		if value.ID == id && len(value.EvidenceReferences) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func assessSignalHasGraph(values []model.AssessSignal, id string) bool {
+	for _, value := range values {
+		if value.ID == id && len(value.GraphEdges) > 0 {
 			return true
 		}
 	}

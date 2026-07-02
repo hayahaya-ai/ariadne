@@ -308,6 +308,8 @@ type AssessFirstAction struct {
 	State              string                   `json:"state,omitempty"`
 	WhyFirst           string                   `json:"why_first,omitempty"`
 	NextStep           string                   `json:"next_step,omitempty"`
+	Targets            []string                 `json:"targets"`
+	Flaws              []string                 `json:"flaws"`
 	EvidenceReferences []EvidenceReference      `json:"evidence_refs"`
 	StartingControls   []string                 `json:"starting_controls"`
 	ProofSurfaces      []string                 `json:"proof_surfaces"`
@@ -421,6 +423,7 @@ type AssessSignal struct {
 	Disposition        string              `json:"disposition"`
 	Summary            string              `json:"summary"`
 	WhyItMatters       string              `json:"why_it_matters"`
+	GraphEdges         []string            `json:"graph_edges"`
 	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
 	RelatedControls    []string            `json:"related_controls"`
 	Limitations        []string            `json:"limitations"`
@@ -473,6 +476,7 @@ type AssessClosurePath struct {
 	HardBarriersObserved         []string            `json:"hard_barriers_observed"`
 	PartialOrFrictionControls    []string            `json:"partial_or_friction_controls"`
 	RemainingMissingHardBarriers []string            `json:"remaining_missing_hard_barriers"`
+	GraphEdges                   []string            `json:"graph_edges"`
 	EvidenceReferences           []EvidenceReference `json:"evidence_refs"`
 }
 
