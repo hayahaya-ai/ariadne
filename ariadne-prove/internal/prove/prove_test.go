@@ -247,6 +247,46 @@ func TestRunPathCombinedRiskProducesMultipleExposurePaths(t *testing.T) {
 	}
 }
 
+func TestRunPathMessySurfacesAddsActionableEvidenceLineAnchors(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "messy-ai-surfaces")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	egress := findExposure(t, r, "data-egress-chain")
+	ref, ok := findEvidenceReferenceSource(egress.EvidenceReferences, ".github/workflows/ai-review.yml")
+	if !ok {
+		t.Fatalf("data-egress exposure should cite managed workflow evidence refs: %+v", egress.EvidenceReferences)
+	}
+	if ref.LineStart <= 0 || ref.LineEnd != ref.LineStart {
+		t.Fatalf("managed workflow evidence ref should include stable line anchor: %+v", ref)
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"source":".github/workflows/ai-review.yml"`,
+		`"line_start":`,
+		`"line_end":`,
+	} {
+		if !strings.Contains(string(blob), want) {
+			t.Fatalf("path JSON missing actionable line metadata %q:\n%s", want, string(blob))
+		}
+	}
+	for _, forbidden := range []string{"OPENAI_API_KEY", "example.invalid/agent-audit"} {
+		if strings.Contains(string(blob), forbidden) {
+			t.Fatalf("path JSON leaked workflow content %q", forbidden)
+		}
+	}
+	var table bytes.Buffer
+	if err := report.Render(&table, r, "table"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(table.String(), ".github/workflows/ai-review.yml:") {
+		t.Fatalf("table output should render source line anchors:\n%s", table.String())
+	}
+}
+
 func TestRunPathCombinedRiskPrioritizesHighRiskPaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {
@@ -7063,6 +7103,15 @@ func containsEvidenceReferenceSource(values []model.EvidenceReference, fragment 
 		}
 	}
 	return false
+}
+
+func findEvidenceReferenceSource(values []model.EvidenceReference, fragment string) (model.EvidenceReference, bool) {
+	for _, value := range values {
+		if strings.Contains(value.Source, fragment) {
+			return value, true
+		}
+	}
+	return model.EvidenceReference{}, false
 }
 
 func containsEvidenceReferenceSummary(values []model.EvidenceReference, fragment string) bool {

@@ -4411,7 +4411,8 @@ func dashboardEvidenceReferenceHTML(root string, value model.EvidenceReference) 
 	if source == "" {
 		source = value.Kind
 	}
-	prefix := dashboardFileRefHTML(root, source)
+	label := evidenceReferenceSourceLabel(source, value)
+	prefix := dashboardFileRefWithLabelHTML(root, source, label)
 	if value.Target != "" {
 		prefix = esc(value.Target) + ": " + prefix
 	}

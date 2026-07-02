@@ -673,6 +673,7 @@ func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure m
 	if len(exposure.PathEdges) == 0 {
 		return []model.EvidenceReference{}
 	}
+	sourceLocations := evidenceSourceLocations(c)
 	evidenceByID := make(map[string]model.Evidence, len(c.Evidence))
 	for _, evidence := range c.Evidence {
 		evidenceByID[evidence.ID] = evidence
@@ -691,18 +692,18 @@ func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure m
 		if ok {
 			if edge.EvidenceID != "" {
 				if evidence, found := evidenceByID[edge.EvidenceID]; found {
-					refs = append(refs, model.EvidenceReference{
+					refs = append(refs, withEvidenceLocation(sourceLocations, model.EvidenceReference{
 						ID:      evidence.ID,
 						Kind:    evidence.Kind,
 						Source:  evidence.Source,
 						Summary: evidence.Summary,
-					})
+					}))
 				}
 			}
-			if ref, ok := evidenceReferenceForNode(nodeByID[edge.From]); ok {
+			if ref, ok := evidenceReferenceForNode(sourceLocations, nodeByID[edge.From]); ok {
 				refs = append(refs, ref)
 			}
-			if ref, ok := evidenceReferenceForNode(nodeByID[edge.To]); ok {
+			if ref, ok := evidenceReferenceForNode(sourceLocations, nodeByID[edge.To]); ok {
 				refs = append(refs, ref)
 			}
 			continue
@@ -711,46 +712,183 @@ func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure m
 		if len(parts) != 3 {
 			continue
 		}
-		if ref, ok := evidenceReferenceForNode(nodeByID[parts[0]]); ok {
+		if ref, ok := evidenceReferenceForNode(sourceLocations, nodeByID[parts[0]]); ok {
 			refs = append(refs, ref)
 		}
-		if ref, ok := evidenceReferenceForNode(nodeByID[parts[2]]); ok {
+		if ref, ok := evidenceReferenceForNode(sourceLocations, nodeByID[parts[2]]); ok {
 			refs = append(refs, ref)
 		}
 	}
 	return dedupeExposureEvidenceReferences(refs)
 }
 
-func evidenceReferenceForNode(node model.Node) (model.EvidenceReference, bool) {
+type evidenceSourceLocation struct {
+	Path string
+	Kind string
+}
+
+func evidenceSourceLocations(c model.Collection) map[string]evidenceSourceLocation {
+	out := map[string]evidenceSourceLocation{}
+	for _, surface := range c.Surfaces {
+		if surface.Source == "" || surface.Path == "" || surface.HandlingMode != "parse" {
+			continue
+		}
+		if _, ok := out[surface.Source]; !ok {
+			out[surface.Source] = evidenceSourceLocation{Path: surface.Path, Kind: surface.Kind}
+		}
+	}
+	return out
+}
+
+func evidenceReferenceForNode(locations map[string]evidenceSourceLocation, node model.Node) (model.EvidenceReference, bool) {
 	if node.ID == "" || node.Source == "" {
 		return model.EvidenceReference{}, false
 	}
-	return model.EvidenceReference{
+	return withEvidenceLocation(locations, model.EvidenceReference{
 		ID:      node.ID,
 		Kind:    node.Type,
 		Source:  node.Source,
 		Summary: node.Label,
-	}, true
+	}), true
+}
+
+func withEvidenceLocation(locations map[string]evidenceSourceLocation, ref model.EvidenceReference) model.EvidenceReference {
+	if ref.Source == "" || ref.LineStart > 0 {
+		return ref
+	}
+	location, ok := locations[ref.Source]
+	if !ok || location.Path == "" {
+		return ref
+	}
+	line := locateEvidenceLine(location.Path, ref)
+	if line <= 0 {
+		return ref
+	}
+	ref.LineStart = line
+	ref.LineEnd = line
+	return ref
+}
+
+func locateEvidenceLine(path string, ref model.EvidenceReference) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	const maxLines = 400
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+		if len(lines) >= maxLines {
+			break
+		}
+	}
+	candidates := evidenceLineCandidates(ref)
+	if len(candidates) > 0 {
+		for idx, line := range lines {
+			lower := strings.ToLower(line)
+			for _, candidate := range candidates {
+				if strings.Contains(lower, candidate) {
+					return idx + 1
+				}
+			}
+		}
+	}
+	for idx, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		return idx + 1
+	}
+	return 0
+}
+
+func evidenceLineCandidates(ref model.EvidenceReference) []string {
+	source := strings.ToLower(ref.Source)
+	id := strings.ToLower(ref.ID)
+	kind := strings.ToLower(ref.Kind)
+	summary := strings.ToLower(ref.Summary)
+	switch {
+	case strings.Contains(source, ".github/workflows/") && (strings.Contains(id, "managed-agent-workflow") || strings.Contains(kind, "tool")):
+		return []string{"claude", "codex", "openai ", "anthropic", "copilot", "gemini", "aider", "cursor-agent", "continue", "llm", "run:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "external-communication"):
+		return []string{"curl", "wget", "http://", "https://", "webhook", "uses:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "broad-local"):
+		return []string{"write-all", "contents: write", "pull-requests: write", "id-token: write", "packages: write"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "file-read"):
+		return []string{"actions/checkout", "checkout@", "github.workspace"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "local-code-execution"):
+		return []string{"run:", "uses:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "approval-required"):
+		return []string{"environment:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "scoped-permissions"):
+		return []string{"permissions:", "contents: read", "pull-requests: read"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "signed-tool-artifacts"):
+		return []string{"uses:"}
+	case strings.Contains(id, "mcp") || strings.Contains(summary, "mcp"):
+		return []string{"mcpservers", "mcp_servers", "servers", "command", "npx", "uvx", "docker", "python"}
+	case strings.Contains(id, "external-communication") || strings.Contains(summary, "external"):
+		return []string{"curl", "wget", "http://", "https://", "webfetch", "websearch", "network"}
+	case strings.Contains(id, "broad-local") || strings.Contains(summary, "broad local") || strings.Contains(summary, "bypass"):
+		return []string{"bypass", "danger", "approval_policy", "bash", "alwaysallow", "write"}
+	case strings.Contains(id, "local-code-execution") || strings.Contains(summary, "execution"):
+		return []string{"bash", "shell", "terminal", "run_command", "command", "run:"}
+	case strings.Contains(id, "file-read") || strings.Contains(summary, "read"):
+		return []string{"read", "filesystem", "workspace", "allowed_directories", "checkout"}
+	case strings.Contains(id, "deny-secret-read"):
+		return []string{"deny", ".env", ".ssh", ".aws", "*.pem"}
+	case strings.Contains(kind, "trust") || strings.Contains(summary, "instruction"):
+		return []string{"secret", ".env", "ignore", "bypass", "instruction", "agent"}
+	default:
+		return nil
+	}
 }
 
 func dedupeExposureEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
 	if len(values) == 0 {
 		return []model.EvidenceReference{}
 	}
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	var out []model.EvidenceReference
 	for _, value := range values {
-		key := value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary
+		key := value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary + "|" + fmt.Sprint(value.LineStart) + "|" + fmt.Sprint(value.LineEnd)
 		if value.Source != "" {
 			key = "source|" + value.Source
+			if value.LineStart > 0 {
+				key += fmt.Sprintf(":%d", value.LineStart)
+			}
 		}
-		if seen[key] {
+		if idx, ok := seen[key]; ok {
+			if evidenceReferenceSpecificity(value) > evidenceReferenceSpecificity(out[idx]) {
+				out[idx] = value
+			}
 			continue
 		}
-		seen[key] = true
+		seen[key] = len(out)
 		out = append(out, value)
 	}
 	return out
+}
+
+func evidenceReferenceSpecificity(value model.EvidenceReference) int {
+	score := 0
+	if value.LineStart > 0 {
+		score += 10
+	}
+	switch value.Kind {
+	case "authority", "tool", "control":
+		score += 30
+	case "boundary", "trust_input", "trust-input":
+		score += 20
+	case "config", "runtime":
+		score += 5
+	default:
+		score += 10
+	}
+	return score
 }
 
 func BuildGraph(c model.Collection) model.Graph {
@@ -820,7 +958,7 @@ func BuildGraph(c model.Collection) model.Graph {
 		}
 	}
 	for _, authority := range c.Authorities {
-		addNode(model.Node{ID: authority.ID, Type: "authority", Label: authority.Kind})
+		addNode(model.Node{ID: authority.ID, Type: "authority", Label: authority.Kind, Runtime: authority.Runtime, Source: authority.Source})
 		if authority.Runtime != "" {
 			addEdge(model.Edge{From: "runtime:" + authority.Runtime, Type: "has_authority", To: authority.ID})
 		}
@@ -1666,8 +1804,10 @@ func secretPathEdges(g model.Graph, mode string) []string {
 		candidates = []string{
 			"trustinput:repo-instruction|influences|runtime:codex",
 			"trustinput:repo-instruction|influences|runtime:claude",
+			"trustinput:repo-instruction|influences|runtime:github-actions",
 			"runtime:codex|has_authority|authority:file-read",
 			"runtime:claude|has_authority|authority:file-read",
+			"runtime:github-actions|has_authority|authority:file-read",
 			"authority:file-read|reaches|boundary:secret-like-file",
 			"control:input-isolation|restricts|trustinput:repo-instruction",
 			"control:trusted-source-policy|restricts|trustinput:repo-instruction",
@@ -1692,10 +1832,13 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 	candidates := []string{
 		"trustinput:repo-instruction|influences|runtime:codex",
 		"trustinput:repo-instruction|influences|runtime:claude",
+		"trustinput:repo-instruction|influences|runtime:github-actions",
 		"runtime:codex|has_authority|authority:file-read",
 		"runtime:claude|has_authority|authority:file-read",
+		"runtime:github-actions|has_authority|authority:file-read",
 		"runtime:codex|has_authority|authority:broad-local",
 		"runtime:claude|has_authority|authority:broad-local",
+		"runtime:github-actions|has_authority|authority:broad-local",
 		"authority:file-read|reaches|boundary:secret-like-file",
 		"authority:file-read|reaches|boundary:developer-secret-boundary",
 		"authority:file-read|reaches|boundary:agent-private-context",
@@ -1706,6 +1849,7 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"authority:broad-local|reaches|boundary:memory-credential-retention",
 		"runtime:codex|has_authority|authority:external-communication",
 		"runtime:claude|has_authority|authority:external-communication",
+		"runtime:github-actions|has_authority|authority:external-communication",
 		"authority:external-communication|reaches|boundary:external-destination",
 		"authority:broad-local|reaches|boundary:external-destination",
 		"control:input-isolation|restricts|trustinput:repo-instruction",

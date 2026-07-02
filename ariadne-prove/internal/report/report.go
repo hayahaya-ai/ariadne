@@ -1252,7 +1252,7 @@ func equalEvidenceReferences(a []model.EvidenceReference, b []model.EvidenceRefe
 }
 
 func evidenceReferenceKey(value model.EvidenceReference) string {
-	return value.Target + "|" + value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary
+	return fmt.Sprintf("%s|%s|%s|%s|%d|%d|%s", value.Target, value.ID, value.Kind, value.Source, value.LineStart, value.LineEnd, value.Summary)
 }
 
 func incrementCaseCompareSummary(summary *model.CaseCompareSummary, disposition string) {
@@ -9924,7 +9924,7 @@ func dedupeEvidenceReferences(values []model.EvidenceReference) []model.Evidence
 	seen := map[string]bool{}
 	var out []model.EvidenceReference
 	for _, value := range values {
-		key := value.Target + "|" + value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary
+		key := evidenceReferenceKey(value)
 		if seen[key] {
 			continue
 		}
@@ -9937,6 +9937,9 @@ func dedupeEvidenceReferences(values []model.EvidenceReference) []model.Evidence
 		}
 		if out[i].Source != out[j].Source {
 			return out[i].Source < out[j].Source
+		}
+		if out[i].LineStart != out[j].LineStart {
+			return out[i].LineStart < out[j].LineStart
 		}
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
@@ -10006,6 +10009,7 @@ func evidenceReferenceLine(value model.EvidenceReference) string {
 	if source == "" {
 		source = value.Kind
 	}
+	source = evidenceReferenceSourceLabel(source, value)
 	prefix := source
 	if value.Target != "" {
 		prefix = value.Target + ": " + prefix
@@ -10024,6 +10028,16 @@ func evidenceReferenceLine(value model.EvidenceReference) string {
 		return fmt.Sprintf("%s [%s] %s", prefix, value.Kind, summary)
 	}
 	return prefix + " " + summary
+}
+
+func evidenceReferenceSourceLabel(source string, value model.EvidenceReference) string {
+	if value.LineStart <= 0 {
+		return source
+	}
+	if value.LineEnd > value.LineStart {
+		return fmt.Sprintf("%s:%d-%d", source, value.LineStart, value.LineEnd)
+	}
+	return fmt.Sprintf("%s:%d", source, value.LineStart)
 }
 
 func severityRank(value string) int {

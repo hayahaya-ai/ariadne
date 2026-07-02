@@ -294,6 +294,8 @@
         "id": { "type": "string" },
         "kind": { "type": "string" },
         "source": { "type": "string" },
+        "line_start": { "type": "integer", "minimum": 1 },
+        "line_end": { "type": "integer", "minimum": 1 },
         "summary": { "type": "string" }
       }
     },

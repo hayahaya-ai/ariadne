@@ -943,11 +943,13 @@ type ArchitectureClosureFamily struct {
 }
 
 type EvidenceReference struct {
-	Target  string `json:"target,omitempty"`
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Source  string `json:"source,omitempty"`
-	Summary string `json:"summary"`
+	Target    string `json:"target,omitempty"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Source    string `json:"source,omitempty"`
+	LineStart int    `json:"line_start,omitempty"`
+	LineEnd   int    `json:"line_end,omitempty"`
+	Summary   string `json:"summary"`
 }
 
 type ArchitectureEvidencePlan struct {
