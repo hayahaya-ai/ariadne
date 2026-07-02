@@ -17,6 +17,7 @@
     "signal_quality",
     "inventory",
     "exposure",
+    "lethal_trifecta",
     "closure_evidence",
     "case_board",
     "top_cases",
@@ -48,6 +49,7 @@
     "signal_quality": { "$ref": "#/$defs/assess_signal_quality" },
     "inventory": { "$ref": "#/$defs/assess_inventory" },
     "exposure": { "$ref": "#/$defs/assess_exposure" },
+    "lethal_trifecta": { "$ref": "#/$defs/assess_lethal_trifecta" },
     "closure_evidence": { "$ref": "#/$defs/assess_closure_evidence" },
     "architecture": { "$ref": "ariadne-architecture-v1.schema.json" },
     "architecture_scan": { "$ref": "ariadne-architecture-scan-v1.schema.json" },
@@ -667,6 +669,65 @@
         "top_paths": {
           "type": "array",
           "items": { "$ref": "ariadne-report-v1.schema.json#/$defs/exposure" }
+        }
+      }
+    },
+    "assess_lethal_trifecta": {
+      "type": "object",
+      "required": [
+        "status",
+        "present",
+        "protected",
+        "complete",
+        "proof_mode",
+        "summary",
+        "ingredients",
+        "graph_edges",
+        "evidence_refs",
+        "controls_break_path",
+        "decision_rules",
+        "limitations"
+      ],
+      "properties": {
+        "status": { "type": "string", "enum": ["exposed", "protected", "inconclusive"] },
+        "present": { "type": "boolean" },
+        "protected": { "type": "boolean" },
+        "complete": { "type": "boolean" },
+        "proof_mode": { "type": "string", "enum": ["inferred", "simulated", "live_lab"] },
+        "summary": { "type": "string" },
+        "ingredients": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/trifecta_ingredient" }
+        },
+        "graph_edges": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "controls_break_path": { "type": "array", "items": { "type": "string" } },
+        "decision_rules": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "trifecta_ingredient": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "present",
+        "summary",
+        "graph_edges",
+        "evidence_refs"
+      ],
+      "properties": {
+        "id": { "type": "string", "enum": ["untrusted_content", "private_data", "external_communication"] },
+        "label": { "type": "string" },
+        "present": { "type": "boolean" },
+        "summary": { "type": "string" },
+        "graph_edges": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
         }
       }
     },

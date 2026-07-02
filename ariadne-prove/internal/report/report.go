@@ -316,6 +316,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	}
 	exposures := reportExposures(r)
 	exposure := buildAssessExposure(exposures)
+	lethalTrifecta := buildAssessLethalTrifecta(exposures)
 	closureEvidence := buildAssessClosureEvidence(exposures, []assessClosureTarget{{TargetID: "target", Flaws: r.ZeroTrust.ArchitectureFlaws}})
 	inventorySummary := buildAssessInventory(inventory)
 	summary := buildAssessSummary(inventorySummary, exposure, architecture.Summary, caseBoard.Summary, caseBoard.OperatorCases)
@@ -347,6 +348,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		ControlState:     controlState,
 		Inventory:        inventorySummary,
 		Exposure:         exposure,
+		LethalTrifecta:   lethalTrifecta,
 		ClosureEvidence:  closureEvidence,
 		Architecture:     &architecture,
 		CaseBoard:        caseBoard,
@@ -400,6 +402,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		Inconclusive: r.Summary.Inconclusive,
 		TopPaths:     []model.ExposureResult{},
 	}
+	lethalTrifecta := buildAssessLethalTrifecta(exposures)
 	inventorySummary := buildAssessScanInventory(r)
 	summary := buildAssessSummary(inventorySummary, exposure, zeroTrustSummaryFromArchitectureScan(architecture.Summary), caseBoard.Summary, caseBoard.OperatorCases)
 	summary.Targets = r.Summary.Targets
@@ -439,6 +442,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		ControlState:     controlState,
 		Inventory:        inventorySummary,
 		Exposure:         exposure,
+		LethalTrifecta:   lethalTrifecta,
 		ClosureEvidence:  closureEvidence,
 		ArchitectureScan: &architecture,
 		CaseBoard:        caseBoard,
@@ -1975,6 +1979,7 @@ func renderAssessSummary(w io.Writer, r model.AssessReport) error {
 	}
 
 	renderAssessSummarySignalQuality(w, r.SignalQuality)
+	renderAssessSummaryLethalTrifecta(w, r.LethalTrifecta)
 
 	fmt.Fprintf(w, "\nEvidence:\n")
 	renderAssessEvidenceSources(w, r.Decision.EvidenceSources, 8)
@@ -2020,16 +2025,16 @@ func renderAssessSummarySignalQuality(w io.Writer, quality model.AssessSignalQua
 	if quality.Summary != "" {
 		fmt.Fprintf(w, "  - Readout: %s\n", quality.Summary)
 	}
-	for _, value := range firstStrings(quality.ActionableBecause, 3) {
+	for _, value := range firstStrings(quality.ActionableBecause, 2) {
 		fmt.Fprintf(w, "  - Actionable because: %s\n", value)
 	}
-	for _, value := range firstStrings(quality.ExpectedCapabilities, 2) {
+	for _, value := range firstStrings(quality.ExpectedCapabilities, 1) {
 		fmt.Fprintf(w, "  - Expected capability: %s\n", value)
 	}
-	for _, value := range firstStrings(quality.NoiseFilters, 2) {
+	for _, value := range firstStrings(quality.NoiseFilters, 1) {
 		fmt.Fprintf(w, "  - Noise filter: %s\n", value)
 	}
-	for _, value := range firstStrings(quality.ControlBreakpoints, 3) {
+	for _, value := range firstStrings(quality.ControlBreakpoints, 1) {
 		fmt.Fprintf(w, "  - Close/downgrade by: %s\n", value)
 	}
 	for _, value := range firstStrings(quality.EvidenceGaps, 2) {
@@ -2038,6 +2043,33 @@ func renderAssessSummarySignalQuality(w io.Writer, quality model.AssessSignalQua
 	for _, value := range firstStrings(quality.DecisionRules, 1) {
 		fmt.Fprintf(w, "  - Decision rule: %s\n", value)
 	}
+}
+
+func renderAssessSummaryLethalTrifecta(w io.Writer, trifecta model.AssessLethalTrifecta) {
+	if trifecta.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "\nLethal trifecta:\n")
+	fmt.Fprintf(w, "  - %s: %s\n", readableToken(string(trifecta.Status)), trifecta.Summary)
+	fmt.Fprintf(w, "  - Ingredients: %s\n", lethalTrifectaIngredientSummary(trifecta.Ingredients))
+	if len(trifecta.ControlsBreakPath) > 0 {
+		fmt.Fprintf(w, "  - Break path: %s\n", strings.Join(firstStrings(trifecta.ControlsBreakPath, 3), "; "))
+	}
+}
+
+func lethalTrifectaIngredientSummary(ingredients []model.TrifectaIngredient) string {
+	if len(ingredients) == 0 {
+		return "none observed"
+	}
+	var parts []string
+	for _, ingredient := range ingredients {
+		state := "missing"
+		if ingredient.Present {
+			state = "present"
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", ingredient.Label, state))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func renderAssessSummaryNextAction(w io.Writer, r model.AssessReport) {
@@ -2171,6 +2203,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	renderAssessDecision(w, r.Decision)
 	renderAssessInventorySummary(w, r.Inventory, 4)
 	renderAssessSignalQuality(w, r.SignalQuality)
+	renderAssessLethalTrifecta(w, r.LethalTrifecta)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
 	renderAssessClosurePlan(w, r.ClosurePlan, 3)
@@ -2721,6 +2754,186 @@ func buildAssessExposure(exposures []model.ExposureResult) model.AssessExposure 
 		out.TopPaths = []model.ExposureResult{}
 	}
 	return out
+}
+
+func buildAssessLethalTrifecta(exposures []model.ExposureResult) model.AssessLethalTrifecta {
+	exposure, ok := selectLethalTrifectaExposure(exposures)
+	if !ok {
+		return model.AssessLethalTrifecta{
+			Status:      model.StatusInconclusive,
+			ProofMode:   model.ProofInferred,
+			Summary:     "Lethal trifecta evidence was not established for this target.",
+			Ingredients: lethalTrifectaIngredients(model.ExposureResult{}),
+			DecisionRules: []string{
+				"The lethal trifecta requires untrusted content, private-data access, and external communication in the same supported agent graph.",
+				"Missing one ingredient is not treated as a complete data-egress chain.",
+				"Observed hard barriers can downgrade or protect the chain.",
+			},
+			Limitations: []string{
+				"This is deterministic graph evidence only; Ariadne does not execute the agent or observe live data movement.",
+			},
+		}
+	}
+	ingredients := lethalTrifectaIngredients(exposure)
+	complete := true
+	for _, ingredient := range ingredients {
+		if !ingredient.Present {
+			complete = false
+			break
+		}
+	}
+	out := model.AssessLethalTrifecta{
+		Status:             exposure.Status,
+		Present:            exposure.Status == model.StatusExposed && complete,
+		Protected:          exposure.Status == model.StatusProtected,
+		Complete:           complete,
+		ProofMode:          exposure.ProofMode,
+		Summary:            lethalTrifectaSummary(exposure, complete),
+		Ingredients:        ingredients,
+		GraphEdges:         nonNilStrings(uniqueStrings(exposure.PathEdges)),
+		EvidenceReferences: nonNilEvidenceReferences(exposure.EvidenceReferences),
+		ControlsBreakPath:  lethalTrifectaControlsBreakPath(exposure),
+		DecisionRules: []string{
+			"The lethal trifecta requires untrusted content, private-data access, and external communication in the same supported agent graph.",
+			"Missing one ingredient is not treated as a complete data-egress chain.",
+			"Observed hard barriers can downgrade or protect the chain.",
+		},
+		Limitations: nonNilStrings(uniqueStrings(append([]string{
+			"This is deterministic graph evidence only; Ariadne does not execute the agent or observe live data movement.",
+		}, exposure.Limitations...))),
+	}
+	return out
+}
+
+func lethalTrifectaControlsBreakPath(exposure model.ExposureResult) []string {
+	if len(exposure.ControlsBreakPath) > 0 {
+		return nonNilStrings(uniqueStrings(exposure.ControlsBreakPath))
+	}
+	if exposure.Status == model.StatusExposed {
+		return []string{
+			"isolate or trust-gate untrusted instructions",
+			"deny-read secret-like paths or private agent context",
+			"restrict external network communication and output destinations",
+		}
+	}
+	return []string{}
+}
+
+func selectLethalTrifectaExposure(exposures []model.ExposureResult) (model.ExposureResult, bool) {
+	var selected model.ExposureResult
+	found := false
+	best := -1
+	for _, exposure := range exposures {
+		if exposure.ID != "data-egress-chain" {
+			continue
+		}
+		score := lethalTrifectaStatusScore(exposure.Status)
+		if !found || score > best {
+			selected = exposure
+			found = true
+			best = score
+		}
+	}
+	return selected, found
+}
+
+func lethalTrifectaStatusScore(status model.Status) int {
+	switch status {
+	case model.StatusExposed:
+		return 3
+	case model.StatusProtected:
+		return 2
+	case model.StatusInconclusive:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func lethalTrifectaSummary(exposure model.ExposureResult, complete bool) string {
+	switch exposure.Status {
+	case model.StatusExposed:
+		return "Lethal trifecta present: untrusted content, private-data reachability, and external communication are connected without an observed hard barrier."
+	case model.StatusProtected:
+		return "Lethal trifecta ingredients are present, but observed controls break influence, private-data, or external-communication reachability."
+	case model.StatusInconclusive:
+		if complete {
+			return "Lethal trifecta ingredients were observed, but the path remains inconclusive under the current proof mode."
+		}
+		return "Lethal trifecta incomplete or unproven: one or more ingredients are missing from the supported graph."
+	default:
+		return "Lethal trifecta status is unknown."
+	}
+}
+
+func lethalTrifectaIngredients(exposure model.ExposureResult) []model.TrifectaIngredient {
+	edges := exposure.PathEdges
+	refs := exposure.EvidenceReferences
+	return []model.TrifectaIngredient{
+		{
+			ID:                 "untrusted_content",
+			Label:              "Exposure to untrusted content",
+			Present:            len(lethalTrifectaUntrustedContentEdges(edges)) > 0,
+			Summary:            "Attacker-controlled or repo-controlled instructions can influence the agent runtime.",
+			GraphEdges:         nonNilStrings(lethalTrifectaUntrustedContentEdges(edges)),
+			EvidenceReferences: nonNilEvidenceReferences(refs),
+		},
+		{
+			ID:                 "private_data",
+			Label:              "Access to private data",
+			Present:            len(lethalTrifectaPrivateDataEdges(edges)) > 0,
+			Summary:            "The graph reaches secret-like files, developer secret boundaries, private agent context, or retained credential material.",
+			GraphEdges:         nonNilStrings(lethalTrifectaPrivateDataEdges(edges)),
+			EvidenceReferences: nonNilEvidenceReferences(refs),
+		},
+		{
+			ID:                 "external_communication",
+			Label:              "Ability to externally communicate",
+			Present:            len(lethalTrifectaExternalCommunicationEdges(edges)) > 0,
+			Summary:            "The graph reaches an external destination through broad local or external communication authority.",
+			GraphEdges:         nonNilStrings(lethalTrifectaExternalCommunicationEdges(edges)),
+			EvidenceReferences: nonNilEvidenceReferences(refs),
+		},
+	}
+}
+
+func lethalTrifectaUntrustedContentEdges(edges []string) []string {
+	var out []string
+	for _, edge := range edges {
+		if strings.HasPrefix(edge, "trustinput:") && strings.Contains(edge, "|influences|") {
+			out = append(out, edge)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func lethalTrifectaPrivateDataEdges(edges []string) []string {
+	return graphEdgesToAny(edges,
+		"boundary:secret-like-file",
+		"boundary:developer-secret-boundary",
+		"boundary:agent-private-context",
+		"boundary:memory-credential-retention",
+		"boundary:credential-material",
+	)
+}
+
+func lethalTrifectaExternalCommunicationEdges(edges []string) []string {
+	return graphEdgesToAny(edges, "boundary:external-destination")
+}
+
+func graphEdgesToAny(edges []string, targets ...string) []string {
+	targetSet := map[string]bool{}
+	for _, target := range targets {
+		targetSet[target] = true
+	}
+	var out []string
+	for _, edge := range edges {
+		parts := strings.Split(edge, "|")
+		if len(parts) == 3 && targetSet[parts[2]] {
+			out = append(out, edge)
+		}
+	}
+	return uniqueStrings(out)
 }
 
 type assessClosureTarget struct {
@@ -4522,6 +4735,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 
 	renderAssessDecision(w, r.Decision)
 	renderAssessSignalQuality(w, r.SignalQuality)
+	renderAssessLethalTrifecta(w, r.LethalTrifecta)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
 	renderAssessClosurePlan(w, r.ClosurePlan, 5)
@@ -4675,6 +4889,38 @@ func renderAssessSignalQuality(w io.Writer, quality model.AssessSignalQuality) {
 	}
 	renderAssessTriageLines(w, "Decision rule", quality.DecisionRules, 4)
 	renderAssessTriageLines(w, "Limit", quality.Limitations, 2)
+	fmt.Fprintln(w)
+}
+
+func renderAssessLethalTrifecta(w io.Writer, trifecta model.AssessLethalTrifecta) {
+	if trifecta.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "Lethal trifecta:\n")
+	fmt.Fprintf(w, "  - Status: %s\n", readableToken(string(trifecta.Status)))
+	fmt.Fprintf(w, "  - Present: %t\n", trifecta.Present)
+	fmt.Fprintf(w, "  - Complete ingredients: %t\n", trifecta.Complete)
+	if trifecta.Protected {
+		fmt.Fprintf(w, "  - Protected: true\n")
+	}
+	fmt.Fprintf(w, "  - Readout: %s\n", trifecta.Summary)
+	for _, ingredient := range trifecta.Ingredients {
+		state := "missing"
+		if ingredient.Present {
+			state = "present"
+		}
+		fmt.Fprintf(w, "  - Ingredient %s: %s\n", ingredient.Label, state)
+		for _, edge := range limitStrings(ingredient.GraphEdges, 2) {
+			fmt.Fprintf(w, "    - Graph: %s\n", edge)
+		}
+	}
+	renderAssessTriageLines(w, "Break path", trifecta.ControlsBreakPath, 5)
+	renderAssessTriageLines(w, "Graph", trifecta.GraphEdges, 6)
+	if len(trifecta.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(trifecta.EvidenceReferences, 4), "; "))
+	}
+	renderAssessTriageLines(w, "Decision rule", trifecta.DecisionRules, 3)
+	renderAssessTriageLines(w, "Limit", trifecta.Limitations, 2)
 	fmt.Fprintln(w)
 }
 

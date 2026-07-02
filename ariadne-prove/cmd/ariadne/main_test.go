@@ -198,6 +198,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"Mode: endpoint",
 		"Identity And Credentials",
 		"Signal quality:",
+		"Lethal trifecta:",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("self summary missing %q:\n%s", want, summary)
@@ -223,6 +224,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"run_kind": "assess"`,
 		`"mode": "endpoint"`,
 		`"signal_quality"`,
+		`"lethal_trifecta"`,
 		`"noise_filters"`,
 		`"top_case_id": "case:identity-credentials"`,
 		`"first_action"`,
@@ -248,6 +250,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assessment",
 		"Signal Quality",
+		"Lethal Trifecta",
 		"Operator Cases",
 		"Export proof files",
 	} {

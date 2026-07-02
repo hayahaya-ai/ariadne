@@ -4157,6 +4157,11 @@ func TestAssessSummaryIsCompactFirstRunReadout(t *testing.T) {
 		"Noise filter:",
 		"Close/downgrade by:",
 		"Capability alone is not exposure",
+		"Lethal trifecta:",
+		"Lethal trifecta present",
+		"Exposure to untrusted content=present",
+		"Access to private data=present",
+		"Ability to externally communicate=present",
 		"Evidence:",
 		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
 		"Modeled/internal evidence: zt:control-strength",
@@ -4235,6 +4240,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Close/downgrade by:",
 		"Decision rule:",
 		"Capability alone is not exposure",
+		"Lethal trifecta:",
+		"Status: exposed",
+		"Ingredient Exposure to untrusted content: present",
+		"Ingredient Access to private data: present",
+		"Ingredient Ability to externally communicate: present",
+		"Break path: restrict external network communication and output destinations",
 		"Status: action required",
 		"Hard signal:",
 		"Risk boundary:",
@@ -4350,6 +4361,20 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.SignalQuality.EvidenceReferences) == 0 {
 		t.Fatalf("assessment should include deterministic signal-quality separation: %+v", decoded.SignalQuality)
 	}
+	if decoded.LethalTrifecta.Status != model.StatusExposed ||
+		!decoded.LethalTrifecta.Present ||
+		!decoded.LethalTrifecta.Complete ||
+		decoded.LethalTrifecta.Protected ||
+		!strings.Contains(decoded.LethalTrifecta.Summary, "Lethal trifecta present") ||
+		!hasTrifectaIngredient(decoded.LethalTrifecta.Ingredients, "untrusted_content", true, "trustinput:repo-instruction|influences") ||
+		!hasTrifectaIngredient(decoded.LethalTrifecta.Ingredients, "private_data", true, "boundary:developer-secret-boundary") ||
+		!hasTrifectaIngredient(decoded.LethalTrifecta.Ingredients, "external_communication", true, "boundary:external-destination") ||
+		!containsString(decoded.LethalTrifecta.ControlsBreakPath, "restrict external network communication") ||
+		!containsString(decoded.LethalTrifecta.GraphEdges, "authority:broad-local|reaches|boundary:external-destination") ||
+		!containsString(decoded.LethalTrifecta.DecisionRules, "requires untrusted content") ||
+		len(decoded.LethalTrifecta.EvidenceReferences) == 0 {
+		t.Fatalf("assessment should include lethal-trifecta mapping: %+v", decoded.LethalTrifecta)
+	}
 	if decoded.Decision.Status != "action_required" ||
 		decoded.Decision.StartHere != "case:egress-output-boundary" ||
 		decoded.Decision.TopCaseID != "case:egress-output-boundary" ||
@@ -4425,6 +4450,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"control_state":null`,
 		`"decision":null`,
 		`"signal_quality":null`,
+		`"lethal_trifecta":null`,
+		`"ingredients":null`,
+		`"controls_break_path":null`,
 		`"actionable_because":null`,
 		`"noise_filters":null`,
 		`"control_breakpoints":null`,
@@ -4637,6 +4665,14 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Noise filter:",
 		"Close/downgrade by:",
 		"Decision rule: Capability alone is not exposure.",
+		"Lethal trifecta:",
+		"Present: true",
+		"Complete ingredients: true",
+		"Lethal trifecta present",
+		"Ingredient Exposure to untrusted content: present",
+		"Ingredient Access to private data: present",
+		"Ingredient Ability to externally communicate: present",
+		"Break path: restrict external network communication and output destinations",
 		"Signal details:",
 		"signal:top-operator-case",
 		"signal:normal-agent-capability",
@@ -4732,6 +4768,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Close Or Downgrade By",
 		"Decision Rules",
 		"Capability alone is not exposure",
+		"Lethal Trifecta",
+		"Private data, untrusted content, and external communication",
+		"Exposure to untrusted content",
+		"Access to private data",
+		"Ability to externally communicate",
+		"Break Path",
 		"Signal Triage",
 		"Signal Details",
 		"Graph / evidence / controls",
@@ -6116,6 +6158,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"decision",
 		"triage",
 		"signal_quality",
+		"lethal_trifecta",
 		"inventory",
 		"exposure",
 		"closure_evidence",
@@ -6156,6 +6199,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "risk_boundary", "graph_edges", "evidence_refs", "related_controls", "limitations")
 	assessSignalQuality := schemaMap(t, assessSchema, "$defs", "assess_signal_quality")
 	assertRequiredKeys(t, assessSignalQuality, "status", "summary", "actionable_because", "expected_capabilities", "noise_filters", "control_breakpoints", "evidence_gaps", "graph_edges", "evidence_refs", "decision_rules", "limitations")
+	assessLethalTrifecta := schemaMap(t, assessSchema, "$defs", "assess_lethal_trifecta")
+	assertRequiredKeys(t, assessLethalTrifecta, "status", "present", "protected", "complete", "proof_mode", "summary", "ingredients", "graph_edges", "evidence_refs", "controls_break_path", "decision_rules", "limitations")
+	trifectaIngredient := schemaMap(t, assessSchema, "$defs", "trifecta_ingredient")
+	assertRequiredKeys(t, trifectaIngredient, "id", "label", "present", "summary", "graph_edges", "evidence_refs")
 	assessClosurePlanItem := schemaMap(t, assessSchema, "$defs", "assess_closure_plan_item")
 	assertRequiredKeys(t, assessClosurePlanItem, "rank", "control", "case_id", "case_title", "severity", "state", "why_this_control", "what_it_closes", "affected_flaws", "affected_targets", "evidence_refs", "proof_surface", "rerun_command", "compare_command", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessClosurePlanItem, "proof_patch")
@@ -6684,6 +6731,18 @@ func containsExactString(values []string, target string) bool {
 func containsString(values []string, fragment string) bool {
 	for _, value := range values {
 		if strings.Contains(value, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTrifectaIngredient(values []model.TrifectaIngredient, id string, present bool, edgeFragment string) bool {
+	for _, value := range values {
+		if value.ID != id || value.Present != present {
+			continue
+		}
+		if edgeFragment == "" || containsString(value.GraphEdges, edgeFragment) {
 			return true
 		}
 	}

@@ -190,6 +190,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	renderAssessSummaryDashboard(w, r)
 	renderAssessDecisionDashboard(w, r.TargetPath, r.Decision)
 	renderAssessSignalQualityDashboard(w, r.TargetPath, r.SignalQuality)
+	renderAssessLethalTrifectaDashboard(w, r.TargetPath, r.LethalTrifecta)
 	renderAssessTriageDashboard(w, r.TargetPath, r.Triage)
 	renderAssessClosurePlanDashboard(w, r.TargetPath, r.ClosurePlan)
 	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction, r.ControlState)
@@ -1002,6 +1003,52 @@ func renderAssessSignalQualityDashboard(w io.Writer, root string, quality model.
 	fmt.Fprintln(w, renderEvidenceGapActionList(limitStrings(quality.EvidenceGaps, 5)))
 	fmt.Fprintln(w, `<h3>Limits</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(quality.Limitations, 3)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessLethalTrifectaDashboard(w io.Writer, root string, trifecta model.AssessLethalTrifecta) {
+	if trifecta.Summary == "" {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Lethal Trifecta</h2><div class="subtle">Private data, untrusted content, and external communication in one supported agent graph.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Status", statusLabel(string(trifecta.Status))},
+		{"Present", fmt.Sprintf("%t", trifecta.Present)},
+		{"Complete", fmt.Sprintf("%t", trifecta.Complete)},
+		{"Protected", fmt.Sprintf("%t", trifecta.Protected)},
+		{"Break controls", fmt.Sprintf("%d", len(trifecta.ControlsBreakPath))},
+	})
+	fmt.Fprintf(w, `<p><strong>Readout:</strong> %s</p>`, esc(trifecta.Summary))
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, `<thead><tr><th>Ingredient</th><th>Status</th><th>Graph</th><th>Evidence</th></tr></thead><tbody>`)
+	for _, ingredient := range trifecta.Ingredients {
+		state := "missing"
+		if ingredient.Present {
+			state = "present"
+		}
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(ingredient.Label), esc(ingredient.ID), esc(ingredient.Summary))
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div></td>`, cssClass(state), esc(readableToken(state)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(ingredient.GraphEdges, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, ingredient.EvidenceReferences, 4)))
+		fmt.Fprintln(w, `</tr>`)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Break Path</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(trifecta.ControlsBreakPath, 6)))
+	fmt.Fprintln(w, `<h3>Decision Rules</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(trifecta.DecisionRules, 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Graph Edges</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(trifecta.GraphEdges, 8)))
+	fmt.Fprintln(w, `<h3>Limits</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(trifecta.Limitations, 4)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)

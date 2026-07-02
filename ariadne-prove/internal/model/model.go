@@ -328,6 +328,7 @@ type AssessReport struct {
 	ControlState     AssessControlState      `json:"control_state"`
 	Inventory        AssessInventory         `json:"inventory"`
 	Exposure         AssessExposure          `json:"exposure"`
+	LethalTrifecta   AssessLethalTrifecta    `json:"lethal_trifecta"`
 	ClosureEvidence  AssessClosureEvidence   `json:"closure_evidence"`
 	Architecture     *ArchitectureReport     `json:"architecture,omitempty"`
 	ArchitectureScan *ArchitectureScanReport `json:"architecture_scan,omitempty"`
@@ -593,6 +594,30 @@ type AssessExposure struct {
 	Protected    int              `json:"protected"`
 	Inconclusive int              `json:"inconclusive"`
 	TopPaths     []ExposureResult `json:"top_paths"`
+}
+
+type AssessLethalTrifecta struct {
+	Status             Status               `json:"status"`
+	Present            bool                 `json:"present"`
+	Protected          bool                 `json:"protected"`
+	Complete           bool                 `json:"complete"`
+	ProofMode          ProofMode            `json:"proof_mode"`
+	Summary            string               `json:"summary"`
+	Ingredients        []TrifectaIngredient `json:"ingredients"`
+	GraphEdges         []string             `json:"graph_edges"`
+	EvidenceReferences []EvidenceReference  `json:"evidence_refs"`
+	ControlsBreakPath  []string             `json:"controls_break_path"`
+	DecisionRules      []string             `json:"decision_rules"`
+	Limitations        []string             `json:"limitations"`
+}
+
+type TrifectaIngredient struct {
+	ID                 string              `json:"id"`
+	Label              string              `json:"label"`
+	Present            bool                `json:"present"`
+	Summary            string              `json:"summary"`
+	GraphEdges         []string            `json:"graph_edges"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
 }
 
 type AssessClosureEvidence struct {

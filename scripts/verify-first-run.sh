@@ -70,6 +70,9 @@ expect_contains "$assess_summary" "Signal quality:"
 expect_contains "$assess_summary" "Actionable because:"
 expect_contains "$assess_summary" "Noise filter:"
 expect_contains "$assess_summary" "Decision rule: Capability alone is not exposure."
+expect_contains "$assess_summary" "Lethal trifecta:"
+expect_contains "$assess_summary" "Lethal trifecta present"
+expect_contains "$assess_summary" "Exposure to untrusted content=present"
 expect_contains "$assess_summary" "Evidence:"
 expect_contains "$assess_summary" "Evidence files: .claude/settings.json; .codex/config.toml; .env"
 expect_contains "$assess_summary" "Modeled/internal evidence: zt:control-strength"
@@ -119,6 +122,11 @@ expect_contains "$assess_txt" "Expected capability:"
 expect_contains "$assess_txt" "Noise filter:"
 expect_contains "$assess_txt" "Close/downgrade by:"
 expect_contains "$assess_txt" "Decision rule: Capability alone is not exposure."
+expect_contains "$assess_txt" "Lethal trifecta:"
+expect_contains "$assess_txt" "Ingredient Exposure to untrusted content: present"
+expect_contains "$assess_txt" "Ingredient Access to private data: present"
+expect_contains "$assess_txt" "Ingredient Ability to externally communicate: present"
+expect_contains "$assess_txt" "Break path: restrict external network communication and output destinations"
 expect_contains "$assess_txt" "Signal triage:"
 expect_contains "$assess_txt" "Normal capability:"
 expect_contains "$assess_txt" "Missing hard barrier:"
@@ -151,6 +159,10 @@ expect_contains "$assess_txt" "case-compare.html"
 expect_contains "$assess_json" '"run_kind": "assess"'
 expect_contains "$assess_json" '"decision"'
 expect_contains "$assess_json" '"signal_quality"'
+expect_contains "$assess_json" '"lethal_trifecta"'
+expect_contains "$assess_json" '"untrusted_content"'
+expect_contains "$assess_json" '"private_data"'
+expect_contains "$assess_json" '"external_communication"'
 expect_contains "$assess_json" '"actionable_because"'
 expect_contains "$assess_json" '"noise_filters"'
 expect_contains "$assess_json" '"control_breakpoints"'
@@ -206,6 +218,10 @@ expect_contains "$assess_html" "Unknown Evidence"
 expect_contains "$assess_html" "Evidence Gap Actions"
 expect_contains "$assess_html" "Decision Limits"
 expect_contains "$assess_html" "Signal Quality"
+expect_contains "$assess_html" "Lethal Trifecta"
+expect_contains "$assess_html" "Exposure to untrusted content"
+expect_contains "$assess_html" "Access to private data"
+expect_contains "$assess_html" "Ability to externally communicate"
 expect_contains "$assess_html" "Actionable Because"
 expect_contains "$assess_html" "Noise Filters"
 expect_contains "$assess_html" "Close Or Downgrade By"
@@ -285,11 +301,13 @@ expect_contains "$self_bundle/README.md" "proof-action.txt"
 expect_contains "$self_bundle/README.md" "case:identity-credentials"
 expect_contains "$self_bundle/assessment.json" '"run_kind": "assess"'
 expect_contains "$self_bundle/assessment.json" '"signal_quality"'
+expect_contains "$self_bundle/assessment.json" '"lethal_trifecta"'
 expect_contains "$self_bundle/assessment.json" '"top_case_id": "case:identity-credentials"'
 expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
 expect_contains "$self_bundle/dashboard.html" "Signal Quality"
+expect_contains "$self_bundle/dashboard.html" "Lethal Trifecta"
 expect_contains "$self_bundle/proof-action.txt" "Ariadne Proof Action"
 expect_contains "$self_bundle/proof-action.txt" "case:identity-credentials"
 expect_contains "$self_bundle/proof-plan.json" '"run_kind": "proof_plan"'
@@ -312,6 +330,7 @@ expect_contains "$endpoint_action" "--out after-proof.json"
 expect_contains "$endpoint_action" "Decision limit:"
 expect_contains "$endpoint_action" "Decision is derived from deterministic inventory"
 expect_contains "$endpoint_action" "Signal quality:"
+expect_contains "$endpoint_action" "Lethal trifecta:"
 expect_contains "$endpoint_action" "Noise filter:"
 expect_contains "$endpoint_action" "Capability alone is not exposure."
 expect_contains "$endpoint_action" "Signal triage:"
@@ -346,6 +365,7 @@ expect_contains "$endpoint_action" "case-compare.html"
 expect_contains "$endpoint_json" '"mode": "endpoint"'
 expect_contains "$endpoint_json" '"decision"'
 expect_contains "$endpoint_json" '"signal_quality"'
+expect_contains "$endpoint_json" '"lethal_trifecta"'
 expect_contains "$endpoint_json" '"noise_filters"'
 expect_contains "$endpoint_json" '"inspection_summary"'
 expect_contains "$endpoint_json" '"risk_reasons"'
@@ -386,6 +406,7 @@ expect_contains "$endpoint_html" "Unknown Evidence"
 expect_contains "$endpoint_html" "Evidence Gap Actions"
 expect_contains "$endpoint_html" "Decision Limits"
 expect_contains "$endpoint_html" "Signal Quality"
+expect_contains "$endpoint_html" "Lethal Trifecta"
 expect_contains "$endpoint_html" "Noise Filters"
 expect_contains "$endpoint_html" "Signal Triage"
 expect_contains "$endpoint_html" "Control State"
