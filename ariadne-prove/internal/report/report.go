@@ -2019,10 +2019,18 @@ func renderAssessSummaryNextAction(w io.Writer, r model.AssessReport) {
 	} else if r.Decision.ProofCommand != "" {
 		fmt.Fprintf(w, "  - Proof command: %s\n", r.Decision.ProofCommand)
 	}
-	if current.ApplyCommand != "" {
+	if len(action.ApplyCommands) <= 1 && current.ApplyCommand != "" {
 		fmt.Fprintf(w, "  - Review/apply: %s\n", current.ApplyCommand)
-	} else if r.Decision.ApplyCommand != "" {
+	} else if len(action.ApplyCommands) <= 1 && r.Decision.ApplyCommand != "" {
 		fmt.Fprintf(w, "  - Review/apply: %s\n", r.Decision.ApplyCommand)
+	}
+	if len(action.GeneratedProofPaths) > 1 {
+		fmt.Fprintf(w, "  - Full case proof bundle: %s\n", strings.Join(firstStrings(action.GeneratedProofPaths, 4), "; "))
+	}
+	if len(action.ApplyCommands) > 1 {
+		for _, command := range firstStrings(action.ApplyCommands, 4) {
+			fmt.Fprintf(w, "  - Review/apply bundle: %s\n", command)
+		}
 	}
 	if rerun := assessCurrentRerunCommand(action); rerun != "" {
 		fmt.Fprintf(w, "  - Rerun: %s\n", rerun)
