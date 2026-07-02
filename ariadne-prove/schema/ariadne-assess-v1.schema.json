@@ -25,6 +25,7 @@
     "first_action",
     "operator_packet",
     "operator_workbench",
+    "source_reference_workbench",
     "case_lifecycle",
     "closure_plan",
     "next_commands",
@@ -67,6 +68,7 @@
     "first_action": { "$ref": "#/$defs/assess_first_action" },
     "operator_packet": { "$ref": "#/$defs/assess_operator_packet" },
     "operator_workbench": { "$ref": "#/$defs/assess_operator_workbench" },
+    "source_reference_workbench": { "$ref": "#/$defs/assess_source_references" },
     "case_lifecycle": { "$ref": "#/$defs/assess_case_lifecycle" },
     "closure_plan": {
       "type": "array",
@@ -674,6 +676,124 @@
           "items": { "type": "string" }
         },
         "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_source_references": {
+      "type": "object",
+      "required": [
+        "available",
+        "summary",
+        "evidence_refs",
+        "rows",
+        "source_action_board",
+        "local_files",
+        "metadata_only",
+        "content_inspectable",
+        "limitations"
+      ],
+      "properties": {
+        "available": { "type": "boolean" },
+        "summary": { "type": "string" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "rows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_source_ref_row" }
+        },
+        "source_action_board": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_source_action" }
+        },
+        "local_files": { "type": "integer" },
+        "metadata_only": { "type": "integer" },
+        "content_inspectable": { "type": "integer" },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_source_ref_row": {
+      "type": "object",
+      "required": [
+        "source",
+        "display_source",
+        "kind",
+        "fact",
+        "line",
+        "local_file",
+        "metadata_only"
+      ],
+      "properties": {
+        "source": { "type": "string" },
+        "display_source": { "type": "string" },
+        "kind": { "type": "string" },
+        "fact": { "type": "string" },
+        "line": { "type": "string" },
+        "local_path": { "type": "string" },
+        "local_file": { "type": "boolean" },
+        "metadata_only": { "type": "boolean" },
+        "inspect_command": { "type": "string" }
+      }
+    },
+    "assess_source_action": {
+      "type": "object",
+      "required": [
+        "source",
+        "display_source",
+        "role",
+        "action_kind",
+        "recommended_action",
+        "local_file",
+        "metadata_only",
+        "line_labels",
+        "kinds",
+        "facts",
+        "inspect_commands",
+        "related_controls"
+      ],
+      "properties": {
+        "source": { "type": "string" },
+        "display_source": { "type": "string" },
+        "role": { "type": "string", "enum": ["evidence", "proof_surface"] },
+        "action_kind": {
+          "type": "string",
+          "enum": [
+            "inspect_metadata_only",
+            "reference_fact",
+            "confirm_boundary",
+            "verify_control",
+            "inspect_risk_source",
+            "inspect_evidence",
+            "add_or_verify_control"
+          ]
+        },
+        "recommended_action": { "type": "string" },
+        "local_path": { "type": "string" },
+        "local_file": { "type": "boolean" },
+        "metadata_only": { "type": "boolean" },
+        "line_labels": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "kinds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "facts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "inspect_commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "related_controls": {
           "type": "array",
           "items": { "type": "string" }
         }

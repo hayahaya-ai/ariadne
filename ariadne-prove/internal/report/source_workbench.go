@@ -144,7 +144,7 @@ func buildAssessSourceActionBoard(root string, rows []model.AssessSourceRefRow, 
 		action.LineLabels = uniqueStrings(append(action.LineLabels, row.Line))
 		action.Kinds = uniqueStrings(append(action.Kinds, row.Kind))
 		action.Facts = uniqueStrings(append(action.Facts, row.Fact))
-		action.InspectCommands = uniqueStrings(append(action.InspectCommands, row.InspectCommand))
+		action.InspectCommands = uniqueStrings(append(action.InspectCommands, sourceActionInspectCommand(row, action.ActionKind)))
 		if action.MetadataOnly {
 			action.ActionKind = "inspect_metadata_only"
 			action.RecommendedAction = "Inspect metadata only. Do not dump private history, cache, transcript, or paste contents by default."
@@ -215,6 +215,17 @@ func sourceActionKind(row model.AssessSourceRefRow) string {
 	default:
 		return "inspect_evidence"
 	}
+}
+
+func sourceActionInspectCommand(row model.AssessSourceRefRow, actionKind string) string {
+	if actionKind == "confirm_boundary" && row.LocalPath != "" {
+		quoted := shellQuoteCommandArg(row.LocalPath)
+		source := firstNonEmpty(row.DisplaySource, row.Source, row.LocalPath)
+		present := shellQuoteCommandArg("sensitive boundary path exists: " + source)
+		missing := shellQuoteCommandArg("sensitive boundary path not found: " + source)
+		return fmt.Sprintf("test -e %s && echo %s || echo %s", quoted, present, missing)
+	}
+	return row.InspectCommand
 }
 
 func sourceActionRecommendation(row model.AssessSourceRefRow) string {

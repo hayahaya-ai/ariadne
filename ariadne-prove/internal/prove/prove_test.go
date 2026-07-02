@@ -4991,8 +4991,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if !strings.Contains(jsonOut.String(), `"source_action_board"`) ||
 		!hasSourceAction(decoded.SourceReferences.ActionBoard, ".claude/settings.json", "evidence", "inspect_risk_source", "sed -n", "") ||
+		!hasSourceAction(decoded.SourceReferences.ActionBoard, ".env", "evidence", "confirm_boundary", "sensitive boundary path exists", "") ||
 		!hasSourceAction(decoded.SourceReferences.ActionBoard, ".ariadne/egress-policy.json", "proof_surface", "add_or_verify_control", "test -f", "control:egress-destination-allowlist") {
 		t.Fatalf("assessment JSON should expose a file-grouped source action board: %+v", decoded.SourceReferences.ActionBoard)
+	}
+	if hasSourceAction(decoded.SourceReferences.ActionBoard, ".env", "evidence", "confirm_boundary", "sed -n", "") {
+		t.Fatalf("sensitive boundary actions should verify path existence without dumping file contents: %+v", decoded.SourceReferences.ActionBoard)
 	}
 	if !decoded.CaseLifecycle.Available ||
 		decoded.CaseLifecycle.CaseID != decoded.FirstAction.CaseID ||
@@ -5242,6 +5246,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Normal context:",
 		"Evidence to open:",
 		".claude/settings.json:1",
+		"Source action board:",
+		".claude/settings.json:1 [evidence/inspect_risk_source]",
+		".ariadne/egress-policy.json [proof surface/add_or_verify_control]",
+		"open/verify: test -f",
+		"control: control:egress-destination-allowlist",
 		"Path:",
 		"boundary external destination (reaches)",
 		"Controls:",
@@ -5388,6 +5397,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Proof surface: .ariadne/egress-policy.json",
 		"Evidence to inspect:",
 		".claude/settings.json",
+		"Source action board:",
+		".claude/settings.json:1 [evidence/inspect_risk_source]",
+		".ariadne/egress-policy.json [proof surface/add_or_verify_control]",
+		"open/verify: test -f",
 		"Accepted evidence:",
 		"Proof patch:",
 		"Proof loop: Open focused proof action:",
@@ -6902,6 +6915,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"first_action",
 		"operator_packet",
 		"operator_workbench",
+		"source_reference_workbench",
 		"case_lifecycle",
 		"closure_plan",
 		"next_commands",
@@ -6913,6 +6927,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, assessSchema, "top_case_proof_plan")
 	assertSchemaProperty(t, assessSchema, "case_filter")
 	assertSchemaProperty(t, assessSchema, "control_filter")
+	assertSchemaProperty(t, assessSchema, "source_reference_workbench")
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessDecision := schemaMap(t, assessSchema, "$defs", "assess_decision")
@@ -6962,6 +6977,15 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessOperatorCommand, "step", "id", "title", "files")
 	assessOperatorWorkbench := schemaMap(t, assessSchema, "$defs", "assess_operator_workbench")
 	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "signal_chain", "evidence_to_open", "graph_path", "proof", "proof_state", "verify", "closure_loop", "runbook", "actions", "done_criteria", "change_readout", "limitations")
+	assessSourceReferences := schemaMap(t, assessSchema, "$defs", "assess_source_references")
+	assertRequiredKeys(t, assessSourceReferences, "available", "summary", "evidence_refs", "rows", "source_action_board", "local_files", "metadata_only", "content_inspectable", "limitations")
+	assessSourceRefRow := schemaMap(t, assessSchema, "$defs", "assess_source_ref_row")
+	assertRequiredKeys(t, assessSourceRefRow, "source", "display_source", "kind", "fact", "line", "local_file", "metadata_only")
+	assertSchemaProperty(t, assessSourceRefRow, "local_path")
+	assertSchemaProperty(t, assessSourceRefRow, "inspect_command")
+	assessSourceAction := schemaMap(t, assessSchema, "$defs", "assess_source_action")
+	assertRequiredKeys(t, assessSourceAction, "source", "display_source", "role", "action_kind", "recommended_action", "local_file", "metadata_only", "line_labels", "kinds", "facts", "inspect_commands", "related_controls")
+	assertSchemaProperty(t, assessSourceAction, "local_path")
 	assessWorkbenchProof := schemaMap(t, assessSchema, "$defs", "assess_workbench_proof")
 	assertRequiredKeys(t, assessWorkbenchProof, "controls", "surfaces", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands")
 	assessWorkbenchProofState := schemaMap(t, assessSchema, "$defs", "assess_workbench_proof_state")

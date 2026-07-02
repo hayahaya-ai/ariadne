@@ -2165,6 +2165,7 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 		}
 		renderEvidenceSourceListBlock(w, packet.EvidenceSources, 12)
 	}
+	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
 	if len(packet.GraphPath) > 0 {
 		fmt.Fprintf(w, "\nPath:\n")
 		for _, line := range firstStrings(packet.GraphPath, 6) {
@@ -2323,6 +2324,80 @@ func renderAssessSummarySourceReferences(w io.Writer, refs model.AssessSourceRef
 	if limit > 0 && len(refs.Rows) > limit {
 		fmt.Fprintf(w, "  - %d more source reference(s) in JSON and dashboard output\n", len(refs.Rows)-limit)
 	}
+}
+
+func renderAssessSourceActionBoardTerminal(w io.Writer, actions []model.AssessSourceAction, limit int) {
+	if len(actions) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(actions) {
+		limit = len(actions)
+	}
+	display := sourceActionsForTerminal(actions, limit)
+	fmt.Fprintf(w, "\nSource action board:\n")
+	for _, action := range display {
+		source := firstNonEmpty(action.DisplaySource, action.Source, action.LocalPath, "source")
+		role := readableToken(firstNonEmpty(action.Role, "evidence"))
+		kind := firstNonEmpty(action.ActionKind, "inspect_evidence")
+		fmt.Fprintf(w, "  - %s [%s/%s]: %s\n", source, role, kind, firstNonEmpty(action.RecommendedAction, "Inspect or verify this source."))
+		for _, fact := range firstStrings(action.Facts, 1) {
+			fmt.Fprintf(w, "    fact: %s\n", fact)
+		}
+		if lineLabels := usefulSourceActionLineLabels(action.LineLabels); len(lineLabels) > 0 {
+			fmt.Fprintf(w, "    lines: %s\n", strings.Join(lineLabels, ", "))
+		}
+		for _, control := range firstStrings(action.RelatedControls, 2) {
+			fmt.Fprintf(w, "    control: %s\n", control)
+		}
+		for _, command := range firstStrings(action.InspectCommands, 2) {
+			fmt.Fprintf(w, "    open/verify: %s\n", command)
+		}
+	}
+	if len(actions) > len(display) {
+		fmt.Fprintf(w, "  - %d more source action(s) omitted from terminal output\n", len(actions)-len(display))
+	}
+}
+
+func sourceActionsForTerminal(actions []model.AssessSourceAction, limit int) []model.AssessSourceAction {
+	if limit <= 0 || len(actions) <= limit {
+		return append([]model.AssessSourceAction{}, actions...)
+	}
+	var evidence []model.AssessSourceAction
+	var proofs []model.AssessSourceAction
+	for _, action := range actions {
+		if action.Role == "proof_surface" {
+			proofs = append(proofs, action)
+		} else {
+			evidence = append(evidence, action)
+		}
+	}
+	if len(proofs) == 0 {
+		return append([]model.AssessSourceAction{}, actions[:limit]...)
+	}
+	if len(proofs) >= limit {
+		return append([]model.AssessSourceAction{}, proofs[:limit]...)
+	}
+	out := make([]model.AssessSourceAction, 0, limit)
+	evidenceLimit := limit - len(proofs)
+	if len(evidence) > evidenceLimit {
+		out = append(out, evidence[:evidenceLimit]...)
+	} else {
+		out = append(out, evidence...)
+	}
+	out = append(out, proofs...)
+	return out
+}
+
+func usefulSourceActionLineLabels(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range firstStrings(values, 4) {
+		value = strings.TrimSpace(value)
+		if value == "" || strings.EqualFold(value, "not applicable") || strings.EqualFold(value, "not recorded") {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }
 
 func renderAssessSummaryBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
@@ -2592,6 +2667,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 		}
 		renderEvidenceSourceListBlock(w, evidenceReferenceSources(actionEvidenceRefs, false), 16)
 	}
+	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
 	if example := assessCurrentEvidenceExampleLine(action); example != "" {
 		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
 	}
