@@ -3127,6 +3127,76 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 }
 
+func TestAssessReportShowsClosureEvidence(t *testing.T) {
+	path := realPathFixture(t, "egress-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderAssess(&table, inventory, r, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Closure evidence observed:",
+		"Controlled architecture flaws: 1",
+		"Partial/friction-only architecture flaws: 1",
+		"CONTROLLED Data or agent actions can leave through arbitrary external destinations",
+		"PARTIAL Sensitive data can leak through agent output",
+		"control:egress-destination-allowlist",
+		"control:output-sensitive-data-filter",
+		".ariadne/egress-policy.json",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("assessment closure table missing %q:\n%s", want, out)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderAssess(&jsonOut, inventory, r, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ClosureEvidence.ControlledArchitectureFlaws != 1 || decoded.ClosureEvidence.PartialArchitectureFlaws != 1 || decoded.ClosureEvidence.ProtectedExposurePaths == 0 {
+		t.Fatalf("assessment should summarize controlled, partial, and protected evidence: %+v", decoded.ClosureEvidence)
+	}
+	if !containsString(decoded.ClosureEvidence.HardBarriersObserved, "control:egress-destination-allowlist") {
+		t.Fatalf("assessment closure evidence should include observed egress hard barrier: %+v", decoded.ClosureEvidence)
+	}
+	if !containsString(decoded.ClosureEvidence.RemainingMissingHardBarriers, "control:output-sensitive-data-filter") {
+		t.Fatalf("assessment closure evidence should retain remaining output hard barrier: %+v", decoded.ClosureEvidence)
+	}
+	if len(decoded.ClosureEvidence.ControlledPaths) == 0 || len(decoded.ClosureEvidence.ControlledPaths[0].EvidenceReferences) == 0 {
+		t.Fatalf("assessment closure paths should retain evidence refs: %+v", decoded.ClosureEvidence.ControlledPaths)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Closure Evidence",
+		"Closed By Hard Barrier",
+		"Partial Evidence",
+		"Hard barriers observed",
+		"Still missing",
+		".ariadne/egress-policy.json",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("assessment closure dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
@@ -3656,6 +3726,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"summary",
 		"inventory",
 		"exposure",
+		"closure_evidence",
 		"case_board",
 		"top_cases",
 		"next_commands",
@@ -3670,6 +3741,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes")
 	assessExposure := schemaMap(t, assessSchema, "$defs", "assess_exposure")
 	assertRequiredKeys(t, assessExposure, "paths", "exposed", "protected", "inconclusive", "top_paths")
+	assessClosureEvidence := schemaMap(t, assessSchema, "$defs", "assess_closure_evidence")
+	assertRequiredKeys(t, assessClosureEvidence, "protected_exposure_paths", "controlled_architecture_flaws", "partial_architecture_flaws", "hard_barriers_observed", "partial_or_friction_controls", "remaining_missing_hard_barriers", "controlled_paths", "partial_paths")
+	assessClosurePath := schemaMap(t, assessSchema, "$defs", "assess_closure_path")
+	assertRequiredKeys(t, assessClosurePath, "id", "title", "status", "control_test_result", "controls", "hard_barriers_observed", "partial_or_friction_controls", "remaining_missing_hard_barriers", "evidence_refs")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {

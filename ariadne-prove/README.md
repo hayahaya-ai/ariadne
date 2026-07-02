@@ -237,7 +237,7 @@ Inventory output includes:
 - warnings and limitations
 - graph exports with `--format dot` or `--format mermaid`
 
-Assess output is the recommended first-run product view. It composes inventory, exposure, Zero Trust architecture, and the operator case board into one readout: what was inspected, how many exposure paths were found, which architecture boundaries are breaking, which case to start with, the evidence references behind that case, proof surfaces to update, and the exact commands to rerun. HTML assessment output adds case navigation and an active case workbench with current state, evidence to inspect, controls to start with, a control proof recipe, accepted evidence examples, rerun commands, and done criteria. JSON emits the same contract with `summary`, `inventory`, `exposure`, `architecture` or `architecture_scan`, `case_board`, `top_cases`, and `next_commands`.
+Assess output is the recommended first-run product view. It composes inventory, exposure, Zero Trust architecture, closure evidence, and the operator case board into one readout: what was inspected, how many exposure paths were found, which architecture boundaries are breaking, which controls already closed or partially closed a path, which case to start with, the evidence references behind that case, proof surfaces to update, and the exact commands to rerun. HTML assessment output adds case navigation and an active case workbench with current state, evidence to inspect, controls to start with, a control proof recipe, accepted evidence examples, rerun commands, and done criteria. JSON emits the same contract with `summary`, `inventory`, `exposure`, `closure_evidence`, `architecture` or `architecture_scan`, `case_board`, `top_cases`, and `next_commands`.
 
 Prove output adds:
 

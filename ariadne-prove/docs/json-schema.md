@@ -138,6 +138,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `summary`, combining inspected-surface counts, exposure path counts, architecture flaw counts, missing hard-barrier controls, and the top case
 - `inventory`, summarizing discovered AI surfaces, typed facts, graph size, runtime/tool/authority/control/boundary counts, surface categories, and handling modes
 - `exposure`, summarizing exposed, protected, and inconclusive paths with a bounded list of top path records
+- `closure_evidence`, summarizing protected exposure paths, controlled architecture flaws, partial/friction-only control evidence, hard barriers observed, remaining missing hard barriers, and source-backed closure paths
 - `architecture` for single-target assessment, or `architecture_scan` for target-list assessment
 - `case_board`, the same operator case-board contract emitted by `ariadne cases`
 - `top_cases`, a bounded case-first queue for humans

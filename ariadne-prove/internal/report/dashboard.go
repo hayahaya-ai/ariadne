@@ -81,6 +81,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
+	renderAssessClosureEvidenceDashboard(w, r.ClosureEvidence)
 	renderAssessCaseNavigationDashboard(w, r.TopCases)
 	renderAssessActiveCaseDashboard(w, r)
 	renderControlOperatorCasesDashboard(w, r.TopCases)
@@ -470,6 +471,66 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 		fmt.Fprintf(w, `<div><strong>Start here:</strong> %s <span class="subtle">(%s)</span></div>`, esc(r.Summary.TopCaseNextStep), esc(r.Summary.TopCaseTitle))
 	}
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessClosureEvidenceDashboard(w io.Writer, closure model.AssessClosureEvidence) {
+	if !assessClosureEvidenceHasData(closure) {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Closure Evidence</h2><div class="subtle">Controls Ariadne already observed, and whether they close the path or leave missing hard barriers.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Protected exposures", fmt.Sprintf("%d", closure.ProtectedExposurePaths)},
+		{"Controlled flaws", fmt.Sprintf("%d", closure.ControlledArchitectureFlaws)},
+		{"Partial flaws", fmt.Sprintf("%d", closure.PartialArchitectureFlaws)},
+		{"Hard barriers", fmt.Sprintf("%d", len(closure.HardBarriersObserved))},
+		{"Still missing", fmt.Sprintf("%d", len(closure.RemainingMissingHardBarriers))},
+	})
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Closed By Hard Barrier</h3>`)
+	renderAssessClosurePathTable(w, closure.ControlledPaths, true)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Partial Evidence</h3>`)
+	renderAssessClosurePathTable(w, closure.PartialPaths, false)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessClosurePathTable(w io.Writer, items []model.AssessClosurePath, controlled bool) {
+	if len(items) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No closure path evidence in this category.</div>`)
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	if controlled {
+		fmt.Fprintln(w, "<thead><tr><th>Path</th><th>Hard barriers observed</th><th>Evidence</th></tr></thead><tbody>")
+	} else {
+		fmt.Fprintln(w, "<thead><tr><th>Path</th><th>Observed controls</th><th>Still missing</th><th>Evidence</th></tr></thead><tbody>")
+	}
+	for _, item := range limitAssessClosurePaths(items, 5) {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(item.Title), esc(item.ID), esc(string(item.Status)))
+		if controlled {
+			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.HardBarriersObserved, 5)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
+		} else {
+			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.PartialOrFrictionControls, 5)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.RemainingMissingHardBarriers, 5)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
+		}
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(items) > 5 {
+		colspan := 3
+		if !controlled {
+			colspan = 4
+		}
+		fmt.Fprintf(w, `<tr><td colspan="%d"><span class="subtle">%d more closure path(s) in JSON output.</span></td></tr>`, colspan, len(items)-5)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 }
 
 func renderAssessCaseNavigationDashboard(w io.Writer, cases []model.ControlOperatorCase) {

@@ -171,6 +171,7 @@ type AssessReport struct {
 	Summary          AssessSummary           `json:"summary"`
 	Inventory        AssessInventory         `json:"inventory"`
 	Exposure         AssessExposure          `json:"exposure"`
+	ClosureEvidence  AssessClosureEvidence   `json:"closure_evidence"`
 	Architecture     *ArchitectureReport     `json:"architecture,omitempty"`
 	ArchitectureScan *ArchitectureScanReport `json:"architecture_scan,omitempty"`
 	CaseBoard        ControlCatalogReport    `json:"case_board"`
@@ -232,6 +233,30 @@ type AssessExposure struct {
 	Protected    int              `json:"protected"`
 	Inconclusive int              `json:"inconclusive"`
 	TopPaths     []ExposureResult `json:"top_paths"`
+}
+
+type AssessClosureEvidence struct {
+	ProtectedExposurePaths       int                 `json:"protected_exposure_paths"`
+	ControlledArchitectureFlaws  int                 `json:"controlled_architecture_flaws"`
+	PartialArchitectureFlaws     int                 `json:"partial_architecture_flaws"`
+	HardBarriersObserved         []string            `json:"hard_barriers_observed"`
+	PartialOrFrictionControls    []string            `json:"partial_or_friction_controls"`
+	RemainingMissingHardBarriers []string            `json:"remaining_missing_hard_barriers"`
+	ControlledPaths              []AssessClosurePath `json:"controlled_paths"`
+	PartialPaths                 []AssessClosurePath `json:"partial_paths"`
+}
+
+type AssessClosurePath struct {
+	Target                       string              `json:"target,omitempty"`
+	ID                           string              `json:"id"`
+	Title                        string              `json:"title"`
+	Status                       ZeroTrustStatus     `json:"status"`
+	ControlTestResult            string              `json:"control_test_result"`
+	Controls                     []string            `json:"controls"`
+	HardBarriersObserved         []string            `json:"hard_barriers_observed"`
+	PartialOrFrictionControls    []string            `json:"partial_or_friction_controls"`
+	RemainingMissingHardBarriers []string            `json:"remaining_missing_hard_barriers"`
+	EvidenceReferences           []EvidenceReference `json:"evidence_refs"`
 }
 
 type AssessCount struct {

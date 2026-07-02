@@ -51,28 +51,31 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		return model.AssessReport{}, err
 	}
 	caseBoard := BuildControlCaseBoardReport(architecture)
-	exposure := buildAssessExposure(reportExposures(r))
+	exposures := reportExposures(r)
+	exposure := buildAssessExposure(exposures)
+	closureEvidence := buildAssessClosureEvidence(exposures, []assessClosureTarget{{TargetID: "target", Flaws: r.ZeroTrust.ArchitectureFlaws}})
 	inventorySummary := buildAssessInventory(inventory)
 	summary := buildAssessSummary(inventorySummary, exposure, architecture.Summary, caseBoard.Summary, caseBoard.OperatorCases)
 	return model.AssessReport{
-		SchemaVersion: model.SchemaVersion,
-		RunID:         r.RunID,
-		GeneratedAt:   r.GeneratedAt,
-		RunKind:       "assess",
-		TargetPath:    r.TargetPath,
-		Mode:          r.Story.Mode,
-		Agent:         r.Story.Runtime,
-		StatusFilter:  architecture.StatusFilter,
-		Summary:       summary,
-		Inventory:     inventorySummary,
-		Exposure:      exposure,
-		Architecture:  &architecture,
-		CaseBoard:     caseBoard,
-		TopCases:      topControlOperatorCases(caseBoard.OperatorCases, 5),
-		NextCommands:  assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases),
-		Redaction:     r.Redaction,
-		Warnings:      uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
-		Limitations:   uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
+		SchemaVersion:   model.SchemaVersion,
+		RunID:           r.RunID,
+		GeneratedAt:     r.GeneratedAt,
+		RunKind:         "assess",
+		TargetPath:      r.TargetPath,
+		Mode:            r.Story.Mode,
+		Agent:           r.Story.Runtime,
+		StatusFilter:    architecture.StatusFilter,
+		Summary:         summary,
+		Inventory:       inventorySummary,
+		Exposure:        exposure,
+		ClosureEvidence: closureEvidence,
+		Architecture:    &architecture,
+		CaseBoard:       caseBoard,
+		TopCases:        topControlOperatorCases(caseBoard.OperatorCases, 5),
+		NextCommands:    assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases),
+		Redaction:       r.Redaction,
+		Warnings:        uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
+		Limitations:     uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
 	}, nil
 }
 
@@ -82,6 +85,15 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 		return model.AssessReport{}, err
 	}
 	caseBoard := BuildControlCaseBoardScanReport(architecture)
+	var exposures []model.ExposureResult
+	var closureTargets []assessClosureTarget
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		exposures = append(exposures, reportExposures(target.Report)...)
+		closureTargets = append(closureTargets, assessClosureTarget{TargetID: target.Target.ID, Flaws: target.Report.ZeroTrust.ArchitectureFlaws})
+	}
 	exposure := model.AssessExposure{
 		Paths:        r.Summary.ExposurePaths,
 		Exposed:      r.Summary.Exposed,
@@ -109,6 +121,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 		Summary:          summary,
 		Inventory:        model.AssessInventory{},
 		Exposure:         exposure,
+		ClosureEvidence:  buildAssessClosureEvidence(exposures, closureTargets),
 		ArchitectureScan: &architecture,
 		CaseBoard:        caseBoard,
 		TopCases:         topControlOperatorCases(caseBoard.OperatorCases, 5),
@@ -566,6 +579,82 @@ func buildAssessExposure(exposures []model.ExposureResult) model.AssessExposure 
 	return out
 }
 
+type assessClosureTarget struct {
+	TargetID string
+	Flaws    []model.ZeroTrustArchitecture
+}
+
+func buildAssessClosureEvidence(exposures []model.ExposureResult, targets []assessClosureTarget) model.AssessClosureEvidence {
+	out := model.AssessClosureEvidence{}
+	for _, exposure := range exposures {
+		if exposure.Status == model.StatusProtected {
+			out.ProtectedExposurePaths++
+		}
+	}
+	for _, target := range targets {
+		for _, flaw := range target.Flaws {
+			path := assessClosurePath(target.TargetID, flaw)
+			switch {
+			case flaw.Status == model.ZeroTrustControlled || flaw.ControlTest.Result == "hard_barrier_observed":
+				out.ControlledArchitectureFlaws++
+				out.ControlledPaths = append(out.ControlledPaths, path)
+				out.HardBarriersObserved = append(out.HardBarriersObserved, flaw.ControlTest.HardBarriersObserved...)
+			case flaw.ControlTest.Result == "partial_or_friction_only":
+				out.PartialArchitectureFlaws++
+				out.PartialPaths = append(out.PartialPaths, path)
+				out.PartialOrFrictionControls = append(out.PartialOrFrictionControls, flaw.ControlTest.PartialOrFrictionControls...)
+				out.RemainingMissingHardBarriers = append(out.RemainingMissingHardBarriers, flaw.ControlTest.MissingHardBarriers...)
+			}
+		}
+	}
+	out.HardBarriersObserved = uniqueSortedStrings(out.HardBarriersObserved)
+	out.PartialOrFrictionControls = uniqueSortedStrings(out.PartialOrFrictionControls)
+	out.RemainingMissingHardBarriers = uniqueSortedStrings(out.RemainingMissingHardBarriers)
+	if out.ControlledPaths == nil {
+		out.ControlledPaths = []model.AssessClosurePath{}
+	}
+	if out.PartialPaths == nil {
+		out.PartialPaths = []model.AssessClosurePath{}
+	}
+	return out
+}
+
+func assessClosurePath(targetID string, flaw model.ZeroTrustArchitecture) model.AssessClosurePath {
+	return model.AssessClosurePath{
+		Target:                       targetID,
+		ID:                           flaw.ID,
+		Title:                        flaw.Title,
+		Status:                       flaw.Status,
+		ControlTestResult:            flaw.ControlTest.Result,
+		Controls:                     nonNilStrings(flaw.Controls),
+		HardBarriersObserved:         nonNilStrings(flaw.ControlTest.HardBarriersObserved),
+		PartialOrFrictionControls:    nonNilStrings(flaw.ControlTest.PartialOrFrictionControls),
+		RemainingMissingHardBarriers: nonNilStrings(flaw.ControlTest.MissingHardBarriers),
+		EvidenceReferences:           assessEvidenceReferences(targetID, flaw.Evidence),
+	}
+}
+
+func assessEvidenceReferences(targetID string, evidence []model.ZeroTrustEvidence) []model.EvidenceReference {
+	refs := make([]model.EvidenceReference, 0, len(evidence))
+	for _, item := range evidence {
+		refs = append(refs, model.EvidenceReference{
+			Target:  targetID,
+			ID:      item.ID,
+			Kind:    item.Kind,
+			Source:  item.Source,
+			Summary: item.Summary,
+		})
+	}
+	return dedupeEvidenceReferences(refs)
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return append([]string{}, values...)
+}
+
 func buildAssessSummary(inventory model.AssessInventory, exposure model.AssessExposure, architecture model.ZeroTrustSummary, controls model.ControlCatalogSummary, cases []model.ControlOperatorCase) model.AssessSummary {
 	summary := model.AssessSummary{
 		Targets:                      1,
@@ -885,6 +974,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 		fmt.Fprintln(w)
 	}
 
+	renderAssessClosureEvidence(w, r.ClosureEvidence)
 	renderAssessArchitectureBreaks(w, r)
 	renderControlOperatorCases(w, r.CaseBoard.OperatorCases, 5)
 	fmt.Fprintln(w)
@@ -903,6 +993,68 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 		}
 	}
 	return nil
+}
+
+func renderAssessClosureEvidence(w io.Writer, closure model.AssessClosureEvidence) {
+	if !assessClosureEvidenceHasData(closure) {
+		return
+	}
+	fmt.Fprintf(w, "Closure evidence observed:\n")
+	fmt.Fprintf(w, "  - Protected exposure paths: %d\n", closure.ProtectedExposurePaths)
+	fmt.Fprintf(w, "  - Controlled architecture flaws: %d\n", closure.ControlledArchitectureFlaws)
+	fmt.Fprintf(w, "  - Partial/friction-only architecture flaws: %d\n", closure.PartialArchitectureFlaws)
+	if len(closure.HardBarriersObserved) > 0 {
+		fmt.Fprintf(w, "  - Hard barriers observed: %s\n", strings.Join(limitStrings(closure.HardBarriersObserved, 6), "; "))
+	}
+	if len(closure.PartialOrFrictionControls) > 0 {
+		fmt.Fprintf(w, "  - Partial/friction controls observed: %s\n", strings.Join(limitStrings(closure.PartialOrFrictionControls, 6), "; "))
+	}
+	if len(closure.RemainingMissingHardBarriers) > 0 {
+		fmt.Fprintf(w, "  - Still missing: %s\n", strings.Join(limitStrings(closure.RemainingMissingHardBarriers, 6), "; "))
+	}
+	for _, item := range limitAssessClosurePaths(closure.ControlledPaths, 3) {
+		fmt.Fprintf(w, "  - CONTROLLED %s: %s\n", item.Title, readableToken(item.ControlTestResult))
+		if len(item.HardBarriersObserved) > 0 {
+			fmt.Fprintf(w, "    Hard barriers: %s\n", strings.Join(limitStrings(item.HardBarriersObserved, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
+	}
+	for _, item := range limitAssessClosurePaths(closure.PartialPaths, 3) {
+		fmt.Fprintf(w, "  - PARTIAL %s: %s\n", item.Title, readableToken(item.ControlTestResult))
+		if len(item.PartialOrFrictionControls) > 0 {
+			fmt.Fprintf(w, "    Observed: %s\n", strings.Join(limitStrings(item.PartialOrFrictionControls, 5), "; "))
+		}
+		if len(item.RemainingMissingHardBarriers) > 0 {
+			fmt.Fprintf(w, "    Still missing: %s\n", strings.Join(limitStrings(item.RemainingMissingHardBarriers, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+func assessClosureEvidenceHasData(closure model.AssessClosureEvidence) bool {
+	return closure.ProtectedExposurePaths > 0 ||
+		closure.ControlledArchitectureFlaws > 0 ||
+		closure.PartialArchitectureFlaws > 0 ||
+		len(closure.HardBarriersObserved) > 0 ||
+		len(closure.PartialOrFrictionControls) > 0 ||
+		len(closure.RemainingMissingHardBarriers) > 0 ||
+		len(closure.ControlledPaths) > 0 ||
+		len(closure.PartialPaths) > 0
+}
+
+func limitAssessClosurePaths(items []model.AssessClosurePath, limit int) []model.AssessClosurePath {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	if limit == 0 {
+		return []model.AssessClosurePath{}
+	}
+	return items[:limit]
 }
 
 func renderAssessArchitectureBreaks(w io.Writer, r model.AssessReport) {
