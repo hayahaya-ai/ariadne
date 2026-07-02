@@ -1084,8 +1084,14 @@ func evidenceLineCandidates(ref model.EvidenceReference) []string {
 		return []string{"claude", "codex", "openai ", "anthropic", "copilot", "gemini", "aider", "cursor-agent", "continue", "llm", "run:"}
 	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "external-communication"):
 		return []string{"curl", "wget", "http://", "https://", "webhook", "uses:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "repository-write"):
+		return []string{"write-all", "contents: write", "pull-requests: write", "issues: write", "packages: write", "actions: write"}
 	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "broad-local"):
 		return []string{"write-all", "contents: write", "pull-requests: write", "id-token: write", "packages: write"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "credential-access"):
+		return []string{"secrets.", "secrets:", "${{ secrets."}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "cloud-identity-token"):
+		return []string{"id-token: write"}
 	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "file-read"):
 		return []string{"actions/checkout", "checkout@", "github.workspace"}
 	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "local-code-execution"):
@@ -1096,6 +1102,28 @@ func evidenceLineCandidates(ref model.EvidenceReference) []string {
 		return []string{"permissions:", "contents: read", "pull-requests: read"}
 	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "signed-tool-artifacts"):
 		return []string{"uses:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && (strings.Contains(id, "managed-agent-workflow") || strings.Contains(kind, "tool")):
+		return []string{"claude", "codex", "openai ", "anthropic", "copilot", "gemini", "aider", "continue", "llm", "agent", "script:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "external-communication"):
+		return []string{"curl", "wget", "http://", "https://", "webhook", "image:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "repository-write"):
+		return []string{"ci_job_token", "job-token", "private-token", "write_repository", "git push", "api/v4", "merge_requests"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "broad-local"):
+		return []string{"ci_job_token", "job-token", "private-token", "write_repository", "git push", "api/v4"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "credential-access"):
+		return []string{"variables:", "ci_job_token", "ci_registry_password", "deploy_token", "openai_api_key", "anthropic_api_key"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "cloud-identity-token"):
+		return []string{"id_tokens:", "identity:", "oidc", "jwt"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "file-read"):
+		return []string{"ci_project_dir", "git_strategy", "git checkout", "git fetch", "git clone"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "local-code-execution"):
+		return []string{"script:", "before_script:", "after_script:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "approval-required"):
+		return []string{"when: manual", "manual_confirmation", "environment:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "scoped-permissions"):
+		return []string{"rules:", "only:", "except:", "protected: true"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "signed-tool-artifacts"):
+		return []string{"@sha256:", "image:"}
 	case strings.Contains(id, "mcp") || strings.Contains(summary, "mcp"):
 		return []string{"mcpservers", "mcp_servers", "servers", "command", "npx", "uvx", "docker", "python"}
 	case strings.Contains(id, "external-communication") || strings.Contains(summary, "external"):
@@ -2083,9 +2111,13 @@ func secretPathEdges(g model.Graph, mode string) []string {
 			"trustinput:repo-instruction|influences|runtime:codex",
 			"trustinput:repo-instruction|influences|runtime:claude",
 			"trustinput:repo-instruction|influences|runtime:github-actions",
+			"trustinput:repo-instruction|influences|runtime:gitlab-ci",
+			"trustinput:managed-workflow-trigger|influences|runtime:github-actions",
+			"trustinput:managed-workflow-trigger|influences|runtime:gitlab-ci",
 			"runtime:codex|has_authority|authority:file-read",
 			"runtime:claude|has_authority|authority:file-read",
 			"runtime:github-actions|has_authority|authority:file-read",
+			"runtime:gitlab-ci|has_authority|authority:file-read",
 			"authority:file-read|reaches|boundary:secret-like-file",
 			"control:input-isolation|restricts|trustinput:repo-instruction",
 			"control:trusted-source-policy|restricts|trustinput:repo-instruction",
@@ -2111,13 +2143,19 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"trustinput:repo-instruction|influences|runtime:codex",
 		"trustinput:repo-instruction|influences|runtime:claude",
 		"trustinput:repo-instruction|influences|runtime:github-actions",
+		"trustinput:repo-instruction|influences|runtime:gitlab-ci",
+		"trustinput:managed-workflow-trigger|influences|runtime:github-actions",
+		"trustinput:managed-workflow-trigger|influences|runtime:gitlab-ci",
 		"runtime:codex|has_authority|authority:file-read",
 		"runtime:claude|has_authority|authority:file-read",
 		"runtime:github-actions|has_authority|authority:file-read",
+		"runtime:gitlab-ci|has_authority|authority:file-read",
 		"runtime:codex|has_authority|authority:broad-local",
 		"runtime:claude|has_authority|authority:broad-local",
 		"runtime:github-actions|has_authority|authority:broad-local",
+		"runtime:gitlab-ci|has_authority|authority:broad-local",
 		"runtime:github-actions|has_authority|authority:credential-access",
+		"runtime:gitlab-ci|has_authority|authority:credential-access",
 		"authority:file-read|reaches|boundary:secret-like-file",
 		"authority:file-read|reaches|boundary:developer-secret-boundary",
 		"authority:file-read|reaches|boundary:agent-private-context",
@@ -2132,6 +2170,7 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"runtime:codex|has_authority|authority:external-communication",
 		"runtime:claude|has_authority|authority:external-communication",
 		"runtime:github-actions|has_authority|authority:external-communication",
+		"runtime:gitlab-ci|has_authority|authority:external-communication",
 		"authority:external-communication|reaches|boundary:external-destination",
 		"authority:broad-local|reaches|boundary:external-destination",
 		"control:input-isolation|restricts|trustinput:repo-instruction",

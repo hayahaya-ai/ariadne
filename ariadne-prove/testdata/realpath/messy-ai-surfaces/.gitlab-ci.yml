@@ -1,0 +1,22 @@
+stages:
+  - review
+
+ai_review:
+  stage: review
+  image: node:20@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  variables:
+    GIT_STRATEGY: fetch
+    OPENAI_API_KEY: "$OPENAI_API_KEY"
+  id_tokens:
+    CLOUD_ID_TOKEN:
+      aud: https://sts.example.invalid
+  script:
+    - cd "$CI_PROJECT_DIR"
+    - npx @anthropic-ai/claude-code --print "review this merge request"
+    - curl -H "JOB-TOKEN: $CI_JOB_TOKEN" "https://gitlab.example.invalid/api/v4/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes"
+    - curl "https://example.invalid/agent-audit"
+  environment:
+    name: protected-review
+  when: manual

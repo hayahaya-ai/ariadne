@@ -156,6 +156,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectManagedControlSurface(c, s)
 	case "github-actions-workflow":
 		collectGitHubActionsWorkflow(c, s)
+	case "gitlab-ci-pipeline":
+		collectGitLabCIWorkflow(c, s)
 	}
 	_ = opts
 }
@@ -669,6 +671,157 @@ func collectGitHubActionsWorkflow(c *model.Collection, s model.Surface) {
 			Source:   source,
 			Abstract: false,
 			Summary:  "Workflow contains inline credential field indicators; values are not emitted.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values."))
+	}
+}
+
+func collectGitLabCIWorkflow(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	source := s.Source
+	runtime := "gitlab-ci"
+	c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{
+		ID:      "runtime:" + runtime,
+		Kind:    runtime,
+		Source:  source,
+		Scope:   s.Scope,
+		Summary: "GitLab CI pipeline evidence was found.",
+	})
+	configID := "config:" + runtime + "-" + s.Scope
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", "GitLab CI pipeline source was collected."))
+	text := strings.ToLower(string(data))
+	if gitlabWorkflowHasUntrustedTrigger(text) {
+		c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
+			ID:      "trustinput:managed-workflow-trigger",
+			Kind:    "managed-workflow-trigger",
+			Runtime: runtime,
+			Source:  source,
+			Risky:   true,
+			Summary: "Pipeline can be triggered by merge request, trigger, web, schedule, or other repository event input.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:managed-workflow-trigger", "trust-input", source, "declared", "Managed workflow trigger surface was parsed without executing the pipeline."))
+	}
+	if workflowAgentLike(text) {
+		c.Tools = appendUniqueTool(c.Tools, model.Tool{
+			ID:      "tool:managed-agent-workflow",
+			Kind:    "managed-agent-workflow",
+			Runtime: runtime,
+			Source:  source,
+			Risky:   gitlabWorkflowHasWritePermission(text) || containsExternalCommunication(text),
+			Summary: "Pipeline appears to invoke AI or agent-like automation from CI-managed configuration.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:managed-agent-workflow", "tool", source, "declared", "Managed workflow agent invocation indicators were collected without running the pipeline."))
+	}
+	if gitlabWorkflowExecutesCode(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:local-code-execution",
+			Kind:    "local-code-execution",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitLab CI pipeline can execute script commands on a CI runner.",
+		})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:developer-execution-boundary",
+			Kind:     "developer-execution-boundary",
+			Abstract: true,
+			Summary:  "Local or CI runner execution context reachable from agent/tool automation.",
+		})
+	}
+	if gitlabWorkflowReadsRepo(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:file-read",
+			Kind:    "file-read",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitLab CI pipeline can read checked-out repository files or CI project workspace context.",
+		})
+	}
+	if gitlabWorkflowHasWritePermission(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:broad-local",
+			Kind:    "broad-local",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitLab CI pipeline declares write-capable repository, package, or API token posture.",
+		})
+	}
+	if gitlabWorkflowHasRepositoryWritePermission(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:repository-write",
+			Kind:    "repository-write",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitLab CI job token or token-backed script can write repository, merge request, package, or project state.",
+		})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:repository-integrity-boundary",
+			Kind:     "repository-integrity-boundary",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Repository state, merge requests, packages, or code review outputs controlled by CI token permissions.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:repository-write", "authority", source, "declared", "Repository write-capable CI token or API use was collected."))
+	}
+	if gitlabWorkflowHasOIDCTokenPermission(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:cloud-identity-token",
+			Kind:    "cloud-identity-token",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitLab CI pipeline can request an ID token for cloud or external identity federation.",
+		})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:cloud-identity-boundary",
+			Kind:     "cloud-identity-boundary",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Cloud or external identity provider trust boundary reachable through CI identity token issuance.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:cloud-identity-token", "authority", source, "declared", "GitLab CI ID token configuration was collected."))
+	}
+	if gitlabWorkflowReferencesSecrets(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:credential-access",
+			Kind:    "credential-access",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitLab CI pipeline references CI variables, job tokens, deploy tokens, or secret-like environment variables.",
+		})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:ci-secret-boundary",
+			Kind:     "ci-secret-boundary",
+			Source:   source,
+			Abstract: false,
+			Summary:  "CI variable or secret-backed environment boundary; secret values are not emitted.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:credential-access", "authority", source, "declared", "CI variable or token reference was collected without emitting values."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:ci-secret-boundary", "boundary", source, "observed", "Pipeline references CI variables or token context; values were not read or emitted."))
+	}
+	if containsExternalCommunication(text) || strings.Contains(text, "image:") {
+		addExternalCommunication(c, runtime, source, "GitLab CI pipeline can call external images, package registries, APIs, or web endpoints.")
+	}
+	if gitlabWorkflowHasScopedRules(text) {
+		addControl(c, "control:scoped-permissions", "scoped-permissions", runtime, source, "GitLab CI pipeline declares scoped rules or protected execution conditions.")
+	}
+	if gitlabWorkflowPinnedImage(text) {
+		addControl(c, "control:signed-tool-artifacts", "signed-tool-artifacts", runtime, source, "GitLab CI pipeline pins at least one image or artifact by digest or immutable-looking reference.")
+	}
+	if gitlabWorkflowRequiresApproval(text) {
+		addControl(c, "control:approval-required", "approval-required", runtime, source, "GitLab CI pipeline declares a manual job or protected environment gate.")
+	}
+	collectResourceControls(c, runtime, source, text)
+	collectGovernanceControls(c, runtime, source, text)
+	collectObservabilityControls(c, runtime, source, text)
+	if inlineCredentialConfigured(text) {
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:credential-material",
+			Kind:     "credential-material",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Pipeline contains inline credential field indicators; values are not emitted.",
 		})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values."))
 	}
@@ -1564,6 +1717,8 @@ func displayRuntime(runtime string) string {
 		return "GitHub Copilot"
 	case "github-actions":
 		return "GitHub Actions"
+	case "gitlab-ci":
+		return "GitLab CI"
 	case "cline":
 		return "Cline"
 	case "roo":
@@ -1767,6 +1922,96 @@ func workflowScopedPermissions(text string) bool {
 func workflowPinnedActions(text string) bool {
 	return looksPinned(text) ||
 		regexp.MustCompile(`(?m)uses:\s*[^@\s]+@[0-9a-f]{12,}`).MatchString(text)
+}
+
+func gitlabWorkflowExecutesCode(text string) bool {
+	return strings.Contains(text, "\nscript:") ||
+		strings.Contains(text, "\n  script:") ||
+		strings.Contains(text, "\n    script:") ||
+		strings.Contains(text, "\nbefore_script:") ||
+		strings.Contains(text, "\nafter_script:")
+}
+
+func gitlabWorkflowReadsRepo(text string) bool {
+	return strings.Contains(text, "ci_project_dir") ||
+		strings.Contains(text, "$ci_project_dir") ||
+		strings.Contains(text, "git_strategy") ||
+		strings.Contains(text, "git checkout") ||
+		strings.Contains(text, "git fetch") ||
+		strings.Contains(text, "git clone")
+}
+
+func gitlabWorkflowHasUntrustedTrigger(text string) bool {
+	return strings.Contains(text, "merge_request_event") ||
+		strings.Contains(text, "external_pull_request_event") ||
+		strings.Contains(text, "ci_merge_request") ||
+		strings.Contains(text, "only: merge_requests") ||
+		strings.Contains(text, "source == \"web\"") ||
+		strings.Contains(text, "source == \"trigger\"") ||
+		strings.Contains(text, "source == \"pipeline\"") ||
+		strings.Contains(text, "source == \"schedule\"")
+}
+
+func gitlabWorkflowHasWritePermission(text string) bool {
+	return gitlabWorkflowHasRepositoryWritePermission(text) ||
+		strings.Contains(text, "write_registry") ||
+		strings.Contains(text, "ci_registry_password") ||
+		strings.Contains(text, "deploy_token")
+}
+
+func gitlabWorkflowHasRepositoryWritePermission(text string) bool {
+	return strings.Contains(text, "ci_job_token") ||
+		strings.Contains(text, "job-token") ||
+		strings.Contains(text, "private-token") ||
+		strings.Contains(text, "write_repository") ||
+		strings.Contains(text, "git push") ||
+		strings.Contains(text, "glab mr") ||
+		strings.Contains(text, "/api/v4/projects") ||
+		strings.Contains(text, "merge_requests") ||
+		strings.Contains(text, "repository/commits")
+}
+
+func gitlabWorkflowHasOIDCTokenPermission(text string) bool {
+	return strings.Contains(text, "id_tokens:") ||
+		strings.Contains(text, "\nidentity:") ||
+		strings.Contains(text, "oidc") ||
+		strings.Contains(text, "jwt")
+}
+
+func gitlabWorkflowReferencesSecrets(text string) bool {
+	return containsAny(text, []string{
+		"ci_job_token",
+		"ci_registry_password",
+		"deploy_token",
+		"private-token",
+		"variables:",
+		"masked:",
+		"protected:",
+		"$openai_api_key",
+		"$anthropic_api_key",
+		"$api_key",
+		"$token",
+		"$secret",
+	})
+}
+
+func gitlabWorkflowHasScopedRules(text string) bool {
+	return strings.Contains(text, "\nrules:") ||
+		strings.Contains(text, "\nonly:") ||
+		strings.Contains(text, "\nexcept:") ||
+		strings.Contains(text, "protected: true")
+}
+
+func gitlabWorkflowPinnedImage(text string) bool {
+	return strings.Contains(text, "@sha256:") ||
+		regexp.MustCompile(`(?m)image:\s*[^@\s]+@[0-9a-f]{12,}`).MatchString(text)
+}
+
+func gitlabWorkflowRequiresApproval(text string) bool {
+	return strings.Contains(text, "when: manual") ||
+		strings.Contains(text, "manual_confirmation") ||
+		strings.Contains(text, "\nenvironment:") ||
+		strings.Contains(text, "protected: true")
 }
 
 type observabilitySignals struct {

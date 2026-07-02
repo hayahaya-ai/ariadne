@@ -2777,6 +2777,7 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	requireSurfaceKind(t, r.Collection.Surfaces, "copilot-instructions")
 	requireSurfaceKind(t, r.Collection.Surfaces, "copilot-path-instructions")
 	requireSurfaceKind(t, r.Collection.Surfaces, "github-actions-workflow")
+	requireSurfaceKind(t, r.Collection.Surfaces, "gitlab-ci-pipeline")
 	requireSurfaceKind(t, r.Collection.Surfaces, "cline-rules")
 	requireSurfaceKind(t, r.Collection.Surfaces, "cline-mcp-config")
 	requireSurfaceKind(t, r.Collection.Surfaces, "cline-ignore")
@@ -2851,6 +2852,31 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 		!r.Graph.HasEdge("authority:credential-access|reaches|boundary:ci-secret-boundary") ||
 		!r.Graph.HasEdge("control:approval-required|requires_approval|tool:managed-agent-workflow") {
 		t.Fatalf("graph should connect managed workflow launch, authority, and approval control: %+v", r.Graph.Edges)
+	}
+	gitlabMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "gitlab-ci", "repo")
+	if !containsString(gitlabMap.SourceRefs, ".gitlab-ci.yml") ||
+		!containsString(gitlabMap.Tools, "managed-agent-workflow") ||
+		!containsString(gitlabMap.Authorities, "local-code-execution") ||
+		!containsString(gitlabMap.Authorities, "file-read") ||
+		!containsString(gitlabMap.Authorities, "repository-write") ||
+		!containsString(gitlabMap.Authorities, "cloud-identity-token") ||
+		!containsString(gitlabMap.Authorities, "credential-access") ||
+		!containsString(gitlabMap.Authorities, "external-communication") ||
+		!containsString(gitlabMap.Controls, "approval-required") ||
+		!containsString(gitlabMap.Controls, "signed-tool-artifacts") {
+		t.Fatalf("gitlab ci surface map should retain pipeline source refs, tools, authority, and controls: %+v", gitlabMap)
+	}
+	if !r.Graph.HasEdge("runtime:gitlab-ci|can_call|tool:managed-agent-workflow") ||
+		!r.Graph.HasEdge("trustinput:managed-workflow-trigger|influences|runtime:gitlab-ci") ||
+		!r.Graph.HasEdge("runtime:gitlab-ci|has_authority|authority:file-read") ||
+		!r.Graph.HasEdge("runtime:gitlab-ci|has_authority|authority:repository-write") ||
+		!r.Graph.HasEdge("runtime:gitlab-ci|has_authority|authority:cloud-identity-token") ||
+		!r.Graph.HasEdge("runtime:gitlab-ci|has_authority|authority:credential-access") ||
+		!r.Graph.HasEdge("runtime:gitlab-ci|has_authority|authority:external-communication") ||
+		!r.Graph.HasEdge("authority:repository-write|reaches|boundary:repository-integrity-boundary") ||
+		!r.Graph.HasEdge("authority:cloud-identity-token|reaches|boundary:cloud-identity-boundary") ||
+		!r.Graph.HasEdge("authority:credential-access|reaches|boundary:ci-secret-boundary") {
+		t.Fatalf("graph should connect GitLab CI managed workflow authority and boundaries: %+v", r.Graph.Edges)
 	}
 	clineMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "cline", "repo")
 	if clineMap.Summarized == 0 ||
