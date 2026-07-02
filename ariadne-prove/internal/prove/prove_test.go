@@ -4356,9 +4356,13 @@ func TestAssessNeedsEvidenceShowsEvidenceGapActions(t *testing.T) {
 	htmlRendered := htmlOut.String()
 	for _, want := range []string{
 		"Evidence Gap Actions",
-		"Inspect all architecture states: ariadne architecture --path",
-		"Export deterministic inventory facts: ariadne inventory --path",
+		"Inspect all architecture states",
+		"Export deterministic inventory facts",
 		"Runtime authority evidence is missing",
+		`class="command-list"`,
+		`class="copy-command" data-copy-command`,
+		`data-command="ariadne architecture --path`,
+		`data-command="ariadne inventory --path`,
 	} {
 		if !strings.Contains(htmlRendered, want) {
 			t.Fatalf("needs-evidence assessment dashboard missing %q:\n%s", want, htmlRendered)

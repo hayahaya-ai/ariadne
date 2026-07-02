@@ -837,7 +837,7 @@ func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTr
 	fmt.Fprintln(w, `<h3>Unknown Evidence</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(triage.UnknownEvidence, 5)))
 	fmt.Fprintln(w, `<h3>Evidence Gap Actions</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(triage.EvidenceGapActions, 5)))
+	fmt.Fprintln(w, renderEvidenceGapActionList(limitStrings(triage.EvidenceGapActions, 5)))
 	fmt.Fprintln(w, `<h3>Proof Loop</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(triage.ProofLoop, 5)))
 	fmt.Fprintln(w, `</div>`)
@@ -3508,6 +3508,38 @@ func renderCommandList(commands []string) string {
 	}
 	b.WriteString(`</div>`)
 	return b.String()
+}
+
+func renderEvidenceGapActionList(actions []string) string {
+	actions = nonEmptyStrings(actions...)
+	if len(actions) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<ul class="list">`)
+	for _, action := range actions {
+		label, command := splitEvidenceGapActionCommand(action)
+		b.WriteString("<li>")
+		if command == "" {
+			b.WriteString(esc(label))
+		} else {
+			fmt.Fprintf(&b, `<div>%s</div>`, esc(label))
+			b.WriteString(renderCommandList([]string{command}))
+		}
+		b.WriteString("</li>")
+	}
+	b.WriteString("</ul>")
+	return b.String()
+}
+
+func splitEvidenceGapActionCommand(action string) (string, string) {
+	action = strings.TrimSpace(action)
+	marker := ": " + ariadneCommand() + " "
+	idx := strings.Index(action, marker)
+	if idx < 0 {
+		return action, ""
+	}
+	return strings.TrimSpace(action[:idx]), strings.TrimSpace(action[idx+2:])
 }
 
 func isLimitSummary(value string) bool {
