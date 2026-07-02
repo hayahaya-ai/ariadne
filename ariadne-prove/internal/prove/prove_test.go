@@ -3363,6 +3363,11 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"Rerun Commands",
 		"Export Suggested Files",
 		"Compare Loop",
+		`class="command-list"`,
+		`class="copy-command" data-copy-command`,
+		`>Copy</button>`,
+		`data-command="ariadne proofs --path`,
+		`data-command="ariadne compare --before before-proof.json --after after-proof.json`,
 		"--patch-dir proof-patches",
 		"before-proof.json",
 		"after-proof.json",
@@ -3376,6 +3381,9 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("proof plan dashboard missing %q:\n%s", want, rendered)
 		}
+	}
+	if strings.Contains(rendered, `data-command="1 additional items in JSON"`) {
+		t.Fatalf("proof plan dashboard should not render summary text as a copyable command:\n%s", rendered)
 	}
 }
 
@@ -3792,11 +3800,19 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Architecture Break Paths",
 		"Next Commands",
 		"ariadne proofs --path",
+		`class="command-list"`,
+		`class="copy-command" data-copy-command`,
+		`>Copy</button>`,
+		`data-command="ariadne proofs --path`,
+		`data-command="ariadne compare --before before-proof.json --after after-proof.json`,
 		"case:egress-output-boundary",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("assessment dashboard missing %q:\n%s", want, rendered)
 		}
+	}
+	if strings.Contains(rendered, `data-command="1 additional items in JSON"`) {
+		t.Fatalf("assessment dashboard should not render summary text as a copyable command:\n%s", rendered)
 	}
 	operatorStart := strings.Index(rendered, "<h2>Operator Cases</h2>")
 	operatorEnd := strings.Index(rendered, "<h2>Architecture Break Paths</h2>")

@@ -585,6 +585,38 @@ tr:last-child td { border-bottom: 0; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.command-list {
+  display: grid;
+  gap: 8px;
+}
+.command-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+.command-row code {
+  display: block;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  overflow-wrap: anywhere;
+}
+.copy-command {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.copy-command:hover {
+  border-color: var(--accent);
+}
 .patch-stack > div + div {
   margin-top: 10px;
   padding-top: 10px;
@@ -634,8 +666,43 @@ tr:target {
 @media (max-width: 980px) {
   .shell { width: min(100vw - 20px, 1440px); padding-top: 12px; }
   .topbar, .grid, .two-col { grid-template-columns: 1fr; }
+  .command-row { grid-template-columns: 1fr; }
 }
 </style>`)
+	fmt.Fprintln(w, `<script>
+document.addEventListener("click", function (event) {
+  var button = event.target.closest("[data-copy-command]");
+  if (!button) return;
+  var command = button.getAttribute("data-command") || "";
+  if (!command) return;
+  var done = function () {
+    var previous = button.textContent;
+    button.textContent = "Copied";
+    setTimeout(function () { button.textContent = previous; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(command).then(done).catch(function () {
+      fallbackCopy(command, done);
+    });
+    return;
+  }
+  fallbackCopy(command, done);
+});
+function fallbackCopy(text, done) {
+  var textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (document.execCommand("copy")) done();
+  } catch (error) {
+  }
+  document.body.removeChild(textarea);
+}
+</script>`)
 	fmt.Fprintln(w, "</head>")
 }
 
@@ -752,12 +819,13 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentEvidenceExampleHTMLLines(root, current, action.EvidenceExamples)))
 	if current.PatchExportCommand != "" {
 		fmt.Fprintln(w, `<h3>Export Suggested Files</h3>`)
-		fmt.Fprintln(w, renderSmallList([]string{"Export suggested files: " + current.PatchExportCommand}))
+		fmt.Fprintln(w, `<div class="subtle">Export suggested files:</div>`)
+		fmt.Fprintln(w, renderCommandList([]string{current.PatchExportCommand}))
 	}
 	fmt.Fprintln(w, `<h3>Rerun</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(rerunCommands, 3)))
+	fmt.Fprintln(w, renderCommandList(limitStrings(rerunCommands, 3)))
 	fmt.Fprintln(w, `<h3>Compare Loop</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(compareCommands, 3)))
+	fmt.Fprintln(w, renderCommandList(limitStrings(compareCommands, 3)))
 	fmt.Fprintln(w, `<h3>Done When</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(successCriteria, 4)))
 	fmt.Fprintln(w, `</div>`)
@@ -847,7 +915,7 @@ func renderAssessWorkflowDashboard(w io.Writer, root string, workflow []model.As
 		}
 		fmt.Fprintf(w, `<td><strong>%d. %s</strong>%s<div class="subtle">%s</div></td>`, i+1, esc(step.Title), current, esc(step.Summary))
 		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(assessWorkflowFactSourceHTMLLines(root, step)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(assessWorkflowProofCommandLines(step)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderCommandList(assessWorkflowProofCommandLines(step)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(step.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -1040,10 +1108,10 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Rerun</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(assessCaseCommands(r.NextCommands, item), 4)))
+	fmt.Fprintln(w, renderCommandList(limitStrings(assessCaseCommands(r.NextCommands, item), 4)))
 	if proofPlan != nil && len(proofPlan.CompareCommands) > 0 {
 		fmt.Fprintln(w, `<h3>Compare Loop</h3>`)
-		fmt.Fprintln(w, renderSmallList(limitStrings(proofPlan.CompareCommands, 3)))
+		fmt.Fprintln(w, renderCommandList(limitStrings(proofPlan.CompareCommands, 3)))
 	}
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
@@ -1255,7 +1323,7 @@ func renderAssessCommandsDashboard(w io.Writer, commands []string) {
 	}
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head"><div><h2>Next Commands</h2><div class="subtle">Rerun the same assessment, focus the top case, open the proof plan, or inspect the full proof catalog.</div></div></div>`)
-	fmt.Fprintln(w, renderSmallList(commands))
+	fmt.Fprintln(w, renderCommandList(commands))
 	fmt.Fprintln(w, `</section>`)
 }
 
@@ -1677,8 +1745,8 @@ func renderCaseCompareCasesDashboard(w io.Writer, cases []model.CaseCompareResul
 		)
 		fmt.Fprintf(w, `<td>%s<h3>After rerun</h3>%s<h3>After compare loop</h3>%s</td>`,
 			esc(firstNonEmpty(item.AfterNextStep, "none")),
-			renderSmallList(limitStrings(item.AfterRerunCommands, 2)),
-			renderSmallList(limitStrings(item.AfterCompareCommands, 3)),
+			renderCommandList(limitStrings(item.AfterRerunCommands, 2)),
+			renderCommandList(limitStrings(item.AfterCompareCommands, 3)),
 		)
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -1733,7 +1801,7 @@ func renderProofPlanWorkbenchDashboard(w io.Writer, r model.ProofPlanReport) {
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><h3>%s</h3><div class="mono">%s</div><div class="subtle">%s</div><h3>Next step</h3><div>%s</div></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)), esc(item.Title), esc(item.ID), esc(item.StateReason), esc(item.NextStep))
 		fmt.Fprintf(w, `<td><h3>Evidence references</h3>%s<h3>Proof surfaces</h3>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(r.TargetPath, item.EvidenceReferences, 5)), renderDashboardPathList(r.TargetPath, limitStrings(item.ProofSurfaces, 6)))
 		fmt.Fprintf(w, `<td><h3>%s</h3>%s<h3>Evidence payload</h3>%s</td>`, esc(controlLabel), renderSmallList(limitStrings(item.StartingControls, 5)), renderProofPatchPayloads(item.ProofPatches, 3))
-		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limits</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 4)), renderSmallList(limitStrings(item.Limitations, 2)))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limits</h3>%s</td>`, renderCommandList(limitStrings(item.RerunCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 4)), renderSmallList(limitStrings(item.Limitations, 2)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(r.Cases) > limit {
@@ -1805,12 +1873,12 @@ func renderProofPlanCurrentActionDashboard(w io.Writer, r model.ProofPlanReport)
 	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanCurrentPatchHTMLLines(r.TargetPath, patch, hasPatch, hasCase && controlOperatorCaseIsClosed(item))))
 	if r.PatchExportCommand != "" {
 		fmt.Fprintln(w, `<h3>Export Suggested Files</h3>`)
-		fmt.Fprintln(w, renderSmallList([]string{r.PatchExportCommand}))
+		fmt.Fprintln(w, renderCommandList([]string{r.PatchExportCommand}))
 	}
 	fmt.Fprintln(w, `<h3>Rerun</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(rerunCommands, 3)))
+	fmt.Fprintln(w, renderCommandList(limitStrings(rerunCommands, 3)))
 	fmt.Fprintln(w, `<h3>Compare Loop</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(r.CompareCommands, 3)))
+	fmt.Fprintln(w, renderCommandList(limitStrings(r.CompareCommands, 3)))
 	fmt.Fprintln(w, `<h3>Done When</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(successCriteria, 4)))
 	fmt.Fprintln(w, `</div>`)
@@ -1929,7 +1997,7 @@ func renderProofPlanPatchesDashboard(w io.Writer, root string, patches []model.C
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, dashboardFileRefHTML(root, patch.Surface), esc(patch.Format))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(controlProofPatchFieldLines(patch.Fields)))
 		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(compactExample(patch.Example)))
-		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limit</h3>%s</td>`, renderSmallList(limitStrings(patch.RerunCommands, 2)), renderSmallList(limitStrings(patch.SuccessCriteria, 3)), renderSmallList(limitStrings(patch.Limitations, 1)))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limit</h3>%s</td>`, renderCommandList(limitStrings(patch.RerunCommands, 2)), renderSmallList(limitStrings(patch.SuccessCriteria, 3)), renderSmallList(limitStrings(patch.Limitations, 1)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(patches) > limit {
@@ -1961,10 +2029,10 @@ func renderProofPlanCommandsDashboard(w io.Writer, r model.ProofPlanReport) {
 	fmt.Fprintln(w, "</div>")
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div><h3>Rerun</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(r.RerunCommands, 6)))
+	fmt.Fprintln(w, renderCommandList(limitStrings(r.RerunCommands, 6)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div><h3>Export Suggested Files</h3>`)
-	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(r.PatchExportCommand)))
+	fmt.Fprintln(w, renderCommandList(nonEmptyStrings(r.PatchExportCommand)))
 	fmt.Fprintln(w, `<h3>Done When</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(r.SuccessCriteria, 6)))
 	fmt.Fprintln(w, `</div>`)
@@ -1977,7 +2045,7 @@ func renderProofPlanCompareDashboard(w io.Writer, r model.ProofPlanReport) {
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Compare Loop</h2><div class="subtle">Save a before proof plan, rerun after adding evidence, then compare both artifacts.</div></div>`)
 	fmt.Fprintln(w, "</div>")
-	fmt.Fprintln(w, renderSmallList(limitStrings(r.CompareCommands, 6)))
+	fmt.Fprintln(w, renderCommandList(limitStrings(r.CompareCommands, 6)))
 	fmt.Fprintln(w, "</section>")
 }
 
@@ -2049,7 +2117,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model
 		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderOperatorCaseStartCell(item))
 		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Proof patches</h3>%s<h3>Evidence examples</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.ProofSurfaces, 6)), renderDashboardHTMLList(controlProofPatchHTMLLines(root, item.ProofPatches, 2)), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, item.EvidenceExamples, 2)))
-		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 2)), renderSmallList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderCommandList(limitStrings(item.RerunCommands, 2)), renderCommandList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(cases) > limit {
@@ -2127,7 +2195,7 @@ func renderControlVerificationTasksDashboard(w io.Writer, root string, tasks []m
 		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(root, limitStrings(task.ProofSurfaces, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.RecognizedIndicators, 8)))
 		fmt.Fprintf(w, `<td><h3>Patch</h3>%s<h3>Examples</h3>%s</td>`, renderDashboardHTMLList(controlProofPatchHTMLLines(root, task.ProofPatches, 2)), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, task.EvidenceExamples, 2)))
-		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(task.RerunCommands, 2)), renderSmallList(limitStrings(task.SuccessCriteria, 3)))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderCommandList(limitStrings(task.RerunCommands, 2)), renderSmallList(limitStrings(task.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(tasks) > limit {
@@ -3046,6 +3114,31 @@ func renderSmallList(items []string) string {
 	}
 	b.WriteString("</ul>")
 	return b.String()
+}
+
+func renderCommandList(commands []string) string {
+	commands = nonEmptyStrings(commands...)
+	if len(commands) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="command-list">`)
+	for _, command := range commands {
+		if isLimitSummary(command) {
+			fmt.Fprintf(&b, `<div class="subtle">%s</div>`, esc(command))
+			continue
+		}
+		b.WriteString(`<div class="command-row">`)
+		fmt.Fprintf(&b, `<code class="mono">%s</code>`, esc(command))
+		fmt.Fprintf(&b, `<button type="button" class="copy-command" data-copy-command data-command="%s">Copy</button>`, esc(command))
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
+func isLimitSummary(value string) bool {
+	return strings.HasSuffix(strings.TrimSpace(value), " additional items in JSON")
 }
 
 func renderDashboardHTMLList(items []string) string {
