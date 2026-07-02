@@ -319,28 +319,29 @@ type AssessReport struct {
 }
 
 type AssessDecision struct {
-	Status               string   `json:"status"`
-	Headline             string   `json:"headline"`
-	StartHere            string   `json:"start_here"`
-	TopCaseID            string   `json:"top_case_id,omitempty"`
-	TopCaseTitle         string   `json:"top_case_title,omitempty"`
-	WhyPrioritized       string   `json:"why_prioritized,omitempty"`
-	RiskReasons          []string `json:"risk_reasons"`
-	NormalCapabilities   []string `json:"normal_capabilities"`
-	EvidenceSources      []string `json:"evidence_sources"`
-	PathSummary          []string `json:"path_summary"`
-	MissingHardBarriers  []string `json:"missing_hard_barriers"`
-	Instruction          string   `json:"instruction,omitempty"`
-	ProofSurface         string   `json:"proof_surface,omitempty"`
-	ProofCommand         string   `json:"proof_command,omitempty"`
-	GeneratedProofPath   string   `json:"generated_proof_path,omitempty"`
-	SuggestedDestination string   `json:"suggested_destination,omitempty"`
-	DestinationPath      string   `json:"destination_path,omitempty"`
-	ApplyCommand         string   `json:"apply_command,omitempty"`
-	RerunCommand         string   `json:"rerun_command,omitempty"`
-	CompareCommand       string   `json:"compare_command,omitempty"`
-	DoneCriteria         []string `json:"done_criteria"`
-	Limitations          []string `json:"limitations"`
+	Status               string              `json:"status"`
+	Headline             string              `json:"headline"`
+	StartHere            string              `json:"start_here"`
+	TopCaseID            string              `json:"top_case_id,omitempty"`
+	TopCaseTitle         string              `json:"top_case_title,omitempty"`
+	WhyPrioritized       string              `json:"why_prioritized,omitempty"`
+	RiskReasons          []string            `json:"risk_reasons"`
+	NormalCapabilities   []string            `json:"normal_capabilities"`
+	EvidenceSources      []string            `json:"evidence_sources"`
+	EvidenceReferences   []EvidenceReference `json:"evidence_refs"`
+	PathSummary          []string            `json:"path_summary"`
+	MissingHardBarriers  []string            `json:"missing_hard_barriers"`
+	Instruction          string              `json:"instruction,omitempty"`
+	ProofSurface         string              `json:"proof_surface,omitempty"`
+	ProofCommand         string              `json:"proof_command,omitempty"`
+	GeneratedProofPath   string              `json:"generated_proof_path,omitempty"`
+	SuggestedDestination string              `json:"suggested_destination,omitempty"`
+	DestinationPath      string              `json:"destination_path,omitempty"`
+	ApplyCommand         string              `json:"apply_command,omitempty"`
+	RerunCommand         string              `json:"rerun_command,omitempty"`
+	CompareCommand       string              `json:"compare_command,omitempty"`
+	DoneCriteria         []string            `json:"done_criteria"`
+	Limitations          []string            `json:"limitations"`
 }
 
 type AssessControlState struct {

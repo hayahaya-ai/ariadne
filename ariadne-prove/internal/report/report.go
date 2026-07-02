@@ -2515,6 +2515,7 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 		RiskReasons:          assessDecisionRiskReasons(triage.HardRiskSignals),
 		NormalCapabilities:   firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
 		EvidenceSources:      firstStrings(uniqueStrings(state.EvidenceSources), 8),
+		EvidenceReferences:   firstEvidenceReferences(action.EvidenceReferences, 5),
 		PathSummary:          firstStrings(uniqueStrings(state.PathSummary), 6),
 		MissingHardBarriers:  firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
 		Instruction:          firstNonEmpty(action.CurrentAction.Instruction, action.NextStep, triage.NextAction),
@@ -2536,6 +2537,9 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 	}
 	if len(decision.EvidenceSources) == 0 && len(action.EvidenceReferences) > 0 {
 		decision.EvidenceSources = firstStrings(uniqueStrings(evidenceReferenceSources(action.EvidenceReferences, false)), 8)
+	}
+	if len(decision.EvidenceReferences) == 0 && len(triage.EvidenceReferences) > 0 {
+		decision.EvidenceReferences = firstEvidenceReferences(triage.EvidenceReferences, 5)
 	}
 	if len(decision.PathSummary) == 0 && len(state.Summary) > 0 {
 		decision.PathSummary = firstStrings(uniqueStrings(state.Summary), 3)
@@ -2564,11 +2568,27 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 	decision.RiskReasons = nonNilStrings(decision.RiskReasons)
 	decision.NormalCapabilities = nonNilStrings(decision.NormalCapabilities)
 	decision.EvidenceSources = nonNilStrings(decision.EvidenceSources)
+	decision.EvidenceReferences = nonNilEvidenceReferences(decision.EvidenceReferences)
 	decision.PathSummary = nonNilStrings(decision.PathSummary)
 	decision.MissingHardBarriers = nonNilStrings(decision.MissingHardBarriers)
 	decision.DoneCriteria = nonNilStrings(decision.DoneCriteria)
 	decision.Limitations = uniqueStrings(decision.Limitations)
 	return decision
+}
+
+func firstEvidenceReferences(values []model.EvidenceReference, limit int) []model.EvidenceReference {
+	values = dedupeEvidenceReferences(values)
+	if limit <= 0 || len(values) <= limit {
+		return values
+	}
+	return append([]model.EvidenceReference{}, values[:limit]...)
+}
+
+func nonNilEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	if values == nil {
+		return []model.EvidenceReference{}
+	}
+	return append([]model.EvidenceReference{}, values...)
 }
 
 func assessDecisionRiskReasons(signals []string) []string {
@@ -3893,6 +3913,7 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	if len(decision.EvidenceSources) > 0 {
 		fmt.Fprintf(w, "  - Evidence files: %s\n", strings.Join(limitStrings(decision.EvidenceSources, 8), "; "))
 	}
+	renderAssessDecisionLines(w, "Evidence fact", evidenceReferenceLines(decision.EvidenceReferences, 5), 5)
 	renderAssessDecisionLines(w, "Path", decision.PathSummary, 6)
 	renderAssessDecisionLines(w, "Missing hard barrier", decision.MissingHardBarriers, 5)
 	if decision.Instruction != "" {

@@ -812,6 +812,8 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 	fmt.Fprintln(w, renderSmallList(decision.PathSummary))
 	fmt.Fprintln(w, `<h3>Evidence Files</h3>`)
 	fmt.Fprintln(w, renderDashboardPathList(root, decision.EvidenceSources))
+	fmt.Fprintln(w, `<h3>Evidence Facts</h3>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(decisionEvidenceReferenceHTMLLines(root, decision.EvidenceReferences, 5)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Action</h3>`)
@@ -2402,6 +2404,25 @@ func proofPlanEvidenceReferenceHTMLLines(root string, refs []model.EvidenceRefer
 	}
 	if out == nil {
 		return []string{}
+	}
+	return out
+}
+
+func decisionEvidenceReferenceHTMLLines(root string, refs []model.EvidenceReference, limit int) []string {
+	refs = dedupeEvidenceReferences(refs)
+	if len(refs) == 0 {
+		return []string{}
+	}
+	total := len(refs)
+	if limit > 0 && len(refs) > limit {
+		refs = refs[:limit]
+	}
+	out := make([]string, 0, len(refs)+1)
+	for _, ref := range refs {
+		out = append(out, dashboardEvidenceReferenceHTML(root, ref))
+	}
+	if limit > 0 && total > limit {
+		out = append(out, fmt.Sprintf("%d additional evidence reference(s) in JSON", total-limit))
 	}
 	return out
 }

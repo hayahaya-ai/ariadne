@@ -129,6 +129,7 @@
         "risk_reasons",
         "normal_capabilities",
         "evidence_sources",
+        "evidence_refs",
         "path_summary",
         "missing_hard_barriers",
         "done_criteria",
@@ -144,6 +145,10 @@
         "risk_reasons": { "type": "array", "items": { "type": "string" } },
         "normal_capabilities": { "type": "array", "items": { "type": "string" } },
         "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
         "path_summary": { "type": "array", "items": { "type": "string" } },
         "missing_hard_barriers": { "type": "array", "items": { "type": "string" } },
         "instruction": { "type": "string" },

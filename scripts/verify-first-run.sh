@@ -40,6 +40,8 @@ expect_contains "$assess_txt" "What was inspected:"
 expect_contains "$assess_txt" "Decision:"
 expect_contains "$assess_txt" "Verdict: action required"
 expect_contains "$assess_txt" "Risk basis:"
+expect_contains "$assess_txt" "Evidence fact:"
+expect_contains "$assess_txt" "Claude Code settings declare broad local authority"
 expect_contains "$assess_txt" "Proof command:"
 expect_contains "$assess_txt" "Signal triage:"
 expect_contains "$assess_txt" "Normal capability:"
@@ -65,6 +67,7 @@ expect_contains "$assess_txt" "case-compare.html"
 expect_contains "$assess_json" '"run_kind": "assess"'
 expect_contains "$assess_json" '"decision"'
 expect_contains "$assess_json" '"risk_reasons"'
+expect_contains "$assess_json" '"evidence_refs"'
 expect_contains "$assess_json" '"proof_command"'
 expect_contains "$assess_json" '"done_criteria"'
 expect_contains "$assess_json" '"control_state"'
@@ -88,6 +91,7 @@ expect_contains "$assess_json" '.codex/config.toml'
 expect_contains "$assess_html" "Ariadne Assessment"
 expect_contains "$assess_html" "Decision Packet"
 expect_contains "$assess_html" "Risk Basis"
+expect_contains "$assess_html" "Evidence Facts"
 expect_contains "$assess_html" "Proof Surface"
 expect_contains "$assess_html" "Signal Triage"
 expect_contains "$assess_html" "Control State"
@@ -127,6 +131,7 @@ expect_contains "$endpoint_action" "What was inspected:"
 expect_contains "$endpoint_action" "Decision:"
 expect_contains "$endpoint_action" "Verdict: action required"
 expect_contains "$endpoint_action" "Risk basis:"
+expect_contains "$endpoint_action" "Evidence fact:"
 expect_contains "$endpoint_action" "Proof command:"
 expect_contains "$endpoint_action" "Signal triage:"
 expect_contains "$endpoint_action" "Normal capability:"
@@ -158,6 +163,7 @@ expect_contains "$endpoint_action" "case-compare.html"
 expect_contains "$endpoint_json" '"mode": "endpoint"'
 expect_contains "$endpoint_json" '"decision"'
 expect_contains "$endpoint_json" '"risk_reasons"'
+expect_contains "$endpoint_json" '"evidence_refs"'
 expect_contains "$endpoint_json" '"proof_command"'
 expect_contains "$endpoint_json" '"done_criteria"'
 expect_contains "$endpoint_json" '"top_case_id": "case:least-agency-authority"'
@@ -179,6 +185,7 @@ expect_contains "$endpoint_json" '.gemini/settings.json'
 expect_contains "$endpoint_html" "Ariadne Assessment"
 expect_contains "$endpoint_html" "Decision Packet"
 expect_contains "$endpoint_html" "Risk Basis"
+expect_contains "$endpoint_html" "Evidence Facts"
 expect_contains "$endpoint_html" "Proof Surface"
 expect_contains "$endpoint_html" "Signal Triage"
 expect_contains "$endpoint_html" "Control State"

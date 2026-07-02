@@ -4070,6 +4070,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.Decision.RiskReasons, "exposed path(s) reach a sensitive boundary") ||
 		!containsString(decoded.Decision.NormalCapabilities, "authority is normal for useful agents") ||
 		!containsString(decoded.Decision.EvidenceSources, ".claude/settings.json") ||
+		len(decoded.Decision.EvidenceReferences) == 0 ||
+		!containsEvidenceReferenceSource(decoded.Decision.EvidenceReferences, ".claude/settings.json") ||
+		!containsEvidenceReferenceSource(decoded.Decision.EvidenceReferences, ".codex/config.toml") ||
+		!containsEvidenceReferenceSummary(decoded.Decision.EvidenceReferences, "broad local authority") ||
 		!containsString(decoded.Decision.PathSummary, "boundary external destination (reaches)") ||
 		!containsString(decoded.Decision.MissingHardBarriers, "control:egress-destination-allowlist") ||
 		decoded.Decision.Instruction == "" ||
@@ -4282,6 +4286,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Verdict: action required",
 		"Risk basis:",
 		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
+		"Evidence fact:",
+		"Claude Code settings declare broad local authority",
 		"Proof command: ariadne proofs --path",
 		"--patch-dir proof-patches",
 		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
@@ -4363,6 +4369,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Verdict",
 		"Why First",
 		"Risk Basis",
+		"Evidence Facts",
 		"Proof Surface",
 		"Commands",
 		"Signal Triage",
@@ -5742,7 +5749,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessDecision := schemaMap(t, assessSchema, "$defs", "assess_decision")
-	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "risk_reasons", "normal_capabilities", "evidence_sources", "path_summary", "missing_hard_barriers", "done_criteria", "limitations")
+	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "risk_reasons", "normal_capabilities", "evidence_sources", "evidence_refs", "path_summary", "missing_hard_barriers", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessDecision, "generated_proof_path")
 	assertSchemaProperty(t, assessDecision, "suggested_destination")
 	assertSchemaProperty(t, assessDecision, "destination_path")
@@ -6360,6 +6367,15 @@ func assessSignalHasGraph(values []model.AssessSignal, id string) bool {
 func containsEvidenceReferenceSource(values []model.EvidenceReference, fragment string) bool {
 	for _, value := range values {
 		if strings.Contains(value.Source, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEvidenceReferenceSummary(values []model.EvidenceReference, fragment string) bool {
+	for _, value := range values {
+		if strings.Contains(value.Summary, fragment) {
 			return true
 		}
 	}
