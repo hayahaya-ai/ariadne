@@ -41,6 +41,8 @@ func main() {
 		runControls(os.Args[2:])
 	case "compare":
 		runCompare(os.Args[2:])
+	case "closure":
+		runClosure(os.Args[2:])
 	case "inventory":
 		runInventory(os.Args[2:])
 	case "scan":
@@ -214,6 +216,43 @@ type selfAssessmentBundleFile struct {
 	SHA256      string `json:"sha256,omitempty"`
 }
 
+type closureWorkspaceResult struct {
+	SchemaVersion string                      `json:"schema_version"`
+	RunKind       string                      `json:"run_kind"`
+	GeneratedAt   time.Time                   `json:"generated_at"`
+	Directory     string                      `json:"directory"`
+	TargetPath    string                      `json:"target_path"`
+	Mode          string                      `json:"mode"`
+	Agent         string                      `json:"agent"`
+	StatusFilter  string                      `json:"status_filter"`
+	CaseID        string                      `json:"case_id"`
+	ProofLoop     []closureWorkspaceCommand   `json:"proof_loop"`
+	PatchFiles    []closureWorkspacePatchFile `json:"patch_files"`
+	Limitations   []string                    `json:"limitations"`
+	Files         []selfAssessmentBundleFile  `json:"files"`
+}
+
+type closureWorkspaceCommand struct {
+	Step        int    `json:"step"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Command     string `json:"command"`
+	Output      string `json:"output,omitempty"`
+	Description string `json:"description"`
+}
+
+type closureWorkspacePatchFile struct {
+	Path                 string   `json:"path"`
+	GeneratedPath        string   `json:"generated_path"`
+	Surface              string   `json:"surface"`
+	SuggestedDestination string   `json:"suggested_destination"`
+	DestinationPath      string   `json:"destination_path,omitempty"`
+	ApplyCommand         string   `json:"apply_command,omitempty"`
+	Format               string   `json:"format"`
+	Controls             []string `json:"controls"`
+	PatchCount           int      `json:"patch_count"`
+}
+
 func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r model.Report, status string, focus report.AssessFocus) (selfAssessmentBundleResult, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -350,6 +389,161 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	return result, nil
 }
 
+func writeClosureWorkspace(dir string, r model.Report, assess model.AssessReport, plan model.ProofPlanReport, status string, caseID string) (closureWorkspaceResult, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return closureWorkspaceResult{}, fmt.Errorf("--dir requires a directory")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		absDir = dir
+	}
+	caseID = strings.TrimSpace(caseID)
+	if caseID == "" {
+		return closureWorkspaceResult{}, fmt.Errorf("closure workspace requires a case id")
+	}
+	result := closureWorkspaceResult{
+		SchemaVersion: model.SchemaVersion,
+		RunKind:       "closure_workspace",
+		GeneratedAt:   time.Now().UTC(),
+		Directory:     absDir,
+		TargetPath:    r.TargetPath,
+		Mode:          selfBundleFirstNonEmpty(r.Story.Mode, plan.Mode, "repo"),
+		Agent:         selfBundleFirstNonEmpty(r.Story.Runtime, plan.Agent, "all"),
+		StatusFilter:  selfBundleFirstNonEmpty(status, plan.StatusFilter, "breaking"),
+		CaseID:        caseID,
+		ProofLoop:     closureWorkspaceProofLoop(r.TargetPath, selfBundleFirstNonEmpty(r.Story.Mode, plan.Mode, "repo"), selfBundleFirstNonEmpty(r.Story.Runtime, plan.Agent, "all"), selfBundleFirstNonEmpty(status, plan.StatusFilter, "breaking"), caseID, absDir),
+		Limitations:   closureWorkspaceLimitations(),
+		Files: []selfAssessmentBundleFile{
+			{Name: "runbook.txt", Path: filepath.Join(absDir, "runbook.txt"), Description: "Action-first workflow for this closure case."},
+			{Name: "runbook.json", Path: filepath.Join(absDir, "runbook.json"), Description: "Structured operator runbook for UI and workflow clients."},
+			{Name: "before-proof.json", Path: filepath.Join(absDir, "before-proof.json"), Description: "Baseline proof state before changing evidence."},
+			{Name: "proof-action.txt", Path: filepath.Join(absDir, "proof-action.txt"), Description: "Human proof action for the focused closure case."},
+			{Name: "proof-plan.html", Path: filepath.Join(absDir, "proof-plan.html"), Description: "Focused proof-plan dashboard for reviewing evidence, patches, commands, and success criteria."},
+			{Name: "proof-patches/README.md", Path: filepath.Join(absDir, "proof-patches", "README.md"), Description: "Review guide for suggested proof evidence files."},
+			{Name: "proof-patches/manifest.json", Path: filepath.Join(absDir, "proof-patches", "manifest.json"), Description: "Structured manifest for suggested proof evidence files."},
+			{Name: "README.md", Path: filepath.Join(absDir, "README.md"), Description: "Closure workspace guide and after/compare commands."},
+			{Name: "manifest.json", Path: filepath.Join(absDir, "manifest.json"), Description: "Machine-readable closure workspace manifest. The manifest entry itself is intentionally not self-hashed."},
+		},
+	}
+	add := func(name string, recordMetadata bool, render func(io.Writer) error) error {
+		fullPath := filepath.Join(absDir, name)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			return err
+		}
+		if err := writeRenderedFile(fullPath, render); err != nil {
+			return err
+		}
+		if recordMetadata {
+			if err := recordClosureWorkspaceFileMetadata(&result, name, fullPath); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := add("runbook.txt", true, func(w io.Writer) error {
+		return report.RenderAssessRunbook(w, assess.OperatorWorkbench.Runbook)
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	if err := add("runbook.json", true, func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(report.BuildAssessOperatorRunbookReport(assess))
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	if err := add("before-proof.json", true, func(w io.Writer) error {
+		return report.RenderProofs(w, r, "json", status, caseID)
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	if err := add("proof-action.txt", true, func(w io.Writer) error {
+		return report.RenderProofs(w, r, "action", status, caseID)
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	if err := add("proof-plan.html", true, func(w io.Writer) error {
+		return report.RenderProofs(w, r, "html", status, caseID)
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	patchDir := filepath.Join(absDir, "proof-patches")
+	exported, err := report.ExportProofPatchFiles(patchDir, plan)
+	if err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	for _, file := range exported.FileDetails {
+		name := filepath.ToSlash(filepath.Join("proof-patches", file.Path))
+		result.Files = append(result.Files, selfAssessmentBundleFile{
+			Name:        name,
+			Path:        file.GeneratedPath,
+			Description: "Suggested proof evidence file. Review before copying into the target.",
+		})
+		result.PatchFiles = append(result.PatchFiles, closureWorkspacePatchFile{
+			Path:                 name,
+			GeneratedPath:        file.GeneratedPath,
+			Surface:              file.Surface,
+			SuggestedDestination: file.SuggestedDestination,
+			DestinationPath:      file.DestinationPath,
+			ApplyCommand:         file.ApplyCommand,
+			Format:               file.Format,
+			Controls:             file.Controls,
+			PatchCount:           file.PatchCount,
+		})
+		if err := recordClosureWorkspaceFileMetadata(&result, name, file.GeneratedPath); err != nil {
+			return closureWorkspaceResult{}, err
+		}
+	}
+	if exported.ReadmePath != "" {
+		if err := recordClosureWorkspaceFileMetadata(&result, "proof-patches/README.md", exported.ReadmePath); err != nil {
+			return closureWorkspaceResult{}, err
+		}
+	}
+	if exported.ManifestPath != "" {
+		if err := recordClosureWorkspaceFileMetadata(&result, "proof-patches/manifest.json", exported.ManifestPath); err != nil {
+			return closureWorkspaceResult{}, err
+		}
+	}
+	if err := add("README.md", true, func(w io.Writer) error {
+		_, err := io.WriteString(w, closureWorkspaceReadme(result))
+		return err
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	if err := add("manifest.json", false, func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	return result, nil
+}
+
+func recordClosureWorkspaceFileMetadata(result *closureWorkspaceResult, name string, path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(contents)
+	for idx := range result.Files {
+		if result.Files[idx].Name == name {
+			result.Files[idx].SizeBytes = info.Size()
+			result.Files[idx].SHA256 = fmt.Sprintf("%x", sum[:])
+			return nil
+		}
+	}
+	return fmt.Errorf("closure workspace metadata target not found: %s", name)
+}
+
 func recordSelfAssessmentBundleFileMetadata(result *selfAssessmentBundleResult, name string, path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -420,12 +614,45 @@ func selfAssessmentBundleProofLoop(targetPath string, mode string, agent string,
 	}
 }
 
+func closureWorkspaceProofLoop(targetPath string, mode string, agent string, status string, caseID string, dir string) []closureWorkspaceCommand {
+	caseID = strings.TrimSpace(caseID)
+	if caseID == "" {
+		return []closureWorkspaceCommand{}
+	}
+	beforePath := filepath.Join(dir, "before-proof.json")
+	afterPath := filepath.Join(dir, "after-proof.json")
+	comparePath := filepath.Join(dir, "case-compare.html")
+	patchDir := filepath.Join(dir, "proof-patches")
+	base := fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s --case %s",
+		selfBundleShellQuoteArg(targetPath),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(mode, "repo")),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(agent, "all")),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(status, "breaking")),
+		selfBundleShellQuoteArg(caseID),
+	)
+	return []closureWorkspaceCommand{
+		{Step: 1, ID: "save_baseline_proof", Title: "Save baseline proof", Command: base + " --format json --out " + selfBundleShellQuoteArg(beforePath), Output: beforePath, Description: "Already created when this workspace was generated."},
+		{Step: 2, ID: "review_proof_patches", Title: "Review suggested proof files", Command: base + " --patch-dir " + selfBundleShellQuoteArg(patchDir), Output: patchDir, Description: "Already created when this workspace was generated; review before applying anything to the target."},
+		{Step: 3, ID: "save_after_proof", Title: "Save after proof", Command: base + " --format json --out " + selfBundleShellQuoteArg(afterPath), Output: afterPath, Description: "Run after evidence has been changed or verified."},
+		{Step: 4, ID: "compare_state", Title: "Compare before and after", Command: fmt.Sprintf("ariadne compare --before %s --after %s --format html --out %s", selfBundleShellQuoteArg(beforePath), selfBundleShellQuoteArg(afterPath), selfBundleShellQuoteArg(comparePath)), Output: comparePath, Description: "Run after saving after-proof.json; this is the closure readout."},
+	}
+}
+
 func selfAssessmentBundleLimitations() []string {
 	return []string{
 		"The bundle is generated from deterministic local facts, typed parsers, and graph evidence; it does not execute agents, MCP servers, package managers, or tools.",
 		"Proof patches are suggested evidence files for review. Exporting or copying them does not prove live enforcement by itself.",
 		"Treat `case-compare.html` as the closure readout after rerunning Ariadne against the changed target.",
 		"Private histories, transcripts, paste caches, and sensitive files are summarized or path-modeled; Ariadne does not emit secret values.",
+	}
+}
+
+func closureWorkspaceLimitations() []string {
+	return []string{
+		"The closure workspace is generated from deterministic local facts, graph evidence, and proof-plan contracts.",
+		"Suggested proof files are review-first evidence artifacts. Ariadne does not mutate the scanned target.",
+		"before-proof.json is a baseline from workspace creation time; after-proof.json must be generated after evidence is changed or verified.",
+		"case-compare.html is the closure readout after the after-proof artifact exists.",
 	}
 }
 
@@ -505,6 +732,60 @@ func selfAssessmentBundleReadme(result selfAssessmentBundleResult) string {
 	return b.String()
 }
 
+func closureWorkspaceReadme(result closureWorkspaceResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Ariadne Closure Workspace\n\n")
+	fmt.Fprintf(&b, "Target: `%s`\n", result.TargetPath)
+	fmt.Fprintf(&b, "Case: `%s`\n", result.CaseID)
+	fmt.Fprintf(&b, "Mode: `%s`  Agent: `%s`  Filter: `%s`\n", result.Mode, result.Agent, result.StatusFilter)
+	fmt.Fprintf(&b, "\n## What This Workspace Is\n\n")
+	fmt.Fprintf(&b, "This folder is the before/change/after/compare loop for one Ariadne operator case. Ariadne already saved the baseline proof and exported suggested proof evidence. Review the evidence before applying anything to the target.\n")
+	fmt.Fprintf(&b, "\n## Review Order\n\n")
+	fmt.Fprintf(&b, "1. Open `runbook.txt` for the action-first workflow.\n")
+	fmt.Fprintf(&b, "2. Open `proof-action.txt` for the exact proof evidence Ariadne expects.\n")
+	fmt.Fprintf(&b, "3. Review `proof-patches/README.md` and `proof-patches/manifest.json` before copying any suggested evidence file.\n")
+	fmt.Fprintf(&b, "4. After evidence is changed or verified, run the after-proof command below.\n")
+	fmt.Fprintf(&b, "5. Run the compare command and use `case-compare.html` as the closure readout.\n")
+	if len(result.ProofLoop) > 0 {
+		fmt.Fprintf(&b, "\n## Proof Loop\n\n")
+		for _, command := range result.ProofLoop {
+			fmt.Fprintf(&b, "### %d. %s\n\n", command.Step, command.Title)
+			if command.Description != "" {
+				fmt.Fprintf(&b, "%s\n\n", command.Description)
+			}
+			fmt.Fprintf(&b, "```bash\n%s\n```\n\n", command.Command)
+			if command.Output != "" {
+				fmt.Fprintf(&b, "Output: `%s`\n\n", command.Output)
+			}
+		}
+	}
+	if len(result.PatchFiles) > 0 {
+		fmt.Fprintf(&b, "## Suggested Proof Files\n\n")
+		for _, file := range result.PatchFiles {
+			fmt.Fprintf(&b, "- `%s` -> `%s`", file.GeneratedPath, selfBundleFirstNonEmpty(file.DestinationPath, file.SuggestedDestination))
+			if len(file.Controls) > 0 {
+				fmt.Fprintf(&b, " (%s)", strings.Join(file.Controls, ", "))
+			}
+			fmt.Fprintf(&b, "\n")
+		}
+	}
+	fmt.Fprintf(&b, "\n## Files\n\n")
+	for _, file := range result.Files {
+		if file.SHA256 != "" {
+			fmt.Fprintf(&b, "- `%s`: %s (SHA-256 `%s`, %d bytes.)\n", file.Name, file.Description, file.SHA256, file.SizeBytes)
+			continue
+		}
+		fmt.Fprintf(&b, "- `%s`: %s\n", file.Name, file.Description)
+	}
+	if len(result.Limitations) > 0 {
+		fmt.Fprintf(&b, "\n## Limits\n\n")
+		for _, limitation := range result.Limitations {
+			fmt.Fprintf(&b, "- %s\n", limitation)
+		}
+	}
+	return b.String()
+}
+
 func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleResult) {
 	fmt.Fprintf(w, "Exported Ariadne self-assessment bundle to %s\n", result.Directory)
 	if result.TopCaseID != "" {
@@ -517,6 +798,23 @@ func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleR
 	fmt.Fprintf(w, "Operator packet JSON: %s\n", filepath.Join(result.Directory, "operator-packet.json"))
 	fmt.Fprintf(w, "Dashboard: %s\n", filepath.Join(result.Directory, "dashboard.html"))
 	fmt.Fprintf(w, "Proof action: %s\n", filepath.Join(result.Directory, "proof-action.txt"))
+}
+
+func renderClosureWorkspaceSummary(w io.Writer, result closureWorkspaceResult) {
+	fmt.Fprintf(w, "Created Ariadne closure workspace at %s\n", result.Directory)
+	fmt.Fprintf(w, "Case: %s\n", result.CaseID)
+	fmt.Fprintf(w, "Open first: %s\n", filepath.Join(result.Directory, "runbook.txt"))
+	fmt.Fprintf(w, "Baseline proof: %s\n", filepath.Join(result.Directory, "before-proof.json"))
+	fmt.Fprintf(w, "Suggested proof files: %s\n", filepath.Join(result.Directory, "proof-patches"))
+	for _, command := range result.ProofLoop {
+		if command.ID == "save_after_proof" {
+			fmt.Fprintf(w, "After changes: %s\n", command.Command)
+		}
+		if command.ID == "compare_state" {
+			fmt.Fprintf(w, "Compare: %s\n", command.Command)
+		}
+	}
+	fmt.Fprintf(w, "Guide: %s\n", filepath.Join(result.Directory, "README.md"))
 }
 
 func runCases(args []string) {
@@ -634,6 +932,57 @@ func runProofs(args []string) {
 	if err := report.RenderProofs(writer, r, *format, *status, *caseID); err != nil {
 		fatal(err)
 	}
+}
+
+func runClosure(args []string) {
+	fs := flag.NewFlagSet("closure", flag.ExitOnError)
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to close")
+	agent := fs.String("agent", "all", agentHelp)
+	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
+	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
+	caseID := fs.String("case", "", "operator case id to close; defaults to the top ranked case")
+	dir := fs.String("dir", "ariadne-closure", "write closure workspace to this directory")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	inventory, err := prove.RunInventory(prove.Options{Path: *path, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	r, err := prove.RunPath(prove.Options{
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		IncludeSensitivePaths: *includeSensitive,
+	})
+	if err != nil {
+		fatal(err)
+	}
+	focus := report.AssessFocus{CaseFilter: strings.TrimSpace(*caseID)}
+	assess, err := report.BuildAssessReport(inventory, r, *status, focus)
+	if err != nil {
+		fatal(err)
+	}
+	resolvedCaseID := strings.TrimSpace(*caseID)
+	if resolvedCaseID == "" {
+		resolvedCaseID = selfAssessmentBundleCaseID(assess, focus)
+	}
+	if resolvedCaseID == "" {
+		fatal(fmt.Errorf("no operator case is available for status %q", *status))
+	}
+	focus.CaseFilter = resolvedCaseID
+	assess, err = report.BuildAssessReport(inventory, r, *status, focus)
+	if err != nil {
+		fatal(err)
+	}
+	plan, err := report.BuildProofPlanForReport(r, *status, resolvedCaseID)
+	if err != nil {
+		fatal(err)
+	}
+	workspace, err := writeClosureWorkspace(*dir, r, assess, plan, *status, resolvedCaseID)
+	if err != nil {
+		fatal(err)
+	}
+	renderClosureWorkspaceSummary(os.Stdout, workspace)
 }
 
 func renderProofPatchExportSummary(w io.Writer, exported report.ProofPatchExportResult) {
@@ -1072,6 +1421,7 @@ Commands:
   proofs         Show focused proof patches for closing operator cases
   controls       Show missing hard-barrier controls and where to prove them
   compare        Compare two Ariadne JSON reports and show case state changes
+  closure        Create a local before/change/after/compare closure workspace
   inventory      Collect deterministic AI surface facts without classifying exposure
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
@@ -1107,6 +1457,7 @@ Examples:
   ariadne proofs --path . --case case:input-trust-boundary --format json
   ariadne proofs --path . --case case:input-trust-boundary --format html --out proof-plan.html
   ariadne proofs --path . --case case:input-trust-boundary --patch-dir proof-patches
+  ariadne closure --path . --case case:input-trust-boundary --dir ariadne-closure
   ariadne compare --before before-proof.json --after after-proof.json
   ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html
   ariadne controls --path .

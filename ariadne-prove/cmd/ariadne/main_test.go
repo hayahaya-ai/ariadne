@@ -583,6 +583,87 @@ func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 	}
 }
 
+func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
+	root := t.TempDir()
+	workspaceDir := filepath.Join(root, "ariadne-closure")
+	runClosure([]string{
+		"--path", filepath.Join("..", "..", "testdata", "realpath", "combined-risk"),
+		"--case", "case:egress-output-boundary",
+		"--dir", workspaceDir,
+	})
+	for _, path := range []string{
+		filepath.Join(workspaceDir, "runbook.txt"),
+		filepath.Join(workspaceDir, "runbook.json"),
+		filepath.Join(workspaceDir, "before-proof.json"),
+		filepath.Join(workspaceDir, "proof-action.txt"),
+		filepath.Join(workspaceDir, "proof-plan.html"),
+		filepath.Join(workspaceDir, "proof-patches", "README.md"),
+		filepath.Join(workspaceDir, "proof-patches", "manifest.json"),
+		filepath.Join(workspaceDir, "proof-patches", "surfaces", ".ariadne", "egress-policy.json"),
+		filepath.Join(workspaceDir, "proof-patches", "surfaces", ".ariadne", "output-policy.json"),
+		filepath.Join(workspaceDir, "README.md"),
+		filepath.Join(workspaceDir, "manifest.json"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("runClosure missing %s: %v", path, err)
+		}
+	}
+
+	readme := readTestFile(t, filepath.Join(workspaceDir, "README.md"))
+	for _, want := range []string{
+		"Ariadne Closure Workspace",
+		"before/change/after/compare loop",
+		"case:egress-output-boundary",
+		"Save after proof",
+		"Compare before and after",
+		"after-proof.json",
+		"case-compare.html",
+		"proof-patches/manifest.json",
+	} {
+		if !strings.Contains(readme, want) {
+			t.Fatalf("closure README missing %q:\n%s", want, readme)
+		}
+	}
+
+	manifest := readTestFile(t, filepath.Join(workspaceDir, "manifest.json"))
+	for _, want := range []string{
+		`"run_kind": "closure_workspace"`,
+		`"case_id": "case:egress-output-boundary"`,
+		`"proof_loop"`,
+		`"save_after_proof"`,
+		`"compare_state"`,
+		`"proof-patches/surfaces/.ariadne/egress-policy.json"`,
+		`"proof-patches/surfaces/.ariadne/output-policy.json"`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("closure manifest missing %q:\n%s", want, manifest)
+		}
+	}
+
+	runbook := readTestFile(t, filepath.Join(workspaceDir, "runbook.txt"))
+	for _, want := range []string{
+		"Ariadne Operator Runbook",
+		"case:egress-output-boundary",
+		"Open first:",
+		"Closure workflow:",
+	} {
+		if !strings.Contains(runbook, want) {
+			t.Fatalf("closure runbook missing %q:\n%s", want, runbook)
+		}
+	}
+
+	beforeProof := readTestFile(t, filepath.Join(workspaceDir, "before-proof.json"))
+	for _, want := range []string{
+		`"run_kind": "proof_plan"`,
+		`"case_filter": "case:egress-output-boundary"`,
+		`"compare_commands"`,
+	} {
+		if !strings.Contains(beforeProof, want) {
+			t.Fatalf("closure before proof missing %q:\n%s", want, beforeProof)
+		}
+	}
+}
+
 func TestRenderProofPatchExportSummaryShowsApplyStep(t *testing.T) {
 	var out bytes.Buffer
 	renderProofPatchExportSummary(&out, report.ProofPatchExportResult{

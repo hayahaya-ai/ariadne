@@ -45,6 +45,7 @@ dashboard_html="$workdir/dashboard.html"
 exposure_dashboard_html="$workdir/exposure-dashboard.html"
 cases_txt="$workdir/cases.txt"
 proofs_action="$workdir/proofs-action.txt"
+closure_dir="$workdir/ariadne-closure"
 
 "$bin" assess --path "$fixture" --out "$assess_summary"
 "$bin" assess --path "$fixture" --format table --out "$assess_txt"
@@ -56,6 +57,7 @@ proofs_action="$workdir/proofs-action.txt"
 "$bin" dashboard --path "$fixture" --view exposure --out "$exposure_dashboard_html"
 "$bin" cases --path "$fixture" --out "$cases_txt"
 "$bin" proofs --path "$fixture" --case case:input-trust-boundary --format action --out "$proofs_action"
+"$bin" closure --path "$fixture" --case case:egress-output-boundary --dir "$closure_dir"
 
 summary_lines="$(wc -l < "$assess_summary" | tr -d '[:space:]')"
 if [ "$summary_lines" -gt 90 ]; then
@@ -349,6 +351,30 @@ expect_contains "$cases_txt" "Ariadne operator case board:"
 expect_contains "$cases_txt" "Evidence files: .claude/settings.json; .codex/config.toml; .env"
 expect_contains "$cases_txt" "Modeled/internal evidence: zt:control-strength"
 expect_contains "$cases_txt" "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/input-policy.json"
+
+for closure_file in runbook.txt runbook.json before-proof.json proof-action.txt proof-plan.html proof-patches/README.md proof-patches/manifest.json proof-patches/surfaces/.ariadne/egress-policy.json proof-patches/surfaces/.ariadne/output-policy.json README.md manifest.json; do
+  if [ ! -f "$closure_dir/$closure_file" ]; then
+    echo "closure workspace missing $closure_file" >&2
+    echo "artifacts left in: $workdir" >&2
+    exit 1
+  fi
+done
+expect_contains "$closure_dir/README.md" "Ariadne Closure Workspace"
+expect_contains "$closure_dir/README.md" "before/change/after/compare loop"
+expect_contains "$closure_dir/README.md" "case:egress-output-boundary"
+expect_contains "$closure_dir/README.md" "Save after proof"
+expect_contains "$closure_dir/README.md" "Compare before and after"
+expect_contains "$closure_dir/README.md" "after-proof.json"
+expect_contains "$closure_dir/README.md" "case-compare.html"
+expect_contains "$closure_dir/manifest.json" '"run_kind": "closure_workspace"'
+expect_contains "$closure_dir/manifest.json" '"case_id": "case:egress-output-boundary"'
+expect_contains "$closure_dir/manifest.json" '"save_after_proof"'
+expect_contains "$closure_dir/manifest.json" '"compare_state"'
+expect_contains "$closure_dir/manifest.json" '"proof-patches/surfaces/.ariadne/egress-policy.json"'
+expect_contains "$closure_dir/before-proof.json" '"run_kind": "proof_plan"'
+expect_contains "$closure_dir/before-proof.json" '"case_filter": "case:egress-output-boundary"'
+expect_contains "$closure_dir/runbook.txt" "Ariadne Operator Runbook"
+expect_contains "$closure_dir/proof-plan.html" "Ariadne Proof Plan"
 
 expect_contains "$proofs_action" "Ariadne Proof Action"
 expect_contains "$proofs_action" "Evidence files:"

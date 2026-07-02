@@ -117,6 +117,7 @@ Inspect the current repository:
 ./bin/ariadne cases --path .
 ./bin/ariadne cases --path . --case case:input-trust-boundary
 ./bin/ariadne cases --path . --format html --out cases-dashboard.html
+./bin/ariadne closure --path . --dir ariadne-closure
 ./bin/ariadne controls --path .
 ./bin/ariadne controls --path . --format html --out controls-dashboard.html
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
@@ -138,6 +139,9 @@ Emit JSON:
 Run the focused proof loop for one case:
 
 ```bash
+./bin/ariadne closure --path . --case case:input-trust-boundary --dir ariadne-closure
+
+# Or run the lower-level commands directly:
 ./bin/ariadne proofs --path . --case case:input-trust-boundary --format json --out before-proof.json
 ./bin/ariadne proofs --path . --case case:input-trust-boundary --patch-dir proof-patches
 # Review the suggested files under proof-patches/surfaces/, add or verify real control evidence, then rerun:
@@ -187,6 +191,7 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 | `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets and route recurring break paths to fleet cases. |
 | `ariadne cases --path <dir>` | Show the operator case board for architecture break paths and what proof closes them. Use `--case <case-id>` to focus one case. |
 | `ariadne cases --targets <file>` | Group operator cases across many targets. |
+| `ariadne closure --path <dir>` | Create a local before/change/after/compare closure workspace for the top ranked case or `--case <case-id>`. The workspace includes `runbook.txt`, `before-proof.json`, `proof-action.txt`, `proof-plan.html`, `proof-patches/`, README, manifest, and after/compare commands. |
 | `ariadne proofs --path <dir> --case <case-id>` | Show the focused proof patches, evidence refs, rerun commands, compare-loop commands, and success criteria for one closure case. Use `--patch-dir <dir>` to export suggested proof evidence files plus a manifest. |
 | `ariadne compare --before <json> --after <json>` | Compare two Ariadne proof, case, or assessment JSON reports and show case state changes across reruns. |
 | `ariadne controls --path <dir>` | Show missing hard-barrier controls, proof surfaces, and the flaws they close. Use `--format html` for the focused operator dashboard. |
@@ -286,6 +291,8 @@ Prove output adds:
 - limitations
 
 Cases output is the case-first operator view of the architecture closure plan. It starts with the few architecture break paths an operator can act on, then shows rank, priority reason, state, state reason, next step, evidence refs, starting controls, proof surfaces, proof patches, evidence examples, rerun commands, compare-loop commands, and success criteria for each case. Case rank follows deterministic closure priority from severity and affected flaws, targets, and missing hard barriers. Case state and next step are derived from missing hard-barrier controls and parser-recognized proof tasks. Use `--case case:input-trust-boundary` or the unprefixed case id to focus the table, JSON, or HTML output on one case and its supporting evidence.
+
+Closure output is the primary proof-loop workspace. Use `ariadne closure --path . --case case:input-trust-boundary --dir ariadne-closure` to create a local folder with the focused runbook, baseline `before-proof.json`, proof action, proof-plan dashboard, suggested proof files, README, manifest, and exact after-proof and compare commands. It does not mutate the scanned target; it gives the operator one place to review evidence, apply or verify controls, rerun, and compare.
 
 Proofs output is the narrower closure-loop action view. Use `ariadne proofs --path . --case case:input-trust-boundary` when the operator already knows which case to work and needs only the evidence references, proof patches, parser-recognized fields, rerun commands, compare-loop commands, success criteria, and limitations. Use `--format html` for a focused proof-plan dashboard with an evidence workbench: inspect facts, add or verify parser-recognized evidence, rerun, compare before/after proof JSON, and confirm the break path is closed. Use `--patch-dir proof-patches` to export suggested proof evidence files under `proof-patches/surfaces/` plus `manifest.json` and `README.md`; the manifest records each suggested destination path, review/apply command, and exact rerun/compare commands. The export is still review-first and does not mutate the scanned repo. If the requested case is no longer in the missing-hard-barrier board but Ariadne observes controlled architecture evidence for that case family, the focused output returns `state: closed`, observed hard barriers, evidence references, and zero proof patches instead of failing with "case not found." Proof patches are evidence plans, not automatic remediation or proof of live enforcement.
 
