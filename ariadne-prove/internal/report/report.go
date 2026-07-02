@@ -3975,6 +3975,7 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 	}
 	workbench.DoneCriteria = firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria)
 	workbench.ClosureLoop = buildAssessClosureLoop(workbench, action, state)
+	workbench.Runbook = buildAssessOperatorRunbook(workbench)
 	workbench.Actions = buildAssessWorkbenchActions(workbench, action, state)
 	workbench.ChangeReadout = []string{
 		"Save a before proof artifact, add or verify the proof evidence, rerun the case, save an after proof artifact, then compare before and after.",
@@ -3997,6 +3998,7 @@ func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) m
 	workbench.ProofState = normalizeAssessWorkbenchProofState(workbench.ProofState)
 	workbench.Verify.Commands = nonNilStrings(uniqueStrings(workbench.Verify.Commands))
 	workbench.ClosureLoop = nonNilAssessClosureLoopSteps(workbench.ClosureLoop)
+	workbench.Runbook = normalizeAssessOperatorRunbook(workbench.Runbook)
 	workbench.Actions = nonNilAssessWorkbenchActions(workbench.Actions)
 	workbench.DoneCriteria = nonNilStrings(uniqueStrings(workbench.DoneCriteria))
 	workbench.ChangeReadout = nonNilStrings(uniqueStrings(workbench.ChangeReadout))
@@ -4286,6 +4288,78 @@ func nonNilAssessClosureLoopSteps(items []model.AssessClosureLoopStep) []model.A
 		out = append(out, item)
 	}
 	return out
+}
+
+func buildAssessOperatorRunbook(workbench model.AssessOperatorWorkbench) model.AssessOperatorRunbook {
+	runbook := model.AssessOperatorRunbook{
+		Available:       workbench.Available && len(workbench.ClosureLoop) > 0,
+		Mode:            workbench.Mode,
+		Case:            workbench.Case,
+		CurrentControl:  firstNonEmpty(workbench.Proof.Control, firstString(workbench.Proof.Controls)),
+		ProofSurface:    firstNonEmpty(workbench.Proof.Surface, firstString(workbench.Proof.Surfaces)),
+		OpenFirst:       workbench.EvidenceToOpen,
+		WhyThisCase:     nonEmptyStrings(workbench.Case.Title+" ("+workbench.Case.ID+")", workbench.Case.WhyFirst, workbench.Case.NextStep),
+		DoneCriteria:    firstNonEmptyStrings(workbench.DoneCriteria, workbench.ProofState.SuccessCriteria),
+		ClosureWorkflow: workbench.ClosureLoop,
+		Limitations: []string{
+			"Runbook is a derived operator view over deterministic workbench facts; it does not add a separate risk judgment.",
+		},
+	}
+	if !runbook.Available {
+		return normalizeAssessOperatorRunbook(runbook)
+	}
+	current := assessRunbookCurrentStep(workbench.ClosureLoop)
+	next := assessRunbookNextStep(workbench.ClosureLoop, current.Step)
+	runbook.CurrentStep = current
+	runbook.NextStep = next
+	runbook.Files = uniqueStrings(append(append([]string{}, current.Files...), next.Files...))
+	runbook.Artifacts = uniqueStrings(append(append([]string{}, current.Artifacts...), next.Artifacts...))
+	runbook.Commands = firstNonEmptyStrings(current.Commands, next.Commands)
+	runbook.DoneCriteria = firstNonEmptyStrings(current.DoneCriteria, runbook.DoneCriteria)
+	return normalizeAssessOperatorRunbook(runbook)
+}
+
+func assessRunbookCurrentStep(steps []model.AssessClosureLoopStep) model.AssessClosureLoopStep {
+	for _, step := range steps {
+		if strings.EqualFold(step.Status, "current") {
+			return step
+		}
+	}
+	if len(steps) == 0 {
+		return model.AssessClosureLoopStep{}
+	}
+	return steps[0]
+}
+
+func assessRunbookNextStep(steps []model.AssessClosureLoopStep, current int) model.AssessClosureLoopStep {
+	for _, step := range steps {
+		if step.Step > current {
+			return step
+		}
+	}
+	return model.AssessClosureLoopStep{}
+}
+
+func normalizeAssessOperatorRunbook(runbook model.AssessOperatorRunbook) model.AssessOperatorRunbook {
+	runbook.OpenFirst = nonNilEvidenceReferences(rankEvidenceReferencesForOperator(runbook.OpenFirst))
+	runbook.WhyThisCase = nonNilStrings(uniqueStrings(runbook.WhyThisCase))
+	runbook.Files = nonNilStrings(uniqueStrings(runbook.Files))
+	runbook.Artifacts = nonNilStrings(uniqueStrings(runbook.Artifacts))
+	runbook.Commands = nonNilStrings(uniqueStrings(runbook.Commands))
+	runbook.DoneCriteria = nonNilStrings(uniqueStrings(runbook.DoneCriteria))
+	runbook.ClosureWorkflow = nonNilAssessClosureLoopSteps(runbook.ClosureWorkflow)
+	runbook.Limitations = nonNilStrings(uniqueStrings(runbook.Limitations))
+	runbook.CurrentStep = normalizeAssessRunbookStep(runbook.CurrentStep)
+	runbook.NextStep = normalizeAssessRunbookStep(runbook.NextStep)
+	return runbook
+}
+
+func normalizeAssessRunbookStep(step model.AssessClosureLoopStep) model.AssessClosureLoopStep {
+	step = nonNilAssessClosureLoopSteps([]model.AssessClosureLoopStep{step})[0]
+	if step.ID == "" && step.Status == "" {
+		step.Status = "not_applicable"
+	}
+	return step
 }
 
 func buildAssessOperatorPacket(decision model.AssessDecision, quality model.AssessSignalQuality, state model.AssessControlState, action model.AssessFirstAction, workbench model.AssessOperatorWorkbench) model.AssessOperatorPacket {

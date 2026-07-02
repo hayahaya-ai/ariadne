@@ -511,6 +511,7 @@ type AssessOperatorWorkbench struct {
 	ProofState     AssessWorkbenchProofState   `json:"proof_state"`
 	Verify         AssessWorkbenchVerification `json:"verify"`
 	ClosureLoop    []AssessClosureLoopStep     `json:"closure_loop"`
+	Runbook        AssessOperatorRunbook       `json:"runbook"`
 	Actions        []AssessWorkbenchAction     `json:"actions"`
 	DoneCriteria   []string                    `json:"done_criteria"`
 	ChangeReadout  []string                    `json:"change_readout"`
@@ -613,6 +614,24 @@ type AssessClosureLoopStep struct {
 	Controls     []string `json:"controls"`
 	DoneCriteria []string `json:"done_criteria"`
 	Limitations  []string `json:"limitations"`
+}
+
+type AssessOperatorRunbook struct {
+	Available       bool                    `json:"available"`
+	Mode            string                  `json:"mode,omitempty"`
+	Case            AssessWorkbenchCase     `json:"case"`
+	CurrentControl  string                  `json:"current_control,omitempty"`
+	ProofSurface    string                  `json:"proof_surface,omitempty"`
+	CurrentStep     AssessClosureLoopStep   `json:"current_step"`
+	NextStep        AssessClosureLoopStep   `json:"next_step"`
+	OpenFirst       []EvidenceReference     `json:"open_first"`
+	WhyThisCase     []string                `json:"why_this_case"`
+	Files           []string                `json:"files"`
+	Artifacts       []string                `json:"artifacts"`
+	Commands        []string                `json:"commands"`
+	DoneCriteria    []string                `json:"done_criteria"`
+	ClosureWorkflow []AssessClosureLoopStep `json:"closure_workflow"`
+	Limitations     []string                `json:"limitations"`
 }
 
 type AssessWorkbenchAction struct {

@@ -862,15 +862,16 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 
 func renderAssessOperatorRunbookDashboard(w io.Writer, r model.AssessReport) {
 	workbench := r.OperatorWorkbench
-	if !workbench.Available {
+	runbook := workbench.Runbook
+	if !runbook.Available {
 		return
 	}
-	currentStep := assessCurrentClosureLoopStep(workbench.ClosureLoop)
+	currentStep := runbook.CurrentStep
 	if currentStep.ID == "" {
 		return
 	}
-	nextStep := assessNextClosureLoopStep(workbench.ClosureLoop, currentStep.Step)
-	closed := workbench.Mode == "closed_case"
+	nextStep := runbook.NextStep
+	closed := runbook.Mode == "closed_case"
 	subtitle := "Action-first view: open evidence, run the current proof step, and compare deterministic artifacts."
 	if closed {
 		subtitle = "Action-first view: inspect observed evidence and keep the focused case closed as the environment changes."
@@ -880,58 +881,33 @@ func renderAssessOperatorRunbookDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintf(w, `<div class="section-head"><div><h2>Operator Runbook</h2><div class="subtle">%s</div></div></div>`, esc(subtitle))
 	renderMetricRow(w, []kv{
 		{"Current step", fmt.Sprintf("%d. %s", currentStep.Step, firstNonEmpty(currentStep.Title, currentStep.ID))},
-		{"Case", firstNonEmpty(workbench.Case.ID, "not recorded")},
-		{"State", firstNonEmpty(workbench.Case.State, "unknown")},
-		{"Control", firstNonEmpty(workbench.Proof.Control, firstString(workbench.Proof.Controls), "not recorded")},
-		{"Proof surface", firstNonEmpty(workbench.Proof.Surface, firstString(workbench.Proof.Surfaces), "not recorded")},
+		{"Case", firstNonEmpty(runbook.Case.ID, "not recorded")},
+		{"State", firstNonEmpty(runbook.Case.State, "unknown")},
+		{"Control", firstNonEmpty(runbook.CurrentControl, "not recorded")},
+		{"Proof surface", firstNonEmpty(runbook.ProofSurface, "not recorded")},
 	})
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Open First</h3>`)
-	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(r.TargetPath, workbench.EvidenceToOpen, 5)))
+	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(r.TargetPath, runbook.OpenFirst, 5)))
 	fmt.Fprintln(w, `<div class="subtle">The Source Reference Workbench below has exact rows, line labels, and inspect commands.</div>`)
 	fmt.Fprintln(w, `<h3>Why This Case</h3>`)
-	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
-		workbench.Case.Title+" ("+workbench.Case.ID+")",
-		workbench.Case.WhyFirst,
-		workbench.Case.NextStep,
-	)))
+	fmt.Fprintln(w, renderSmallList(runbook.WhyThisCase))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Do Next</h3>`)
 	fmt.Fprintln(w, renderSmallList(assessRunbookStepLines(currentStep, nextStep)))
 	fmt.Fprintln(w, `<h3>Files / Artifacts</h3>`)
-	fmt.Fprintln(w, assessRunbookFilesArtifactsHTML(r.TargetPath, currentStep, nextStep))
+	fmt.Fprintln(w, assessRunbookFilesArtifactsHTML(r.TargetPath, runbook.Files, runbook.Artifacts))
 	fmt.Fprintln(w, `<h3>Commands</h3>`)
-	fmt.Fprintln(w, renderCommandList(firstNonEmptyStrings(currentStep.Commands, nextStep.Commands)))
+	fmt.Fprintln(w, renderCommandList(runbook.Commands))
 	fmt.Fprintln(w, `<h3>Done When</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(firstNonEmptyStrings(currentStep.DoneCriteria, workbench.DoneCriteria), 4)))
+	fmt.Fprintln(w, renderSmallList(limitStrings(runbook.DoneCriteria, 4)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<h3>Closure Workflow</h3>`)
-	fmt.Fprintln(w, renderSmallList(assessClosureLoopStepLines(workbench.ClosureLoop, 6)))
+	fmt.Fprintln(w, renderSmallList(assessClosureLoopStepLines(runbook.ClosureWorkflow, 6)))
 	fmt.Fprintln(w, `</section>`)
-}
-
-func assessCurrentClosureLoopStep(steps []model.AssessClosureLoopStep) model.AssessClosureLoopStep {
-	for _, step := range steps {
-		if strings.EqualFold(step.Status, "current") {
-			return step
-		}
-	}
-	if len(steps) == 0 {
-		return model.AssessClosureLoopStep{}
-	}
-	return steps[0]
-}
-
-func assessNextClosureLoopStep(steps []model.AssessClosureLoopStep, current int) model.AssessClosureLoopStep {
-	for _, step := range steps {
-		if step.Step > current {
-			return step
-		}
-	}
-	return model.AssessClosureLoopStep{}
 }
 
 func assessRunbookStepLines(current model.AssessClosureLoopStep, next model.AssessClosureLoopStep) []string {
@@ -944,12 +920,13 @@ func assessRunbookStepLines(current model.AssessClosureLoopStep, next model.Asse
 	return lines
 }
 
-func assessRunbookFilesArtifactsHTML(root string, current model.AssessClosureLoopStep, next model.AssessClosureLoopStep) string {
-	parts := []string{assessClosureLoopFilesArtifactsHTML(root, current)}
-	if next.ID != "" && (len(next.Files) > 0 || len(next.Artifacts) > 0) {
-		parts = append(parts, `<div class="subtle">Next step</div>`+assessClosureLoopFilesArtifactsHTML(root, next))
+func assessRunbookFilesArtifactsHTML(root string, files []string, artifacts []string) string {
+	step := model.AssessClosureLoopStep{Files: files, Artifacts: artifacts}
+	out := assessClosureLoopFilesArtifactsHTML(root, step)
+	if out == `<span class="subtle">none</span>` {
+		return out
 	}
-	return strings.Join(parts, "")
+	return out
 }
 
 func assessClosureLoopStepLines(steps []model.AssessClosureLoopStep, limit int) []string {

@@ -631,6 +631,7 @@
         "proof_state",
         "verify",
         "closure_loop",
+        "runbook",
         "actions",
         "done_criteria",
         "change_readout",
@@ -659,6 +660,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/assess_closure_loop_step" }
         },
+        "runbook": { "$ref": "#/$defs/assess_operator_runbook" },
         "actions": {
           "type": "array",
           "items": { "$ref": "#/$defs/assess_workbench_action" }
@@ -670,6 +672,64 @@
         "change_readout": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_operator_runbook": {
+      "type": "object",
+      "required": [
+        "available",
+        "case",
+        "current_step",
+        "next_step",
+        "open_first",
+        "why_this_case",
+        "files",
+        "artifacts",
+        "commands",
+        "done_criteria",
+        "closure_workflow",
+        "limitations"
+      ],
+      "properties": {
+        "available": { "type": "boolean" },
+        "mode": { "type": "string" },
+        "case": { "$ref": "#/$defs/assess_workbench_case" },
+        "current_control": { "type": "string" },
+        "proof_surface": { "type": "string" },
+        "current_step": { "$ref": "#/$defs/assess_closure_loop_step" },
+        "next_step": { "$ref": "#/$defs/assess_closure_loop_step" },
+        "open_first": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "why_this_case": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "done_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "closure_workflow": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_closure_loop_step" }
         },
         "limitations": {
           "type": "array",
@@ -737,7 +797,7 @@
         "step": { "type": "integer" },
         "id": { "type": "string" },
         "title": { "type": "string" },
-        "status": { "type": "string", "enum": ["current", "pending", "completed"] },
+        "status": { "type": "string", "enum": ["current", "pending", "completed", "not_applicable"] },
         "summary": { "type": "string" },
         "commands": {
           "type": "array",
