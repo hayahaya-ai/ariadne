@@ -147,13 +147,14 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `top_cases`, a bounded case-first queue for humans
 - `top_case_proof_plan`, the focused proof-plan contract for the highest-priority case, including evidence refs, proof patches, rerun commands, compare commands, and success criteria
 - `first_action`, the highest-priority case distilled into one fact-backed action with priority reason, next step, affected targets/flaws, evidence refs, proof surfaces, accepted evidence examples, proof patches, rerun commands, compare commands, suggested proof export command, success criteria, an ordered evidence -> proof -> rerun -> compare workflow, and `current_action` pointers to the active workflow step, source evidence refs, rerun command, compare command, and proof export command. When available, `current_action` also embeds the selected proof patch and accepted evidence example so clients can render the active action without re-indexing arrays.
+- `operator_packet`, the compact ticket-style handoff derived from the same deterministic facts: start case, actionable facts, normal context, evidence refs, graph path, missing and target controls, proof-state checkpoint, exact proof/rerun/compare commands, done criteria, decision rules, and limitations
 - `next_commands`, including the exact `assess`, focused `cases`, focused `proofs`, `controls`, and `architecture` commands to rerun
 
 The assessment contract is a composition layer. It does not create a separate classification engine; classifications, `triage`, `closure_plan`, and `first_action` remain derived from deterministic facts, graph edges, architecture flaws, ranked operator cases, closure evidence, proof patches, and missing hard-barrier controls.
 
 `ariadne assess --case <case-id>` narrows `case_board`, `top_cases`, `top_case_proof_plan`, `first_action`, and `closure_plan` to the selected case. `ariadne assess --control <control-id>` selects the first ranked case containing that missing hard barrier and focuses the current action on that control. Both keep deterministic inventory, exposure, architecture, evidence, and limitation context in the same assessment artifact.
 
-`ariadne assess --format action` renders the signal triage, ranked closure plan, and `first_action.current_action` packet as a compact operator view. It does not change the JSON contract; it hides the larger inventory, architecture, and case-board sections when the operator only needs the active proof step.
+`ariadne assess --format operator` renders `operator_packet` as the compact terminal handoff for tickets and reviews. It answers what to open, why it is actionable, which controls are missing, what proof artifacts define before/after state, which commands to run, and what closes the case. `ariadne assess --format action` renders a fuller workflow view with signal triage, ranked closure plan, and `first_action.current_action`. `--format table` remains the full terminal audit trail.
 
 `ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
 

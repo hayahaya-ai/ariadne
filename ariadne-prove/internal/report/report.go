@@ -331,6 +331,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	signalNoise := buildAssessSignalNoise(summary, inventorySummary, triage, controlState, signalQuality, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, r.TargetPath)
 	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
+	operatorPacket := buildAssessOperatorPacket(decision, signalQuality, controlState, firstAction, operatorWorkbench)
 	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
@@ -359,6 +360,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		TopCases:          topCases,
 		TopCaseProofPlan:  topCaseProofPlan,
 		FirstAction:       firstAction,
+		OperatorPacket:    operatorPacket,
 		OperatorWorkbench: operatorWorkbench,
 		CaseLifecycle:     caseLifecycle,
 		ClosurePlan:       closurePlan,
@@ -430,6 +432,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	signalNoise := buildAssessSignalNoise(summary, inventorySummary, triage, controlState, signalQuality, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, "")
 	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
+	operatorPacket := buildAssessOperatorPacket(decision, signalQuality, controlState, firstAction, operatorWorkbench)
 	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
@@ -459,6 +462,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		TopCases:          topCases,
 		TopCaseProofPlan:  topCaseProofPlan,
 		FirstAction:       firstAction,
+		OperatorPacket:    operatorPacket,
 		OperatorWorkbench: operatorWorkbench,
 		CaseLifecycle:     caseLifecycle,
 		ClosurePlan:       closurePlan,
@@ -1936,6 +1940,8 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		return renderAssessTable(w, r)
 	case "summary", "brief":
 		return renderAssessSummary(w, r)
+	case "operator", "packet":
+		return renderAssessOperatorPacket(w, r)
 	case "action":
 		return renderAssessAction(w, r)
 	case "json":
@@ -1946,6 +1952,124 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		return renderAssessDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown assess format: %s", format)
+	}
+}
+
+func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
+	packet := r.OperatorPacket
+	fmt.Fprintf(w, "Ariadne Operator Packet\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Mode: %s  Agent: %s  Filter: %s\n", r.Mode, r.Agent, r.StatusFilter)
+	renderAssessFocusLine(w, r)
+	if !packet.Available {
+		fmt.Fprintf(w, "\nNo operator packet is available for the selected evidence.\n")
+		renderAssessDecisionLines(w, "Evidence gap action", r.Decision.EvidenceGapActions, 4)
+		return nil
+	}
+
+	fmt.Fprintf(w, "\nStart here:\n")
+	if packet.Status != "" {
+		fmt.Fprintf(w, "  - Verdict: %s\n", readableToken(packet.Status))
+	}
+	if packet.CaseID != "" {
+		fmt.Fprintf(w, "  - Case: %s (%s)\n", firstNonEmpty(packet.CaseTitle, packet.CaseID), packet.CaseID)
+	}
+	if packet.Severity != "" || packet.State != "" {
+		fmt.Fprintf(w, "  - State: %s / %s\n", strings.ToUpper(firstNonEmpty(packet.Severity, "unknown")), readableToken(firstNonEmpty(packet.State, "unknown")))
+	}
+	if packet.CurrentStep != "" {
+		fmt.Fprintf(w, "  - Current step: %s\n", packet.CurrentStep)
+	}
+	if packet.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", packet.CurrentControl)
+	}
+	if packet.ProofSurface != "" {
+		fmt.Fprintf(w, "  - Proof surface: %s\n", packet.ProofSurface)
+	}
+	if packet.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", packet.Headline)
+	}
+
+	renderAssessOperatorPacketLines(w, "Actionable fact", packet.WhyActionable, 4)
+	renderAssessOperatorPacketLines(w, "Normal context", packet.NormalContext, 3)
+
+	if len(packet.EvidenceToOpen) > 0 {
+		fmt.Fprintf(w, "\nEvidence to open:\n")
+		for _, line := range operatorEvidenceReferenceLinesBySource(packet.EvidenceToOpen, 5) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+		renderEvidenceSourceListBlock(w, packet.EvidenceSources, 12)
+	}
+	if len(packet.GraphPath) > 0 {
+		fmt.Fprintf(w, "\nPath:\n")
+		for _, line := range firstStrings(packet.GraphPath, 6) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+	}
+
+	fmt.Fprintf(w, "\nControls:\n")
+	renderAssessOperatorPacketBucketLines(w, "Missing control", packet.MissingControls, 6, "none for this packet")
+	renderAssessOperatorPacketBucketLines(w, "Observed control", packet.PresentControls, 5, "none observed for this packet")
+	renderAssessOperatorPacketBucketLines(w, "Target control", packet.TargetControls, 6, "none for this packet")
+
+	renderAssessOperatorPacketProofState(w, packet.ProofState)
+	if len(packet.Commands) > 0 {
+		fmt.Fprintf(w, "\nCommands:\n")
+		for _, command := range packet.Commands {
+			if command.Command == "" {
+				continue
+			}
+			fmt.Fprintf(w, "  - %d. %s: %s\n", command.Step, command.Title, command.Command)
+			for _, file := range firstStrings(command.Files, 3) {
+				fmt.Fprintf(w, "    file: %s\n", file)
+			}
+		}
+	}
+	renderAssessOperatorPacketLines(w, "Done when", packet.DoneCriteria, 4)
+	renderAssessOperatorPacketLines(w, "Decision rule", packet.DecisionRules, 3)
+	renderAssessOperatorPacketLines(w, "Limitation", packet.Limitations, 3)
+	return nil
+}
+
+func renderAssessOperatorPacketLines(w io.Writer, label string, values []string, limit int) {
+	for _, value := range firstStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
+}
+
+func renderAssessOperatorPacketBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
+	if len(values) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s: %s\n", label, empty)
+		}
+		return
+	}
+	renderAssessOperatorPacketLines(w, label, values, limit)
+}
+
+func renderAssessOperatorPacketProofState(w io.Writer, state model.AssessWorkbenchProofState) {
+	if state.CurrentState == "" && state.ClosureCondition == "" && state.BaselineArtifact == "" && state.CompareArtifact == "" {
+		return
+	}
+	fmt.Fprintf(w, "\nProof checkpoint:\n")
+	if state.CurrentState != "" {
+		fmt.Fprintf(w, "  - Current state: %s\n", readableToken(state.CurrentState))
+	}
+	if state.ClosureCondition != "" {
+		fmt.Fprintf(w, "  - Closure condition: %s\n", state.ClosureCondition)
+	}
+	var artifacts []string
+	for _, artifact := range []string{state.BaselineArtifact, state.AfterArtifact, state.CompareArtifact} {
+		if artifact != "" {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	if len(artifacts) > 0 {
+		fmt.Fprintf(w, "  - Artifacts: %s\n", strings.Join(artifacts, " -> "))
 	}
 }
 
@@ -3974,6 +4098,159 @@ func normalizeAssessWorkbenchProofState(state model.AssessWorkbenchProofState) m
 	state.SuccessCriteria = nonNilStrings(uniqueStrings(state.SuccessCriteria))
 	state.Limitations = nonNilStrings(uniqueStrings(state.Limitations))
 	return state
+}
+
+func buildAssessOperatorPacket(decision model.AssessDecision, quality model.AssessSignalQuality, state model.AssessControlState, action model.AssessFirstAction, workbench model.AssessOperatorWorkbench) model.AssessOperatorPacket {
+	available := action.Available || workbench.Available || decision.Status != ""
+	if !available {
+		return normalizeAssessOperatorPacket(model.AssessOperatorPacket{})
+	}
+	evidenceRefs := workbench.EvidenceToOpen
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = action.CurrentAction.EvidenceReferences
+	}
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = decision.EvidenceReferences
+	}
+	evidenceRefs = rankEvidenceReferencesForOperator(evidenceRefs, workbench.Proof.Surfaces...)
+	graphPath := workbench.GraphPath
+	if len(graphPath) == 0 {
+		graphPath = state.PathSummary
+	}
+	if len(graphPath) == 0 {
+		graphPath = decision.PathSummary
+	}
+	targetControls := workbench.ProofState.TargetControls
+	if len(targetControls) == 0 {
+		targetControls = workbench.Proof.Controls
+	}
+	if len(targetControls) == 0 {
+		targetControls = action.StartingControls
+	}
+	proofState := workbench.ProofState
+	if proofState.CurrentState == "" && action.Available {
+		proofState = buildAssessWorkbenchProofState(action, state, targetControls, assessFirstActionClosed(action))
+	}
+	normalContext := append([]string{}, firstNonEmptyStrings(quality.ExpectedCapabilities, decision.NormalCapabilities)...)
+	normalContext = append(normalContext, firstStrings(quality.NoiseFilters, 1)...)
+	return normalizeAssessOperatorPacket(model.AssessOperatorPacket{
+		Available:       true,
+		Status:          decision.Status,
+		Headline:        firstNonEmpty(decision.Headline, quality.Summary),
+		CaseID:          firstNonEmpty(workbench.Case.ID, action.CaseID, decision.TopCaseID),
+		CaseTitle:       firstNonEmpty(workbench.Case.Title, action.Title, decision.TopCaseTitle),
+		Severity:        firstNonEmpty(workbench.Case.Severity, action.Severity, decision.CaseSeverity),
+		State:           firstNonEmpty(workbench.Case.State, action.State, decision.CaseState),
+		CurrentStep:     firstNonEmpty(workbench.Case.CurrentStep, action.CurrentAction.WorkflowStepTitle),
+		CurrentControl:  firstNonEmpty(workbench.Proof.Control, action.CurrentAction.Control, decision.CurrentControl, state.CurrentControl),
+		ProofSurface:    firstNonEmpty(workbench.Proof.Surface, action.CurrentAction.Surface, decision.ProofSurface, state.CurrentProofSurface),
+		WhyActionable:   firstNonEmptyStrings(quality.ActionableBecause, decision.RiskReasons),
+		NormalContext:   normalContext,
+		EvidenceToOpen:  evidenceRefs,
+		EvidenceSources: evidenceReferenceSources(evidenceRefs, false),
+		GraphPath:       graphPath,
+		MissingControls: firstNonEmptyStrings(state.MissingHardBarriers, decision.MissingHardBarriers),
+		PresentControls: firstNonEmptyStrings(state.PresentHardBarriers, decision.PresentHardBarriers),
+		TargetControls:  targetControls,
+		ProofState:      proofState,
+		Commands:        buildAssessOperatorPacketCommands(action, decision, proofState),
+		DoneCriteria:    firstNonEmptyStrings(workbench.DoneCriteria, decision.DoneCriteria),
+		DecisionRules:   quality.DecisionRules,
+		Limitations: firstNonEmptyStrings(workbench.Limitations, []string{
+			"Operator packet is derived from deterministic inventory, graph, control, proof, and compare data; it does not execute agents.",
+		}),
+	})
+}
+
+func buildAssessOperatorPacketCommands(action model.AssessFirstAction, decision model.AssessDecision, proofState model.AssessWorkbenchProofState) []model.AssessOperatorCommand {
+	var out []model.AssessOperatorCommand
+	add := func(id string, title string, command string, files []string) {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			return
+		}
+		out = append(out, model.AssessOperatorCommand{
+			Step:    len(out) + 1,
+			ID:      id,
+			Title:   title,
+			Command: command,
+			Files:   files,
+		})
+	}
+	add("save_baseline", "Save baseline proof", firstNonEmpty(proofState.BaselineCommand, decision.BeforeProofCommand), []string{proofState.BaselineArtifact})
+	add("export_proof", "Export suggested proof files", firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand, decision.ProofCommand), action.GeneratedProofPaths)
+	for idx, command := range action.ApplyCommands {
+		id := "review_apply"
+		if len(action.ApplyCommands) > 1 {
+			id = fmt.Sprintf("review_apply_%d", idx+1)
+		}
+		files := []string{}
+		if idx < len(action.DestinationPaths) {
+			files = []string{action.DestinationPaths[idx]}
+		}
+		add(id, "Review or apply proof evidence", command, files)
+	}
+	if len(action.ApplyCommands) == 0 {
+		add("review_apply", "Review or apply proof evidence", firstNonEmpty(action.CurrentAction.ApplyCommand, decision.ApplyCommand), []string{firstNonEmpty(action.CurrentAction.DestinationPath, decision.DestinationPath)})
+	}
+	add("rerun_case", "Rerun focused case", firstNonEmpty(action.CurrentAction.RerunCommand, firstString(action.RerunCommands), decision.RerunCommand), []string{})
+	add("save_after", "Save after proof", firstNonEmpty(proofState.AfterCommand, decision.AfterProofCommand), []string{proofState.AfterArtifact})
+	add("compare_state", "Compare before and after", firstNonEmpty(proofState.CompareCommand, action.CurrentAction.CompareCommand, decision.CompareCommand), []string{proofState.CompareArtifact})
+	return nonNilAssessOperatorCommands(out)
+}
+
+func normalizeAssessOperatorPacket(packet model.AssessOperatorPacket) model.AssessOperatorPacket {
+	packet.WhyActionable = nonNilStrings(uniqueStrings(packet.WhyActionable))
+	packet.NormalContext = nonNilStrings(uniqueStrings(packet.NormalContext))
+	packet.EvidenceToOpen = nonNilEvidenceReferences(packet.EvidenceToOpen)
+	packet.EvidenceSources = nonNilStrings(uniqueStrings(packet.EvidenceSources))
+	packet.GraphPath = nonNilStrings(uniqueStrings(packet.GraphPath))
+	packet.MissingControls = nonNilStrings(uniqueStrings(packet.MissingControls))
+	packet.PresentControls = nonNilStrings(uniqueStrings(packet.PresentControls))
+	packet.TargetControls = nonNilStrings(uniqueStrings(packet.TargetControls))
+	packet.ProofState = normalizeAssessWorkbenchProofState(packet.ProofState)
+	packet.Commands = nonNilAssessOperatorCommands(packet.Commands)
+	packet.DoneCriteria = nonNilStrings(uniqueStrings(packet.DoneCriteria))
+	packet.DecisionRules = nonNilStrings(uniqueStrings(packet.DecisionRules))
+	packet.Limitations = nonNilStrings(uniqueStrings(packet.Limitations))
+	return packet
+}
+
+func nonNilAssessOperatorCommands(commands []model.AssessOperatorCommand) []model.AssessOperatorCommand {
+	if len(commands) == 0 {
+		return []model.AssessOperatorCommand{}
+	}
+	out := make([]model.AssessOperatorCommand, 0, len(commands))
+	seen := map[string]bool{}
+	for _, command := range commands {
+		if command.Command == "" {
+			continue
+		}
+		key := command.ID + "\x00" + command.Command
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if command.Step <= 0 {
+			command.Step = len(out) + 1
+		}
+		command.Files = nonNilStrings(uniqueStrings(command.Files))
+		out = append(out, command)
+	}
+	if out == nil {
+		return []model.AssessOperatorCommand{}
+	}
+	return out
+}
+
+func assessOperatorPacketCommandStrings(commands []model.AssessOperatorCommand) []string {
+	var out []string
+	for _, command := range commands {
+		if strings.TrimSpace(command.Command) != "" {
+			out = append(out, command.Command)
+		}
+	}
+	return uniqueStrings(out)
 }
 
 func buildAssessWorkbenchActions(workbench model.AssessOperatorWorkbench, action model.AssessFirstAction, state model.AssessControlState) []model.AssessWorkbenchAction {

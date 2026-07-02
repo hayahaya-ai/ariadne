@@ -4766,6 +4766,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"graph_edges":null`,
 		`"generated_proof_paths":null`,
 		`"apply_commands":null`,
+		`"operator_packet":null`,
 		`"operator_workbench":null`,
 		`"signal_chain":null`,
 		`"evidence_to_open":null`,
@@ -4935,6 +4936,70 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.Triage.ProofLoop, "--format action") {
 		t.Fatalf("assessment proof loop should start with the focused proof action command: %+v", decoded.Triage.ProofLoop)
 	}
+	if !decoded.OperatorPacket.Available ||
+		decoded.OperatorPacket.Status != "action_required" ||
+		decoded.OperatorPacket.CaseID != "case:egress-output-boundary" ||
+		decoded.OperatorPacket.CurrentControl != "control:egress-destination-allowlist" ||
+		decoded.OperatorPacket.ProofSurface != ".ariadne/egress-policy.json" ||
+		!containsString(decoded.OperatorPacket.WhyActionable, "Top case is Egress And Output Boundary") ||
+		!containsString(decoded.OperatorPacket.NormalContext, "runtime presence is expected") ||
+		!containsEvidenceReferenceSource(decoded.OperatorPacket.EvidenceToOpen, ".claude/settings.json") ||
+		!containsString(decoded.OperatorPacket.EvidenceSources, ".codex/config.toml") ||
+		!containsString(decoded.OperatorPacket.GraphPath, "boundary external destination (reaches)") ||
+		!containsString(decoded.OperatorPacket.MissingControls, "control:egress-destination-allowlist") ||
+		!containsString(decoded.OperatorPacket.TargetControls, "control:network-restricted") ||
+		decoded.OperatorPacket.ProofState.CompareArtifact != "case-compare.html" ||
+		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "save_baseline", "before-proof.json", "before-proof.json") ||
+		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "export_proof", "--patch-dir proof-patches", "proof-patches/surfaces/.ariadne/output-policy.json") ||
+		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "rerun_case", "ariadne cases --path", "") ||
+		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "compare_state", "ariadne compare --before before-proof.json --after after-proof.json", "case-compare.html") ||
+		!containsString(decoded.OperatorPacket.DoneCriteria, "no longer appears in the operator case board") ||
+		!containsString(decoded.OperatorPacket.DecisionRules, "Capability alone is not exposure") {
+		t.Fatalf("assessment should expose a compact operator packet: %+v", decoded.OperatorPacket)
+	}
+
+	var operatorOut bytes.Buffer
+	if err := report.RenderAssess(&operatorOut, inventory, r, "operator", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	operatorRendered := operatorOut.String()
+	for _, want := range []string{
+		"Ariadne Operator Packet",
+		"Start here:",
+		"Verdict: action required",
+		"Case: Egress And Output Boundary (case:egress-output-boundary)",
+		"Actionable fact:",
+		"Normal context:",
+		"Evidence to open:",
+		".claude/settings.json:1",
+		"Path:",
+		"boundary external destination (reaches)",
+		"Controls:",
+		"Missing control: control:egress-destination-allowlist",
+		"Proof checkpoint:",
+		"Artifacts: before-proof.json -> after-proof.json -> case-compare.html",
+		"Commands:",
+		"Save baseline proof:",
+		"Export suggested proof files:",
+		"Review or apply proof evidence:",
+		"Rerun focused case:",
+		"Compare before and after:",
+		"Done when:",
+		"Decision rule: Capability alone is not exposure.",
+	} {
+		if !strings.Contains(operatorRendered, want) {
+			t.Fatalf("assessment operator packet missing %q:\n%s", want, operatorRendered)
+		}
+	}
+	for _, unwanted := range []string{
+		"Architecture break paths:",
+		"Top case proof packet:",
+		"additional items in JSON",
+	} {
+		if strings.Contains(operatorRendered, unwanted) {
+			t.Fatalf("assessment operator packet should stay compact and omit %q:\n%s", unwanted, operatorRendered)
+		}
+	}
 
 	var actionOut bytes.Buffer
 	if err := report.RenderAssess(&actionOut, inventory, r, "action", "breaking"); err != nil {
@@ -5076,6 +5141,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assessment",
 		"Assessment Readout",
+		"Operator Packet",
+		"Smallest source-backed handoff",
+		"Start Here",
+		"Why Actionable",
+		"Proof Checkpoint",
 		"Operator Workbench",
 		"Signal Chain",
 		"Proof State",
@@ -6540,6 +6610,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"case_board",
 		"top_cases",
 		"first_action",
+		"operator_packet",
 		"operator_workbench",
 		"case_lifecycle",
 		"closure_plan",
@@ -6595,6 +6666,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, assessCurrentAction, "evidence_example")
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
 	assertRequiredKeys(t, assessWorkflowStep, "id", "title", "summary", "current", "evidence_refs", "starting_controls", "proof_surfaces", "commands", "success_criteria")
+	assessOperatorPacket := schemaMap(t, assessSchema, "$defs", "assess_operator_packet")
+	assertRequiredKeys(t, assessOperatorPacket, "available", "why_actionable", "normal_context", "evidence_to_open", "evidence_sources", "graph_path", "missing_controls", "present_controls", "target_controls", "proof_state", "commands", "done_criteria", "decision_rules", "limitations")
+	assessOperatorCommand := schemaMap(t, assessSchema, "$defs", "assess_operator_command")
+	assertRequiredKeys(t, assessOperatorCommand, "step", "id", "title", "files")
 	assessOperatorWorkbench := schemaMap(t, assessSchema, "$defs", "assess_operator_workbench")
 	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "signal_chain", "evidence_to_open", "graph_path", "proof", "proof_state", "verify", "actions", "done_criteria", "change_readout", "limitations")
 	assessWorkbenchProof := schemaMap(t, assessSchema, "$defs", "assess_workbench_proof")
@@ -7641,6 +7716,22 @@ func hasWorkbenchAction(items []model.AssessWorkbenchAction, id string, status s
 			return false
 		}
 		if doneFragment != "" && !containsString(item.DoneCriteria, doneFragment) {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func hasOperatorPacketCommand(items []model.AssessOperatorCommand, id string, commandFragment string, fileFragment string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		if commandFragment != "" && !strings.Contains(item.Command, commandFragment) {
+			return false
+		}
+		if fileFragment != "" && !containsString(item.Files, fileFragment) {
 			return false
 		}
 		return true

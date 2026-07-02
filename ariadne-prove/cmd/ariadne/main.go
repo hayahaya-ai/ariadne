@@ -66,7 +66,7 @@ func runAssess(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:input-isolation")
-	format := fs.String("format", "summary", "output format: summary, table, action, json, html")
+	format := fs.String("format", "summary", "output format: summary, operator, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -135,7 +135,7 @@ func runSelf(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:identity-credentials")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:credential-isolation")
-	format := fs.String("format", "summary", "output format: summary, table, action, json, html")
+	format := fs.String("format", "summary", "output format: summary, operator, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -1020,6 +1020,7 @@ Examples:
   ariadne self --format html --out ariadne-self-assessment.html
   ariadne self --case case:identity-credentials
   ariadne assess --path .
+  ariadne assess --path . --format operator
   ariadne assess --path . --format table
   ariadne assess --path . --format action
   ariadne assess --path . --format html --out ariadne-assessment.html

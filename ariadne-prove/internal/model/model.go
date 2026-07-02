@@ -337,6 +337,7 @@ type AssessReport struct {
 	TopCases          []ControlOperatorCase   `json:"top_cases"`
 	TopCaseProofPlan  *ProofPlanReport        `json:"top_case_proof_plan,omitempty"`
 	FirstAction       AssessFirstAction       `json:"first_action"`
+	OperatorPacket    AssessOperatorPacket    `json:"operator_packet"`
 	OperatorWorkbench AssessOperatorWorkbench `json:"operator_workbench"`
 	CaseLifecycle     AssessCaseLifecycle     `json:"case_lifecycle"`
 	ClosurePlan       []AssessClosurePlanItem `json:"closure_plan"`
@@ -498,6 +499,40 @@ type AssessWorkbenchProof struct {
 	DestinationPaths      []string                `json:"destination_paths"`
 	ApplyCommand          string                  `json:"apply_command,omitempty"`
 	ApplyCommands         []string                `json:"apply_commands"`
+}
+
+type AssessOperatorPacket struct {
+	Available       bool                      `json:"available"`
+	Status          string                    `json:"status,omitempty"`
+	Headline        string                    `json:"headline,omitempty"`
+	CaseID          string                    `json:"case_id,omitempty"`
+	CaseTitle       string                    `json:"case_title,omitempty"`
+	Severity        string                    `json:"severity,omitempty"`
+	State           string                    `json:"state,omitempty"`
+	CurrentStep     string                    `json:"current_step,omitempty"`
+	CurrentControl  string                    `json:"current_control,omitempty"`
+	ProofSurface    string                    `json:"proof_surface,omitempty"`
+	WhyActionable   []string                  `json:"why_actionable"`
+	NormalContext   []string                  `json:"normal_context"`
+	EvidenceToOpen  []EvidenceReference       `json:"evidence_to_open"`
+	EvidenceSources []string                  `json:"evidence_sources"`
+	GraphPath       []string                  `json:"graph_path"`
+	MissingControls []string                  `json:"missing_controls"`
+	PresentControls []string                  `json:"present_controls"`
+	TargetControls  []string                  `json:"target_controls"`
+	ProofState      AssessWorkbenchProofState `json:"proof_state"`
+	Commands        []AssessOperatorCommand   `json:"commands"`
+	DoneCriteria    []string                  `json:"done_criteria"`
+	DecisionRules   []string                  `json:"decision_rules"`
+	Limitations     []string                  `json:"limitations"`
+}
+
+type AssessOperatorCommand struct {
+	Step    int      `json:"step"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Command string   `json:"command,omitempty"`
+	Files   []string `json:"files"`
 }
 
 type AssessWorkbenchProofState struct {

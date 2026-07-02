@@ -188,6 +188,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
+	renderAssessOperatorPacketDashboard(w, r)
 	renderAssessOperatorWorkbenchDashboard(w, r)
 	renderAssessCaseLifecycleDashboard(w, r.TargetPath, r.CaseLifecycle)
 	renderAssessDecisionDashboard(w, r.TargetPath, r.Decision)
@@ -833,6 +834,56 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	if r.CaseFilter != "" || r.ControlFilter != "" {
 		fmt.Fprintf(w, `<div><strong>Focus:</strong> %s</div>`, esc(assessFocusSummary(r)))
 	}
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessOperatorPacketDashboard(w io.Writer, r model.AssessReport) {
+	packet := r.OperatorPacket
+	if !packet.Available {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Operator Packet</h2><div class="subtle">Smallest source-backed handoff: start here, open these files, apply this proof loop, then compare.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Verdict", statusLabel(firstNonEmpty(packet.Status, "unknown"))},
+		{"Case", firstNonEmpty(packet.CaseID, "not recorded")},
+		{"Control", firstNonEmpty(packet.CurrentControl, "not recorded")},
+		{"Proof surface", firstNonEmpty(packet.ProofSurface, "not recorded")},
+		{"State", firstNonEmpty(packet.State, "unknown")},
+	})
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Start Here</h3>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+		packet.CaseTitle+" ("+packet.CaseID+")",
+		"Severity: "+strings.ToUpper(firstNonEmpty(packet.Severity, "unknown")),
+		"Current step: "+firstNonEmpty(packet.CurrentStep, "not recorded"),
+		packet.Headline,
+	)))
+	fmt.Fprintln(w, `<h3>Why Actionable</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(packet.WhyActionable, 4)))
+	fmt.Fprintln(w, `<h3>Controls</h3>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+		"Missing: "+firstNonEmpty(strings.Join(limitStrings(packet.MissingControls, 6), "; "), "none"),
+		"Observed: "+firstNonEmpty(strings.Join(limitStrings(packet.PresentControls, 5), "; "), "none"),
+		"Targets: "+firstNonEmpty(strings.Join(limitStrings(packet.TargetControls, 6), "; "), "none"),
+	)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Evidence To Open</h3>`)
+	renderAssessEvidenceReferenceTable(w, r.TargetPath, packet.EvidenceToOpen, 6)
+	fmt.Fprintln(w, `<h3>Proof Checkpoint</h3>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+		"Current state: "+firstNonEmpty(packet.ProofState.CurrentState, "unknown"),
+		packet.ProofState.ClosureCondition,
+		"Artifacts: "+strings.Join(nonEmptyStrings(packet.ProofState.BaselineArtifact, packet.ProofState.AfterArtifact, packet.ProofState.CompareArtifact), " -> "),
+	)))
+	fmt.Fprintln(w, `<h3>Commands</h3>`)
+	fmt.Fprintln(w, renderCommandList(assessOperatorPacketCommandStrings(packet.Commands)))
+	fmt.Fprintln(w, `<h3>Done When</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(packet.DoneCriteria, 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
 }
 

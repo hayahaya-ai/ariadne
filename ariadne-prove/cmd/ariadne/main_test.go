@@ -30,12 +30,18 @@ func TestResolveDefaultStoryRootFindsRepoSubdir(t *testing.T) {
 func TestRunAssessDefaultsToSummary(t *testing.T) {
 	root := t.TempDir()
 	summaryPath := filepath.Join(root, "assess-summary.txt")
+	operatorPath := filepath.Join(root, "assess-operator.txt")
 	tablePath := filepath.Join(root, "assess-table.txt")
 	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
 
 	runAssess([]string{
 		"--path", target,
 		"--out", summaryPath,
+	})
+	runAssess([]string{
+		"--path", target,
+		"--format", "operator",
+		"--out", operatorPath,
 	})
 	runAssess([]string{
 		"--path", target,
@@ -56,6 +62,23 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	}
 	if strings.Contains(summary, "Ariadne Assess") || strings.Contains(summary, "Architecture break paths:") {
 		t.Fatalf("default assess should be compact summary, not full table:\n%s", summary)
+	}
+
+	operator := readTestFile(t, operatorPath)
+	for _, want := range []string{
+		"Ariadne Operator Packet",
+		"Start here:",
+		"Evidence to open:",
+		"Proof checkpoint:",
+		"Commands:",
+		"Compare before and after:",
+	} {
+		if !strings.Contains(operator, want) {
+			t.Fatalf("operator assess output missing %q:\n%s", want, operator)
+		}
+	}
+	if strings.Contains(operator, "Architecture break paths:") {
+		t.Fatalf("operator assess output should stay compact:\n%s", operator)
 	}
 
 	table := readTestFile(t, tablePath)
@@ -92,6 +115,7 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 	assessment := readTestFile(t, assessmentPath)
 	for _, want := range []string{
 		"Ariadne Assessment",
+		"Operator Packet",
 		"Operator Cases",
 		"Export proof files",
 		"--patch-dir proof-patches",

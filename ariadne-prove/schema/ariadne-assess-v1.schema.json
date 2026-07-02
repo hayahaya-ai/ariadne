@@ -23,6 +23,7 @@
     "case_board",
     "top_cases",
     "first_action",
+    "operator_packet",
     "operator_workbench",
     "case_lifecycle",
     "closure_plan",
@@ -64,6 +65,7 @@
     },
     "top_case_proof_plan": { "$ref": "ariadne-proof-plan-v1.schema.json" },
     "first_action": { "$ref": "#/$defs/assess_first_action" },
+    "operator_packet": { "$ref": "#/$defs/assess_operator_packet" },
     "operator_workbench": { "$ref": "#/$defs/assess_operator_workbench" },
     "case_lifecycle": { "$ref": "#/$defs/assess_case_lifecycle" },
     "closure_plan": {
@@ -554,6 +556,67 @@
           "type": "array",
           "items": { "type": "string" }
         }
+      }
+    },
+    "assess_operator_packet": {
+      "type": "object",
+      "required": [
+        "available",
+        "why_actionable",
+        "normal_context",
+        "evidence_to_open",
+        "evidence_sources",
+        "graph_path",
+        "missing_controls",
+        "present_controls",
+        "target_controls",
+        "proof_state",
+        "commands",
+        "done_criteria",
+        "decision_rules",
+        "limitations"
+      ],
+      "properties": {
+        "available": { "type": "boolean" },
+        "status": { "type": "string" },
+        "headline": { "type": "string" },
+        "case_id": { "type": "string" },
+        "case_title": { "type": "string" },
+        "severity": { "type": "string" },
+        "state": { "type": "string" },
+        "current_step": { "type": "string" },
+        "current_control": { "type": "string" },
+        "proof_surface": { "type": "string" },
+        "why_actionable": { "type": "array", "items": { "type": "string" } },
+        "normal_context": { "type": "array", "items": { "type": "string" } },
+        "evidence_to_open": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "graph_path": { "type": "array", "items": { "type": "string" } },
+        "missing_controls": { "type": "array", "items": { "type": "string" } },
+        "present_controls": { "type": "array", "items": { "type": "string" } },
+        "target_controls": { "type": "array", "items": { "type": "string" } },
+        "proof_state": { "$ref": "#/$defs/assess_workbench_proof_state" },
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_operator_command" }
+        },
+        "done_criteria": { "type": "array", "items": { "type": "string" } },
+        "decision_rules": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "assess_operator_command": {
+      "type": "object",
+      "required": ["step", "id", "title", "files"],
+      "properties": {
+        "step": { "type": "integer" },
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "command": { "type": "string" },
+        "files": { "type": "array", "items": { "type": "string" } }
       }
     },
     "assess_operator_workbench": {
