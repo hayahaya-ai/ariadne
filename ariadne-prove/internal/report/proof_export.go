@@ -42,6 +42,7 @@ type proofPatchExportManifestFile struct {
 	Surface              string   `json:"surface"`
 	SuggestedDestination string   `json:"suggested_destination"`
 	DestinationPath      string   `json:"destination_path,omitempty"`
+	ApplyCommand         string   `json:"apply_command,omitempty"`
 	Format               string   `json:"format"`
 	Controls             []string `json:"controls"`
 	PatchCount           int      `json:"patch_count"`
@@ -102,11 +103,13 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 		}
 		result.Files = append(result.Files, absPath)
 		destinationPath := proofPatchSuggestedDestinationPath(plan.TargetPath, group.Surface)
+		applyCommand := proofPatchApplyCommand(relPath, destinationPath)
 		manifest.Files = append(manifest.Files, proofPatchExportManifestFile{
 			Path:                 relPath,
 			Surface:              group.Surface,
 			SuggestedDestination: group.Surface,
 			DestinationPath:      destinationPath,
+			ApplyCommand:         applyCommand,
 			Format:               group.Format,
 			Controls:             group.Controls,
 			PatchCount:           len(group.Patches),
@@ -244,6 +247,9 @@ func proofPatchExportReadme(plan model.ProofPlanReport, manifest proofPatchExpor
 		if file.DestinationPath != "" {
 			fmt.Fprintf(&b, "  - Suggested destination: `%s`\n", file.DestinationPath)
 		}
+		if file.ApplyCommand != "" {
+			fmt.Fprintf(&b, "  - Review/apply command: `%s`\n", file.ApplyCommand)
+		}
 	}
 	if len(manifest.Workflow) > 0 {
 		b.WriteString("\n## Workflow\n\n")
@@ -299,6 +305,16 @@ func proofPatchSuggestedDestinationPath(targetPath, surface string) string {
 		return surface
 	}
 	return filepath.Clean(filepath.Join(targetPath, surface))
+}
+
+func proofPatchApplyCommand(relPath, destinationPath string) string {
+	relPath = strings.TrimSpace(relPath)
+	destinationPath = strings.TrimSpace(destinationPath)
+	if relPath == "" || destinationPath == "" {
+		return ""
+	}
+	destinationDir := filepath.Dir(destinationPath)
+	return fmt.Sprintf("mkdir -p %s && cp %s %s", shellQuoteCommandArg(destinationDir), shellQuoteCommandArg(relPath), shellQuoteCommandArg(destinationPath))
 }
 
 func sortedMapKeys(values map[string]string) []string {
