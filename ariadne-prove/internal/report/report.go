@@ -4484,6 +4484,12 @@ func renderProofPlanAction(w io.Writer, r model.ProofPlanReport) error {
 		for _, line := range evidenceReferenceLinesBySource(evidenceRefs, 4) {
 			fmt.Fprintf(w, "  - %s\n", line)
 		}
+		if sources := evidenceReferenceSources(evidenceRefs, false); len(sources) > 0 {
+			fmt.Fprintf(w, "\nEvidence sources:\n")
+			for _, source := range limitStrings(sources, 8) {
+				fmt.Fprintf(w, "  - %s\n", source)
+			}
+		}
 	}
 
 	if hasPatch {

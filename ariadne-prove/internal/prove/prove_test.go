@@ -3516,6 +3516,7 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"Input Trust Boundary (case:input-trust-boundary)",
 		"State: open",
 		"Evidence to inspect:",
+		"Evidence sources:",
 		"CLAUDE.md",
 		"Proof to add or verify:",
 		"Control: control:input-isolation",
@@ -3537,6 +3538,21 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	} {
 		if !strings.Contains(actionOut, want) {
 			t.Fatalf("proof action output missing %q:\n%s", want, actionOut)
+		}
+	}
+	actionSourceBlock := boundedBlock(t, actionOut, "Evidence sources:", "Proof to add or verify:")
+	if !strings.Contains(actionSourceBlock, "CLAUDE.md") {
+		t.Fatalf("proof action evidence sources should include CLAUDE.md:\n%s", actionSourceBlock)
+	}
+
+	var egressAction bytes.Buffer
+	if err := report.RenderProofs(&egressAction, r, "action", "breaking", "case:egress-output-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	egressSourceBlock := boundedBlock(t, egressAction.String(), "Evidence sources:", "Proof to add or verify:")
+	for _, want := range []string{".claude/settings.json", ".codex/config.toml", ".env"} {
+		if !strings.Contains(egressSourceBlock, want) {
+			t.Fatalf("egress proof action evidence sources should include %q:\n%s", want, egressSourceBlock)
 		}
 	}
 
