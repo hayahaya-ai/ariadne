@@ -550,6 +550,8 @@ func compareCase(before model.ControlOperatorCase, beforeOK bool, after model.Co
 		AfterProofPatches:  caseProofPatchCount(after, afterOK),
 		BeforeEvidenceRefs: caseEvidenceRefCount(before, beforeOK),
 		AfterEvidenceRefs:  caseEvidenceRefCount(after, afterOK),
+		BeforeEvidence:     caseEvidenceReferences(before, beforeOK),
+		AfterEvidence:      caseEvidenceReferences(after, afterOK),
 		BeforeTargets:      normalizedCaseTargets(before, beforeOK),
 		AfterTargets:       normalizedCaseTargets(after, afterOK),
 		BeforeFlaws:        normalizedCaseFlaws(before, beforeOK),
@@ -559,6 +561,8 @@ func compareCase(before model.ControlOperatorCase, beforeOK bool, after model.Co
 	}
 	item.AddedControls = subtractStrings(item.AfterControls, item.BeforeControls)
 	item.RemovedControls = subtractStrings(item.BeforeControls, item.AfterControls)
+	item.AddedEvidence = subtractEvidenceReferences(item.AfterEvidence, item.BeforeEvidence)
+	item.RemovedEvidence = subtractEvidenceReferences(item.BeforeEvidence, item.AfterEvidence)
 	item.Disposition = caseCompareDisposition(beforeOK, beforeState, before, afterOK, afterState, after, item)
 	return item
 }
@@ -601,6 +605,7 @@ func caseCompareChanged(before model.ControlOperatorCase, after model.ControlOpe
 		!equalStrings(item.BeforeFlaws, item.AfterFlaws) ||
 		item.BeforeProofPatches != item.AfterProofPatches ||
 		item.BeforeEvidenceRefs != item.AfterEvidenceRefs ||
+		!equalEvidenceReferences(item.BeforeEvidence, item.AfterEvidence) ||
 		strings.TrimSpace(before.StateReason) != strings.TrimSpace(after.StateReason) ||
 		strings.TrimSpace(before.NextStep) != strings.TrimSpace(after.NextStep)
 }
@@ -692,6 +697,48 @@ func caseEvidenceRefCount(item model.ControlOperatorCase, ok bool) int {
 	return len(dedupeEvidenceReferences(item.EvidenceReferences))
 }
 
+func caseEvidenceReferences(item model.ControlOperatorCase, ok bool) []model.EvidenceReference {
+	if !ok {
+		return []model.EvidenceReference{}
+	}
+	return dedupeEvidenceReferences(item.EvidenceReferences)
+}
+
+func subtractEvidenceReferences(values []model.EvidenceReference, remove []model.EvidenceReference) []model.EvidenceReference {
+	removed := map[string]bool{}
+	for _, item := range dedupeEvidenceReferences(remove) {
+		removed[evidenceReferenceKey(item)] = true
+	}
+	var out []model.EvidenceReference
+	for _, item := range dedupeEvidenceReferences(values) {
+		if !removed[evidenceReferenceKey(item)] {
+			out = append(out, item)
+		}
+	}
+	if out == nil {
+		return []model.EvidenceReference{}
+	}
+	return out
+}
+
+func equalEvidenceReferences(a []model.EvidenceReference, b []model.EvidenceReference) bool {
+	a = dedupeEvidenceReferences(a)
+	b = dedupeEvidenceReferences(b)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if evidenceReferenceKey(a[i]) != evidenceReferenceKey(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func evidenceReferenceKey(value model.EvidenceReference) string {
+	return value.Target + "|" + value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary
+}
+
 func incrementCaseCompareSummary(summary *model.CaseCompareSummary, disposition string) {
 	switch disposition {
 	case "closed":
@@ -748,6 +795,15 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 			fmt.Fprintf(w, "    Removed controls: %s\n", strings.Join(item.RemovedControls, "; "))
 		}
 		fmt.Fprintf(w, "    Proof patches: %d -> %d; evidence refs: %d -> %d\n", item.BeforeProofPatches, item.AfterProofPatches, item.BeforeEvidenceRefs, item.AfterEvidenceRefs)
+		if len(item.AfterEvidence) > 0 {
+			fmt.Fprintf(w, "    After evidence: %s\n", strings.Join(evidenceReferenceLines(item.AfterEvidence, 3), "; "))
+		}
+		if len(item.AddedEvidence) > 0 {
+			fmt.Fprintf(w, "    Added evidence: %s\n", strings.Join(evidenceReferenceLines(item.AddedEvidence, 3), "; "))
+		}
+		if len(item.RemovedEvidence) > 0 {
+			fmt.Fprintf(w, "    Removed evidence: %s\n", strings.Join(evidenceReferenceLines(item.RemovedEvidence, 3), "; "))
+		}
 		if item.AfterNextStep != "" {
 			fmt.Fprintf(w, "    After next step: %s\n", item.AfterNextStep)
 		}
@@ -2408,6 +2464,7 @@ func filterControlCaseBoard(catalog *model.ControlCatalogReport, caseFilter stri
 type focusedClosedCaseTarget struct {
 	TargetID string
 	Flaws    []model.ZeroTrustArchitecture
+	Graph    model.Graph
 }
 
 func buildFocusedClosedCaseBoardReport(r model.Report, statusFilter string, caseFilter string) (model.ControlCatalogReport, bool, error) {
@@ -2426,7 +2483,7 @@ func buildFocusedClosedCaseBoardReport(r model.Report, statusFilter string, case
 		Agent:        architecture.Agent,
 		StatusFilter: firstNonEmpty(statusFilter, "breaking"),
 	}
-	item, ok := buildFocusedClosedOperatorCase(familyID, []focusedClosedCaseTarget{{TargetID: "target", Flaws: architecture.Flaws}}, ctx)
+	item, ok := buildFocusedClosedOperatorCase(familyID, []focusedClosedCaseTarget{{TargetID: "target", Flaws: architecture.Flaws, Graph: r.Graph}}, ctx)
 	if !ok {
 		return model.ControlCatalogReport{}, false, nil
 	}
@@ -2451,7 +2508,14 @@ func buildFocusedClosedCaseBoardScanReport(r model.ScanReport, statusFilter stri
 		if targetID == "" {
 			targetID = "target"
 		}
-		targets = append(targets, focusedClosedCaseTarget{TargetID: targetID, Flaws: target.Flaws})
+		var graph model.Graph
+		for _, scanTarget := range r.Targets {
+			if firstNonEmpty(scanTarget.Target.ID, "target") == targetID {
+				graph = scanTarget.Report.Graph
+				break
+			}
+		}
+		targets = append(targets, focusedClosedCaseTarget{TargetID: targetID, Flaws: target.Flaws, Graph: graph})
 	}
 	ctx := controlVerificationCommandContext{
 		RunKind:      "case_board_scan",
@@ -2522,6 +2586,7 @@ func buildFocusedClosedOperatorCase(familyID string, targets []focusedClosedCase
 			}
 			observedControls = append(observedControls, controls...)
 			evidenceRefs = append(evidenceRefs, evidenceReferencesForFlaw(targetID, flaw)...)
+			evidenceRefs = append(evidenceRefs, controlEvidenceReferencesFromGraph(targetID, controls, target.Graph)...)
 			proofSurfaces = append(proofSurfaces, flaw.EvidenceSurfaces...)
 			proofSurfaces = append(proofSurfaces, zeroTrustEvidenceSources(flaw.Evidence)...)
 		}
@@ -2564,6 +2629,31 @@ func buildFocusedClosedOperatorCase(familyID string, targets []focusedClosedCase
 			"Closed means deterministic hard-barrier evidence was observed; Ariadne still does not prove live enforcement unless runtime enforcement evidence is collected.",
 		},
 	}, true
+}
+
+func controlEvidenceReferencesFromGraph(target string, controls []string, graph model.Graph) []model.EvidenceReference {
+	controlSet := map[string]bool{}
+	for _, control := range controls {
+		controlSet[control] = true
+	}
+	var refs []model.EvidenceReference
+	for _, node := range graph.Nodes {
+		if !controlSet[node.ID] || node.Type != "control" || node.Source == "" {
+			continue
+		}
+		summary := "Control evidence was observed."
+		if node.Label != "" {
+			summary = fmt.Sprintf("Control evidence was observed for %s.", node.Label)
+		}
+		refs = append(refs, model.EvidenceReference{
+			Target:  target,
+			ID:      node.ID,
+			Kind:    "control",
+			Source:  node.Source,
+			Summary: summary,
+		})
+	}
+	return dedupeEvidenceReferences(refs)
 }
 
 func controlledFlawMatchesFamily(flaw model.ZeroTrustArchitecture, familyID string) (string, []string, bool) {

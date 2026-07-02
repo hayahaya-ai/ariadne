@@ -210,28 +210,32 @@ type CaseCompareSummary struct {
 }
 
 type CaseCompareResult struct {
-	ID                 string   `json:"id"`
-	Title              string   `json:"title"`
-	Severity           string   `json:"severity"`
-	Disposition        string   `json:"disposition"`
-	BeforeState        string   `json:"before_state"`
-	AfterState         string   `json:"after_state"`
-	BeforeStateReason  string   `json:"before_state_reason"`
-	AfterStateReason   string   `json:"after_state_reason"`
-	BeforeControls     []string `json:"before_controls"`
-	AfterControls      []string `json:"after_controls"`
-	AddedControls      []string `json:"added_controls"`
-	RemovedControls    []string `json:"removed_controls"`
-	BeforeProofPatches int      `json:"before_proof_patches"`
-	AfterProofPatches  int      `json:"after_proof_patches"`
-	BeforeEvidenceRefs int      `json:"before_evidence_refs"`
-	AfterEvidenceRefs  int      `json:"after_evidence_refs"`
-	BeforeTargets      []string `json:"before_targets"`
-	AfterTargets       []string `json:"after_targets"`
-	BeforeFlaws        []string `json:"before_flaws"`
-	AfterFlaws         []string `json:"after_flaws"`
-	BeforeNextStep     string   `json:"before_next_step"`
-	AfterNextStep      string   `json:"after_next_step"`
+	ID                 string              `json:"id"`
+	Title              string              `json:"title"`
+	Severity           string              `json:"severity"`
+	Disposition        string              `json:"disposition"`
+	BeforeState        string              `json:"before_state"`
+	AfterState         string              `json:"after_state"`
+	BeforeStateReason  string              `json:"before_state_reason"`
+	AfterStateReason   string              `json:"after_state_reason"`
+	BeforeControls     []string            `json:"before_controls"`
+	AfterControls      []string            `json:"after_controls"`
+	AddedControls      []string            `json:"added_controls"`
+	RemovedControls    []string            `json:"removed_controls"`
+	BeforeProofPatches int                 `json:"before_proof_patches"`
+	AfterProofPatches  int                 `json:"after_proof_patches"`
+	BeforeEvidenceRefs int                 `json:"before_evidence_refs"`
+	AfterEvidenceRefs  int                 `json:"after_evidence_refs"`
+	BeforeEvidence     []EvidenceReference `json:"before_evidence_details"`
+	AfterEvidence      []EvidenceReference `json:"after_evidence_details"`
+	AddedEvidence      []EvidenceReference `json:"added_evidence_refs"`
+	RemovedEvidence    []EvidenceReference `json:"removed_evidence_refs"`
+	BeforeTargets      []string            `json:"before_targets"`
+	AfterTargets       []string            `json:"after_targets"`
+	BeforeFlaws        []string            `json:"before_flaws"`
+	AfterFlaws         []string            `json:"after_flaws"`
+	BeforeNextStep     string              `json:"before_next_step"`
+	AfterNextStep      string              `json:"after_next_step"`
 }
 
 type AssessReport struct {

@@ -3273,6 +3273,12 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	if compare.Cases[0].BeforeProofPatches != 2 || compare.Cases[0].AfterProofPatches != 0 {
 		t.Fatalf("compare should show proof patches going to zero: %+v", compare.Cases[0])
 	}
+	if len(compare.Cases[0].AfterEvidence) == 0 || !containsEvidenceReferenceSource(compare.Cases[0].AfterEvidence, ".ariadne/input-policy.json") {
+		t.Fatalf("compare should include source-backed after evidence details: %+v", compare.Cases[0].AfterEvidence)
+	}
+	if len(compare.Cases[0].AddedEvidence) == 0 || !containsEvidenceReferenceSource(compare.Cases[0].AddedEvidence, ".ariadne/input-policy.json") {
+		t.Fatalf("compare should include added evidence refs for the closed case: %+v", compare.Cases[0].AddedEvidence)
+	}
 
 	var table bytes.Buffer
 	if err := report.RenderCaseCompare(&table, compare, "table"); err != nil {
@@ -3285,6 +3291,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"open -> closed",
 		"After controls: control:input-isolation; control:trusted-source-policy",
 		"Proof patches: 2 -> 0",
+		"After evidence:",
+		"Added evidence:",
+		".ariadne/input-policy.json",
 	} {
 		if !strings.Contains(tableOut, want) {
 			t.Fatalf("compare table missing %q:\n%s", want, tableOut)
@@ -3303,6 +3312,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"CLOSED",
 		"control:input-isolation",
 		"2 -> 0",
+		"After evidence",
+		"Added evidence",
+		".ariadne/input-policy.json",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("compare dashboard missing %q:\n%s", want, rendered)
@@ -4060,7 +4072,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	caseCompareSummary := schemaMap(t, caseCompareSchema, "$defs", "case_compare_summary")
 	assertRequiredKeys(t, caseCompareSummary, "cases", "closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed")
 	caseCompareResult := schemaMap(t, caseCompareSchema, "$defs", "case_compare_result")
-	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_next_step", "after_next_step")
+	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_evidence_details", "after_evidence_details", "added_evidence_refs", "removed_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_next_step", "after_next_step")
 
 	assessSchema := loadSchema(t, "ariadne-assess-v1.schema.json")
 	assertRequiredKeys(t, assessSchema,
@@ -4520,6 +4532,15 @@ func containsExactString(values []string, target string) bool {
 func containsString(values []string, fragment string) bool {
 	for _, value := range values {
 		if strings.Contains(value, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEvidenceReferenceSource(values []model.EvidenceReference, fragment string) bool {
+	for _, value := range values {
+		if strings.Contains(value.Source, fragment) {
 			return true
 		}
 	}

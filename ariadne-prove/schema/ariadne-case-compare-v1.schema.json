@@ -67,6 +67,10 @@
         "after_proof_patches",
         "before_evidence_refs",
         "after_evidence_refs",
+        "before_evidence_details",
+        "after_evidence_details",
+        "added_evidence_refs",
+        "removed_evidence_refs",
         "before_targets",
         "after_targets",
         "before_flaws",
@@ -94,6 +98,22 @@
         "after_proof_patches": { "type": "integer" },
         "before_evidence_refs": { "type": "integer" },
         "after_evidence_refs": { "type": "integer" },
+        "before_evidence_details": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "after_evidence_details": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "added_evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "removed_evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
         "before_targets": { "type": "array", "items": { "type": "string" } },
         "after_targets": { "type": "array", "items": { "type": "string" } },
         "before_flaws": { "type": "array", "items": { "type": "string" } },
