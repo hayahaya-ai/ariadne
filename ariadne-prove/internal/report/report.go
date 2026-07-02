@@ -2218,6 +2218,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	renderAssessLethalTrifecta(w, r.LethalTrifecta)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
+	renderAssessCaseLifecycle(w, r.CaseLifecycle, 9)
 	renderAssessClosurePlan(w, r.ClosurePlan, 3)
 	action := r.FirstAction
 	if !action.Available {
@@ -5409,6 +5410,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	renderAssessLethalTrifecta(w, r.LethalTrifecta)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
+	renderAssessCaseLifecycle(w, r.CaseLifecycle, 9)
 	renderAssessClosurePlan(w, r.ClosurePlan, 5)
 	renderAssessFirstAction(w, r.FirstAction)
 
@@ -5659,6 +5661,69 @@ func renderAssessControlState(w io.Writer, state model.AssessControlState) {
 	renderAssessEvidenceSources(w, state.EvidenceSources, 8)
 	if len(state.ProofSurfaces) > 0 {
 		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(state.ProofSurfaces, 8), "; "))
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessCaseLifecycle(w io.Writer, lifecycle model.AssessCaseLifecycle, limit int) {
+	if !lifecycle.Available && lifecycle.Summary == "" && len(lifecycle.Steps) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Case lifecycle:\n")
+	if lifecycle.CaseID != "" {
+		fmt.Fprintf(w, "  - Case: %s (%s)\n", firstNonEmpty(lifecycle.CaseTitle, lifecycle.CaseID), lifecycle.CaseID)
+	}
+	if lifecycle.CaseState != "" {
+		fmt.Fprintf(w, "  - State: %s\n", readableToken(lifecycle.CaseState))
+	}
+	if lifecycle.CurrentStepID != "" {
+		fmt.Fprintf(w, "  - Current step: %s\n", lifecycle.CurrentStepID)
+	}
+	if lifecycle.Summary != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", lifecycle.Summary)
+	}
+	steps := lifecycle.Steps
+	if limit > 0 && len(steps) > limit {
+		steps = steps[:limit]
+	}
+	for idx, step := range steps {
+		title := firstNonEmpty(step.Title, step.ID)
+		status := readableToken(step.Status)
+		if status != "" {
+			fmt.Fprintf(w, "  - %d. %s [%s]: %s\n", idx+1, title, status, step.Summary)
+		} else {
+			fmt.Fprintf(w, "  - %d. %s: %s\n", idx+1, title, step.Summary)
+		}
+		for _, command := range firstStrings(step.Commands, 2) {
+			fmt.Fprintf(w, "    - Command: %s\n", command)
+		}
+		for _, artifact := range firstStrings(step.Artifacts, 2) {
+			fmt.Fprintf(w, "    - Artifact: %s\n", artifact)
+		}
+		for _, surface := range firstStrings(step.ProofSurfaces, 3) {
+			fmt.Fprintf(w, "    - Proof surface: %s\n", surface)
+		}
+		for _, control := range firstStrings(step.Controls, 3) {
+			fmt.Fprintf(w, "    - Control: %s\n", control)
+		}
+		for _, evidence := range evidenceReferenceLinesBySource(step.EvidenceReferences, 2) {
+			fmt.Fprintf(w, "    - Evidence: %s\n", evidence)
+		}
+		for _, criterion := range firstStrings(step.SuccessCriteria, 2) {
+			fmt.Fprintf(w, "    - Done when: %s\n", criterion)
+		}
+		for _, limitation := range firstStrings(step.Limitations, 2) {
+			fmt.Fprintf(w, "    - Limitation: %s\n", limitation)
+		}
+	}
+	if len(lifecycle.Steps) > len(steps) {
+		fmt.Fprintf(w, "  - %d more lifecycle step(s) in JSON\n", len(lifecycle.Steps)-len(steps))
+	}
+	for _, readout := range firstStrings(lifecycle.Readout, 2) {
+		fmt.Fprintf(w, "  - Lifecycle readout: %s\n", readout)
+	}
+	for _, limitation := range firstStrings(lifecycle.Limitations, 2) {
+		fmt.Fprintf(w, "  - Limitation: %s\n", limitation)
 	}
 	fmt.Fprintln(w)
 }
