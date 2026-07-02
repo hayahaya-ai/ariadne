@@ -1615,6 +1615,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	renderAssessFocusLine(w, r)
 	fmt.Fprintf(w, "Open cases: %d; missing hard barriers: %d; exposed paths: %d\n\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
 
+	renderAssessInventorySummary(w, r.Inventory, 4)
 	renderAssessTriage(w, r.Triage)
 	renderAssessClosurePlan(w, r.ClosurePlan, 3)
 	action := r.FirstAction
@@ -2804,21 +2805,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	renderAssessClosurePlan(w, r.ClosurePlan, 5)
 	renderAssessFirstAction(w, r.FirstAction)
 
-	if r.Inventory.Surfaces > 0 || r.Inventory.Facts > 0 || r.Inventory.GraphNodes > 0 {
-		fmt.Fprintf(w, "What was inspected:\n")
-		fmt.Fprintf(w, "  - AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)\n", r.Inventory.Surfaces, r.Inventory.Facts, r.Inventory.GraphNodes, r.Inventory.GraphEdges)
-		fmt.Fprintf(w, "  - Runtimes: %d; trust inputs: %d; tools: %d; authorities: %d; controls: %d; boundaries: %d\n", r.Inventory.Runtimes, r.Inventory.TrustInputs, r.Inventory.Tools, r.Inventory.Authorities, r.Inventory.Controls, r.Inventory.Boundaries)
-		if len(r.Inventory.SurfaceCategories) > 0 {
-			fmt.Fprintf(w, "  - Surface categories: %s\n", assessCountLine(r.Inventory.SurfaceCategories))
-		}
-		if len(r.Inventory.HandlingModes) > 0 {
-			fmt.Fprintf(w, "  - Handling modes: %s\n", assessCountLine(r.Inventory.HandlingModes))
-		}
-		if len(r.Inventory.SurfaceMap) > 0 {
-			fmt.Fprintf(w, "  - Runtime surface map: %s\n", strings.Join(limitStrings(surfaceMapSummaryLines(r.Inventory.SurfaceMap), 5), "; "))
-		}
-		fmt.Fprintln(w)
-	}
+	renderAssessInventorySummary(w, r.Inventory, 5)
 
 	renderAssessClosureEvidence(w, r.ClosureEvidence)
 	renderAssessArchitectureBreaks(w, r)
@@ -3213,10 +3200,54 @@ func assessCountLine(items []model.AssessCount) string {
 	return strings.Join(parts, "; ")
 }
 
+func renderAssessInventorySummary(w io.Writer, inventory model.AssessInventory, surfaceMapLimit int) {
+	if inventory.Surfaces == 0 && inventory.Facts == 0 && inventory.GraphNodes == 0 {
+		return
+	}
+	fmt.Fprintf(w, "What was inspected:\n")
+	fmt.Fprintf(w, "  - AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)\n", inventory.Surfaces, inventory.Facts, inventory.GraphNodes, inventory.GraphEdges)
+	fmt.Fprintf(w, "  - Runtimes: %d; trust inputs: %d; tools: %d; authorities: %d; controls: %d; boundaries: %d\n", inventory.Runtimes, inventory.TrustInputs, inventory.Tools, inventory.Authorities, inventory.Controls, inventory.Boundaries)
+	if len(inventory.SurfaceCategories) > 0 {
+		fmt.Fprintf(w, "  - Surface categories: %s\n", assessCountLine(inventory.SurfaceCategories))
+	}
+	if len(inventory.HandlingModes) > 0 {
+		fmt.Fprintf(w, "  - Handling modes: %s\n", assessCountLine(inventory.HandlingModes))
+	}
+	if len(inventory.SurfaceMap) > 0 {
+		fmt.Fprintf(w, "  - Runtime surface map: %s\n", strings.Join(limitStrings(surfaceMapSummaryLines(inventory.SurfaceMap), surfaceMapLimit), "; "))
+	}
+	fmt.Fprintln(w)
+}
+
 func surfaceMapSummaryLines(items []model.SurfaceMap) []string {
 	lines := make([]string, 0, len(items))
 	for _, item := range items {
-		lines = append(lines, fmt.Sprintf("%s/%s=%d", item.Runtime, item.Scope, item.SurfaceCount))
+		parts := []string{fmt.Sprintf("%s/%s surfaces=%d", item.Runtime, item.Scope, item.SurfaceCount)}
+		if item.Parsed > 0 {
+			parts = append(parts, fmt.Sprintf("parse=%d", item.Parsed))
+		}
+		if item.Summarized > 0 {
+			parts = append(parts, fmt.Sprintf("summarize=%d", item.Summarized))
+		}
+		if item.BoundaryIndicators > 0 {
+			parts = append(parts, fmt.Sprintf("boundary=%d", item.BoundaryIndicators))
+		}
+		if item.Skipped > 0 {
+			parts = append(parts, fmt.Sprintf("skip=%d", item.Skipped))
+		}
+		if len(item.SourceRefs) > 0 {
+			parts = append(parts, "refs="+strings.Join(limitStrings(item.SourceRefs, 3), ", "))
+		}
+		if len(item.Authorities) > 0 {
+			parts = append(parts, "authorities="+strings.Join(limitStrings(item.Authorities, 3), ", "))
+		}
+		if len(item.Tools) > 0 {
+			parts = append(parts, "tools="+strings.Join(limitStrings(item.Tools, 3), ", "))
+		}
+		if len(item.Controls) > 0 {
+			parts = append(parts, "controls="+strings.Join(limitStrings(item.Controls, 3), ", "))
+		}
+		lines = append(lines, strings.Join(parts, " "))
 	}
 	return lines
 }

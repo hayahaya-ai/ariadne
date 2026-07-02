@@ -3670,6 +3670,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Accepted evidence:",
 		"Proof patch:",
 		"What was inspected:",
+		"Runtime surface map:",
+		".claude/settings.json",
 		"Architecture break paths:",
 		"Operator cases:",
 		"case:egress-output-boundary",
@@ -3850,6 +3852,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Closure plan:",
 		"control:egress-destination-allowlist -> Egress And Output Boundary",
 		"What it closes:",
+		"What was inspected:",
+		"AI surfaces:",
+		"typed facts:",
+		"Runtime surface map:",
+		".codex/config.toml",
+		"CLAUDE.md",
 		"Normal capability:",
 		"Missing hard barrier:",
 		"Current action:",
@@ -3872,7 +3880,6 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	for _, unwanted := range []string{
 		"Architecture break paths:",
 		"Operator cases:",
-		"What was inspected:",
 		"Top case proof packet:",
 	} {
 		if strings.Contains(actionRendered, unwanted) {
@@ -4158,6 +4165,9 @@ func TestAssessReportSupportsFocusedCaseAndControl(t *testing.T) {
 		"control:trusted-source-policy -> Input Trust Boundary",
 		"Control: control:trusted-source-policy",
 		"Proof surface: .ariadne/input-policy.json",
+		"What was inspected:",
+		"Runtime surface map:",
+		"CLAUDE.md",
 	} {
 		if !strings.Contains(actionRendered, want) {
 			t.Fatalf("focused assessment action output missing %q:\n%s", want, actionRendered)
