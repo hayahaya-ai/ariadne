@@ -144,7 +144,7 @@ func runSelf(args []string) {
 	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
 	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
-	bundleDir := fs.String("bundle-dir", "", "write a first-run evidence bundle with summary, dashboard, inventory, cases, and proof plan")
+	bundleDir := fs.String("bundle-dir", "", "write a first-run evidence bundle with summary, operator packet, dashboard, inventory, cases, and proof plan")
 	fs.Parse(args)
 	targetPath := strings.TrimSpace(*path)
 	if targetPath == "" {
@@ -243,6 +243,7 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		Files: []selfAssessmentBundleFile{
 			{Name: "assessment.txt", Path: filepath.Join(absDir, "assessment.txt"), Description: "Compact human readout with the decision, evidence, first action, and rerun commands."},
 			{Name: "assessment.json", Path: filepath.Join(absDir, "assessment.json"), Description: "Structured assessment contract for automation and UI consumers."},
+			{Name: "operator-packet.txt", Path: filepath.Join(absDir, "operator-packet.txt"), Description: "Small ticket-style handoff with source refs, graph path, controls, proof checkpoint, commands, and done criteria."},
 			{Name: "dashboard.html", Path: filepath.Join(absDir, "dashboard.html"), Description: "Local operator dashboard with the same assessment evidence."},
 			{Name: "inventory.json", Path: filepath.Join(absDir, "inventory.json"), Description: "Deterministic AI surface inventory facts without exposure classification."},
 			{Name: "cases.txt", Path: filepath.Join(absDir, "cases.txt"), Description: "Operator case board showing the prioritized closure work."},
@@ -267,6 +268,11 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	}
 	if err := add("assessment.json", func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "json", status, focus)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("operator-packet.txt", func(w io.Writer) error {
+		return report.RenderAssessFocused(w, inventory, r, "operator", status, focus)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -336,6 +342,7 @@ func selfAssessmentBundleCaseID(assess model.AssessReport, focus report.AssessFo
 func selfAssessmentBundleReviewOrder() []string {
 	return []string{
 		"Read `assessment.txt` for the executive readout, decision, signal/noise boundary, and first action.",
+		"Use `operator-packet.txt` as the compact ticket or handoff: source refs, graph path, controls, proof checkpoint, commands, and done criteria.",
 		"Open `dashboard.html` for the operator dashboard with evidence links, proof bundle rows, lifecycle, and case queue.",
 		"Use `proof-action.txt` to inspect the exact proof evidence Ariadne expects for the focused case.",
 		"Use `proof-plan.json`, `assessment.json`, `inventory.json`, and `cases.json` for automation, ticket metadata, or deeper review.",
@@ -451,6 +458,7 @@ func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleR
 		fmt.Fprintf(w, "Top case: %s\n", result.TopCaseID)
 	}
 	fmt.Fprintf(w, "Open first: %s\n", filepath.Join(result.Directory, "assessment.txt"))
+	fmt.Fprintf(w, "Operator packet: %s\n", filepath.Join(result.Directory, "operator-packet.txt"))
 	fmt.Fprintf(w, "Dashboard: %s\n", filepath.Join(result.Directory, "dashboard.html"))
 	fmt.Fprintf(w, "Proof action: %s\n", filepath.Join(result.Directory, "proof-action.txt"))
 }

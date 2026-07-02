@@ -4995,6 +4995,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Architecture break paths:",
 		"Top case proof packet:",
 		"additional items in JSON",
+		"more evidence source(s) in JSON",
 	} {
 		if strings.Contains(operatorRendered, unwanted) {
 			t.Fatalf("assessment operator packet should stay compact and omit %q:\n%s", unwanted, operatorRendered)

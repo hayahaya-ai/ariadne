@@ -1999,8 +1999,8 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 
 	if len(packet.EvidenceToOpen) > 0 {
 		fmt.Fprintf(w, "\nEvidence to open:\n")
-		for _, line := range operatorEvidenceReferenceLinesBySource(packet.EvidenceToOpen, 5) {
-			fmt.Fprintf(w, "  - %s\n", line)
+		for _, ref := range firstOrderedEvidenceReferences(packet.EvidenceToOpen, 5) {
+			fmt.Fprintf(w, "  - %s\n", evidenceReferenceLine(ref))
 		}
 		renderEvidenceSourceListBlock(w, packet.EvidenceSources, 12)
 	}
