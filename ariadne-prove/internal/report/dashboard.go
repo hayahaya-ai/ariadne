@@ -813,7 +813,56 @@ func renderAssessInventoryDashboard(w io.Writer, inventory model.AssessInventory
 	fmt.Fprintln(w, renderSmallList(assessCountLines(inventory.HandlingModes)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
+	if len(inventory.SurfaceMap) > 0 {
+		fmt.Fprintln(w, `<h3>Runtime Surface Map</h3>`)
+		renderAssessSurfaceMapTable(w, inventory.SurfaceMap)
+	}
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessSurfaceMapTable(w io.Writer, items []model.SurfaceMap) {
+	if len(items) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No runtime surface map was built.</div>`)
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, "<thead><tr><th>Runtime</th><th>Handling</th><th>Source refs</th><th>Modeled facts</th><th>Limits</th></tr></thead><tbody>")
+	for _, item := range items {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s scope</div><div class="mono">%d surface(s)</div></td>`, esc(item.Runtime), esc(item.Scope), item.SurfaceCount)
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(surfaceMapHandlingLines(item)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.SourceRefs, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(surfaceMapFactLines(item)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Limitations, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
+func surfaceMapHandlingLines(item model.SurfaceMap) []string {
+	return []string{
+		fmt.Sprintf("parse: %d", item.Parsed),
+		fmt.Sprintf("summarize: %d", item.Summarized),
+		fmt.Sprintf("boundary: %d", item.BoundaryIndicators),
+		fmt.Sprintf("skip: %d", item.Skipped),
+	}
+}
+
+func surfaceMapFactLines(item model.SurfaceMap) []string {
+	var out []string
+	if len(item.Authorities) > 0 {
+		out = append(out, "authorities: "+strings.Join(limitStrings(item.Authorities, 4), ", "))
+	}
+	if len(item.Tools) > 0 {
+		out = append(out, "tools: "+strings.Join(limitStrings(item.Tools, 4), ", "))
+	}
+	if len(item.Controls) > 0 {
+		out = append(out, "controls: "+strings.Join(limitStrings(item.Controls, 4), ", "))
+	}
+	if len(out) == 0 {
+		out = append(out, "no authority/tool/control facts modeled")
+	}
+	return out
 }
 
 func renderAssessArchitectureDashboard(w io.Writer, r model.AssessReport) {
