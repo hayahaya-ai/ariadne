@@ -136,6 +136,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 `ariadne assess --format json` emits the primary first-run assessment contract with:
 
 - `summary`, combining inspected-surface counts, exposure path counts, architecture flaw counts, missing hard-barrier controls, and the top case
+- optional `case_filter` and `control_filter`, when `ariadne assess --case` or `ariadne assess --control` narrows the operator queue to a focused remediation path
 - `triage`, separating hard risk signal from normal/expected agent capability, missing hard barriers, partial/friction controls, present hard barriers, unknown evidence gaps, evidence refs, next action, and proof loop
 - `inventory`, summarizing discovered AI surfaces, typed facts, graph size, runtime/tool/authority/control/boundary counts, surface categories, and handling modes
 - `exposure`, summarizing exposed, protected, and inconclusive paths with a bounded list of top path records
@@ -149,6 +150,8 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `next_commands`, including the exact `assess`, focused `cases`, focused `proofs`, `controls`, and `architecture` commands to rerun
 
 The assessment contract is a composition layer. It does not create a separate classification engine; classifications, `triage`, `closure_plan`, and `first_action` remain derived from deterministic facts, graph edges, architecture flaws, ranked operator cases, closure evidence, proof patches, and missing hard-barrier controls.
+
+`ariadne assess --case <case-id>` narrows `case_board`, `top_cases`, `top_case_proof_plan`, `first_action`, and `closure_plan` to the selected case. `ariadne assess --control <control-id>` selects the first ranked case containing that missing hard barrier and focuses the current action on that control. Both keep deterministic inventory, exposure, architecture, evidence, and limitation context in the same assessment artifact.
 
 `ariadne assess --format action` renders the signal triage, ranked closure plan, and `first_action.current_action` packet as a compact operator view. It does not change the JSON contract; it hides the larger inventory, architecture, and case-board sections when the operator only needs the active proof step.
 

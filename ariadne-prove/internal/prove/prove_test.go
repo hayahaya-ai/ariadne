@@ -3994,6 +3994,107 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	}
 }
 
+func TestAssessReportSupportsFocusedCaseAndControl(t *testing.T) {
+	path := realPathFixture(t, "combined-risk")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var caseTable bytes.Buffer
+	if err := report.RenderAssessFocused(&caseTable, inventory, r, "table", "breaking", report.AssessFocus{CaseFilter: "case:input-trust-boundary"}); err != nil {
+		t.Fatal(err)
+	}
+	caseRendered := caseTable.String()
+	for _, want := range []string{
+		"Focus: case=case:input-trust-boundary",
+		"Start here: Input Trust Boundary (case:input-trust-boundary)",
+		"Closure plan:",
+		"control:input-isolation -> Input Trust Boundary",
+		"Current action: control:input-isolation at .ariadne/input-policy.json",
+	} {
+		if !strings.Contains(caseRendered, want) {
+			t.Fatalf("focused assessment table missing %q:\n%s", want, caseRendered)
+		}
+	}
+
+	var controlJSON bytes.Buffer
+	if err := report.RenderAssessFocused(&controlJSON, inventory, r, "json", "breaking", report.AssessFocus{ControlFilter: "trusted-source-policy"}); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(controlJSON.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.CaseFilter != "case:input-trust-boundary" || decoded.ControlFilter != "control:trusted-source-policy" {
+		t.Fatalf("focused assessment should record normalized case/control filters: case=%q control=%q", decoded.CaseFilter, decoded.ControlFilter)
+	}
+	if len(decoded.TopCases) != 1 ||
+		decoded.TopCases[0].ID != "case:input-trust-boundary" ||
+		decoded.TopCases[0].ControlCount != 1 ||
+		!containsExactString(decoded.TopCases[0].StartingControls, "control:trusted-source-policy") {
+		t.Fatalf("control focus should narrow the top case to the selected control: %+v", decoded.TopCases)
+	}
+	if !decoded.FirstAction.Available ||
+		decoded.FirstAction.CaseID != "case:input-trust-boundary" ||
+		decoded.FirstAction.CurrentAction.Control != "control:trusted-source-policy" ||
+		decoded.FirstAction.CurrentAction.Surface != ".ariadne/input-policy.json" {
+		t.Fatalf("control focus should move current action to selected control: %+v", decoded.FirstAction)
+	}
+	if len(decoded.ClosurePlan) != 1 ||
+		decoded.ClosurePlan[0].Control != "control:trusted-source-policy" ||
+		decoded.ClosurePlan[0].CaseID != "case:input-trust-boundary" ||
+		decoded.ClosurePlan[0].ProofSurface != ".ariadne/input-policy.json" ||
+		decoded.ClosurePlan[0].ProofPatch == nil ||
+		decoded.ClosurePlan[0].ProofPatch.Control != "control:trusted-source-policy" {
+		t.Fatalf("control focus should narrow closure plan to selected control: %+v", decoded.ClosurePlan)
+	}
+	if !containsString(decoded.NextCommands, "ariadne assess --path") ||
+		!containsString(decoded.NextCommands, "--case case:input-trust-boundary") ||
+		!containsString(decoded.NextCommands, "--control control:trusted-source-policy") {
+		t.Fatalf("focused assessment should preserve focus flags in rerun commands: %+v", decoded.NextCommands)
+	}
+
+	var actionOut bytes.Buffer
+	if err := report.RenderAssessFocused(&actionOut, inventory, r, "action", "breaking", report.AssessFocus{ControlFilter: "trusted-source-policy"}); err != nil {
+		t.Fatal(err)
+	}
+	actionRendered := actionOut.String()
+	for _, want := range []string{
+		"Focus: case=case:input-trust-boundary; control=control:trusted-source-policy",
+		"Closure plan:",
+		"control:trusted-source-policy -> Input Trust Boundary",
+		"Control: control:trusted-source-policy",
+		"Proof surface: .ariadne/input-policy.json",
+	} {
+		if !strings.Contains(actionRendered, want) {
+			t.Fatalf("focused assessment action output missing %q:\n%s", want, actionRendered)
+		}
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderAssessFocused(&htmlOut, inventory, r, "html", "breaking", report.AssessFocus{ControlFilter: "trusted-source-policy"}); err != nil {
+		t.Fatal(err)
+	}
+	htmlRendered := htmlOut.String()
+	for _, want := range []string{
+		"Focus:",
+		"case=case:input-trust-boundary; control=control:trusted-source-policy",
+		"Ranked Closure Plan",
+		"control:trusted-source-policy",
+		".ariadne/input-policy.json",
+		`data-command="ariadne compare --before before-proof.json --after after-proof.json`,
+	} {
+		if !strings.Contains(htmlRendered, want) {
+			t.Fatalf("focused assessment dashboard missing %q:\n%s", want, htmlRendered)
+		}
+	}
+}
+
 func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
@@ -4619,6 +4720,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, assessSchema, "architecture")
 	assertSchemaProperty(t, assessSchema, "architecture_scan")
 	assertSchemaProperty(t, assessSchema, "top_case_proof_plan")
+	assertSchemaProperty(t, assessSchema, "case_filter")
+	assertSchemaProperty(t, assessSchema, "control_filter")
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")

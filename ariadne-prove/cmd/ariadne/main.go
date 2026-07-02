@@ -61,6 +61,8 @@ func runAssess(args []string) {
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
+	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
+	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:input-isolation")
 	format := fs.String("format", "table", "output format: table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
@@ -93,7 +95,7 @@ func runAssess(args []string) {
 		if err != nil {
 			fatal(err)
 		}
-		if err := report.RenderAssessScan(writer, r, *format, *status); err != nil {
+		if err := report.RenderAssessScanFocused(writer, r, *format, *status, report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID}); err != nil {
 			fatal(err)
 		}
 		return
@@ -117,7 +119,7 @@ func runAssess(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	if err := report.RenderAssess(writer, inventory, r, *format, *status); err != nil {
+	if err := report.RenderAssessFocused(writer, inventory, r, *format, *status, report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID}); err != nil {
 		fatal(err)
 	}
 }

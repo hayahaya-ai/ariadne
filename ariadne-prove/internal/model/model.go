@@ -280,6 +280,8 @@ type AssessReport struct {
 	Mode             string                  `json:"mode"`
 	Agent            string                  `json:"agent"`
 	StatusFilter     string                  `json:"status_filter"`
+	CaseFilter       string                  `json:"case_filter,omitempty"`
+	ControlFilter    string                  `json:"control_filter,omitempty"`
 	Summary          AssessSummary           `json:"summary"`
 	Triage           AssessTriage            `json:"triage"`
 	Inventory        AssessInventory         `json:"inventory"`

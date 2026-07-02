@@ -760,7 +760,21 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	if r.Summary.TopCaseNextStep != "" {
 		fmt.Fprintf(w, `<div><strong>Start here:</strong> %s <span class="subtle">(%s)</span></div>`, esc(r.Summary.TopCaseNextStep), esc(r.Summary.TopCaseTitle))
 	}
+	if r.CaseFilter != "" || r.ControlFilter != "" {
+		fmt.Fprintf(w, `<div><strong>Focus:</strong> %s</div>`, esc(assessFocusSummary(r)))
+	}
 	fmt.Fprintln(w, `</section>`)
+}
+
+func assessFocusSummary(r model.AssessReport) string {
+	var parts []string
+	if r.CaseFilter != "" {
+		parts = append(parts, "case="+r.CaseFilter)
+	}
+	if r.ControlFilter != "" {
+		parts = append(parts, "control="+r.ControlFilter)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTriage) {

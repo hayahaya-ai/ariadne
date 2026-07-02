@@ -38,6 +38,14 @@ func RenderAssess(w io.Writer, inventory model.InventoryReport, r model.Report, 
 	return renderAssess(w, assess, format)
 }
 
+func RenderAssessFocused(w io.Writer, inventory model.InventoryReport, r model.Report, format string, statusFilter string, focus AssessFocus) error {
+	assess, err := BuildAssessReport(inventory, r, statusFilter, focus)
+	if err != nil {
+		return err
+	}
+	return renderAssess(w, assess, format)
+}
+
 func RenderAssessScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
 	assess, err := BuildAssessScanReport(r, statusFilter)
 	if err != nil {
@@ -46,12 +54,262 @@ func RenderAssessScan(w io.Writer, r model.ScanReport, format string, statusFilt
 	return renderAssess(w, assess, format)
 }
 
-func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFilter string) (model.AssessReport, error) {
+func RenderAssessScanFocused(w io.Writer, r model.ScanReport, format string, statusFilter string, focus AssessFocus) error {
+	assess, err := BuildAssessScanReport(r, statusFilter, focus)
+	if err != nil {
+		return err
+	}
+	return renderAssess(w, assess, format)
+}
+
+type AssessFocus struct {
+	CaseFilter    string
+	ControlFilter string
+}
+
+func normalizeAssessFocus(options ...AssessFocus) AssessFocus {
+	if len(options) == 0 {
+		return AssessFocus{}
+	}
+	focus := options[0]
+	focus.CaseFilter = strings.TrimSpace(focus.CaseFilter)
+	focus.ControlFilter = normalizeAssessControlFilter(focus.ControlFilter)
+	return focus
+}
+
+func normalizeAssessControlFilter(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "control:") {
+		return value
+	}
+	return "control:" + value
+}
+
+func applyAssessFocusToCaseBoard(catalog *model.ControlCatalogReport, focus AssessFocus) error {
+	caseFilter := strings.TrimSpace(focus.CaseFilter)
+	controlFilter := normalizeAssessControlFilter(focus.ControlFilter)
+	if controlFilter != "" {
+		selected, ok := assessFindCaseForControl(catalog.OperatorCases, caseFilter, controlFilter)
+		if !ok {
+			if caseFilter != "" {
+				return fmt.Errorf("control %q not found in operator case %q", controlFilter, caseFilter)
+			}
+			return fmt.Errorf("control %q not found in operator cases", controlFilter)
+		}
+		caseFilter = selected.ID
+	}
+	if caseFilter != "" {
+		if err := filterControlCaseBoard(catalog, caseFilter); err != nil {
+			return err
+		}
+	}
+	if controlFilter != "" {
+		if err := focusControlCaseBoard(catalog, controlFilter); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func assessFindCaseForControl(cases []model.ControlOperatorCase, caseFilter string, control string) (model.ControlOperatorCase, bool) {
+	for _, item := range cases {
+		if caseFilter != "" && !controlOperatorCaseMatches(item, caseFilter) {
+			continue
+		}
+		if controlOperatorCaseHasControl(item, control) {
+			return item, true
+		}
+	}
+	return model.ControlOperatorCase{}, false
+}
+
+func controlOperatorCaseHasControl(item model.ControlOperatorCase, control string) bool {
+	for _, candidate := range item.StartingControls {
+		if candidate == control {
+			return true
+		}
+	}
+	for _, patch := range item.ProofPatches {
+		if patch.Control == control {
+			return true
+		}
+	}
+	return false
+}
+
+func focusControlCaseBoard(catalog *model.ControlCatalogReport, control string) error {
+	control = normalizeAssessControlFilter(control)
+	if control == "" {
+		return nil
+	}
+	if len(catalog.OperatorCases) == 0 {
+		return fmt.Errorf("control %q has no focused operator case", control)
+	}
+	selected := catalog.OperatorCases[0]
+	if !controlOperatorCaseHasControl(selected, control) {
+		return fmt.Errorf("control %q not found in operator case %q", control, selected.ID)
+	}
+	tasks := focusControlVerificationTasks(catalog.VerificationTasks, control)
+	selected.StartingControls = []string{control}
+	selected.StartingTaskIDs = controlVerificationTaskIDs(tasks)
+	selected.ProofPatches = focusControlProofPatches(selected.ProofPatches, control)
+	selected.ProofSurfaces = focusControlProofSurfaces(selected.ProofSurfaces, selected.ProofPatches, tasks)
+	if len(tasks) > 0 {
+		selected.EvidenceExamples = dedupeControlEvidenceExamples(tasks[0].EvidenceExamples)
+	}
+	selected.ControlCount = 1
+	selected.NextStep = assessFocusedControlNextStep(control, selected.ProofSurfaces, selected.EvidenceExamples)
+	catalog.OperatorCases = []model.ControlOperatorCase{selected}
+	catalog.Controls = focusArchitectureClosures(catalog.Controls, control)
+	catalog.Families = focusArchitectureClosureFamilies(catalog.Families, control)
+	catalog.Workstreams = focusControlBreakPathWorkstreams(catalog.Workstreams, control, tasks)
+	catalog.ProofSpecs = focusControlProofSpecs(catalog.ProofSpecs, control)
+	catalog.VerificationTasks = nonNilControlVerificationTasks(tasks)
+	catalog.Summary = summarizeControlCatalog(catalog.Controls)
+	return nil
+}
+
+func focusControlVerificationTasks(items []model.ControlVerificationTask, control string) []model.ControlVerificationTask {
+	var out []model.ControlVerificationTask
+	for _, item := range items {
+		if item.Control == control {
+			out = append(out, item)
+		}
+	}
+	return nonNilControlVerificationTasks(out)
+}
+
+func controlVerificationTaskIDs(items []model.ControlVerificationTask) []string {
+	var out []string
+	for _, item := range items {
+		if item.ID != "" {
+			out = append(out, item.ID)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func focusControlProofPatches(items []model.ControlProofPatch, control string) []model.ControlProofPatch {
+	var out []model.ControlProofPatch
+	for _, item := range items {
+		if item.Control == control {
+			out = append(out, item)
+		}
+	}
+	return dedupeControlProofPatches(out)
+}
+
+func focusControlProofSurfaces(existing []string, patches []model.ControlProofPatch, tasks []model.ControlVerificationTask) []string {
+	var out []string
+	for _, patch := range patches {
+		if patch.Surface != "" {
+			out = append(out, patch.Surface)
+		}
+	}
+	for _, task := range tasks {
+		out = append(out, task.ProofSurfaces...)
+	}
+	if len(out) == 0 {
+		out = append(out, existing...)
+	}
+	return uniqueStrings(out)
+}
+
+func focusArchitectureClosures(items []model.ArchitectureClosure, control string) []model.ArchitectureClosure {
+	var out []model.ArchitectureClosure
+	for _, item := range items {
+		if item.Control == control {
+			out = append(out, item)
+		}
+	}
+	return nonNilArchitectureClosures(out)
+}
+
+func focusArchitectureClosureFamilies(items []model.ArchitectureClosureFamily, control string) []model.ArchitectureClosureFamily {
+	var out []model.ArchitectureClosureFamily
+	for _, item := range items {
+		if !containsReportString(item.Controls, control) {
+			continue
+		}
+		item.Controls = []string{control}
+		item.ControlCount = 1
+		out = append(out, item)
+	}
+	return nonNilArchitectureClosureFamilies(out)
+}
+
+func focusControlBreakPathWorkstreams(items []model.ControlBreakPathWorkstream, control string, tasks []model.ControlVerificationTask) []model.ControlBreakPathWorkstream {
+	var out []model.ControlBreakPathWorkstream
+	taskIDs := controlVerificationTaskIDs(tasks)
+	for _, item := range items {
+		if !containsReportString(item.Controls, control) && !containsReportString(item.StartingControls, control) {
+			continue
+		}
+		item.Controls = []string{control}
+		item.StartingControls = []string{control}
+		item.StartingTaskIDs = taskIDs
+		item.ControlCount = 1
+		out = append(out, item)
+	}
+	return nonNilControlBreakPathWorkstreams(out)
+}
+
+func focusControlProofSpecs(items []model.ControlProofSpec, control string) []model.ControlProofSpec {
+	var out []model.ControlProofSpec
+	for _, item := range items {
+		if item.Control == control {
+			out = append(out, item)
+		}
+	}
+	return nonNilControlProofSpecs(out)
+}
+
+func assessFocusedControlNextStep(control string, proofSurfaces []string, examples []model.ControlEvidenceExample) string {
+	surface := firstString(proofSurfaces)
+	if len(examples) > 0 && examples[0].Surface != "" {
+		surface = examples[0].Surface
+	}
+	if surface != "" {
+		return fmt.Sprintf("Add or verify %s evidence at %s, then rerun this case.", control, surface)
+	}
+	return fmt.Sprintf("Add or verify %s evidence, then rerun this case.", control)
+}
+
+func containsReportString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFilter string, focusOptions ...AssessFocus) (model.AssessReport, error) {
+	focus := normalizeAssessFocus(focusOptions...)
 	architecture, err := BuildArchitectureReport(r, statusFilter)
 	if err != nil {
 		return model.AssessReport{}, err
 	}
 	caseBoard := BuildControlCaseBoardReport(architecture)
+	if err := applyAssessFocusToCaseBoard(&caseBoard, focus); err != nil {
+		if focus.ControlFilter == "" {
+			if closed, ok, closedErr := buildFocusedClosedCaseBoardReport(r, statusFilter, focus.CaseFilter); closedErr != nil {
+				return model.AssessReport{}, closedErr
+			} else if ok {
+				caseBoard = closed
+			} else {
+				return model.AssessReport{}, err
+			}
+		} else {
+			return model.AssessReport{}, err
+		}
+	}
+	if caseBoard.CaseFilter != "" {
+		focus.CaseFilter = caseBoard.CaseFilter
+	}
 	exposures := reportExposures(r)
 	exposure := buildAssessExposure(exposures)
 	closureEvidence := buildAssessClosureEvidence(exposures, []assessClosureTarget{{TargetID: "target", Flaws: r.ZeroTrust.ArchitectureFlaws}})
@@ -62,7 +320,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction)
-	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases)
+	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
 		RunID:            r.RunID,
@@ -72,6 +330,8 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		Mode:             r.Story.Mode,
 		Agent:            r.Story.Runtime,
 		StatusFilter:     architecture.StatusFilter,
+		CaseFilter:       caseBoard.CaseFilter,
+		ControlFilter:    focus.ControlFilter,
 		Summary:          summary,
 		Triage:           triage,
 		Inventory:        inventorySummary,
@@ -90,12 +350,29 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	}, nil
 }
 
-func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.AssessReport, error) {
+func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions ...AssessFocus) (model.AssessReport, error) {
+	focus := normalizeAssessFocus(focusOptions...)
 	architecture, err := BuildArchitectureScanReport(r, statusFilter)
 	if err != nil {
 		return model.AssessReport{}, err
 	}
 	caseBoard := BuildControlCaseBoardScanReport(architecture)
+	if err := applyAssessFocusToCaseBoard(&caseBoard, focus); err != nil {
+		if focus.ControlFilter == "" {
+			if closed, ok, closedErr := buildFocusedClosedCaseBoardScanReport(r, statusFilter, focus.CaseFilter); closedErr != nil {
+				return model.AssessReport{}, closedErr
+			} else if ok {
+				caseBoard = closed
+			} else {
+				return model.AssessReport{}, err
+			}
+		} else {
+			return model.AssessReport{}, err
+		}
+	}
+	if caseBoard.CaseFilter != "" {
+		focus.CaseFilter = caseBoard.CaseFilter
+	}
 	var exposures []model.ExposureResult
 	var closureTargets []assessClosureTarget
 	for _, target := range r.Targets {
@@ -126,7 +403,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
 	triage := buildAssessTriage(summary, model.AssessInventory{}, exposure, closureEvidence, firstAction)
-	nextCommands := assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases)
+	nextCommands := assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
 		RunID:            r.RunID,
@@ -136,6 +413,8 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 		Mode:             r.Mode,
 		Agent:            r.Agent,
 		StatusFilter:     architecture.StatusFilter,
+		CaseFilter:       caseBoard.CaseFilter,
+		ControlFilter:    focus.ControlFilter,
 		Summary:          summary,
 		Triage:           triage,
 		Inventory:        model.AssessInventory{},
@@ -1329,6 +1608,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
 	}
 	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
+	renderAssessFocusLine(w, r)
 	fmt.Fprintf(w, "Open cases: %d; missing hard barriers: %d; exposed paths: %d\n\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
 
 	renderAssessTriage(w, r.Triage)
@@ -2074,8 +2354,8 @@ func reportExposures(r model.Report) []model.ExposureResult {
 	return []model.ExposureResult{}
 }
 
-func assessPathCommands(path, mode, agent, statusFilter string, cases []model.ControlOperatorCase) []string {
-	base := fmt.Sprintf("ariadne assess --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter))
+func assessPathCommands(path, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
+	base := assessFocusCommand(fmt.Sprintf("ariadne assess --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
 	commands := []string{base}
 	if len(cases) > 0 {
 		commands = append(commands, fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
@@ -2088,8 +2368,8 @@ func assessPathCommands(path, mode, agent, statusFilter string, cases []model.Co
 	return commands
 }
 
-func assessScanCommands(mode, agent, statusFilter string, cases []model.ControlOperatorCase) []string {
-	base := fmt.Sprintf("ariadne assess --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter))
+func assessScanCommands(mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
+	base := assessFocusCommand(fmt.Sprintf("ariadne assess --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
 	commands := []string{base}
 	if len(cases) > 0 {
 		commands = append(commands, fmt.Sprintf("ariadne cases --targets <targets-file> --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
@@ -2100,6 +2380,16 @@ func assessScanCommands(mode, agent, statusFilter string, cases []model.ControlO
 		fmt.Sprintf("ariadne architecture --targets <targets-file> --mode %s --agent %s --status all", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 	)
 	return commands
+}
+
+func assessFocusCommand(command string, focus AssessFocus) string {
+	if focus.CaseFilter != "" {
+		command += " --case " + shellQuoteCommandArg(focus.CaseFilter)
+	}
+	if focus.ControlFilter != "" {
+		command += " --control " + shellQuoteCommandArg(focus.ControlFilter)
+	}
+	return command
 }
 
 func renderGraphDOT(w io.Writer, title string, g model.Graph) error {
@@ -2278,6 +2568,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
 	fmt.Fprintf(w, "Agent: %s\n", r.Agent)
 	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
+	renderAssessFocusLine(w, r)
 	fmt.Fprintf(w, "Question: Where is Zero Trust agent architecture breaking, and what proof closes the path?\n\n")
 
 	fmt.Fprintf(w, "Readout:\n")
@@ -2365,6 +2656,20 @@ func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
 	}
 	renderAssessTriageLines(w, "Proof loop", triage.ProofLoop, 6)
 	fmt.Fprintln(w)
+}
+
+func renderAssessFocusLine(w io.Writer, r model.AssessReport) {
+	if r.CaseFilter == "" && r.ControlFilter == "" {
+		return
+	}
+	var parts []string
+	if r.CaseFilter != "" {
+		parts = append(parts, "case="+r.CaseFilter)
+	}
+	if r.ControlFilter != "" {
+		parts = append(parts, "control="+r.ControlFilter)
+	}
+	fmt.Fprintf(w, "Focus: %s\n", strings.Join(parts, "; "))
 }
 
 func renderAssessTriageLines(w io.Writer, label string, values []string, limit int) {

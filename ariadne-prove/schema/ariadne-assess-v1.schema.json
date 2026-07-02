@@ -37,6 +37,8 @@
     "mode": { "type": "string" },
     "agent": { "type": "string" },
     "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "case_filter": { "type": "string" },
+    "control_filter": { "type": "string" },
     "summary": { "$ref": "#/$defs/assess_summary" },
     "triage": { "$ref": "#/$defs/assess_triage" },
     "inventory": { "$ref": "#/$defs/assess_inventory" },
