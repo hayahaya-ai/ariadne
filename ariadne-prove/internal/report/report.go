@@ -1259,6 +1259,8 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 	switch strings.ToLower(format) {
 	case "", "table":
 		return renderAssessTable(w, r)
+	case "action":
+		return renderAssessAction(w, r)
 	case "json":
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -1267,6 +1269,111 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		return renderAssessDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown assess format: %s", format)
+	}
+}
+
+func renderAssessAction(w io.Writer, r model.AssessReport) error {
+	fmt.Fprintf(w, "Ariadne Action\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
+	fmt.Fprintf(w, "Open cases: %d; missing hard barriers: %d; exposed paths: %d\n\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
+
+	action := r.FirstAction
+	if !action.Available {
+		fmt.Fprintf(w, "Current action:\n  - none\n\n")
+		renderAssessActionLimitations(w, r.Limitations)
+		return nil
+	}
+	fmt.Fprintf(w, "Case:\n")
+	fmt.Fprintf(w, "  - %s (%s)\n", action.Title, action.CaseID)
+	if action.WhyFirst != "" {
+		fmt.Fprintf(w, "  - %s\n", action.WhyFirst)
+	}
+	if action.CurrentAction.Available {
+		fmt.Fprintf(w, "\nCurrent action:\n")
+		fmt.Fprintf(w, "  - Step: %s\n", firstNonEmpty(action.CurrentAction.WorkflowStepTitle, "not recorded"))
+		if action.CurrentAction.Control != "" {
+			fmt.Fprintf(w, "  - Control: %s\n", action.CurrentAction.Control)
+		}
+		if action.CurrentAction.Surface != "" {
+			fmt.Fprintf(w, "  - Proof surface: %s\n", action.CurrentAction.Surface)
+		}
+		if action.CurrentAction.Instruction != "" {
+			fmt.Fprintf(w, "  - Instruction: %s\n", action.CurrentAction.Instruction)
+		}
+	}
+	if example := assessCurrentEvidenceExampleLine(action); example != "" {
+		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
+	}
+	if patch := assessCurrentProofPatchLine(action); patch != "" {
+		fmt.Fprintf(w, "\nProof patch:\n  - %s\n", patch)
+	}
+	if rerun := assessCurrentRerunCommand(action); rerun != "" {
+		fmt.Fprintf(w, "\nRerun:\n  - %s\n", rerun)
+	}
+	if len(action.CompareCommands) > 0 {
+		fmt.Fprintf(w, "\nCompare loop:\n")
+		for _, command := range limitStrings(action.CompareCommands, 3) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	} else if action.CurrentAction.CompareCommand != "" {
+		fmt.Fprintf(w, "\nCompare loop:\n  - %s\n", action.CurrentAction.CompareCommand)
+	}
+	if len(action.SuccessCriteria) > 0 {
+		fmt.Fprintf(w, "\nDone when:\n")
+		for _, criterion := range limitStrings(action.SuccessCriteria, 3) {
+			fmt.Fprintf(w, "  - %s\n", criterion)
+		}
+	}
+	renderAssessActionLimitations(w, r.Limitations)
+	return nil
+}
+
+func assessCurrentEvidenceExampleLine(action model.AssessFirstAction) string {
+	index := action.CurrentAction.EvidenceExampleIndex
+	if index < 0 || index >= len(action.EvidenceExamples) {
+		return ""
+	}
+	lines := controlEvidenceExampleLines([]model.ControlEvidenceExample{action.EvidenceExamples[index]}, 1)
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
+}
+
+func assessCurrentProofPatchLine(action model.AssessFirstAction) string {
+	index := action.CurrentAction.ProofPatchIndex
+	if index < 0 || index >= len(action.ProofPatches) {
+		return ""
+	}
+	lines := controlProofPatchLines([]model.ControlProofPatch{action.ProofPatches[index]}, 1)
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
+}
+
+func assessCurrentRerunCommand(action model.AssessFirstAction) string {
+	if action.CurrentAction.RerunCommand != "" {
+		return action.CurrentAction.RerunCommand
+	}
+	if len(action.RerunCommands) > 0 {
+		return action.RerunCommands[0]
+	}
+	return ""
+}
+
+func renderAssessActionLimitations(w io.Writer, limitations []string) {
+	if len(limitations) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nLimitations:\n")
+	for _, limitation := range limitStrings(limitations, 3) {
+		fmt.Fprintf(w, "  - %s\n", limitation)
 	}
 }
 

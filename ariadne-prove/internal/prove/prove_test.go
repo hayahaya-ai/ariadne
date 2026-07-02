@@ -3629,6 +3629,37 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		t.Fatalf("assessment should include focused proof plan command: %+v", decoded.NextCommands)
 	}
 
+	var actionOut bytes.Buffer
+	if err := report.RenderAssess(&actionOut, inventory, r, "action", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	actionRendered := actionOut.String()
+	for _, want := range []string{
+		"Ariadne Action",
+		"Current action:",
+		"Control: control:egress-destination-allowlist",
+		"Proof surface: .ariadne/egress-policy.json",
+		"Accepted evidence:",
+		"Proof patch:",
+		"Rerun:",
+		"Compare loop:",
+		"Done when:",
+	} {
+		if !strings.Contains(actionRendered, want) {
+			t.Fatalf("assessment action output missing %q:\n%s", want, actionRendered)
+		}
+	}
+	for _, unwanted := range []string{
+		"Architecture break paths:",
+		"Operator cases:",
+		"What was inspected:",
+		"Top case proof packet:",
+	} {
+		if strings.Contains(actionRendered, unwanted) {
+			t.Fatalf("assessment action output should stay compact and omit %q:\n%s", unwanted, actionRendered)
+		}
+	}
+
 	var htmlOut bytes.Buffer
 	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
 		t.Fatal(err)

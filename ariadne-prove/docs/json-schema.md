@@ -148,6 +148,8 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 
 The assessment contract is a composition layer. It does not create a separate classification engine; classifications and `first_action` remain derived from deterministic facts, graph edges, architecture flaws, ranked operator cases, and missing hard-barrier controls.
 
+`ariadne assess --format action` renders the `first_action.current_action` packet as a compact operator view. It does not change the JSON contract; it hides the larger inventory, architecture, and case-board sections when the operator only needs the active proof step.
+
 `ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
 
 - `summary`

@@ -159,7 +159,7 @@ repo-only,/srv/repos/example
 
 | Command | Purpose |
 | --- | --- |
-| `ariadne assess --path <dir>` | Primary first-run readout: inspected surfaces, exposure posture, Zero Trust architecture breaks, top operator cases, evidence refs, and next commands. |
+| `ariadne assess --path <dir>` | Primary first-run readout: inspected surfaces, exposure posture, Zero Trust architecture breaks, top operator cases, evidence refs, and next commands. Use `--format action` for the compact current-action packet. |
 | `ariadne assess --targets <file>` | Fleet first-run readout across local or mounted targets, with recurring break paths grouped into operator cases. |
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
@@ -242,7 +242,7 @@ Inventory output includes:
 - warnings and limitations
 - graph exports with `--format dot` or `--format mermaid`
 
-Assess output is the recommended first-run product view. It composes inventory, exposure, Zero Trust architecture, closure evidence, and the operator case board into one readout: what was inspected, how many exposure paths were found, which architecture boundaries are breaking, which controls already closed or partially closed a path, which case to start with, the evidence references behind that case, proof surfaces to update, proof patches Ariadne can parse, and the exact commands to rerun and compare before/after proof artifacts. The first action also carries an ordered evidence -> proof -> rerun -> compare workflow plus a compact current-action pointer to the active proof patch and rerun/compare commands. HTML assessment output adds case navigation and an active case workbench with current state, evidence to inspect, controls to start with, a control proof recipe, proof patches, accepted evidence examples, focused proof-plan commands, compare-loop commands, rerun commands, and done criteria. JSON emits the same contract with `summary`, `inventory`, `exposure`, `closure_evidence`, `architecture` or `architecture_scan`, `case_board`, `top_cases`, `top_case_proof_plan`, and `next_commands`.
+Assess output is the recommended first-run product view. It composes inventory, exposure, Zero Trust architecture, closure evidence, and the operator case board into one readout: what was inspected, how many exposure paths were found, which architecture boundaries are breaking, which controls already closed or partially closed a path, which case to start with, the evidence references behind that case, proof surfaces to update, proof patches Ariadne can parse, and the exact commands to rerun and compare before/after proof artifacts. The first action also carries an ordered evidence -> proof -> rerun -> compare workflow plus a compact current-action pointer to the active proof patch and rerun/compare commands. `--format action` renders only that compact action packet. HTML assessment output adds case navigation and an active case workbench with current state, evidence to inspect, controls to start with, a control proof recipe, proof patches, accepted evidence examples, focused proof-plan commands, compare-loop commands, rerun commands, and done criteria. JSON emits the same contract with `summary`, `inventory`, `exposure`, `closure_evidence`, `architecture` or `architecture_scan`, `case_board`, `top_cases`, `top_case_proof_plan`, and `next_commands`.
 
 Prove output adds:
 
