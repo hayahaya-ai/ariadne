@@ -103,7 +103,7 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 		}
 		result.Files = append(result.Files, absPath)
 		destinationPath := proofPatchSuggestedDestinationPath(plan.TargetPath, group.Surface)
-		applyCommand := proofPatchApplyCommand(relPath, destinationPath)
+		applyCommand := proofPatchApplyCommand(dir, relPath, destinationPath)
 		manifest.Files = append(manifest.Files, proofPatchExportManifestFile{
 			Path:                 relPath,
 			Surface:              group.Surface,
@@ -307,14 +307,15 @@ func proofPatchSuggestedDestinationPath(targetPath, surface string) string {
 	return filepath.Clean(filepath.Join(targetPath, surface))
 }
 
-func proofPatchApplyCommand(relPath, destinationPath string) string {
+func proofPatchApplyCommand(exportDir, relPath, destinationPath string) string {
+	exportDir = strings.TrimSpace(exportDir)
 	relPath = strings.TrimSpace(relPath)
 	destinationPath = strings.TrimSpace(destinationPath)
-	if relPath == "" || destinationPath == "" {
+	if exportDir == "" || relPath == "" || destinationPath == "" {
 		return ""
 	}
 	destinationDir := filepath.Dir(destinationPath)
-	return fmt.Sprintf("mkdir -p %s && cp %s %s", shellQuoteCommandArg(destinationDir), shellQuoteCommandArg(relPath), shellQuoteCommandArg(destinationPath))
+	return fmt.Sprintf("cd %s && mkdir -p %s && cp %s %s", shellQuoteCommandArg(exportDir), shellQuoteCommandArg(destinationDir), shellQuoteCommandArg(relPath), shellQuoteCommandArg(destinationPath))
 }
 
 func sortedMapKeys(values map[string]string) []string {

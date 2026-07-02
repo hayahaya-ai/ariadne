@@ -3458,6 +3458,7 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		`"suggested_destination": ".ariadne/input-policy.json"`,
 		`"destination_path":`,
 		`"apply_command":`,
+		`cd `,
 		`mkdir -p`,
 		`cp surfaces/.ariadne/input-policy.json`,
 		`"rerun_commands":`,
@@ -3475,7 +3476,7 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Suggested destination:", "Review/apply command:", "mkdir -p", "cp surfaces/.ariadne/input-policy.json", "## Workflow", "Save Baseline Proof", "Compare Before And After", ".ariadne/input-policy.json", "ariadne cases --path"} {
+	for _, want := range []string{"Suggested destination:", "Review/apply command:", "cd ", "mkdir -p", "cp surfaces/.ariadne/input-policy.json", "## Workflow", "Save Baseline Proof", "Compare Before And After", ".ariadne/input-policy.json", "ariadne cases --path"} {
 		if !strings.Contains(string(readme), want) {
 			t.Fatalf("export README missing %q:\n%s", want, readme)
 		}
