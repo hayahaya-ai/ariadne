@@ -33,6 +33,8 @@ func main() {
 		runProofs(os.Args[2:])
 	case "controls":
 		runControls(os.Args[2:])
+	case "compare":
+		runCompare(os.Args[2:])
 	case "inventory":
 		runInventory(os.Args[2:])
 	case "scan":
@@ -320,6 +322,38 @@ func runArchitecture(args []string) {
 	}
 }
 
+func runCompare(args []string) {
+	fs := flag.NewFlagSet("compare", flag.ExitOnError)
+	beforePath := fs.String("before", "", "earlier Ariadne proofs/cases/assess JSON file")
+	afterPath := fs.String("after", "", "later Ariadne proofs/cases/assess JSON file")
+	format := fs.String("format", "table", "output format: table, json, html")
+	outPath := fs.String("out", "", "write output to file")
+	fs.Parse(args)
+	if *beforePath == "" || *afterPath == "" {
+		fatal(fmt.Errorf("usage: ariadne compare --before before.json --after after.json [--format table|json|html]"))
+	}
+	beforeRaw, err := os.ReadFile(*beforePath)
+	if err != nil {
+		fatal(err)
+	}
+	afterRaw, err := os.ReadFile(*afterPath)
+	if err != nil {
+		fatal(err)
+	}
+	compare, err := report.BuildCaseCompareReport(beforeRaw, afterRaw, *beforePath, *afterPath)
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	if err := report.RenderCaseCompare(writer, compare, *format); err != nil {
+		fatal(err)
+	}
+}
+
 func runScan(args []string) {
 	fs := flag.NewFlagSet("scan", flag.ExitOnError)
 	targetsFile := fs.String("targets", "", "file of scan targets, one path per line or id,path")
@@ -541,6 +575,7 @@ Commands:
   cases          Show the operator case board for architecture break paths
   proofs         Show focused proof patches for closing operator cases
   controls       Show missing hard-barrier controls and where to prove them
+  compare        Compare two Ariadne JSON reports and show case state changes
   inventory      Collect deterministic AI surface facts without classifying exposure
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
@@ -564,6 +599,8 @@ Examples:
   ariadne proofs --path . --case case:input-trust-boundary
   ariadne proofs --path . --case case:input-trust-boundary --format json
   ariadne proofs --path . --case case:input-trust-boundary --format html --out proof-plan.html
+  ariadne compare --before before-proof.json --after after-proof.json
+  ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html
   ariadne controls --path .
   ariadne controls --path . --format json
   ariadne controls --path . --format html --out controls-dashboard.html

@@ -398,6 +398,332 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 	}
 }
 
+func BuildCaseCompareReport(beforeRaw []byte, afterRaw []byte, beforeSource string, afterSource string) (model.CaseCompareReport, error) {
+	beforeCases, err := extractComparableCases(beforeRaw)
+	if err != nil {
+		return model.CaseCompareReport{}, fmt.Errorf("before report: %w", err)
+	}
+	afterCases, err := extractComparableCases(afterRaw)
+	if err != nil {
+		return model.CaseCompareReport{}, fmt.Errorf("after report: %w", err)
+	}
+	beforeByID := casesByID(beforeCases)
+	afterByID := casesByID(afterCases)
+	idSet := map[string]bool{}
+	for id := range beforeByID {
+		idSet[id] = true
+	}
+	for id := range afterByID {
+		idSet[id] = true
+	}
+	ids := mapKeysSorted(idSet)
+	out := model.CaseCompareReport{
+		SchemaVersion: model.SchemaVersion,
+		RunKind:       "case_compare",
+		BeforeSource:  beforeSource,
+		AfterSource:   afterSource,
+		Limitations: []string{
+			"Compare uses structured Ariadne JSON only; it does not rerun collectors or prove live enforcement.",
+			"Closed means the after report contains deterministic closed/control evidence for the case, or the case stayed closed in the compared artifact.",
+		},
+	}
+	for _, id := range ids {
+		before, beforeOK := beforeByID[id]
+		after, afterOK := afterByID[id]
+		item := compareCase(before, beforeOK, after, afterOK)
+		out.Cases = append(out.Cases, item)
+		incrementCaseCompareSummary(&out.Summary, item.Disposition)
+	}
+	out.Summary.Cases = len(out.Cases)
+	if out.Cases == nil {
+		out.Cases = []model.CaseCompareResult{}
+	}
+	return out, nil
+}
+
+func RenderCaseCompare(w io.Writer, r model.CaseCompareReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderCaseCompareTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderCaseCompareDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown compare format: %s", format)
+	}
+}
+
+type caseReportEnvelope struct {
+	RunKind       string                      `json:"run_kind"`
+	Cases         []model.ControlOperatorCase `json:"cases"`
+	OperatorCases []model.ControlOperatorCase `json:"operator_cases"`
+	CaseBoard     *model.ControlCatalogReport `json:"case_board"`
+}
+
+func extractComparableCases(raw []byte) ([]model.ControlOperatorCase, error) {
+	var env caseReportEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, err
+	}
+	if env.Cases != nil {
+		return nonNilControlOperatorCases(env.Cases), nil
+	}
+	if env.OperatorCases != nil {
+		return nonNilControlOperatorCases(env.OperatorCases), nil
+	}
+	if env.CaseBoard != nil {
+		return nonNilControlOperatorCases(env.CaseBoard.OperatorCases), nil
+	}
+	return nil, fmt.Errorf("unsupported report shape; expected proofs.cases, cases.operator_cases, or assess.case_board.operator_cases")
+}
+
+func casesByID(items []model.ControlOperatorCase) map[string]model.ControlOperatorCase {
+	out := map[string]model.ControlOperatorCase{}
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := out[id]; exists {
+			continue
+		}
+		out[id] = item
+	}
+	return out
+}
+
+func compareCase(before model.ControlOperatorCase, beforeOK bool, after model.ControlOperatorCase, afterOK bool) model.CaseCompareResult {
+	beforeState := normalizedCaseState(before, beforeOK)
+	afterState := normalizedCaseState(after, afterOK)
+	item := model.CaseCompareResult{
+		ID:                 firstNonEmpty(caseIDOrEmpty(after, afterOK), caseIDOrEmpty(before, beforeOK)),
+		Title:              firstNonEmpty(caseTitleOrEmpty(after, afterOK), caseTitleOrEmpty(before, beforeOK)),
+		Severity:           firstNonEmpty(caseSeverityOrEmpty(after, afterOK), caseSeverityOrEmpty(before, beforeOK)),
+		BeforeState:        beforeState,
+		AfterState:         afterState,
+		BeforeStateReason:  caseStateReasonOrEmpty(before, beforeOK),
+		AfterStateReason:   caseStateReasonOrEmpty(after, afterOK),
+		BeforeControls:     normalizedCaseControls(before, beforeOK),
+		AfterControls:      normalizedCaseControls(after, afterOK),
+		BeforeProofPatches: caseProofPatchCount(before, beforeOK),
+		AfterProofPatches:  caseProofPatchCount(after, afterOK),
+		BeforeEvidenceRefs: caseEvidenceRefCount(before, beforeOK),
+		AfterEvidenceRefs:  caseEvidenceRefCount(after, afterOK),
+		BeforeTargets:      normalizedCaseTargets(before, beforeOK),
+		AfterTargets:       normalizedCaseTargets(after, afterOK),
+		BeforeFlaws:        normalizedCaseFlaws(before, beforeOK),
+		AfterFlaws:         normalizedCaseFlaws(after, afterOK),
+		BeforeNextStep:     caseNextStepOrEmpty(before, beforeOK),
+		AfterNextStep:      caseNextStepOrEmpty(after, afterOK),
+	}
+	item.AddedControls = subtractStrings(item.AfterControls, item.BeforeControls)
+	item.RemovedControls = subtractStrings(item.BeforeControls, item.AfterControls)
+	item.Disposition = caseCompareDisposition(beforeOK, beforeState, before, afterOK, afterState, after, item)
+	return item
+}
+
+func caseCompareDisposition(beforeOK bool, beforeState string, before model.ControlOperatorCase, afterOK bool, afterState string, after model.ControlOperatorCase, item model.CaseCompareResult) string {
+	if !beforeOK && afterOK {
+		return "added"
+	}
+	if beforeOK && !afterOK {
+		return "removed"
+	}
+	if beforeState == "open" && afterState == "closed" {
+		return "closed"
+	}
+	if beforeState == "closed" && afterState == "open" {
+		return "reopened"
+	}
+	changed := caseCompareChanged(before, after, item)
+	if beforeState == "closed" && afterState == "closed" {
+		if changed {
+			return "changed"
+		}
+		return "stayed_closed"
+	}
+	if beforeState == "open" && afterState == "open" {
+		if changed {
+			return "changed"
+		}
+		return "stayed_open"
+	}
+	if changed {
+		return "changed"
+	}
+	return "changed"
+}
+
+func caseCompareChanged(before model.ControlOperatorCase, after model.ControlOperatorCase, item model.CaseCompareResult) bool {
+	return !equalStrings(item.BeforeControls, item.AfterControls) ||
+		!equalStrings(item.BeforeTargets, item.AfterTargets) ||
+		!equalStrings(item.BeforeFlaws, item.AfterFlaws) ||
+		item.BeforeProofPatches != item.AfterProofPatches ||
+		item.BeforeEvidenceRefs != item.AfterEvidenceRefs ||
+		strings.TrimSpace(before.StateReason) != strings.TrimSpace(after.StateReason) ||
+		strings.TrimSpace(before.NextStep) != strings.TrimSpace(after.NextStep)
+}
+
+func normalizedCaseState(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return "absent"
+	}
+	state := strings.ToLower(strings.TrimSpace(item.State))
+	switch state {
+	case "closed", "controlled", "no_missing_hard_barrier":
+		return "closed"
+	case "open":
+		return "open"
+	}
+	if item.ControlCount == 0 && len(item.ProofPatches) == 0 && len(item.StartingControls) > 0 {
+		return "closed"
+	}
+	return "open"
+}
+
+func normalizedCaseControls(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueSortedStrings(item.StartingControls)
+}
+
+func normalizedCaseTargets(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueSortedStrings(item.Targets)
+}
+
+func normalizedCaseFlaws(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueSortedStrings(item.Flaws)
+}
+
+func caseIDOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.ID
+}
+
+func caseTitleOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.Title
+}
+
+func caseSeverityOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.Severity
+}
+
+func caseStateReasonOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.StateReason
+}
+
+func caseNextStepOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.NextStep
+}
+
+func caseProofPatchCount(item model.ControlOperatorCase, ok bool) int {
+	if !ok {
+		return 0
+	}
+	return len(item.ProofPatches)
+}
+
+func caseEvidenceRefCount(item model.ControlOperatorCase, ok bool) int {
+	if !ok {
+		return 0
+	}
+	return len(dedupeEvidenceReferences(item.EvidenceReferences))
+}
+
+func incrementCaseCompareSummary(summary *model.CaseCompareSummary, disposition string) {
+	switch disposition {
+	case "closed":
+		summary.Closed++
+	case "reopened":
+		summary.Reopened++
+	case "stayed_open":
+		summary.StayedOpen++
+	case "stayed_closed":
+		summary.StayedClosed++
+	case "changed":
+		summary.Changed++
+	case "added":
+		summary.Added++
+	case "removed":
+		summary.Removed++
+	}
+}
+
+func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
+	fmt.Fprintf(w, "Ariadne case compare:\n")
+	fmt.Fprintf(w, "  Before: %s\n", firstNonEmpty(r.BeforeSource, "<before>"))
+	fmt.Fprintf(w, "  After: %s\n", firstNonEmpty(r.AfterSource, "<after>"))
+	fmt.Fprintf(w, "  Summary: %d case(s); %d closed, %d reopened, %d stayed open, %d stayed closed, %d changed, %d added, %d removed\n\n",
+		r.Summary.Cases,
+		r.Summary.Closed,
+		r.Summary.Reopened,
+		r.Summary.StayedOpen,
+		r.Summary.StayedClosed,
+		r.Summary.Changed,
+		r.Summary.Added,
+		r.Summary.Removed,
+	)
+	if len(r.Cases) == 0 {
+		fmt.Fprintf(w, "Cases:\n  - no comparable cases found\n\n")
+		return nil
+	}
+	fmt.Fprintf(w, "Cases:\n")
+	for _, item := range r.Cases {
+		fmt.Fprintf(w, "  - %s %s (%s): %s -> %s\n", strings.ToUpper(item.Disposition), firstNonEmpty(item.Title, item.ID), item.ID, item.BeforeState, item.AfterState)
+		if item.AfterStateReason != "" {
+			fmt.Fprintf(w, "    After reason: %s\n", item.AfterStateReason)
+		}
+		if len(item.BeforeControls) > 0 {
+			fmt.Fprintf(w, "    Before controls: %s\n", strings.Join(item.BeforeControls, "; "))
+		}
+		if len(item.AfterControls) > 0 {
+			fmt.Fprintf(w, "    After controls: %s\n", strings.Join(item.AfterControls, "; "))
+		}
+		if len(item.AddedControls) > 0 {
+			fmt.Fprintf(w, "    Added controls: %s\n", strings.Join(item.AddedControls, "; "))
+		}
+		if len(item.RemovedControls) > 0 {
+			fmt.Fprintf(w, "    Removed controls: %s\n", strings.Join(item.RemovedControls, "; "))
+		}
+		fmt.Fprintf(w, "    Proof patches: %d -> %d; evidence refs: %d -> %d\n", item.BeforeProofPatches, item.AfterProofPatches, item.BeforeEvidenceRefs, item.AfterEvidenceRefs)
+		if item.AfterNextStep != "" {
+			fmt.Fprintf(w, "    After next step: %s\n", item.AfterNextStep)
+		}
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range limitStrings(r.Limitations, 4) {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
 func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
 	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
@@ -2264,6 +2590,13 @@ func nonNilControlProofSpecs(items []model.ControlProofSpec) []model.ControlProo
 func nonNilControlVerificationTasks(items []model.ControlVerificationTask) []model.ControlVerificationTask {
 	if items == nil {
 		return []model.ControlVerificationTask{}
+	}
+	return items
+}
+
+func nonNilControlOperatorCases(items []model.ControlOperatorCase) []model.ControlOperatorCase {
+	if items == nil {
+		return []model.ControlOperatorCase{}
 	}
 	return items
 }
@@ -4527,6 +4860,39 @@ func uniqueSortedStrings(values []string) []string {
 		return []string{}
 	}
 	return out
+}
+
+func subtractStrings(left []string, right []string) []string {
+	rightSet := map[string]bool{}
+	for _, value := range right {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			rightSet[value] = true
+		}
+	}
+	var out []string
+	for _, value := range left {
+		value = strings.TrimSpace(value)
+		if value == "" || rightSet[value] {
+			continue
+		}
+		out = append(out, value)
+	}
+	return uniqueSortedStrings(out)
+}
+
+func equalStrings(left []string, right []string) bool {
+	left = uniqueSortedStrings(left)
+	right = uniqueSortedStrings(right)
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func zeroTrustEvidenceSources(evidence []model.ZeroTrustEvidence) []string {

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-case-compare-v1.schema.json",
+  "title": "Ariadne Case Compare Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_kind",
+    "before_source",
+    "after_source",
+    "summary",
+    "cases",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run_kind": { "type": "string", "enum": ["case_compare"] },
+    "before_source": { "type": "string" },
+    "after_source": { "type": "string" },
+    "summary": { "$ref": "#/$defs/case_compare_summary" },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/case_compare_result" }
+    },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "case_compare_summary": {
+      "type": "object",
+      "required": [
+        "cases",
+        "closed",
+        "reopened",
+        "stayed_open",
+        "stayed_closed",
+        "changed",
+        "added",
+        "removed"
+      ],
+      "properties": {
+        "cases": { "type": "integer" },
+        "closed": { "type": "integer" },
+        "reopened": { "type": "integer" },
+        "stayed_open": { "type": "integer" },
+        "stayed_closed": { "type": "integer" },
+        "changed": { "type": "integer" },
+        "added": { "type": "integer" },
+        "removed": { "type": "integer" }
+      }
+    },
+    "case_compare_result": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "severity",
+        "disposition",
+        "before_state",
+        "after_state",
+        "before_state_reason",
+        "after_state_reason",
+        "before_controls",
+        "after_controls",
+        "added_controls",
+        "removed_controls",
+        "before_proof_patches",
+        "after_proof_patches",
+        "before_evidence_refs",
+        "after_evidence_refs",
+        "before_targets",
+        "after_targets",
+        "before_flaws",
+        "after_flaws",
+        "before_next_step",
+        "after_next_step"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "disposition": {
+          "type": "string",
+          "enum": ["closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed"]
+        },
+        "before_state": { "type": "string" },
+        "after_state": { "type": "string" },
+        "before_state_reason": { "type": "string" },
+        "after_state_reason": { "type": "string" },
+        "before_controls": { "type": "array", "items": { "type": "string" } },
+        "after_controls": { "type": "array", "items": { "type": "string" } },
+        "added_controls": { "type": "array", "items": { "type": "string" } },
+        "removed_controls": { "type": "array", "items": { "type": "string" } },
+        "before_proof_patches": { "type": "integer" },
+        "after_proof_patches": { "type": "integer" },
+        "before_evidence_refs": { "type": "integer" },
+        "after_evidence_refs": { "type": "integer" },
+        "before_targets": { "type": "array", "items": { "type": "string" } },
+        "after_targets": { "type": "array", "items": { "type": "string" } },
+        "before_flaws": { "type": "array", "items": { "type": "string" } },
+        "after_flaws": { "type": "array", "items": { "type": "string" } },
+        "before_next_step": { "type": "string" },
+        "after_next_step": { "type": "string" }
+      }
+    }
+  }
+}

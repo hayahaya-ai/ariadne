@@ -187,6 +187,52 @@ type ProofPlanSummary struct {
 	Flaws              int `json:"flaws"`
 }
 
+type CaseCompareReport struct {
+	SchemaVersion string              `json:"schema_version"`
+	RunKind       string              `json:"run_kind"`
+	BeforeSource  string              `json:"before_source"`
+	AfterSource   string              `json:"after_source"`
+	Summary       CaseCompareSummary  `json:"summary"`
+	Cases         []CaseCompareResult `json:"cases"`
+	Limitations   []string            `json:"limitations"`
+}
+
+type CaseCompareSummary struct {
+	Cases        int `json:"cases"`
+	Closed       int `json:"closed"`
+	Reopened     int `json:"reopened"`
+	StayedOpen   int `json:"stayed_open"`
+	StayedClosed int `json:"stayed_closed"`
+	Changed      int `json:"changed"`
+	Added        int `json:"added"`
+	Removed      int `json:"removed"`
+}
+
+type CaseCompareResult struct {
+	ID                 string   `json:"id"`
+	Title              string   `json:"title"`
+	Severity           string   `json:"severity"`
+	Disposition        string   `json:"disposition"`
+	BeforeState        string   `json:"before_state"`
+	AfterState         string   `json:"after_state"`
+	BeforeStateReason  string   `json:"before_state_reason"`
+	AfterStateReason   string   `json:"after_state_reason"`
+	BeforeControls     []string `json:"before_controls"`
+	AfterControls      []string `json:"after_controls"`
+	AddedControls      []string `json:"added_controls"`
+	RemovedControls    []string `json:"removed_controls"`
+	BeforeProofPatches int      `json:"before_proof_patches"`
+	AfterProofPatches  int      `json:"after_proof_patches"`
+	BeforeEvidenceRefs int      `json:"before_evidence_refs"`
+	AfterEvidenceRefs  int      `json:"after_evidence_refs"`
+	BeforeTargets      []string `json:"before_targets"`
+	AfterTargets       []string `json:"after_targets"`
+	BeforeFlaws        []string `json:"before_flaws"`
+	AfterFlaws         []string `json:"after_flaws"`
+	BeforeNextStep     string   `json:"before_next_step"`
+	AfterNextStep      string   `json:"after_next_step"`
+}
+
 type AssessReport struct {
 	SchemaVersion    string                  `json:"schema_version"`
 	RunID            string                  `json:"run_id"`

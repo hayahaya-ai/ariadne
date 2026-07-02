@@ -3223,6 +3223,79 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 	}
 }
 
+func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
+	openRun, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedRun, err := RunPath(Options{Path: realPathFixture(t, "input-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	openProof := renderProofPlanJSON(t, openRun, "input-trust-boundary")
+	closedProof := renderProofPlanJSON(t, closedRun, "input-trust-boundary")
+
+	compare, err := report.BuildCaseCompareReport(openProof, closedProof, "before-open.json", "after-closed.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compare.RunKind != "case_compare" || compare.Summary.Cases != 1 || compare.Summary.Closed != 1 {
+		t.Fatalf("compare should show one closed case: %+v", compare)
+	}
+	if got := compare.Cases[0]; got.Disposition != "closed" || got.BeforeState != "open" || got.AfterState != "closed" {
+		t.Fatalf("compare should show open -> closed: %+v", got)
+	}
+	if !containsString(compare.Cases[0].AfterControls, "control:input-isolation") || !containsString(compare.Cases[0].AfterControls, "control:trusted-source-policy") {
+		t.Fatalf("compare should show observed hard barriers in after report: %+v", compare.Cases[0])
+	}
+	if compare.Cases[0].BeforeProofPatches != 2 || compare.Cases[0].AfterProofPatches != 0 {
+		t.Fatalf("compare should show proof patches going to zero: %+v", compare.Cases[0])
+	}
+
+	var table bytes.Buffer
+	if err := report.RenderCaseCompare(&table, compare, "table"); err != nil {
+		t.Fatal(err)
+	}
+	tableOut := table.String()
+	for _, want := range []string{
+		"Ariadne case compare:",
+		"CLOSED Input Trust Boundary",
+		"open -> closed",
+		"After controls: control:input-isolation; control:trusted-source-policy",
+		"Proof patches: 2 -> 0",
+	} {
+		if !strings.Contains(tableOut, want) {
+			t.Fatalf("compare table missing %q:\n%s", want, tableOut)
+		}
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderCaseCompare(&htmlOut, compare, "html"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Case Compare",
+		"Compare Summary",
+		"Case Changes",
+		"CLOSED",
+		"control:input-isolation",
+		"2 -> 0",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("compare dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+
+	reopened, err := report.BuildCaseCompareReport(closedProof, openProof, "before-closed.json", "after-open.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Summary.Reopened != 1 || reopened.Cases[0].Disposition != "reopened" || reopened.Cases[0].BeforeState != "closed" || reopened.Cases[0].AfterState != "open" {
+		t.Fatalf("reverse compare should show reopened: %+v", reopened)
+	}
+}
+
 func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	path := realPathFixture(t, "combined-risk")
 	inventory, err := RunInventory(Options{Path: path})
@@ -3936,6 +4009,21 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	proofPlanSummary := schemaMap(t, proofPlanSchema, "$defs", "proof_plan_summary")
 	assertRequiredKeys(t, proofPlanSummary, "cases", "proof_patches", "evidence_refs", "controls", "targets", "flaws")
 
+	caseCompareSchema := loadSchema(t, "ariadne-case-compare-v1.schema.json")
+	assertRequiredKeys(t, caseCompareSchema,
+		"schema_version",
+		"run_kind",
+		"before_source",
+		"after_source",
+		"summary",
+		"cases",
+		"limitations",
+	)
+	caseCompareSummary := schemaMap(t, caseCompareSchema, "$defs", "case_compare_summary")
+	assertRequiredKeys(t, caseCompareSummary, "cases", "closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed")
+	caseCompareResult := schemaMap(t, caseCompareSchema, "$defs", "case_compare_result")
+	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_next_step", "after_next_step")
+
 	assessSchema := loadSchema(t, "ariadne-assess-v1.schema.json")
 	assertRequiredKeys(t, assessSchema,
 		"schema_version",
@@ -3981,6 +4069,15 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-v1.schema.json", architecture)
 	controlCatalog := report.BuildControlCatalogReport(architecture)
 	assertJSONHasSchemaRequiredFields(t, "ariadne-control-catalog-v1.schema.json", controlCatalog)
+	closedRun, err := RunPath(Options{Path: realPathFixture(t, "input-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseCompare, err := report.BuildCaseCompareReport(renderProofPlanJSON(t, r, "input-trust-boundary"), renderProofPlanJSON(t, closedRun, "input-trust-boundary"), "before.json", "after.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONHasSchemaRequiredFields(t, "ariadne-case-compare-v1.schema.json", caseCompare)
 	inventory, err := RunInventory(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {
 		t.Fatal(err)
@@ -4660,4 +4757,13 @@ func hasClosureFamilyTarget(items []model.ArchitectureClosureFamily, target stri
 		}
 	}
 	return false
+}
+
+func renderProofPlanJSON(t *testing.T, r model.Report, caseID string) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	if err := report.RenderProofs(&out, r, "json", "breaking", caseID); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
 }

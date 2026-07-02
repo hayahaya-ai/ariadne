@@ -186,6 +186,8 @@ This proof plan is read-only. It narrows the action packet for an operator or da
 
 When a focused case has been closed by deterministic hard-barrier evidence, `ariadne cases --case <id>` and `ariadne proofs --case <id>` return the selected case with `state: "closed"`, observed hard barriers in `starting_controls`, evidence references, and no proof patches instead of treating the missing case as an error.
 
+`ariadne compare --before <json> --after <json>` accepts JSON from `proofs`, `cases`, or `assess` and emits `run_kind: "case_compare"`. Each result includes the case ID, before/after state, disposition (`closed`, `reopened`, `stayed_open`, `stayed_closed`, `changed`, `added`, or `removed`), before/after controls, added/removed controls, proof patch counts, evidence reference counts, targets, flaws, and next steps.
+
 `ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, operator cases, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, proof patches, evidence examples, and actions.
 
 `ariadne cases --format html` renders the same contract as an operator case board: summary metrics, prioritized cases, evidence references, starting controls, proof surfaces, proof patches, example evidence, rerun commands, done criteria, and a compact evidence model.

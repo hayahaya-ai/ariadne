@@ -259,6 +259,28 @@ func renderProofPlanDashboard(w io.Writer, r model.ProofPlanReport) error {
 	return nil
 }
 
+func renderCaseCompareDashboard(w io.Writer, r model.CaseCompareReport) error {
+	title := "Ariadne Case Compare"
+	fmt.Fprintln(w, "<!doctype html>")
+	fmt.Fprintln(w, `<html lang="en">`)
+	renderDashboardHead(w, title)
+	fmt.Fprintln(w, "<body>")
+	fmt.Fprintln(w, `<main class="shell">`)
+	renderDashboardHeader(w, title, []kv{
+		{"Run kind", firstNonEmpty(r.RunKind, "case_compare")},
+		{"Before", firstNonEmpty(r.BeforeSource, "<before>")},
+		{"After", firstNonEmpty(r.AfterSource, "<after>")},
+		{"Cases", fmt.Sprintf("%d", r.Summary.Cases)},
+	})
+	renderCaseCompareSummaryDashboard(w, r)
+	renderCaseCompareCasesDashboard(w, r.Cases)
+	renderRunNotes(w, nil, r.Limitations)
+	fmt.Fprintln(w, "</main>")
+	fmt.Fprintln(w, "</body>")
+	fmt.Fprintln(w, "</html>")
+	return nil
+}
+
 type kv struct {
 	Key   string
 	Value string
@@ -412,6 +434,12 @@ tr:last-child td { border-bottom: 0; }
 .exposed { color: #fff; background: var(--critical); }
 .protected { color: #fff; background: var(--low); }
 .inconclusive { color: #1f2937; background: #d8dee7; }
+.closed, .stayed-closed { color: #fff; background: var(--low); }
+.reopened { color: #fff; background: var(--critical); }
+.stayed-open { color: #1f2937; background: #f6d471; }
+.changed { color: #fff; background: var(--info); }
+.added { color: #fff; background: var(--accent); }
+.removed { color: #374151; background: #eef2f7; }
 .p0, .p1 { color: #fff; background: var(--accent); }
 .p2, .p3, .p4 { color: #1f2937; background: #dbeafe; }
 .list {
@@ -1160,6 +1188,47 @@ func renderProofPlanSummaryDashboard(w io.Writer, r model.ProofPlanReport) {
 	if r.CaseFilter != "" {
 		fmt.Fprintf(w, `<div><strong>Focused case:</strong> <span class="mono">%s</span></div>`, esc(r.CaseFilter))
 	}
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderCaseCompareSummaryDashboard(w io.Writer, r model.CaseCompareReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Compare Summary</h2><div class="subtle">Deterministic change readout from two Ariadne JSON artifacts.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"Closed", fmt.Sprintf("%d", r.Summary.Closed)},
+		{"Reopened", fmt.Sprintf("%d", r.Summary.Reopened)},
+		{"Stayed open", fmt.Sprintf("%d", r.Summary.StayedOpen)},
+		{"Stayed closed", fmt.Sprintf("%d", r.Summary.StayedClosed)},
+		{"Changed", fmt.Sprintf("%d", r.Summary.Changed)},
+	})
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderCaseCompareCasesDashboard(w io.Writer, cases []model.CaseCompareResult) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Case Changes</h2><div class="subtle">State, control, proof patch, and evidence-reference deltas by case ID.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(cases) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No comparable cases were found.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Disposition</th><th>Case</th><th>State</th><th>Controls</th><th>Proof / evidence</th><th>After next step</th></tr></thead><tbody>")
+	for _, item := range cases {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Disposition), esc(strings.ToUpper(strings.ReplaceAll(item.Disposition, "_", " "))))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(firstNonEmpty(item.Title, item.ID)), esc(item.ID), esc(strings.ToUpper(item.Severity)))
+		fmt.Fprintf(w, `<td><h3>Before</h3><div>%s</div><div class="subtle">%s</div><h3>After</h3><div>%s</div><div class="subtle">%s</div></td>`, esc(item.BeforeState), esc(item.BeforeStateReason), esc(item.AfterState), esc(item.AfterStateReason))
+		fmt.Fprintf(w, `<td><h3>Before</h3>%s<h3>After</h3>%s<h3>Added</h3>%s<h3>Removed</h3>%s</td>`, renderSmallList(item.BeforeControls), renderSmallList(item.AfterControls), renderSmallList(item.AddedControls), renderSmallList(item.RemovedControls))
+		fmt.Fprintf(w, `<td><h3>Proof patches</h3><div>%d -> %d</div><h3>Evidence refs</h3><div>%d -> %d</div></td>`, item.BeforeProofPatches, item.AfterProofPatches, item.BeforeEvidenceRefs, item.AfterEvidenceRefs)
+		fmt.Fprintf(w, `<td>%s</td>`, esc(firstNonEmpty(item.AfterNextStep, "none")))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 
