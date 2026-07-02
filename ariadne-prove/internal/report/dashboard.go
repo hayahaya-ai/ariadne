@@ -2395,10 +2395,11 @@ func renderProofPlanWorkbenchDashboard(w io.Writer, r model.ProofPlanReport) {
 		if controlOperatorCaseIsClosed(item) {
 			controlLabel = "Observed hard barriers"
 		}
+		proofBundle := proofPlanClosureBundleHTML(item.ProofPatches, r.PatchExportCommand)
 		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("workbench", item.ID)))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><h3>%s</h3><div class="mono">%s</div><div class="subtle">%s</div><h3>Next step</h3><div>%s</div></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)), esc(item.Title), esc(item.ID), esc(item.StateReason), esc(item.NextStep))
 		fmt.Fprintf(w, `<td><h3>Evidence references</h3>%s<h3>Proof surfaces</h3>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(r.TargetPath, item.EvidenceReferences, 5)), renderDashboardPathList(r.TargetPath, limitStrings(item.ProofSurfaces, 6)))
-		fmt.Fprintf(w, `<td><h3>%s</h3>%s<h3>Evidence payload</h3>%s</td>`, esc(controlLabel), renderSmallList(limitStrings(item.StartingControls, 5)), renderProofPatchPayloads(item.ProofPatches, 3))
+		fmt.Fprintf(w, `<td><h3>%s</h3>%s%s<h3>Evidence payload</h3>%s</td>`, esc(controlLabel), renderSmallList(limitStrings(item.StartingControls, 5)), proofBundle, renderProofPatchPayloads(item.ProofPatches, 3))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limits</h3>%s</td>`, renderCommandList(limitStrings(item.RerunCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 4)), renderSmallList(limitStrings(item.Limitations, 2)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -2465,6 +2466,7 @@ func renderProofPlanCurrentActionDashboard(w io.Writer, r model.ProofPlanReport)
 	}
 	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
 	fmt.Fprintln(w, renderDashboardPathList(r.TargetPath, limitStrings(proofSurfaces, 6)))
+	renderProofPlanClosureBundleDashboard(w, r.ProofPatches, r.PatchExportCommand)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Proof To Add Or Verify</h3>`)
@@ -2482,6 +2484,55 @@ func renderProofPlanCurrentActionDashboard(w io.Writer, r model.ProofPlanReport)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderProofPlanClosureBundleDashboard(w io.Writer, patches []model.ControlProofPatch, patchExportCommand string) {
+	if block := proofPlanClosureBundleHTML(patches, patchExportCommand); block != "" {
+		fmt.Fprintln(w, block)
+	}
+}
+
+func proofPlanClosureBundleHTML(patches []model.ControlProofPatch, patchExportCommand string) string {
+	return closureBundleHTML("Closure bundle files", proofPatchControls(patches), proofPlanClosureBundleFiles(patches, patchExportCommand))
+}
+
+func controlOperatorCaseClosureBundleHTML(item model.ControlOperatorCase) string {
+	return closureBundleHTML("Closure bundle surfaces", proofPatchControls(item.ProofPatches), proofPatchBundleSurfaces(item.ProofPatches))
+}
+
+func closureBundleHTML(fileLabel string, controls []string, files []string) string {
+	controls = uniqueStrings(controls)
+	files = uniqueStrings(files)
+	if len(controls) <= 1 && len(files) <= 1 {
+		return ""
+	}
+	var b strings.Builder
+	if len(controls) > 0 {
+		b.WriteString(`<h3>Closure Bundle Controls</h3>`)
+		b.WriteString(renderSmallList(firstStrings(controls, 8)))
+	}
+	if len(files) > 0 {
+		b.WriteString(`<h3>`)
+		b.WriteString(esc(fileLabel))
+		b.WriteString(`</h3>`)
+		b.WriteString(renderSmallList(firstStrings(files, 6)))
+	}
+	b.WriteString(`<h3>Closure Rule</h3>`)
+	b.WriteString(renderSmallList([]string{"Rerun must show every bundle control is no longer a missing hard barrier for this case."}))
+	return b.String()
+}
+
+func proofPlanClosureBundleFiles(patches []model.ControlProofPatch, patchExportCommand string) []string {
+	surfaces := proofPatchBundleSurfaces(patches)
+	exportDir := proofPatchExportDirFromCommand(patchExportCommand)
+	if exportDir == "" {
+		return surfaces
+	}
+	var out []string
+	for _, surface := range surfaces {
+		out = append(out, filepath.Clean(filepath.Join(exportDir, proofPatchExportSurfaceRelPath(surface))))
+	}
+	return uniqueStrings(out)
 }
 
 func renderProofPlanWorkflowDashboard(w io.Writer, r model.ProofPlanReport) {
@@ -2771,7 +2822,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(item.Question), esc(item.Finding))
 		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderOperatorCaseStartCell(item))
-		fmt.Fprintf(w, `<td><h3>%s</h3>%s<h3>Proof patches</h3>%s<h3>%s</h3>%s</td>`, esc(surfaceHeading), renderDashboardPathList(root, limitStrings(surfaces, 6)), renderDashboardHTMLList(controlProofPatchHTMLLines(root, item.ProofPatches, 2)), esc(exampleHeading), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, item.EvidenceExamples, 2)))
+		fmt.Fprintf(w, `<td><h3>%s</h3>%s%s<h3>Proof patches</h3>%s<h3>%s</h3>%s</td>`, esc(surfaceHeading), renderDashboardPathList(root, limitStrings(surfaces, 6)), controlOperatorCaseClosureBundleHTML(item), renderDashboardHTMLList(controlProofPatchHTMLLines(root, item.ProofPatches, 2)), esc(exampleHeading), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, item.EvidenceExamples, 2)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderCommandList(limitStrings(item.RerunCommands, 2)), renderCommandList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
