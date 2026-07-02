@@ -914,6 +914,7 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 	}
 	if len(decision.GeneratedProofPaths) > 0 || len(decision.ApplyCommands) > 0 {
 		fmt.Fprintln(w, `<h3>Review / Apply Full Proof Bundle</h3>`)
+		renderAssessDecisionClosureBundleDashboard(w, decision)
 		var bundleLines []string
 		for _, path := range decision.GeneratedProofPaths {
 			bundleLines = append(bundleLines, "Generated file: "+path)
@@ -933,6 +934,22 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessDecisionClosureBundleDashboard(w io.Writer, decision model.AssessDecision) {
+	if len(decision.MissingHardBarriers) <= 1 && len(decision.GeneratedProofPaths) <= 1 {
+		return
+	}
+	if len(decision.MissingHardBarriers) > 0 {
+		fmt.Fprintln(w, `<div class="subtle">Closure bundle controls</div>`)
+		fmt.Fprintln(w, renderSmallList(firstStrings(uniqueStrings(decision.MissingHardBarriers), 8)))
+	}
+	if len(decision.GeneratedProofPaths) > 0 {
+		fmt.Fprintln(w, `<div class="subtle">Closure bundle files</div>`)
+		fmt.Fprintln(w, renderSmallList(firstStrings(uniqueStrings(decision.GeneratedProofPaths), 6)))
+	}
+	fmt.Fprintln(w, `<div class="subtle">Closure rule</div>`)
+	fmt.Fprintln(w, renderSmallList([]string{"Rerun must show every bundle control is no longer a missing hard barrier for this case."}))
 }
 
 func assessFocusSummary(r model.AssessReport) string {
@@ -1216,6 +1233,7 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 	}
 	if len(action.GeneratedProofPaths) > 0 || len(action.ApplyCommands) > 0 {
 		fmt.Fprintln(w, `<h3>Review / Apply Full Proof Bundle</h3>`)
+		renderAssessClosureBundleDashboard(w, root, action)
 		var bundleLines []string
 		for _, path := range action.GeneratedProofPaths {
 			bundleLines = append(bundleLines, "Generated file: "+path)
@@ -1234,6 +1252,27 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 	fmt.Fprintln(w, renderSmallList(limitStrings(successCriteria, 4)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
+}
+
+func renderAssessClosureBundleDashboard(w io.Writer, root string, action model.AssessFirstAction) {
+	if len(action.ProofPatches) <= 1 {
+		return
+	}
+	controls := proofPatchControls(action.ProofPatches)
+	files := action.GeneratedProofPaths
+	if len(files) == 0 {
+		files = proofPatchBundleSurfaces(action.ProofPatches)
+	}
+	if len(controls) > 0 {
+		fmt.Fprintln(w, `<div class="subtle">Closure bundle controls</div>`)
+		fmt.Fprintln(w, renderSmallList(firstStrings(controls, 8)))
+	}
+	if len(files) > 0 {
+		fmt.Fprintln(w, `<div class="subtle">Closure bundle files</div>`)
+		fmt.Fprintln(w, renderSmallList(firstStrings(files, 6)))
+	}
+	fmt.Fprintln(w, `<div class="subtle">Closure rule</div>`)
+	fmt.Fprintln(w, renderSmallList([]string{"Rerun must show every bundle control is no longer a missing hard barrier for this case."}))
 }
 
 func assessCurrentActionHTMLLines(root string, action model.AssessCurrentAction) []string {

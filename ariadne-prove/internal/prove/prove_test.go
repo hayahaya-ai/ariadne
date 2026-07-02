@@ -2817,6 +2817,29 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		decoded.Decision.EvidenceGapActions == nil {
 		t.Fatalf("endpoint decision should expose control-state buckets: %+v", decoded.Decision)
 	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	htmlRendered := htmlOut.String()
+	endpointBundleBlock := boundedBlock(t, htmlRendered, "Review / Apply Full Proof Bundle", "Generated file:")
+	for _, want := range []string{
+		"Closure bundle controls",
+		"control:credential-isolation",
+		"control:cryptographic-identity",
+		"control:hardware-bound-credential",
+		"control:jit-access",
+		"control:short-lived-credential",
+		"Closure bundle files",
+		"proof-patches/surfaces/.ariadne/identity-policy.json",
+		"Closure rule",
+		"Rerun must show every bundle control is no longer a missing hard barrier for this case.",
+	} {
+		if !strings.Contains(endpointBundleBlock, want) {
+			t.Fatalf("endpoint assessment dashboard should expose the full closure bundle; missing %q:\n%s", want, endpointBundleBlock)
+		}
+	}
 }
 
 func TestRunPathMessyAISurfacesProducesExposurePaths(t *testing.T) {
@@ -4674,6 +4697,14 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Export suggested files:",
 		"Review / Apply Generated Proof",
 		"Review / Apply Full Proof Bundle",
+		"Closure bundle controls",
+		"control:network-restricted",
+		"control:output-filter-logging",
+		"control:output-redaction",
+		"control:output-sensitive-data-filter",
+		"Closure bundle files",
+		"Closure rule",
+		"Rerun must show every bundle control is no longer a missing hard barrier for this case.",
 		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
 		"Generated file: proof-patches/surfaces/.ariadne/output-policy.json",
 		"Suggested destination:",
@@ -6593,10 +6624,14 @@ func proofLoopLabelsInOrder(values []string, labels ...string) bool {
 func boundedBlock(t *testing.T, value string, start string, end string) string {
 	t.Helper()
 	startIdx := strings.Index(value, start)
-	endIdx := strings.Index(value, end)
-	if startIdx < 0 || endIdx < 0 || endIdx <= startIdx {
+	if startIdx < 0 {
 		t.Fatalf("missing bounded block %q..%q in:\n%s", start, end, value)
 	}
+	endOffset := strings.Index(value[startIdx+len(start):], end)
+	if endOffset < 0 {
+		t.Fatalf("missing bounded block %q..%q in:\n%s", start, end, value)
+	}
+	endIdx := startIdx + len(start) + endOffset
 	return value[startIdx:endIdx]
 }
 
