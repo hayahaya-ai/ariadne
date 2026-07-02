@@ -4218,9 +4218,7 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	renderAssessDecisionLines(w, "Inspected", decision.InspectionSummary, 5)
 	renderAssessDecisionLines(w, "Risk basis", decision.RiskReasons, 3)
 	renderAssessDecisionLines(w, "Normal capability", decision.NormalCapabilities, 2)
-	if len(decision.EvidenceSources) > 0 {
-		fmt.Fprintf(w, "  - Evidence files: %s\n", strings.Join(limitStrings(decision.EvidenceSources, 8), "; "))
-	}
+	renderAssessEvidenceSources(w, decision.EvidenceSources, 8)
 	renderAssessDecisionLines(w, "Evidence fact", evidenceReferenceLines(decision.EvidenceReferences, 5), 5)
 	renderAssessDecisionLines(w, "Path", decision.PathSummary, 6)
 	renderAssessDecisionBucketLines(w, "Missing hard barrier", decision.MissingHardBarriers, 5, "none for the current case")
@@ -4347,13 +4345,48 @@ func renderAssessControlState(w io.Writer, state model.AssessControlState) {
 	renderAssessControlStateBucketLines(w, "Present hard barrier", state.PresentHardBarriers, 6, "none observed for the current case")
 	renderAssessControlStateBucketLines(w, "Partial/friction control", state.PartialOrFrictionControls, 6, "none observed for the current case")
 	renderAssessControlStateBucketLines(w, "Unknown evidence", state.UnknownEvidence, 4, "none for the current case")
-	if len(state.EvidenceSources) > 0 {
-		fmt.Fprintf(w, "  - Evidence sources: %s\n", strings.Join(limitStrings(state.EvidenceSources, 8), "; "))
-	}
+	renderAssessEvidenceSources(w, state.EvidenceSources, 8)
 	if len(state.ProofSurfaces) > 0 {
 		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(state.ProofSurfaces, 8), "; "))
 	}
 	fmt.Fprintln(w)
+}
+
+func renderAssessEvidenceSources(w io.Writer, sources []string, limit int) {
+	files, modeled := splitEvidenceSources(sources)
+	if len(files) > 0 {
+		fmt.Fprintf(w, "  - Evidence files: %s\n", strings.Join(limitStrings(files, limit), "; "))
+	}
+	if len(modeled) > 0 {
+		fmt.Fprintf(w, "  - Modeled/internal evidence: %s\n", strings.Join(limitStrings(modeled, limit), "; "))
+	}
+}
+
+func splitEvidenceSources(sources []string) ([]string, []string) {
+	var files []string
+	var modeled []string
+	for _, source := range uniqueStrings(sources) {
+		if evidenceSourceLooksFile(source) {
+			files = append(files, source)
+		} else if strings.TrimSpace(source) != "" {
+			modeled = append(modeled, source)
+		}
+	}
+	return files, modeled
+}
+
+func evidenceSourceLooksFile(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" || strings.Contains(source, "://") {
+		return false
+	}
+	if filepath.Ext(source) != "" {
+		return true
+	}
+	if strings.HasPrefix(source, ".") {
+		return true
+	}
+	return (strings.Contains(source, "/") || strings.Contains(source, `\`)) && !strings.ContainsAny(source, " \t")
 }
 
 func renderAssessControlStateLines(w io.Writer, label string, values []string, limit int) {

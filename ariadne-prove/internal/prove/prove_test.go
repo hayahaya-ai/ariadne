@@ -2761,6 +2761,7 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 	}
 	decisionBlock := boundedBlock(t, actionRendered, "Decision:", "What was inspected:")
 	for _, want := range []string{
+		"Evidence files: .aider.chat.history.md; .aider.conf.yml; .claude/paste-cache",
 		"Missing hard barrier: control:credential-isolation",
 		"Present hard barrier: control:network-restricted",
 	} {
@@ -4416,6 +4417,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Inspected: Runtime surface map:",
 		"Risk basis:",
 		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
+		"Modeled/internal evidence: zt:control-strength",
 		"Evidence fact:",
 		"Claude Code settings declare broad local authority",
 		"Before proof: ariadne proofs --path",
