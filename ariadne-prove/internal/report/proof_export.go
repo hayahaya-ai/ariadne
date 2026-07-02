@@ -21,27 +21,31 @@ type ProofPatchExportResult struct {
 }
 
 type proofPatchExportManifest struct {
-	SchemaVersion string                         `json:"schema_version"`
-	GeneratedAt   time.Time                      `json:"generated_at"`
-	RunID         string                         `json:"run_id"`
-	TargetPath    string                         `json:"target_path"`
-	Mode          string                         `json:"mode"`
-	Agent         string                         `json:"agent"`
-	StatusFilter  string                         `json:"status_filter"`
-	CaseFilter    string                         `json:"case_filter"`
-	PatchCount    int                            `json:"patch_count"`
-	Files         []proofPatchExportManifestFile `json:"files"`
-	Limitations   []string                       `json:"limitations"`
+	SchemaVersion   string                         `json:"schema_version"`
+	GeneratedAt     time.Time                      `json:"generated_at"`
+	RunID           string                         `json:"run_id"`
+	TargetPath      string                         `json:"target_path"`
+	Mode            string                         `json:"mode"`
+	Agent           string                         `json:"agent"`
+	StatusFilter    string                         `json:"status_filter"`
+	CaseFilter      string                         `json:"case_filter"`
+	PatchCount      int                            `json:"patch_count"`
+	Files           []proofPatchExportManifestFile `json:"files"`
+	RerunCommands   []string                       `json:"rerun_commands"`
+	CompareCommands []string                       `json:"compare_commands"`
+	Limitations     []string                       `json:"limitations"`
 }
 
 type proofPatchExportManifestFile struct {
-	Path        string   `json:"path"`
-	Surface     string   `json:"surface"`
-	Format      string   `json:"format"`
-	Controls    []string `json:"controls"`
-	PatchCount  int      `json:"patch_count"`
-	Summaries   []string `json:"summaries"`
-	Limitations []string `json:"limitations"`
+	Path                 string   `json:"path"`
+	Surface              string   `json:"surface"`
+	SuggestedDestination string   `json:"suggested_destination"`
+	DestinationPath      string   `json:"destination_path,omitempty"`
+	Format               string   `json:"format"`
+	Controls             []string `json:"controls"`
+	PatchCount           int      `json:"patch_count"`
+	Summaries            []string `json:"summaries"`
+	Limitations          []string `json:"limitations"`
 }
 
 type proofPatchSurfaceExport struct {
@@ -68,16 +72,18 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 		PatchCount: len(plan.ProofPatches),
 	}
 	manifest := proofPatchExportManifest{
-		SchemaVersion: model.SchemaVersion,
-		GeneratedAt:   plan.GeneratedAt,
-		RunID:         plan.RunID,
-		TargetPath:    plan.TargetPath,
-		Mode:          plan.Mode,
-		Agent:         plan.Agent,
-		StatusFilter:  plan.StatusFilter,
-		CaseFilter:    plan.CaseFilter,
-		PatchCount:    len(plan.ProofPatches),
-		Files:         []proofPatchExportManifestFile{},
+		SchemaVersion:   model.SchemaVersion,
+		GeneratedAt:     plan.GeneratedAt,
+		RunID:           plan.RunID,
+		TargetPath:      plan.TargetPath,
+		Mode:            plan.Mode,
+		Agent:           plan.Agent,
+		StatusFilter:    plan.StatusFilter,
+		CaseFilter:      plan.CaseFilter,
+		PatchCount:      len(plan.ProofPatches),
+		Files:           []proofPatchExportManifestFile{},
+		RerunCommands:   append([]string{}, plan.RerunCommands...),
+		CompareCommands: append([]string{}, plan.CompareCommands...),
 		Limitations: uniqueSortedStrings(append([]string{
 			"Exported proof files are suggested evidence artifacts only; review them before copying into a repo or endpoint configuration.",
 			"Exporting proof files does not prove that the named control is live or enforced.",
@@ -93,14 +99,17 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 			return ProofPatchExportResult{}, err
 		}
 		result.Files = append(result.Files, absPath)
+		destinationPath := proofPatchSuggestedDestinationPath(plan.TargetPath, group.Surface)
 		manifest.Files = append(manifest.Files, proofPatchExportManifestFile{
-			Path:        relPath,
-			Surface:     group.Surface,
-			Format:      group.Format,
-			Controls:    group.Controls,
-			PatchCount:  len(group.Patches),
-			Summaries:   group.Summaries,
-			Limitations: group.Limitations,
+			Path:                 relPath,
+			Surface:              group.Surface,
+			SuggestedDestination: group.Surface,
+			DestinationPath:      destinationPath,
+			Format:               group.Format,
+			Controls:             group.Controls,
+			PatchCount:           len(group.Patches),
+			Summaries:            group.Summaries,
+			Limitations:          group.Limitations,
 		})
 	}
 	readmePath := filepath.Join(dir, "README.md")
@@ -230,6 +239,9 @@ func proofPatchExportReadme(plan model.ProofPlanReport, manifest proofPatchExpor
 	b.WriteString("## Files\n\n")
 	for _, file := range manifest.Files {
 		fmt.Fprintf(&b, "- `%s` for `%s` (%s)\n", file.Path, file.Surface, file.Format)
+		if file.DestinationPath != "" {
+			fmt.Fprintf(&b, "  - Suggested destination: `%s`\n", file.DestinationPath)
+		}
 	}
 	b.WriteString("\n## Verification\n\n")
 	for _, command := range limitStrings(plan.RerunCommands, 4) {
@@ -261,6 +273,21 @@ func proofPatchExportSurfaceRelPath(surface string) string {
 		cleaned = "supported-control-evidence.txt"
 	}
 	return filepath.FromSlash(filepath.Join("surfaces", cleaned))
+}
+
+func proofPatchSuggestedDestinationPath(targetPath, surface string) string {
+	surface = strings.TrimSpace(surface)
+	if surface == "" || strings.Contains(surface, "supported control evidence") {
+		return ""
+	}
+	if filepath.IsAbs(surface) {
+		return filepath.Clean(surface)
+	}
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		return surface
+	}
+	return filepath.Clean(filepath.Join(targetPath, surface))
 }
 
 func sortedMapKeys(values map[string]string) []string {
