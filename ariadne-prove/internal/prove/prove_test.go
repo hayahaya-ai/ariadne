@@ -3298,6 +3298,11 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	if len(compare.Cases[0].AddedEvidence) == 0 || !containsEvidenceReferenceSource(compare.Cases[0].AddedEvidence, ".ariadne/input-policy.json") {
 		t.Fatalf("compare should include added evidence refs for the closed case: %+v", compare.Cases[0].AddedEvidence)
 	}
+	if !containsString(compare.Cases[0].AfterRerunCommands, "ariadne cases --path") ||
+		!containsString(compare.Cases[0].AfterCompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") ||
+		!containsString(compare.Cases[0].AfterCompareCommands, "case-compare.html") {
+		t.Fatalf("compare should preserve after rerun and compare commands: %+v", compare.Cases[0])
+	}
 
 	var table bytes.Buffer
 	if err := report.RenderCaseCompare(&table, compare, "table"); err != nil {
@@ -3313,6 +3318,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"After evidence:",
 		"Added evidence:",
 		".ariadne/input-policy.json",
+		"After rerun:",
+		"After compare loop:",
+		"case-compare.html",
 	} {
 		if !strings.Contains(tableOut, want) {
 			t.Fatalf("compare table missing %q:\n%s", want, tableOut)
@@ -3334,6 +3342,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"After evidence",
 		"Added evidence",
 		".ariadne/input-policy.json",
+		"After rerun",
+		"After compare loop",
+		"case-compare.html",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("compare dashboard missing %q:\n%s", want, rendered)
@@ -4091,7 +4102,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	caseCompareSummary := schemaMap(t, caseCompareSchema, "$defs", "case_compare_summary")
 	assertRequiredKeys(t, caseCompareSummary, "cases", "closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed")
 	caseCompareResult := schemaMap(t, caseCompareSchema, "$defs", "case_compare_result")
-	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_evidence_details", "after_evidence_details", "added_evidence_refs", "removed_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_next_step", "after_next_step")
+	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_evidence_details", "after_evidence_details", "added_evidence_refs", "removed_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_rerun_commands", "after_rerun_commands", "before_compare_commands", "after_compare_commands", "before_next_step", "after_next_step")
 
 	assessSchema := loadSchema(t, "ariadne-assess-v1.schema.json")
 	assertRequiredKeys(t, assessSchema,

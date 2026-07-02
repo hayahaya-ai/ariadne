@@ -1247,7 +1247,11 @@ func renderCaseCompareCasesDashboard(w io.Writer, cases []model.CaseCompareResul
 			renderSmallList(evidenceReferenceLines(item.AddedEvidence, 3)),
 			renderSmallList(evidenceReferenceLines(item.RemovedEvidence, 3)),
 		)
-		fmt.Fprintf(w, `<td>%s</td>`, esc(firstNonEmpty(item.AfterNextStep, "none")))
+		fmt.Fprintf(w, `<td>%s<h3>After rerun</h3>%s<h3>After compare loop</h3>%s</td>`,
+			esc(firstNonEmpty(item.AfterNextStep, "none")),
+			renderSmallList(limitStrings(item.AfterRerunCommands, 2)),
+			renderSmallList(limitStrings(item.AfterCompareCommands, 3)),
+		)
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")

@@ -557,27 +557,31 @@ func compareCase(before model.ControlOperatorCase, beforeOK bool, after model.Co
 	beforeState := normalizedCaseState(before, beforeOK)
 	afterState := normalizedCaseState(after, afterOK)
 	item := model.CaseCompareResult{
-		ID:                 firstNonEmpty(caseIDOrEmpty(after, afterOK), caseIDOrEmpty(before, beforeOK)),
-		Title:              firstNonEmpty(caseTitleOrEmpty(after, afterOK), caseTitleOrEmpty(before, beforeOK)),
-		Severity:           firstNonEmpty(caseSeverityOrEmpty(after, afterOK), caseSeverityOrEmpty(before, beforeOK)),
-		BeforeState:        beforeState,
-		AfterState:         afterState,
-		BeforeStateReason:  caseStateReasonOrEmpty(before, beforeOK),
-		AfterStateReason:   caseStateReasonOrEmpty(after, afterOK),
-		BeforeControls:     normalizedCaseControls(before, beforeOK),
-		AfterControls:      normalizedCaseControls(after, afterOK),
-		BeforeProofPatches: caseProofPatchCount(before, beforeOK),
-		AfterProofPatches:  caseProofPatchCount(after, afterOK),
-		BeforeEvidenceRefs: caseEvidenceRefCount(before, beforeOK),
-		AfterEvidenceRefs:  caseEvidenceRefCount(after, afterOK),
-		BeforeEvidence:     caseEvidenceReferences(before, beforeOK),
-		AfterEvidence:      caseEvidenceReferences(after, afterOK),
-		BeforeTargets:      normalizedCaseTargets(before, beforeOK),
-		AfterTargets:       normalizedCaseTargets(after, afterOK),
-		BeforeFlaws:        normalizedCaseFlaws(before, beforeOK),
-		AfterFlaws:         normalizedCaseFlaws(after, afterOK),
-		BeforeNextStep:     caseNextStepOrEmpty(before, beforeOK),
-		AfterNextStep:      caseNextStepOrEmpty(after, afterOK),
+		ID:                    firstNonEmpty(caseIDOrEmpty(after, afterOK), caseIDOrEmpty(before, beforeOK)),
+		Title:                 firstNonEmpty(caseTitleOrEmpty(after, afterOK), caseTitleOrEmpty(before, beforeOK)),
+		Severity:              firstNonEmpty(caseSeverityOrEmpty(after, afterOK), caseSeverityOrEmpty(before, beforeOK)),
+		BeforeState:           beforeState,
+		AfterState:            afterState,
+		BeforeStateReason:     caseStateReasonOrEmpty(before, beforeOK),
+		AfterStateReason:      caseStateReasonOrEmpty(after, afterOK),
+		BeforeControls:        normalizedCaseControls(before, beforeOK),
+		AfterControls:         normalizedCaseControls(after, afterOK),
+		BeforeProofPatches:    caseProofPatchCount(before, beforeOK),
+		AfterProofPatches:     caseProofPatchCount(after, afterOK),
+		BeforeEvidenceRefs:    caseEvidenceRefCount(before, beforeOK),
+		AfterEvidenceRefs:     caseEvidenceRefCount(after, afterOK),
+		BeforeEvidence:        caseEvidenceReferences(before, beforeOK),
+		AfterEvidence:         caseEvidenceReferences(after, afterOK),
+		BeforeTargets:         normalizedCaseTargets(before, beforeOK),
+		AfterTargets:          normalizedCaseTargets(after, afterOK),
+		BeforeFlaws:           normalizedCaseFlaws(before, beforeOK),
+		AfterFlaws:            normalizedCaseFlaws(after, afterOK),
+		BeforeRerunCommands:   caseRerunCommands(before, beforeOK),
+		AfterRerunCommands:    caseRerunCommands(after, afterOK),
+		BeforeCompareCommands: caseCompareCommands(before, beforeOK),
+		AfterCompareCommands:  caseCompareCommands(after, afterOK),
+		BeforeNextStep:        caseNextStepOrEmpty(before, beforeOK),
+		AfterNextStep:         caseNextStepOrEmpty(after, afterOK),
 	}
 	item.AddedControls = subtractStrings(item.AfterControls, item.BeforeControls)
 	item.RemovedControls = subtractStrings(item.BeforeControls, item.AfterControls)
@@ -724,6 +728,20 @@ func caseEvidenceReferences(item model.ControlOperatorCase, ok bool) []model.Evi
 	return dedupeEvidenceReferences(item.EvidenceReferences)
 }
 
+func caseRerunCommands(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueStrings(item.RerunCommands)
+}
+
+func caseCompareCommands(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueStrings(item.CompareCommands)
+}
+
 func subtractEvidenceReferences(values []model.EvidenceReference, remove []model.EvidenceReference) []model.EvidenceReference {
 	removed := map[string]bool{}
 	for _, item := range dedupeEvidenceReferences(remove) {
@@ -826,6 +844,12 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 		}
 		if item.AfterNextStep != "" {
 			fmt.Fprintf(w, "    After next step: %s\n", item.AfterNextStep)
+		}
+		if len(item.AfterRerunCommands) > 0 {
+			fmt.Fprintf(w, "    After rerun: %s\n", strings.Join(limitStrings(item.AfterRerunCommands, 2), "; "))
+		}
+		if len(item.AfterCompareCommands) > 0 {
+			fmt.Fprintf(w, "    After compare loop: %s\n", strings.Join(limitStrings(item.AfterCompareCommands, 3), "; "))
 		}
 	}
 	if len(r.Limitations) > 0 {
