@@ -3685,9 +3685,12 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 	renderAssessFirstActionWorkflow(w, action.Workflow)
 	if len(action.EvidenceReferences) > 0 {
 		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLinesBySource(action.EvidenceReferences, 3), "; "))
+		if sources := evidenceReferenceSources(action.EvidenceReferences, false); len(sources) > 0 {
+			fmt.Fprintf(w, "  - Evidence sources: %s\n", strings.Join(limitStrings(sources, 8), "; "))
+		}
 	}
 	if len(action.ProofSurfaces) > 0 {
-		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(action.ProofSurfaces, 4), "; "))
+		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(action.ProofSurfaces, 8), "; "))
 	}
 	if len(action.EvidenceExamples) > 0 {
 		fmt.Fprintf(w, "  - Accepted evidence: %s\n", strings.Join(controlEvidenceExampleLines(action.EvidenceExamples, 1), "; "))

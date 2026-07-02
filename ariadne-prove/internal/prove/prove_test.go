@@ -3977,6 +3977,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Evidence references:",
 		"Prove at:",
 		".ariadne/egress-policy.json",
+		"Evidence sources:",
 		"Top case proof packet:",
 		"Compare loop:",
 		"before-proof.json",
@@ -4000,7 +4001,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!strings.Contains(firstActionBlock, "2. Add Or Verify Proof [current]:") ||
 		!strings.Contains(firstActionBlock, "Command: ariadne proofs --path") ||
 		!strings.Contains(firstActionBlock, "--patch-dir proof-patches") ||
-		!strings.Contains(firstActionBlock, "4. Compare Before And After:") {
+		!strings.Contains(firstActionBlock, "4. Compare Before And After:") ||
+		!strings.Contains(firstActionBlock, "Evidence sources: .claude/settings.json; .codex/config.toml; .env") ||
+		!strings.Contains(firstActionBlock, "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/output-policy.json; .claude/settings.json; .codex/config.toml") {
 		t.Fatalf("first action should include the compare loop commands:\n%s", firstActionBlock)
 	}
 
