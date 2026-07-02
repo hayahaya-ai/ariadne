@@ -2748,6 +2748,15 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		!strings.Contains(actionRendered, "Evidence sources:") {
 		t.Fatalf("endpoint assessment action should include the top case evidence packet:\n%s", actionRendered)
 	}
+	decisionBlock := boundedBlock(t, actionRendered, "Decision:", "What was inspected:")
+	for _, want := range []string{
+		"Missing hard barrier: control:deny-by-default",
+		"Present hard barrier: control:network-restricted",
+	} {
+		if !strings.Contains(decisionBlock, want) {
+			t.Fatalf("endpoint decision packet should separate present and missing controls; missing %q:\n%s", want, decisionBlock)
+		}
+	}
 	sourceBlock := boundedBlock(t, actionRendered, "Evidence sources:", "Accepted evidence:")
 	for _, want := range []string{
 		".claude/.mcp.json",
@@ -2760,6 +2769,22 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		if !strings.Contains(sourceBlock, want) {
 			t.Fatalf("endpoint evidence sources should include %q:\n%s", want, sourceBlock)
 		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderAssess(&jsonOut, inventory, r, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !containsExactString(decoded.Decision.MissingHardBarriers, "control:deny-by-default") ||
+		!containsExactString(decoded.Decision.PresentHardBarriers, "control:network-restricted") ||
+		decoded.Decision.PartialOrFrictionControls == nil ||
+		decoded.Decision.UnknownEvidence == nil ||
+		decoded.Decision.EvidenceGapActions == nil {
+		t.Fatalf("endpoint decision should expose control-state buckets: %+v", decoded.Decision)
 	}
 }
 
@@ -5749,7 +5774,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessDecision := schemaMap(t, assessSchema, "$defs", "assess_decision")
-	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "risk_reasons", "normal_capabilities", "evidence_sources", "evidence_refs", "path_summary", "missing_hard_barriers", "done_criteria", "limitations")
+	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "risk_reasons", "normal_capabilities", "evidence_sources", "evidence_refs", "path_summary", "missing_hard_barriers", "present_hard_barriers", "partial_or_friction_controls", "unknown_evidence", "evidence_gap_actions", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessDecision, "generated_proof_path")
 	assertSchemaProperty(t, assessDecision, "suggested_destination")
 	assertSchemaProperty(t, assessDecision, "destination_path")

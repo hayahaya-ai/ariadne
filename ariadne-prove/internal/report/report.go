@@ -2506,28 +2506,32 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 
 func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction) model.AssessDecision {
 	decision := model.AssessDecision{
-		Status:               firstNonEmpty(triage.Status, "no_supported_signal"),
-		Headline:             firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
-		StartHere:            triage.StartHere,
-		TopCaseID:            action.CaseID,
-		TopCaseTitle:         action.Title,
-		WhyPrioritized:       action.WhyFirst,
-		RiskReasons:          assessDecisionRiskReasons(triage.HardRiskSignals),
-		NormalCapabilities:   firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
-		EvidenceSources:      firstStrings(uniqueStrings(state.EvidenceSources), 8),
-		EvidenceReferences:   firstEvidenceReferences(action.EvidenceReferences, 5),
-		PathSummary:          firstStrings(uniqueStrings(state.PathSummary), 6),
-		MissingHardBarriers:  firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
-		Instruction:          firstNonEmpty(action.CurrentAction.Instruction, action.NextStep, triage.NextAction),
-		ProofSurface:         firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
-		ProofCommand:         firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand),
-		GeneratedProofPath:   action.CurrentAction.GeneratedProofPath,
-		SuggestedDestination: action.CurrentAction.SuggestedDestination,
-		DestinationPath:      action.CurrentAction.DestinationPath,
-		ApplyCommand:         action.CurrentAction.ApplyCommand,
-		RerunCommand:         action.CurrentAction.RerunCommand,
-		CompareCommand:       action.CurrentAction.CompareCommand,
-		DoneCriteria:         firstStrings(uniqueStrings(firstNonEmptyStrings(action.CurrentAction.SuccessCriteria, action.SuccessCriteria)), 3),
+		Status:                    firstNonEmpty(triage.Status, "no_supported_signal"),
+		Headline:                  firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
+		StartHere:                 triage.StartHere,
+		TopCaseID:                 action.CaseID,
+		TopCaseTitle:              action.Title,
+		WhyPrioritized:            action.WhyFirst,
+		RiskReasons:               assessDecisionRiskReasons(triage.HardRiskSignals),
+		NormalCapabilities:        firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
+		EvidenceSources:           firstStrings(uniqueStrings(state.EvidenceSources), 8),
+		EvidenceReferences:        firstEvidenceReferences(action.EvidenceReferences, 5),
+		PathSummary:               firstStrings(uniqueStrings(state.PathSummary), 6),
+		MissingHardBarriers:       firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
+		PresentHardBarriers:       firstStrings(uniqueStrings(state.PresentHardBarriers), 5),
+		PartialOrFrictionControls: firstStrings(uniqueStrings(state.PartialOrFrictionControls), 5),
+		UnknownEvidence:           firstStrings(uniqueStrings(state.UnknownEvidence), 4),
+		EvidenceGapActions:        firstStrings(uniqueStrings(triage.EvidenceGapActions), 4),
+		Instruction:               firstNonEmpty(action.CurrentAction.Instruction, action.NextStep, triage.NextAction),
+		ProofSurface:              firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
+		ProofCommand:              firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand),
+		GeneratedProofPath:        action.CurrentAction.GeneratedProofPath,
+		SuggestedDestination:      action.CurrentAction.SuggestedDestination,
+		DestinationPath:           action.CurrentAction.DestinationPath,
+		ApplyCommand:              action.CurrentAction.ApplyCommand,
+		RerunCommand:              action.CurrentAction.RerunCommand,
+		CompareCommand:            action.CurrentAction.CompareCommand,
+		DoneCriteria:              firstStrings(uniqueStrings(firstNonEmptyStrings(action.CurrentAction.SuccessCriteria, action.SuccessCriteria)), 3),
 		Limitations: []string{
 			"Decision is derived from deterministic inventory, graph, case, and proof data; inspect detailed sections for complete evidence.",
 		},
@@ -2571,6 +2575,10 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 	decision.EvidenceReferences = nonNilEvidenceReferences(decision.EvidenceReferences)
 	decision.PathSummary = nonNilStrings(decision.PathSummary)
 	decision.MissingHardBarriers = nonNilStrings(decision.MissingHardBarriers)
+	decision.PresentHardBarriers = nonNilStrings(decision.PresentHardBarriers)
+	decision.PartialOrFrictionControls = nonNilStrings(decision.PartialOrFrictionControls)
+	decision.UnknownEvidence = nonNilStrings(decision.UnknownEvidence)
+	decision.EvidenceGapActions = nonNilStrings(decision.EvidenceGapActions)
 	decision.DoneCriteria = nonNilStrings(decision.DoneCriteria)
 	decision.Limitations = uniqueStrings(decision.Limitations)
 	return decision
@@ -3916,6 +3924,10 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	renderAssessDecisionLines(w, "Evidence fact", evidenceReferenceLines(decision.EvidenceReferences, 5), 5)
 	renderAssessDecisionLines(w, "Path", decision.PathSummary, 6)
 	renderAssessDecisionLines(w, "Missing hard barrier", decision.MissingHardBarriers, 5)
+	renderAssessDecisionLines(w, "Present hard barrier", decision.PresentHardBarriers, 5)
+	renderAssessDecisionLines(w, "Partial/friction control", decision.PartialOrFrictionControls, 5)
+	renderAssessDecisionLines(w, "Unknown evidence", decision.UnknownEvidence, 4)
+	renderAssessDecisionLines(w, "Evidence gap action", decision.EvidenceGapActions, 4)
 	if decision.Instruction != "" {
 		fmt.Fprintf(w, "  - Action: %s\n", decision.Instruction)
 	}

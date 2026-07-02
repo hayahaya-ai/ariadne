@@ -69,6 +69,10 @@ expect_contains "$assess_json" '"decision"'
 expect_contains "$assess_json" '"risk_reasons"'
 expect_contains "$assess_json" '"evidence_refs"'
 expect_contains "$assess_json" '"proof_command"'
+expect_contains "$assess_json" '"present_hard_barriers"'
+expect_contains "$assess_json" '"partial_or_friction_controls"'
+expect_contains "$assess_json" '"unknown_evidence"'
+expect_contains "$assess_json" '"evidence_gap_actions"'
 expect_contains "$assess_json" '"done_criteria"'
 expect_contains "$assess_json" '"control_state"'
 expect_contains "$assess_json" '"current_control": "control:egress-destination-allowlist"'
@@ -93,6 +97,10 @@ expect_contains "$assess_html" "Decision Packet"
 expect_contains "$assess_html" "Risk Basis"
 expect_contains "$assess_html" "Evidence Facts"
 expect_contains "$assess_html" "Proof Surface"
+expect_contains "$assess_html" "Present Hard Barriers"
+expect_contains "$assess_html" "Partial Or Friction Controls"
+expect_contains "$assess_html" "Unknown Evidence"
+expect_contains "$assess_html" "Evidence Gap Actions"
 expect_contains "$assess_html" "Signal Triage"
 expect_contains "$assess_html" "Control State"
 expect_contains "$assess_html" "State Summary"
@@ -165,6 +173,10 @@ expect_contains "$endpoint_json" '"decision"'
 expect_contains "$endpoint_json" '"risk_reasons"'
 expect_contains "$endpoint_json" '"evidence_refs"'
 expect_contains "$endpoint_json" '"proof_command"'
+expect_contains "$endpoint_json" '"present_hard_barriers"'
+expect_contains "$endpoint_json" '"partial_or_friction_controls"'
+expect_contains "$endpoint_json" '"unknown_evidence"'
+expect_contains "$endpoint_json" '"evidence_gap_actions"'
 expect_contains "$endpoint_json" '"done_criteria"'
 expect_contains "$endpoint_json" '"top_case_id": "case:least-agency-authority"'
 expect_contains "$endpoint_json" '"control_state"'
@@ -187,6 +199,10 @@ expect_contains "$endpoint_html" "Decision Packet"
 expect_contains "$endpoint_html" "Risk Basis"
 expect_contains "$endpoint_html" "Evidence Facts"
 expect_contains "$endpoint_html" "Proof Surface"
+expect_contains "$endpoint_html" "Present Hard Barriers"
+expect_contains "$endpoint_html" "Partial Or Friction Controls"
+expect_contains "$endpoint_html" "Unknown Evidence"
+expect_contains "$endpoint_html" "Evidence Gap Actions"
 expect_contains "$endpoint_html" "Signal Triage"
 expect_contains "$endpoint_html" "Control State"
 expect_contains "$endpoint_html" "State Summary"
