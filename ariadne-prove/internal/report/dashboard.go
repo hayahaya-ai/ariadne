@@ -358,6 +358,7 @@ func renderProofPlanDashboard(w io.Writer, r model.ProofPlanReport) error {
 	renderDashboardHeader(w, title, fields)
 	renderProofPlanSummaryDashboard(w, r)
 	renderProofPlanCurrentActionDashboard(w, r)
+	renderProofPlanWorkflowDashboard(w, r)
 	renderProofPlanWorkbenchDashboard(w, r)
 	renderControlOperatorCasesDashboard(w, r.TargetPath, r.Cases)
 	renderProofPlanPatchesDashboard(w, r.TargetPath, r.ProofPatches)
@@ -2036,6 +2037,36 @@ func renderProofPlanCurrentActionDashboard(w io.Writer, r model.ProofPlanReport)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderProofPlanWorkflowDashboard(w io.Writer, r model.ProofPlanReport) {
+	if len(r.Workflow) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Proof Workflow</h2><div class="subtle">Run the loop in this order: baseline, evidence, rerun, compare, done criteria.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Step</th><th>What it does</th><th>Commands</th><th>Evidence / surfaces</th><th>Done when</th></tr></thead><tbody>")
+	for i, step := range r.Workflow {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%d. %s</strong><div class="mono">%s</div></td>`, i+1, esc(firstNonEmpty(step.Title, step.ID)), esc(step.ID))
+		fmt.Fprintf(w, `<td>%s%s</td>`, esc(step.Summary), renderWorkflowLimitations(step.Limitations))
+		fmt.Fprintf(w, `<td>%s</td>`, renderCommandList(limitStrings(step.Commands, 4)))
+		fmt.Fprintf(w, `<td><h3>Evidence</h3>%s<h3>Surfaces</h3>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(r.TargetPath, step.EvidenceReferences, 4)), renderDashboardPathList(r.TargetPath, limitStrings(step.ProofSurfaces, 5)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(step.SuccessCriteria, 4)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderWorkflowLimitations(limitations []string) string {
+	if len(limitations) == 0 {
+		return ""
+	}
+	return `<h3>Limit</h3>` + renderSmallList(limitStrings(limitations, 2))
 }
 
 func firstProofPlanCase(r model.ProofPlanReport) (model.ControlOperatorCase, bool) {

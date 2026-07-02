@@ -33,6 +33,7 @@ type proofPatchExportManifest struct {
 	Files           []proofPatchExportManifestFile `json:"files"`
 	RerunCommands   []string                       `json:"rerun_commands"`
 	CompareCommands []string                       `json:"compare_commands"`
+	Workflow        []model.ProofWorkflowStep      `json:"workflow"`
 	Limitations     []string                       `json:"limitations"`
 }
 
@@ -84,6 +85,7 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 		Files:           []proofPatchExportManifestFile{},
 		RerunCommands:   append([]string{}, plan.RerunCommands...),
 		CompareCommands: append([]string{}, plan.CompareCommands...),
+		Workflow:        append([]model.ProofWorkflowStep{}, plan.Workflow...),
 		Limitations: uniqueSortedStrings(append([]string{
 			"Exported proof files are suggested evidence artifacts only; review them before copying into a repo or endpoint configuration.",
 			"Exporting proof files does not prove that the named control is live or enforced.",
@@ -241,6 +243,15 @@ func proofPatchExportReadme(plan model.ProofPlanReport, manifest proofPatchExpor
 		fmt.Fprintf(&b, "- `%s` for `%s` (%s)\n", file.Path, file.Surface, file.Format)
 		if file.DestinationPath != "" {
 			fmt.Fprintf(&b, "  - Suggested destination: `%s`\n", file.DestinationPath)
+		}
+	}
+	if len(manifest.Workflow) > 0 {
+		b.WriteString("\n## Workflow\n\n")
+		for i, step := range manifest.Workflow {
+			fmt.Fprintf(&b, "%d. **%s**: %s\n", i+1, firstNonEmpty(step.Title, step.ID), step.Summary)
+			for _, command := range limitStrings(step.Commands, 4) {
+				fmt.Fprintf(&b, "   - `%s`\n", command)
+			}
 		}
 	}
 	b.WriteString("\n## Verification\n\n")

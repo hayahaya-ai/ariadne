@@ -179,8 +179,20 @@ type ProofPlanReport struct {
 	CompareCommands    []string              `json:"compare_commands"`
 	PatchExportCommand string                `json:"patch_export_command"`
 	SuccessCriteria    []string              `json:"success_criteria"`
+	Workflow           []ProofWorkflowStep   `json:"workflow"`
 	Redaction          RedactionInfo         `json:"redaction"`
 	Limitations        []string              `json:"limitations"`
+}
+
+type ProofWorkflowStep struct {
+	ID                 string              `json:"id"`
+	Title              string              `json:"title"`
+	Summary            string              `json:"summary"`
+	Commands           []string            `json:"commands"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	ProofSurfaces      []string            `json:"proof_surfaces"`
+	SuccessCriteria    []string            `json:"success_criteria"`
+	Limitations        []string            `json:"limitations"`
 }
 
 type ProofPlanSummary struct {

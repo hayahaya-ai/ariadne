@@ -695,6 +695,7 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 	if compareCommands == nil {
 		compareCommands = []string{}
 	}
+	workflow := buildProofPlanWorkflow(cases, patches, evidenceRefs, rerunCommands, compareCommands, patchExportCommand, successCriteria)
 	limitations := uniqueSortedStrings(append([]string{
 		"Proof plans are deterministic evidence plans; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.",
 		"Add proof only when the named control is actually implemented or enforced in the environment.",
@@ -722,6 +723,7 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 		CompareCommands:    compareCommands,
 		PatchExportCommand: patchExportCommand,
 		SuccessCriteria:    successCriteria,
+		Workflow:           workflow,
 		Redaction:          catalog.Redaction,
 		Limitations:        limitations,
 	}
@@ -773,6 +775,81 @@ func proofPlanCompareCommands(catalog model.ControlCatalogReport) []string {
 		proofCommand(after),
 		fmt.Sprintf("ariadne compare --before %s --after %s --format html --out case-compare.html", shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
 	}
+}
+
+func buildProofPlanWorkflow(cases []model.ControlOperatorCase, patches []model.ControlProofPatch, evidenceRefs []model.EvidenceReference, rerunCommands []string, compareCommands []string, patchExportCommand string, successCriteria []string) []model.ProofWorkflowStep {
+	proofSurfaces := proofWorkflowSurfaces(cases, patches)
+	beforeCommands := firstStrings(compareCommands, 1)
+	afterCompareCommands := []string{}
+	if len(compareCommands) > 1 {
+		afterCompareCommands = append(afterCompareCommands, compareCommands[1:]...)
+	}
+	addProofCommands := nonNilStrings(nonEmptyStrings(patchExportCommand))
+	addProofSummary := "Add or verify the parser-recognized control evidence that should break the selected path."
+	addProofLimitations := []string{"Only add proof when the named control is actually implemented or enforced in the environment."}
+	if len(patches) == 0 {
+		addProofSummary = "No proof patch is needed for the selected case because Ariadne already observes matching control evidence or no parser-recognized patch applies."
+		addProofLimitations = []string{"No patch means there is no generated evidence file to apply; inspect the case state and evidence references instead."}
+	}
+	workflow := []model.ProofWorkflowStep{
+		{
+			ID:                 "save-baseline",
+			Title:              "Save Baseline Proof",
+			Summary:            "Run the first proof command before changing evidence so compare has a baseline artifact.",
+			Commands:           nonNilStrings(beforeCommands),
+			EvidenceReferences: dedupeEvidenceReferences(evidenceRefs),
+			ProofSurfaces:      nonNilStrings(proofSurfaces),
+			SuccessCriteria:    []string{"before-proof.json represents the current open or controlled state before evidence changes."},
+			Limitations:        []string{"The baseline is a structured Ariadne proof artifact; it does not execute the agent or prove live exploitability."},
+		},
+		{
+			ID:                 "add-or-verify-proof",
+			Title:              "Add Or Verify Proof",
+			Summary:            addProofSummary,
+			Commands:           addProofCommands,
+			EvidenceReferences: dedupeEvidenceReferences(evidenceRefs),
+			ProofSurfaces:      nonNilStrings(proofSurfaces),
+			SuccessCriteria:    []string{"The named control evidence exists at a parser-recognized proof surface and reflects a real implemented control."},
+			Limitations:        addProofLimitations,
+		},
+		{
+			ID:                 "rerun-case",
+			Title:              "Rerun Case",
+			Summary:            "Rerun the focused case or architecture command after evidence changes so Ariadne recomputes facts, graph paths, and missing controls.",
+			Commands:           nonNilStrings(rerunCommands),
+			EvidenceReferences: []model.EvidenceReference{},
+			ProofSurfaces:      nonNilStrings(proofSurfaces),
+			SuccessCriteria:    nonNilStrings(successCriteria),
+			Limitations:        []string{"Rerun results are deterministic local analysis of collected evidence."},
+		},
+		{
+			ID:                 "compare-before-after",
+			Title:              "Compare Before And After",
+			Summary:            "Save the after proof artifact and compare it with the baseline to prove whether the case closed, reopened, or stayed open.",
+			Commands:           nonNilStrings(afterCompareCommands),
+			EvidenceReferences: []model.EvidenceReference{},
+			ProofSurfaces:      nonNilStrings(proofSurfaces),
+			SuccessCriteria:    nonNilStrings(successCriteria),
+			Limitations:        []string{"Compare uses structured Ariadne JSON only; it does not rerun collectors or prove live enforcement."},
+		},
+	}
+	for i := range workflow {
+		workflow[i].Commands = uniqueStrings(workflow[i].Commands)
+		workflow[i].EvidenceReferences = dedupeEvidenceReferences(workflow[i].EvidenceReferences)
+		workflow[i].ProofSurfaces = uniqueStrings(workflow[i].ProofSurfaces)
+		workflow[i].SuccessCriteria = uniqueStrings(workflow[i].SuccessCriteria)
+		workflow[i].Limitations = uniqueStrings(workflow[i].Limitations)
+	}
+	return workflow
+}
+
+func proofWorkflowSurfaces(cases []model.ControlOperatorCase, patches []model.ControlProofPatch) []string {
+	var surfaces []string
+	surfaces = append(surfaces, proofPatchSurfaceLines(patches)...)
+	for _, item := range cases {
+		surfaces = append(surfaces, item.ProofSurfaces...)
+	}
+	return uniqueStrings(surfaces)
 }
 
 func operatorCaseCompareCommands(catalog model.ControlCatalogReport, caseID string) []string {
@@ -3753,6 +3830,7 @@ func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {
 			fmt.Fprintf(w, "  - %d more proof patch(es) in JSON output\n", len(r.ProofPatches)-12)
 		}
 	}
+	renderProofPlanWorkflow(w, r.Workflow)
 	if len(r.CompareCommands) > 0 {
 		fmt.Fprintf(w, "\nCompare loop:\n")
 		for _, command := range limitStrings(r.CompareCommands, 3) {
@@ -3771,6 +3849,28 @@ func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func renderProofPlanWorkflow(w io.Writer, workflow []model.ProofWorkflowStep) {
+	if len(workflow) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nProof workflow:\n")
+	for i, step := range workflow {
+		fmt.Fprintf(w, "  %d. %s: %s\n", i+1, firstNonEmpty(step.Title, step.ID), step.Summary)
+		if len(step.Commands) > 0 {
+			fmt.Fprintf(w, "     Command: %s\n", strings.Join(limitStrings(step.Commands, 3), "; "))
+		}
+		if len(step.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "     Proof surfaces: %s\n", strings.Join(limitStrings(step.ProofSurfaces, 4), "; "))
+		}
+		if len(step.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "     Evidence: %s\n", strings.Join(evidenceReferenceLines(step.EvidenceReferences, 3), "; "))
+		}
+		if len(step.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "     Done when: %s\n", strings.Join(limitStrings(step.SuccessCriteria, 3), "; "))
+		}
+	}
 }
 
 func controlProofPatchFieldLines(fields []model.ControlProofPatchField) []string {

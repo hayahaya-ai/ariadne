@@ -3297,6 +3297,11 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"trusted_instruction_sources=true",
 		"ariadne cases --path",
 		"--case case:input-trust-boundary",
+		"Proof workflow:",
+		"Save Baseline Proof",
+		"Add Or Verify Proof",
+		"Rerun Case",
+		"Compare Before And After",
 		"Compare loop:",
 		"before-proof.json",
 		"after-proof.json",
@@ -3332,6 +3337,13 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		!containsString(decoded.CompareCommands, "--out after-proof.json") ||
 		!containsString(decoded.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") {
 		t.Fatalf("proof plan should carry before/after compare loop commands: %+v", decoded.CompareCommands)
+	}
+	if len(decoded.Workflow) != 4 ||
+		!proofWorkflowStepHasCommand(decoded.Workflow, "save-baseline", "--out before-proof.json") ||
+		!proofWorkflowStepHasCommand(decoded.Workflow, "add-or-verify-proof", "--patch-dir proof-patches") ||
+		!proofWorkflowStepHasCommand(decoded.Workflow, "rerun-case", "ariadne cases --path") ||
+		!proofWorkflowStepHasCommand(decoded.Workflow, "compare-before-after", "ariadne compare --before before-proof.json --after after-proof.json") {
+		t.Fatalf("proof plan should carry ordered proof workflow: %+v", decoded.Workflow)
 	}
 	if !strings.Contains(decoded.PatchExportCommand, "ariadne proofs --path") ||
 		!strings.Contains(decoded.PatchExportCommand, "--case case:input-trust-boundary") ||
@@ -3375,6 +3387,9 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		`"destination_path":`,
 		`"rerun_commands":`,
 		`"compare_commands":`,
+		`"workflow":`,
+		`"id": "save-baseline"`,
+		`"id": "compare-before-after"`,
 		`--case case:input-trust-boundary`,
 	} {
 		if !strings.Contains(string(manifest), want) {
@@ -3385,7 +3400,7 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Suggested destination:", ".ariadne/input-policy.json", "ariadne cases --path"} {
+	for _, want := range []string{"Suggested destination:", "## Workflow", "Save Baseline Proof", "Compare Before And After", ".ariadne/input-policy.json", "ariadne cases --path"} {
 		if !strings.Contains(string(readme), want) {
 			t.Fatalf("export README missing %q:\n%s", want, readme)
 		}
@@ -3401,6 +3416,9 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"Proof Plan",
 		"Current Action Packet",
 		"The focused proof loop",
+		"Proof Workflow",
+		"Save Baseline Proof",
+		"Compare Before And After",
 		"Evidence Workbench",
 		"Break path",
 		"Inspect facts",
@@ -3498,6 +3516,12 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 		!containsString(decoded.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") {
 		t.Fatalf("closed proof plan should carry compare loop commands: %+v", decoded.CompareCommands)
 	}
+	if len(decoded.Workflow) != 4 ||
+		!proofWorkflowStepHasCommand(decoded.Workflow, "save-baseline", "--out before-proof.json") ||
+		!proofWorkflowStepHasCommand(decoded.Workflow, "rerun-case", "ariadne cases --path") ||
+		!proofWorkflowStepHasCommand(decoded.Workflow, "compare-before-after", "ariadne compare --before before-proof.json --after after-proof.json") {
+		t.Fatalf("closed proof plan should carry ordered proof workflow: %+v", decoded.Workflow)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderProofs(&htmlOut, r, "html", "breaking", "input-trust-boundary"); err != nil {
@@ -3506,6 +3530,9 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 	rendered := htmlOut.String()
 	for _, want := range []string{
 		"Evidence Workbench",
+		"Proof Workflow",
+		"Save Baseline Proof",
+		"Compare Before And After",
 		"State",
 		"closed",
 		"Observed hard barriers",
@@ -4822,11 +4849,14 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"compare_commands",
 		"patch_export_command",
 		"success_criteria",
+		"workflow",
 		"redaction",
 		"limitations",
 	)
 	proofPlanSummary := schemaMap(t, proofPlanSchema, "$defs", "proof_plan_summary")
 	assertRequiredKeys(t, proofPlanSummary, "cases", "proof_patches", "evidence_refs", "controls", "targets", "flaws")
+	proofWorkflowStep := schemaMap(t, proofPlanSchema, "$defs", "proof_workflow_step")
+	assertRequiredKeys(t, proofWorkflowStep, "id", "title", "summary", "commands", "evidence_refs", "proof_surfaces", "success_criteria", "limitations")
 
 	caseCompareSchema := loadSchema(t, "ariadne-case-compare-v1.schema.json")
 	assertRequiredKeys(t, caseCompareSchema,
@@ -5589,6 +5619,20 @@ func proofPlanPatchHasFocusedRerun(items []model.ControlProofPatch, control stri
 			continue
 		}
 		for _, command := range item.RerunCommands {
+			if strings.Contains(command, commandPart) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func proofWorkflowStepHasCommand(items []model.ProofWorkflowStep, id string, commandPart string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		for _, command := range item.Commands {
 			if strings.Contains(command, commandPart) {
 				return true
 			}

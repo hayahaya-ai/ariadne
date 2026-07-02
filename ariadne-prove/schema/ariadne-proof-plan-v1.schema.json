@@ -19,6 +19,7 @@
     "compare_commands",
     "patch_export_command",
     "success_criteria",
+    "workflow",
     "redaction",
     "limitations"
   ],
@@ -50,6 +51,10 @@
     "compare_commands": { "type": "array", "items": { "type": "string" } },
     "patch_export_command": { "type": "string" },
     "success_criteria": { "type": "array", "items": { "type": "string" } },
+    "workflow": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/proof_workflow_step" }
+    },
     "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
     "limitations": { "type": "array", "items": { "type": "string" } }
   },
@@ -64,6 +69,23 @@
         "controls": { "type": "integer" },
         "targets": { "type": "integer" },
         "flaws": { "type": "integer" }
+      }
+    },
+    "proof_workflow_step": {
+      "type": "object",
+      "required": ["id", "title", "summary", "commands", "evidence_refs", "proof_surfaces", "success_criteria", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "commands": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     }
   }
