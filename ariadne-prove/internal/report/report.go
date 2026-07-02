@@ -3992,6 +3992,7 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 		fmt.Fprintf(w, "  - Compare: %s\n", decision.CompareCommand)
 	}
 	renderAssessDecisionLines(w, "Done when", decision.DoneCriteria, 3)
+	renderAssessDecisionLines(w, "Decision limit", decision.Limitations, 2)
 	fmt.Fprintln(w)
 }
 
