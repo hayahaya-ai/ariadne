@@ -326,7 +326,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
 	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
 	controlState := buildAssessControlState(firstAction, triage)
-	decision := buildAssessDecision(summary, triage, controlState, firstAction)
+	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -415,7 +415,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
 	triage.EvidenceGapActions = assessScanEvidenceGapActions(r.TargetsFile, r.Mode, r.Agent, triage)
 	controlState := buildAssessControlState(firstAction, triage)
-	decision := buildAssessDecision(summary, triage, controlState, firstAction)
+	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -2504,7 +2504,7 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 	return state
 }
 
-func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction) model.AssessDecision {
+func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction) model.AssessDecision {
 	decision := model.AssessDecision{
 		Status:                    firstNonEmpty(triage.Status, "no_supported_signal"),
 		Headline:                  firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
@@ -2512,6 +2512,7 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 		TopCaseID:                 action.CaseID,
 		TopCaseTitle:              action.Title,
 		WhyPrioritized:            action.WhyFirst,
+		InspectionSummary:         assessDecisionInspectionSummary(inventory, 3),
 		RiskReasons:               assessDecisionRiskReasons(triage.HardRiskSignals),
 		NormalCapabilities:        firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
 		EvidenceSources:           firstStrings(uniqueStrings(state.EvidenceSources), 8),
@@ -2577,6 +2578,7 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 		decision.AfterProofCommand = ""
 		decision.CompareCommand = ""
 	}
+	decision.InspectionSummary = nonNilStrings(decision.InspectionSummary)
 	decision.RiskReasons = nonNilStrings(decision.RiskReasons)
 	decision.NormalCapabilities = nonNilStrings(decision.NormalCapabilities)
 	decision.EvidenceSources = nonNilStrings(decision.EvidenceSources)
@@ -2590,6 +2592,26 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 	decision.DoneCriteria = nonNilStrings(decision.DoneCriteria)
 	decision.Limitations = uniqueStrings(decision.Limitations)
 	return decision
+}
+
+func assessDecisionInspectionSummary(inventory model.AssessInventory, surfaceMapLimit int) []string {
+	if inventory.Surfaces == 0 && inventory.Facts == 0 && inventory.GraphNodes == 0 {
+		return []string{}
+	}
+	out := []string{
+		fmt.Sprintf("AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)", inventory.Surfaces, inventory.Facts, inventory.GraphNodes, inventory.GraphEdges),
+		fmt.Sprintf("Runtimes: %d; trust inputs: %d; tools: %d; authorities: %d; controls: %d; boundaries: %d", inventory.Runtimes, inventory.TrustInputs, inventory.Tools, inventory.Authorities, inventory.Controls, inventory.Boundaries),
+	}
+	if len(inventory.SurfaceCategories) > 0 {
+		out = append(out, "Surface categories: "+assessCountLine(inventory.SurfaceCategories))
+	}
+	if len(inventory.HandlingModes) > 0 {
+		out = append(out, "Handling modes: "+assessCountLine(inventory.HandlingModes))
+	}
+	if len(inventory.SurfaceMap) > 0 {
+		out = append(out, "Runtime surface map: "+strings.Join(limitStrings(surfaceMapSummaryLines(inventory.SurfaceMap), surfaceMapLimit), "; "))
+	}
+	return out
 }
 
 func firstEvidenceReferences(values []model.EvidenceReference, limit int) []model.EvidenceReference {
@@ -3924,6 +3946,7 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	if decision.WhyPrioritized != "" {
 		fmt.Fprintf(w, "  - Why first: %s\n", decision.WhyPrioritized)
 	}
+	renderAssessDecisionLines(w, "Inspected", decision.InspectionSummary, 5)
 	renderAssessDecisionLines(w, "Risk basis", decision.RiskReasons, 3)
 	renderAssessDecisionLines(w, "Normal capability", decision.NormalCapabilities, 2)
 	if len(decision.EvidenceSources) > 0 {

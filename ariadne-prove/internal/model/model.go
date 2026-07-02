@@ -325,6 +325,7 @@ type AssessDecision struct {
 	TopCaseID                 string              `json:"top_case_id,omitempty"`
 	TopCaseTitle              string              `json:"top_case_title,omitempty"`
 	WhyPrioritized            string              `json:"why_prioritized,omitempty"`
+	InspectionSummary         []string            `json:"inspection_summary"`
 	RiskReasons               []string            `json:"risk_reasons"`
 	NormalCapabilities        []string            `json:"normal_capabilities"`
 	EvidenceSources           []string            `json:"evidence_sources"`

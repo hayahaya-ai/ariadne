@@ -4092,6 +4092,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.Decision.StartHere != "case:egress-output-boundary" ||
 		decoded.Decision.TopCaseID != "case:egress-output-boundary" ||
 		decoded.Decision.TopCaseTitle != "Egress And Output Boundary" ||
+		!containsString(decoded.Decision.InspectionSummary, "AI surfaces: 5; typed facts: 5") ||
+		!containsString(decoded.Decision.InspectionSummary, "Runtime surface map:") ||
 		!containsString(decoded.Decision.RiskReasons, "exposed path(s) reach a sensitive boundary") ||
 		!containsString(decoded.Decision.NormalCapabilities, "authority is normal for useful agents") ||
 		!containsString(decoded.Decision.EvidenceSources, ".claude/settings.json") ||
@@ -4311,6 +4313,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Action",
 		"Decision:",
 		"Verdict: action required",
+		"Inspected: AI surfaces: 5; typed facts: 5",
+		"Inspected: Runtime surface map:",
 		"Risk basis:",
 		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
 		"Evidence fact:",
@@ -4399,6 +4403,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Decision Packet",
 		"Verdict",
 		"Why First",
+		"Inspection Summary",
 		"Risk Basis",
 		"Evidence Facts",
 		"Proof Surface",
@@ -5780,7 +5785,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessDecision := schemaMap(t, assessSchema, "$defs", "assess_decision")
-	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "risk_reasons", "normal_capabilities", "evidence_sources", "evidence_refs", "path_summary", "missing_hard_barriers", "present_hard_barriers", "partial_or_friction_controls", "unknown_evidence", "evidence_gap_actions", "done_criteria", "limitations")
+	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "inspection_summary", "risk_reasons", "normal_capabilities", "evidence_sources", "evidence_refs", "path_summary", "missing_hard_barriers", "present_hard_barriers", "partial_or_friction_controls", "unknown_evidence", "evidence_gap_actions", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessDecision, "before_proof_command")
 	assertSchemaProperty(t, assessDecision, "after_proof_command")
 	assertSchemaProperty(t, assessDecision, "generated_proof_path")

@@ -804,6 +804,8 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 	}
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Inspection Summary</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.InspectionSummary))
 	fmt.Fprintln(w, `<h3>Risk Basis</h3>`)
 	fmt.Fprintln(w, renderSmallList(decision.RiskReasons))
 	fmt.Fprintln(w, `<h3>Normal Capability</h3>`)
