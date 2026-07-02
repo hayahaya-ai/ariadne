@@ -677,6 +677,24 @@ tr:last-child td { border-bottom: 0; }
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
+.action-callout {
+  margin: 0 0 16px;
+  padding: 14px;
+  border-left: 4px solid var(--accent);
+  background: #fbfcfd;
+}
+.action-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.action-label {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
 .code-block {
   margin: 8px 0 0;
   padding: 10px;
@@ -766,7 +784,7 @@ tr:target {
 }
 @media (max-width: 980px) {
   .shell { width: min(100vw - 20px, 1440px); padding-top: 12px; }
-  .topbar, .grid, .two-col { grid-template-columns: 1fr; }
+  .topbar, .grid, .two-col, .action-grid { grid-template-columns: 1fr; }
   .command-row { grid-template-columns: 1fr; }
 }
 </style>`)
@@ -886,6 +904,7 @@ func renderAssessOperatorRunbookDashboard(w io.Writer, r model.AssessReport) {
 		{"Control", firstNonEmpty(runbook.CurrentControl, "not recorded")},
 		{"Proof surface", firstNonEmpty(runbook.ProofSurface, "not recorded")},
 	})
+	renderAssessRunbookCurrentActionDashboard(w, r.TargetPath, runbook, currentStep, nextStep)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Open First</h3>`)
@@ -908,6 +927,44 @@ func renderAssessOperatorRunbookDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `<h3>Closure Workflow</h3>`)
 	fmt.Fprintln(w, renderSmallList(assessClosureLoopStepLines(runbook.ClosureWorkflow, 6)))
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessRunbookCurrentActionDashboard(w io.Writer, root string, runbook model.AssessOperatorRunbook, current model.AssessClosureLoopStep, next model.AssessClosureLoopStep) {
+	commands := firstNonEmptyStrings(current.Commands, runbook.Commands)
+	files := firstNonEmptyStrings(current.Files, runbook.Files)
+	artifacts := firstNonEmptyStrings(current.Artifacts, runbook.Artifacts)
+	doneCriteria := firstNonEmptyStrings(current.DoneCriteria, runbook.DoneCriteria)
+	fmt.Fprintln(w, `<div class="action-callout">`)
+	fmt.Fprintln(w, `<div class="action-grid">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<div class="action-label">Current Action</div>`)
+	fmt.Fprintf(w, `<h3>%s</h3>`, esc(firstNonEmpty(current.Title, current.ID, "Current step")))
+	if current.Summary != "" {
+		fmt.Fprintf(w, `<p>%s</p>`, esc(current.Summary))
+	}
+	if runbook.CurrentControl != "" || runbook.ProofSurface != "" {
+		fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+			"Control: "+runbook.CurrentControl,
+			"Proof surface: "+runbook.ProofSurface,
+		)))
+	}
+	if next.ID != "" {
+		fmt.Fprintf(w, `<p><strong>Next:</strong> %s</p>`, esc(firstNonEmpty(next.Title, next.ID)))
+	}
+	fmt.Fprintln(w, `<h3>Open these first</h3>`)
+	renderAssessEvidenceReferenceTable(w, root, runbook.OpenFirst, 6)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<div class="action-label">Run / Save</div>`)
+	fmt.Fprintln(w, `<h3>Current proof command</h3>`)
+	fmt.Fprintln(w, renderCommandList(commands))
+	fmt.Fprintln(w, `<h3>Files and artifacts</h3>`)
+	fmt.Fprintln(w, assessRunbookFilesArtifactsHTML(root, files, artifacts))
+	fmt.Fprintln(w, `<h3>Done when</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(doneCriteria, 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
 }
 
 func assessRunbookStepLines(current model.AssessClosureLoopStep, next model.AssessClosureLoopStep) []string {
