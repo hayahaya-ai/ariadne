@@ -924,8 +924,7 @@ func renderAssessOperatorRunbookDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, renderSmallList(limitStrings(runbook.DoneCriteria, 4)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
-	fmt.Fprintln(w, `<h3>Closure Workflow</h3>`)
-	fmt.Fprintln(w, renderSmallList(assessClosureLoopStepLines(runbook.ClosureWorkflow, 6)))
+	renderAssessClosureLoopTableDashboard(w, r.TargetPath, "Closure Workflow", runbook.ClosureWorkflow)
 	fmt.Fprintln(w, `</section>`)
 }
 
@@ -989,27 +988,6 @@ func assessRunbookFilesArtifactsHTML(root string, files []string, artifacts []st
 		return out
 	}
 	return out
-}
-
-func assessClosureLoopStepLines(steps []model.AssessClosureLoopStep, limit int) []string {
-	var lines []string
-	for _, step := range limitAssessClosureLoopSteps(steps, limit) {
-		lines = append(lines, fmt.Sprintf("%d. %s (%s)", step.Step, firstNonEmpty(step.Title, step.ID), readableToken(step.Status)))
-	}
-	if limit > 0 && len(steps) > limit {
-		lines = append(lines, fmt.Sprintf("%d additional step(s) in JSON output", len(steps)-limit))
-	}
-	if lines == nil {
-		return []string{}
-	}
-	return lines
-}
-
-func limitAssessClosureLoopSteps(steps []model.AssessClosureLoopStep, limit int) []model.AssessClosureLoopStep {
-	if limit <= 0 || len(steps) <= limit {
-		return steps
-	}
-	return steps[:limit]
 }
 
 func renderAssessOperatorPacketDashboard(w io.Writer, r model.AssessReport) {
@@ -1238,10 +1216,14 @@ func renderAssessWorkbenchProofStateDashboard(w io.Writer, state model.AssessWor
 }
 
 func renderAssessClosureLoopDashboard(w io.Writer, root string, steps []model.AssessClosureLoopStep) {
+	renderAssessClosureLoopTableDashboard(w, root, "Closure Loop", steps)
+}
+
+func renderAssessClosureLoopTableDashboard(w io.Writer, root string, heading string, steps []model.AssessClosureLoopStep) {
 	if len(steps) == 0 {
 		return
 	}
-	fmt.Fprintln(w, `<h3>Closure Loop</h3>`)
+	fmt.Fprintf(w, `<h3>%s</h3>`, esc(firstNonEmpty(heading, "Closure Loop")))
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
 	fmt.Fprintln(w, `<thead><tr><th>Step</th><th>Status</th><th>Action</th><th>Files / Artifacts</th><th>Commands</th><th>Done When</th></tr></thead><tbody>`)
 	for _, step := range steps {
