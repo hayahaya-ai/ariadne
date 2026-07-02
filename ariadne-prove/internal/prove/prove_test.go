@@ -3767,6 +3767,20 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.Triage.ProofLoop) == 0 {
 		t.Fatalf("assessment should include fact-first signal triage: %+v", decoded.Triage)
 	}
+	for _, unwanted := range []string{
+		`"partial_or_friction_controls":null`,
+		`"present_hard_barriers":null`,
+		`"unknown_evidence":null`,
+	} {
+		if strings.Contains(jsonOut.String(), unwanted) {
+			t.Fatalf("assessment JSON should emit stable empty arrays, not %s:\n%s", unwanted, jsonOut.String())
+		}
+	}
+	if decoded.Triage.PartialOrFrictionControls == nil ||
+		decoded.Triage.PresentHardBarriers == nil ||
+		decoded.Triage.UnknownEvidence == nil {
+		t.Fatalf("assessment triage empty categories should decode as empty arrays, not nil slices: %+v", decoded.Triage)
+	}
 	if !hasAssessSignal(decoded.Triage.SignalDetails, "risk", "action_required", "case:egress-output-boundary") {
 		t.Fatalf("triage signal details should include the top risk case: %+v", decoded.Triage.SignalDetails)
 	}

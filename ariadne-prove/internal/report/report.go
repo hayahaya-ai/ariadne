@@ -7726,6 +7726,9 @@ func uniqueStrings(values []string) []string {
 		seen[value] = true
 		out = append(out, value)
 	}
+	if out == nil {
+		return []string{}
+	}
 	return out
 }
 
