@@ -207,6 +207,13 @@ expect_contains "$assess_json" '.claude/settings.json'
 expect_contains "$assess_json" '.codex/config.toml'
 
 expect_contains "$assess_html" "Ariadne Assessment"
+expect_contains "$assess_html" "Operator Workbench"
+expect_contains "$assess_html" "1. Current Case"
+expect_contains "$assess_html" "2. Evidence To Open"
+expect_contains "$assess_html" "3. Add Or Verify Proof"
+expect_contains "$assess_html" "4. Verify The Change"
+expect_contains "$assess_html" "5. Done Criteria"
+expect_contains "$assess_html" "Change Readout"
 expect_contains "$assess_html" "Decision Packet"
 expect_contains "$assess_html" "Inspection Summary"
 expect_contains "$assess_html" "Risk Basis"
@@ -284,6 +291,7 @@ expect_contains "$self_summary" "Decision:"
 expect_contains "$self_summary" "Identity And Credentials"
 expect_contains "$self_summary" "Next action:"
 expect_contains "$self_html" "Ariadne Assessment"
+expect_contains "$self_html" "Operator Workbench"
 expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
@@ -306,6 +314,7 @@ expect_contains "$self_bundle/assessment.json" '"top_case_id": "case:identity-cr
 expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
+expect_contains "$self_bundle/dashboard.html" "Operator Workbench"
 expect_contains "$self_bundle/dashboard.html" "Signal Quality"
 expect_contains "$self_bundle/dashboard.html" "Lethal Trifecta"
 expect_contains "$self_bundle/proof-action.txt" "Ariadne Proof Action"
@@ -401,6 +410,13 @@ expect_contains "$endpoint_json" '.roo/mcp.json'
 expect_contains "$endpoint_json" '.gemini/settings.json'
 
 expect_contains "$endpoint_html" "Ariadne Assessment"
+expect_contains "$endpoint_html" "Operator Workbench"
+expect_contains "$endpoint_html" "1. Current Case"
+expect_contains "$endpoint_html" "2. Evidence To Open"
+expect_contains "$endpoint_html" "3. Add Or Verify Proof"
+expect_contains "$endpoint_html" "4. Verify The Change"
+expect_contains "$endpoint_html" "5. Done Criteria"
+expect_contains "$endpoint_html" "Change Readout"
 expect_contains "$endpoint_html" "Decision Packet"
 expect_contains "$endpoint_html" "Inspection Summary"
 expect_contains "$endpoint_html" "Risk Basis"
