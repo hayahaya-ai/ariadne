@@ -738,10 +738,22 @@ func assessCurrentActionLines(action model.AssessCurrentAction) []string {
 		out = append(out, "Surface: "+action.Surface)
 	}
 	if action.ProofPatchIndex >= 0 {
-		out = append(out, fmt.Sprintf("Proof patch: #%d", action.ProofPatchIndex+1))
+		if action.ProofPatch != nil {
+			for _, line := range controlProofPatchLines([]model.ControlProofPatch{*action.ProofPatch}, 1) {
+				out = append(out, "Proof patch: "+line)
+			}
+		} else {
+			out = append(out, fmt.Sprintf("Proof patch: #%d", action.ProofPatchIndex+1))
+		}
 	}
 	if action.EvidenceExampleIndex >= 0 {
-		out = append(out, fmt.Sprintf("Accepted evidence: #%d", action.EvidenceExampleIndex+1))
+		if action.EvidenceExample != nil {
+			for _, line := range controlEvidenceExampleLines([]model.ControlEvidenceExample{*action.EvidenceExample}, 1) {
+				out = append(out, "Accepted evidence: "+line)
+			}
+		} else {
+			out = append(out, fmt.Sprintf("Accepted evidence: #%d", action.EvidenceExampleIndex+1))
+		}
 	}
 	if action.Instruction != "" {
 		out = append(out, "Instruction: "+action.Instruction)

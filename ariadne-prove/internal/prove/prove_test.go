@@ -3674,6 +3674,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Assessment Readout",
 		"First Action",
 		"Current Action",
+		"Proof patch: .ariadne/egress-policy.json",
+		"Accepted evidence: .ariadne/egress-policy.json",
 		"Action Workflow",
 		"Inspect Evidence",
 		"CURRENT",
