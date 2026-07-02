@@ -378,6 +378,7 @@ type ControlOperatorCase struct {
 	EvidenceExamples   []ControlEvidenceExample `json:"evidence_examples"`
 	ProofPatches       []ControlProofPatch      `json:"proof_patches"`
 	RerunCommands      []string                 `json:"rerun_commands"`
+	CompareCommands    []string                 `json:"compare_commands"`
 	SuccessCriteria    []string                 `json:"success_criteria"`
 	Limitations        []string                 `json:"limitations"`
 }

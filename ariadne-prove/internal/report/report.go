@@ -304,6 +304,7 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 	if catalog.VerificationTasks == nil {
 		catalog.VerificationTasks = []model.ControlVerificationTask{}
 	}
+	attachOperatorCaseCompareCommands(&catalog)
 	return catalog
 }
 
@@ -433,6 +434,25 @@ func proofPlanCompareCommands(catalog model.ControlCatalogReport) []string {
 		proofCommand(before),
 		proofCommand(after),
 		fmt.Sprintf("ariadne compare --before %s --after %s --format html --out case-compare.html", shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
+	}
+}
+
+func operatorCaseCompareCommands(catalog model.ControlCatalogReport, caseID string) []string {
+	caseID = strings.TrimSpace(caseID)
+	if caseID == "" {
+		return []string{}
+	}
+	focused := catalog
+	focused.CaseFilter = caseID
+	return proofPlanCompareCommands(focused)
+}
+
+func attachOperatorCaseCompareCommands(catalog *model.ControlCatalogReport) {
+	if catalog == nil {
+		return
+	}
+	for i := range catalog.OperatorCases {
+		catalog.OperatorCases[i].CompareCommands = operatorCaseCompareCommands(*catalog, catalog.OperatorCases[i].ID)
 	}
 }
 
@@ -858,6 +878,7 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 	if catalog.VerificationTasks == nil {
 		catalog.VerificationTasks = []model.ControlVerificationTask{}
 	}
+	attachOperatorCaseCompareCommands(&catalog)
 	return catalog
 }
 
@@ -2363,6 +2384,7 @@ func rewriteControlCatalogAsCaseBoard(catalog *model.ControlCatalogReport) {
 	for i := range catalog.OperatorCases {
 		catalog.OperatorCases[i].RerunCommands = caseBoardRerunCommands(catalog.OperatorCases[i].RerunCommands)
 		catalog.OperatorCases[i].ProofPatches = proofPatchesWithRerunCommands(catalog.OperatorCases[i].ProofPatches, caseBoardRerunCommands)
+		catalog.OperatorCases[i].CompareCommands = operatorCaseCompareCommands(*catalog, catalog.OperatorCases[i].ID)
 		catalog.OperatorCases[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.OperatorCases[i].SuccessCriteria)
 	}
 	for i := range catalog.Workstreams {
@@ -2531,7 +2553,7 @@ func buildFocusedClosedCaseBoardScanReport(r model.ScanReport, statusFilter stri
 }
 
 func focusedClosedCaseCatalog(runID string, generatedAt time.Time, runKind string, targetPath string, mode string, agent string, statusFilter string, item model.ControlOperatorCase, redaction model.RedactionInfo, limitations []string) model.ControlCatalogReport {
-	return model.ControlCatalogReport{
+	catalog := model.ControlCatalogReport{
 		SchemaVersion:     model.SchemaVersion,
 		RunID:             runID,
 		GeneratedAt:       generatedAt,
@@ -2551,6 +2573,8 @@ func focusedClosedCaseCatalog(runID string, generatedAt time.Time, runKind strin
 		Redaction:         redaction,
 		Limitations:       append([]string{}, limitations...),
 	}
+	attachOperatorCaseCompareCommands(&catalog)
+	return catalog
 }
 
 func buildFocusedClosedOperatorCase(familyID string, targets []focusedClosedCaseTarget, ctx controlVerificationCommandContext) (model.ControlOperatorCase, bool) {
@@ -3158,6 +3182,9 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		}
 		if len(item.RerunCommands) > 0 {
 			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(item.RerunCommands, 2), "; "))
+		}
+		if len(item.CompareCommands) > 0 {
+			fmt.Fprintf(w, "      Compare loop: %s\n", strings.Join(limitStrings(item.CompareCommands, 3), "; "))
 		}
 		if len(item.SuccessCriteria) > 0 {
 			fmt.Fprintf(w, "      Done when: %s\n", strings.Join(limitStrings(item.SuccessCriteria, 2), "; "))

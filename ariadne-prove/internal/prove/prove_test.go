@@ -2906,6 +2906,10 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Proof patches:",
 		"Rerun:",
 		"ariadne cases --path",
+		"Compare loop:",
+		"before-proof.json",
+		"after-proof.json",
+		"case-compare.html",
 		"Done when:",
 		"Evidence model:",
 		"Use `ariadne proofs --case <case-id>`",
@@ -2936,6 +2940,9 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 	if !operatorCaseHasRerun(decoded.OperatorCases, "case:input-trust-boundary", "ariadne cases --path") {
 		t.Fatalf("case board should point reruns back to ariadne cases: %+v", decoded.OperatorCases)
 	}
+	if !operatorCaseHasCompare(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
+		t.Fatalf("case board should include focused compare loop commands: %+v", decoded.OperatorCases)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderCases(&htmlOut, r, "html", "breaking", ""); err != nil {
@@ -2951,6 +2958,9 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Proof patches",
 		"Priority",
 		"State / next step",
+		"Compare loop",
+		"before-proof.json",
+		"case-compare.html",
 		"Architecture break paths grouped",
 		"ariadne cases --path",
 	} {
@@ -2981,6 +2991,10 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"Priority:",
 		"State: open",
 		"Next step:",
+		"Compare loop:",
+		"before-proof.json",
+		"after-proof.json",
+		"case-compare.html",
 		"--case case:input-trust-boundary",
 	} {
 		if !strings.Contains(out, want) {
@@ -3011,6 +3025,9 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 	if !operatorCaseHasRerun(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
 		t.Fatalf("focused case board should preserve case filter in rerun commands: %+v", decoded.OperatorCases)
 	}
+	if !operatorCaseHasCompare(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
+		t.Fatalf("focused case board should include focused compare loop commands: %+v", decoded.OperatorCases)
+	}
 	if !controlCatalogHasOnlyControls(decoded.Controls, "control:input-isolation", "control:trusted-source-policy") {
 		t.Fatalf("focused case board controls were not scoped to input trust: %+v", decoded.Controls)
 	}
@@ -3026,6 +3043,8 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"control:input-isolation",
 		"Priority",
 		"State / next step",
+		"Compare loop",
+		"case-compare.html",
 		"Case Queue",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -4023,7 +4042,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
 	controlOperatorCase := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_case")
-	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "success_criteria", "limitations")
+	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "limitations")
 	controlBreakPathWorkstream := schemaMap(t, controlCatalogSchema, "$defs", "control_break_path_workstream")
 	assertRequiredKeys(t, controlBreakPathWorkstream, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations")
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
@@ -4676,6 +4695,19 @@ func operatorCaseHasRerun(items []model.ControlOperatorCase, id string, commandP
 				return true
 			}
 		}
+	}
+	return false
+}
+
+func operatorCaseHasCompare(items []model.ControlOperatorCase, id string, fragment string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		return containsString(item.CompareCommands, "--out before-proof.json") &&
+			containsString(item.CompareCommands, "--out after-proof.json") &&
+			containsString(item.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") &&
+			containsString(item.CompareCommands, fragment)
 	}
 	return false
 }

@@ -75,7 +75,7 @@
     },
     "control_operator_case": {
       "type": "object",
-      "required": ["id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "success_criteria", "limitations"],
+      "required": ["id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "limitations"],
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -105,6 +105,7 @@
           "items": { "$ref": "#/$defs/control_proof_patch" }
         },
         "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "compare_commands": { "type": "array", "items": { "type": "string" } },
         "success_criteria": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
       }

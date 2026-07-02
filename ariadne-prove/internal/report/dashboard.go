@@ -1452,7 +1452,7 @@ func renderProofPatchPayloads(patches []model.ControlProofPatch, limit int) stri
 func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOperatorCase) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
-	fmt.Fprintln(w, `<div><h2>Operator Cases</h2><div class="subtle">A smaller action layer that connects architecture breakage, evidence references, proof surfaces, proof patches, and rerun criteria.</div></div>`)
+	fmt.Fprintln(w, `<div><h2>Operator Cases</h2><div class="subtle">A smaller action layer that connects architecture breakage, evidence references, proof surfaces, proof patches, rerun criteria, and compare-loop commands.</div></div>`)
 	fmt.Fprintln(w, "</div>")
 	if len(cases) == 0 {
 		fmt.Fprintln(w, `<div class="empty">No operator cases were returned for this status filter.</div>`)
@@ -1474,7 +1474,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderOperatorCaseStartCell(item))
 		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Proof patches</h3>%s<h3>Evidence examples</h3>%s</td>`, renderSmallList(limitStrings(item.ProofSurfaces, 6)), renderSmallList(controlProofPatchLines(item.ProofPatches, 2)), renderSmallList(controlEvidenceExampleLines(item.EvidenceExamples, 2)))
-		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 2)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 2)), renderSmallList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(cases) > limit {
