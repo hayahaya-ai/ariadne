@@ -295,6 +295,7 @@ type ControlOperatorCase struct {
 	StartingTaskIDs    []string                 `json:"starting_task_ids"`
 	ProofSurfaces      []string                 `json:"proof_surfaces"`
 	EvidenceExamples   []ControlEvidenceExample `json:"evidence_examples"`
+	ProofPatches       []ControlProofPatch      `json:"proof_patches"`
 	RerunCommands      []string                 `json:"rerun_commands"`
 	SuccessCriteria    []string                 `json:"success_criteria"`
 	Limitations        []string                 `json:"limitations"`
@@ -339,6 +340,7 @@ type ControlVerificationTask struct {
 	ProofSurfaces        []string                 `json:"proof_surfaces"`
 	RecognizedIndicators []string                 `json:"recognized_indicators"`
 	EvidenceExamples     []ControlEvidenceExample `json:"evidence_examples"`
+	ProofPatches         []ControlProofPatch      `json:"proof_patches"`
 	Actions              []string                 `json:"actions"`
 	RerunCommands        []string                 `json:"rerun_commands"`
 	SuccessCriteria      []string                 `json:"success_criteria"`
@@ -350,6 +352,25 @@ type ControlEvidenceExample struct {
 	Summary     string   `json:"summary"`
 	Example     string   `json:"example"`
 	Limitations []string `json:"limitations"`
+}
+
+type ControlProofPatch struct {
+	Control         string                   `json:"control"`
+	Surface         string                   `json:"surface"`
+	Format          string                   `json:"format"`
+	Operation       string                   `json:"operation"`
+	Summary         string                   `json:"summary"`
+	Fields          []ControlProofPatchField `json:"fields"`
+	Example         string                   `json:"example"`
+	RerunCommands   []string                 `json:"rerun_commands"`
+	SuccessCriteria []string                 `json:"success_criteria"`
+	Limitations     []string                 `json:"limitations"`
+}
+
+type ControlProofPatchField struct {
+	Indicator string `json:"indicator"`
+	Name      string `json:"name"`
+	ValueJSON string `json:"value_json"`
 }
 
 type ArchitectureTargetReport struct {

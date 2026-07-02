@@ -75,7 +75,7 @@
     },
     "control_operator_case": {
       "type": "object",
-      "required": ["id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "rerun_commands", "success_criteria", "limitations"],
+      "required": ["id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "success_criteria", "limitations"],
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -99,6 +99,10 @@
         "evidence_examples": {
           "type": "array",
           "items": { "$ref": "#/$defs/control_evidence_example" }
+        },
+        "proof_patches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_proof_patch" }
         },
         "rerun_commands": { "type": "array", "items": { "type": "string" } },
         "success_criteria": { "type": "array", "items": { "type": "string" } },
@@ -141,7 +145,7 @@
     },
     "control_verification_task": {
       "type": "object",
-      "required": ["id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "evidence_examples", "actions", "rerun_commands", "success_criteria", "limitations"],
+      "required": ["id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "evidence_examples", "proof_patches", "actions", "rerun_commands", "success_criteria", "limitations"],
       "properties": {
         "id": { "type": "string" },
         "control": { "type": "string" },
@@ -155,6 +159,10 @@
         "evidence_examples": {
           "type": "array",
           "items": { "$ref": "#/$defs/control_evidence_example" }
+        },
+        "proof_patches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_proof_patch" }
         },
         "actions": { "type": "array", "items": { "type": "string" } },
         "rerun_commands": { "type": "array", "items": { "type": "string" } },
@@ -170,6 +178,34 @@
         "summary": { "type": "string" },
         "example": { "type": "string" },
         "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_proof_patch": {
+      "type": "object",
+      "required": ["control", "surface", "format", "operation", "summary", "fields", "example", "rerun_commands", "success_criteria", "limitations"],
+      "properties": {
+        "control": { "type": "string" },
+        "surface": { "type": "string" },
+        "format": { "type": "string" },
+        "operation": { "type": "string" },
+        "summary": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_proof_patch_field" }
+        },
+        "example": { "type": "string" },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_proof_patch_field": {
+      "type": "object",
+      "required": ["indicator", "name", "value_json"],
+      "properties": {
+        "indicator": { "type": "string" },
+        "name": { "type": "string" },
+        "value_json": { "type": "string" }
       }
     }
   }

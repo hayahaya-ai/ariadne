@@ -2781,6 +2781,7 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Evidence references:",
 		"Accepted indicators:",
 		"Evidence examples:",
+		"Proof patches:",
 		"Rerun:",
 		"Done when:",
 		"Recognized indicators:",
@@ -2788,6 +2789,7 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"control:input-isolation",
 		".ariadne/input-policy.json",
 		"\"input_isolation\": true",
+		"add_or_update_declared_evidence",
 		"input_isolation",
 	} {
 		if !strings.Contains(out, want) {
@@ -2857,6 +2859,7 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"State / next step",
 		"Break-Path Workstreams",
 		"Verification Tasks",
+		"Proof patch",
 		"Control Families",
 		"Controls To Prove",
 		"Starting controls",
@@ -2900,6 +2903,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Evidence references:",
 		"Start with:",
 		"Prove at:",
+		"Proof patches:",
 		"Rerun:",
 		"ariadne cases --path",
 		"Done when:",
@@ -2943,6 +2947,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Operator Cases",
 		"case:input-trust-boundary",
 		"Evidence Model",
+		"Proof patches",
 		"Priority",
 		"State / next step",
 		"Architecture break paths grouped",
@@ -2971,6 +2976,7 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"case:input-trust-boundary",
 		"control:input-isolation",
 		".ariadne/input-policy.json",
+		"add_or_update_declared_evidence",
 		"Priority:",
 		"State: open",
 		"Next step:",
@@ -3030,6 +3036,47 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 	}
 	if err := report.RenderCases(io.Discard, r, "table", "breaking", "case:not-real"); err == nil {
 		t.Fatalf("expected unknown case filter to return an error")
+	}
+}
+
+func TestProofPatchCanCloseInputTrustCase(t *testing.T) {
+	path := copyRealPathFixture(t, "combined-risk")
+	policyDir := filepath.Join(path, ".ariadne")
+	if err := os.MkdirAll(policyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policy := `{
+  "input_isolation": true,
+  "instruction_isolation": true,
+  "trusted_instruction_sources": true,
+  "trusted_sources": true
+}
+`
+	if err := os.WriteFile(filepath.Join(policyDir, "input-policy.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustControlled)
+	for _, control := range []string{"control:input-isolation", "control:trusted-source-policy"} {
+		if !containsString(check.Controls, control) {
+			t.Fatalf("input trust check missing proof-patch control %s: %+v", control, check.Controls)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderCases(&jsonOut, r, "json", "breaking", ""); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ControlCatalogReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if hasControlOperatorCaseID(decoded.OperatorCases, "case:input-trust-boundary") {
+		t.Fatalf("proof patch should remove input trust from breaking case board: %+v", decoded.OperatorCases)
 	}
 }
 
@@ -3704,15 +3751,19 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
 	controlOperatorCase := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_case")
-	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "rerun_commands", "success_criteria", "limitations")
+	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "success_criteria", "limitations")
 	controlBreakPathWorkstream := schemaMap(t, controlCatalogSchema, "$defs", "control_break_path_workstream")
 	assertRequiredKeys(t, controlBreakPathWorkstream, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations")
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
 	assertRequiredKeys(t, controlProofSpec, "control", "evidence_kind", "proof_surfaces", "recognized_indicators", "notes", "limitations")
 	controlVerificationTask := schemaMap(t, controlCatalogSchema, "$defs", "control_verification_task")
-	assertRequiredKeys(t, controlVerificationTask, "id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "evidence_examples", "actions", "rerun_commands", "success_criteria", "limitations")
+	assertRequiredKeys(t, controlVerificationTask, "id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "evidence_examples", "proof_patches", "actions", "rerun_commands", "success_criteria", "limitations")
 	controlEvidenceExample := schemaMap(t, controlCatalogSchema, "$defs", "control_evidence_example")
 	assertRequiredKeys(t, controlEvidenceExample, "surface", "summary", "example", "limitations")
+	controlProofPatch := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_patch")
+	assertRequiredKeys(t, controlProofPatch, "control", "surface", "format", "operation", "summary", "fields", "example", "rerun_commands", "success_criteria", "limitations")
+	controlProofPatchField := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_patch_field")
+	assertRequiredKeys(t, controlProofPatchField, "indicator", "name", "value_json")
 
 	assessSchema := loadSchema(t, "ariadne-assess-v1.schema.json")
 	assertRequiredKeys(t, assessSchema,
@@ -3866,6 +3917,41 @@ func realPathFixture(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return root
+}
+
+func copyRealPathFixture(t *testing.T, name string) string {
+	t.Helper()
+	src := realPathFixture(t, name)
+	dst := filepath.Join(t.TempDir(), name)
+	if err := copyTree(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	return dst
+}
+
+func copyTree(src string, dst string) error {
+	return filepath.WalkDir(src, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
 }
 
 func assertExposure(t *testing.T, r model.Report, id string, status model.Status) {
@@ -4238,7 +4324,14 @@ func hasControlOperatorCase(items []model.ControlOperatorCase, id string, contro
 				break
 			}
 		}
-		if hasControl && hasSurface && hasExample && item.Rank > 0 && item.PriorityReason != "" && item.State != "" && item.StateReason != "" && item.NextStep != "" && len(item.EvidenceReferences) > 0 && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
+		hasPatch := false
+		for _, candidate := range item.ProofPatches {
+			if candidate.Control == control && candidate.Surface == surface && strings.Contains(candidate.Example, indicator) && len(candidate.Fields) > 0 {
+				hasPatch = true
+				break
+			}
+		}
+		if hasControl && hasSurface && hasExample && hasPatch && item.Rank > 0 && item.PriorityReason != "" && item.State != "" && item.StateReason != "" && item.NextStep != "" && len(item.EvidenceReferences) > 0 && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
 			return true
 		}
 	}
@@ -4254,6 +4347,15 @@ func operatorCaseHasRerun(items []model.ControlOperatorCase, id string, commandP
 			if strings.Contains(command, commandPrefix) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func hasControlOperatorCaseID(items []model.ControlOperatorCase, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
 		}
 	}
 	return false
@@ -4301,7 +4403,14 @@ func hasControlVerificationTask(items []model.ControlVerificationTask, control s
 				break
 			}
 		}
-		if hasSource && hasIndicator && hasExample && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
+		hasPatch := false
+		for _, candidate := range item.ProofPatches {
+			if candidate.Control == control && strings.Contains(candidate.Example, indicator) && len(candidate.Fields) > 0 && len(candidate.RerunCommands) > 0 {
+				hasPatch = true
+				break
+			}
+		}
+		if hasSource && hasIndicator && hasExample && hasPatch && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
 			return true
 		}
 	}

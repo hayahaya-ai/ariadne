@@ -2167,6 +2167,9 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		if len(item.EvidenceExamples) > 0 {
 			fmt.Fprintf(w, "      Evidence examples: %s\n", strings.Join(controlEvidenceExampleLines(item.EvidenceExamples, 2), "; "))
 		}
+		if len(item.ProofPatches) > 0 {
+			fmt.Fprintf(w, "      Proof patches: %s\n", strings.Join(controlProofPatchLines(item.ProofPatches, 2), "; "))
+		}
 		if len(item.RerunCommands) > 0 {
 			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(item.RerunCommands, 2), "; "))
 		}
@@ -2212,12 +2215,15 @@ func buildControlOperatorCases(workstreams []model.ControlBreakPathWorkstream, t
 			Limitations:        append([]string{}, workstream.Limitations...),
 		}
 		var examples []model.ControlEvidenceExample
+		var proofPatches []model.ControlProofPatch
 		var limitations []string
 		for _, task := range selectedTasks {
 			examples = append(examples, task.EvidenceExamples...)
+			proofPatches = append(proofPatches, task.ProofPatches...)
 			limitations = append(limitations, task.Limitations...)
 		}
 		caseItem.EvidenceExamples = dedupeControlEvidenceExamples(examples)
+		caseItem.ProofPatches = dedupeControlProofPatches(proofPatches)
 		caseItem.Limitations = uniqueSortedStrings(append(caseItem.Limitations, limitations...))
 		if len(caseItem.Limitations) == 0 {
 			caseItem.Limitations = []string{"Operator cases are deterministic proof guides; they do not prove live enforcement unless Ariadne observes runtime enforcement evidence or the missing hard barriers disappear."}
@@ -2362,6 +2368,23 @@ func dedupeControlEvidenceExamples(items []model.ControlEvidenceExample) []model
 	return out
 }
 
+func dedupeControlProofPatches(items []model.ControlProofPatch) []model.ControlProofPatch {
+	seen := map[string]bool{}
+	var out []model.ControlProofPatch
+	for _, item := range items {
+		key := item.Control + "\x00" + item.Surface + "\x00" + item.Operation + "\x00" + item.Example
+		if key == "\x00\x00\x00" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	if out == nil {
+		return []model.ControlProofPatch{}
+	}
+	return out
+}
+
 func renderControlBreakPathWorkstreams(w io.Writer, workstreams []model.ControlBreakPathWorkstream, limit int) {
 	if len(workstreams) == 0 {
 		return
@@ -2492,6 +2515,9 @@ func renderControlVerificationTasks(w io.Writer, tasks []model.ControlVerificati
 		if len(task.EvidenceExamples) > 0 {
 			fmt.Fprintf(w, "      Evidence examples: %s\n", strings.Join(controlEvidenceExampleLines(task.EvidenceExamples, 2), "; "))
 		}
+		if len(task.ProofPatches) > 0 {
+			fmt.Fprintf(w, "      Proof patches: %s\n", strings.Join(controlProofPatchLines(task.ProofPatches, 2), "; "))
+		}
 		if len(task.RerunCommands) > 0 {
 			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(task.RerunCommands, 2), "; "))
 		}
@@ -2528,6 +2554,8 @@ func buildControlVerificationTasks(items []model.ArchitectureClosure, proofSpecs
 		if len(limitations) == 0 {
 			limitations = []string{"This task verifies deterministic evidence Ariadne can parse; it does not prove live runtime enforcement unless runtime enforcement evidence is observed."}
 		}
+		rerunCommands := controlVerificationCommands(ctx)
+		successCriteria := controlVerificationSuccessCriteria(item.Control)
 		task := model.ControlVerificationTask{
 			ID:                   controlVerificationTaskID(item.Control),
 			Control:              item.Control,
@@ -2539,9 +2567,10 @@ func buildControlVerificationTasks(items []model.ArchitectureClosure, proofSpecs
 			ProofSurfaces:        uniqueSortedStrings(proofSurfaces),
 			RecognizedIndicators: append([]string{}, proof.RecognizedIndicators...),
 			EvidenceExamples:     controlEvidenceExamples(item.Control, proofSurfaces, proof.RecognizedIndicators),
+			ProofPatches:         controlProofPatches(item.Control, proofSurfaces, proof.RecognizedIndicators, rerunCommands, successCriteria),
 			Actions:              append([]string{}, item.Actions...),
-			RerunCommands:        controlVerificationCommands(ctx),
-			SuccessCriteria:      controlVerificationSuccessCriteria(item.Control),
+			RerunCommands:        rerunCommands,
+			SuccessCriteria:      successCriteria,
 			Limitations:          limitations,
 		}
 		out = append(out, task)
@@ -2630,6 +2659,70 @@ func controlEvidenceExamples(control string, proofSurfaces []string, indicators 
 				"Example evidence shows the declared proof shape only; live enforcement still requires observed runtime enforcement evidence when applicable.",
 			},
 		},
+	}
+}
+
+func controlProofPatches(control string, proofSurfaces []string, indicators []string, rerunCommands []string, successCriteria []string) []model.ControlProofPatch {
+	surface := preferredControlEvidenceExampleSurface(control, proofSurfaces)
+	if surface == "" {
+		surface = "supported control evidence surface"
+	}
+	fields := controlProofPatchFields(firstStrings(controlEvidenceExampleIndicators(control, indicators), 2))
+	if len(fields) == 0 {
+		return []model.ControlProofPatch{}
+	}
+	return []model.ControlProofPatch{
+		{
+			Control:         control,
+			Surface:         surface,
+			Format:          controlProofPatchFormat(surface),
+			Operation:       "add_or_update_declared_evidence",
+			Summary:         fmt.Sprintf("Add parser-recognized declared evidence for %s, then rerun Ariadne to verify the graph path changes.", control),
+			Fields:          fields,
+			Example:         controlEvidenceExampleBody(surface, controlProofPatchIndicators(fields)),
+			RerunCommands:   append([]string{}, rerunCommands...),
+			SuccessCriteria: append([]string{}, successCriteria...),
+			Limitations: []string{
+				"Proof patches declare evidence Ariadne can parse; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.",
+			},
+		},
+	}
+}
+
+func controlProofPatchFields(indicators []string) []model.ControlProofPatchField {
+	var fields []model.ControlProofPatchField
+	for _, indicator := range indicators {
+		name, value := controlEvidenceExampleKeyValue(indicator)
+		fields = append(fields, model.ControlProofPatchField{
+			Indicator: indicator,
+			Name:      name,
+			ValueJSON: value,
+		})
+	}
+	if fields == nil {
+		return []model.ControlProofPatchField{}
+	}
+	return fields
+}
+
+func controlProofPatchIndicators(fields []model.ControlProofPatchField) []string {
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, field.Indicator)
+	}
+	return out
+}
+
+func controlProofPatchFormat(surface string) string {
+	switch {
+	case strings.HasSuffix(surface, ".toml") || strings.Contains(surface, "config.toml"):
+		return "toml_snippet"
+	case strings.HasSuffix(surface, ".md"):
+		return "markdown_list"
+	case strings.HasSuffix(surface, ".json"):
+		return "json_merge_object"
+	default:
+		return "declared_evidence"
 	}
 }
 
@@ -2786,6 +2879,39 @@ func controlEvidenceExampleLines(examples []model.ControlEvidenceExample, limit 
 	}
 	if len(examples) > limit {
 		out = append(out, fmt.Sprintf("%d additional example(s) in JSON output", len(examples)-limit))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func controlProofPatchLines(patches []model.ControlProofPatch, limit int) []string {
+	if limit <= 0 || limit > len(patches) {
+		limit = len(patches)
+	}
+	var out []string
+	for _, patch := range patches[:limit] {
+		line := strings.TrimSpace(patch.Surface)
+		if line == "" {
+			line = strings.TrimSpace(patch.Control)
+		}
+		var fields []string
+		for _, field := range patch.Fields {
+			fields = append(fields, field.Name+"="+field.ValueJSON)
+		}
+		if len(fields) > 0 {
+			line += " " + patch.Operation + " " + strings.Join(limitStrings(fields, 3), ", ")
+		} else if patch.Operation != "" {
+			line += " " + patch.Operation
+		}
+		if patch.Example != "" {
+			line += " Example: " + compactExample(patch.Example)
+		}
+		out = append(out, strings.TrimSpace(line))
+	}
+	if len(patches) > limit {
+		out = append(out, fmt.Sprintf("%d additional proof patch(es) in JSON output", len(patches)-limit))
 	}
 	if out == nil {
 		return []string{}

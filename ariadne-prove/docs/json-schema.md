@@ -162,18 +162,18 @@ The assessment contract is a composition layer. It does not create a separate cl
 - `summary`, counting missing hard-barrier controls by severity, affected targets, and affected flaws
 - `controls`, where each missing hard barrier includes the flaws it closes, target coverage, evidence anchors, structured evidence references, proof surfaces, and concrete actions
 - `families`, where related controls are grouped into Zero Trust capability areas such as identity, least agency, egress, observability, response, and governance
-- `operator_cases`, where each architecture break-path workstream becomes an actionable case with rank, priority reason, state, state reason, next step, evidence references, starting controls, proof surfaces, evidence examples, rerun commands, and success criteria
+- `operator_cases`, where each architecture break-path workstream becomes an actionable case with rank, priority reason, state, state reason, next step, evidence references, starting controls, proof surfaces, proof patches, evidence examples, rerun commands, and success criteria
 - `workstreams`, where related controls become break-path workstreams with starting tasks, evidence references, proof surfaces, rationale, and success criteria
 - `proof_specs`, where each missing hard barrier maps to the evidence kind, proof surfaces, parser-recognized indicators, notes, and limitations Ariadne uses when looking for deterministic proof
-- `verification_tasks`, where each missing hard barrier becomes an operator task with evidence references, proof surfaces, recognized indicators, evidence examples, rerun commands, success criteria, and limitations
+- `verification_tasks`, where each missing hard barrier becomes an operator task with evidence references, proof surfaces, recognized indicators, proof patches, evidence examples, rerun commands, success criteria, and limitations
 
-This catalog is derived from the architecture closure plan. It does not create a separate classification; it makes the proof request easier to act on. Recognized indicators and evidence examples are evidence hints, not a claim of live runtime enforcement unless paired with observed enforcement evidence.
+This catalog is derived from the architecture closure plan. It does not create a separate classification; it makes the proof request easier to act on. Recognized indicators, proof patches, and evidence examples are evidence hints, not a claim of live runtime enforcement unless paired with observed enforcement evidence.
 
 `ariadne cases --format json` emits the same evidence contract with `run_kind` set to `case_board` or `case_board_scan`. The table and HTML renderers are case-first: they lead with `operator_cases` and keep controls, workstreams, proof specs, and verification tasks as supporting evidence for automation and deeper review. When `--case <case-id>` is supplied, `case_filter` records the selected case and the arrays are narrowed to that case's supporting evidence.
 
-`ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, operator cases, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, evidence examples, and actions.
+`ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, operator cases, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, proof patches, evidence examples, and actions.
 
-`ariadne cases --format html` renders the same contract as an operator case board: summary metrics, prioritized cases, evidence references, starting controls, proof surfaces, example evidence, rerun commands, done criteria, and a compact evidence model.
+`ariadne cases --format html` renders the same contract as an operator case board: summary metrics, prioritized cases, evidence references, starting controls, proof surfaces, proof patches, example evidence, rerun commands, done criteria, and a compact evidence model.
 
 LLM review mode uses two JSON payloads:
 

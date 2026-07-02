@@ -643,18 +643,20 @@ func renderAssessControlProofRecipeTable(w io.Writer, item model.ControlOperator
 		return
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
-	fmt.Fprintln(w, "<thead><tr><th>Control</th><th>Add or verify at</th><th>Accepted evidence</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Control</th><th>Add or verify at</th><th>Accepted evidence</th><th>Proof patch</th></tr></thead><tbody>")
 	for _, control := range limitStrings(item.StartingControls, 6) {
 		examples := controlExamplesForControl(item.EvidenceExamples, control)
+		patches := controlPatchesForControl(item.ProofPatches, control)
 		surfaces := proofSurfacesForControl(item.ProofSurfaces, examples)
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(control))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(surfaces, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(controlEvidenceExampleLines(examples, 2), 2)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(controlProofPatchLines(patches, 2), 2)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(item.StartingControls) > 6 {
-		fmt.Fprintf(w, `<tr><td colspan="3"><span class="subtle">%d more starting control(s) in JSON output.</span></td></tr>`, len(item.StartingControls)-6)
+		fmt.Fprintf(w, `<tr><td colspan="4"><span class="subtle">%d more starting control(s) in JSON output.</span></td></tr>`, len(item.StartingControls)-6)
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 }
@@ -670,6 +672,19 @@ func controlExamplesForControl(examples []model.ControlEvidenceExample, control 
 		return matched
 	}
 	return []model.ControlEvidenceExample{}
+}
+
+func controlPatchesForControl(patches []model.ControlProofPatch, control string) []model.ControlProofPatch {
+	var matched []model.ControlProofPatch
+	for _, patch := range patches {
+		if patch.Control == control {
+			matched = append(matched, patch)
+		}
+	}
+	if matched != nil {
+		return matched
+	}
+	return []model.ControlProofPatch{}
 }
 
 func proofSurfacesForControl(all []string, examples []model.ControlEvidenceExample) []string {
@@ -1093,7 +1108,7 @@ func renderCaseBoardEvidenceModelDashboard(w io.Writer) {
 	}{
 		{"Evidence", "Observed files, parsed configs, graph edges, evidence references, and redaction metadata.", "Trace a case back to the source facts before deciding whether it matters."},
 		{"Case", "Architecture flaws grouped by break path, affected targets, missing hard barriers, and proof surfaces.", "Pick the case that closes the most important path instead of chasing every control row."},
-		{"Closure", "Parser-recognized indicators, evidence examples, rerun commands, and done criteria.", "Add or verify evidence, rerun Ariadne, and confirm the case disappears or becomes controlled."},
+		{"Closure", "Parser-recognized indicators, proof patches, evidence examples, rerun commands, and done criteria.", "Add or verify evidence, rerun Ariadne, and confirm the case disappears or becomes controlled."},
 	}
 	for _, row := range rows {
 		fmt.Fprintf(w, "<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td></tr>", esc(row.layer), esc(row.fact), esc(row.use))
@@ -1105,7 +1120,7 @@ func renderCaseBoardEvidenceModelDashboard(w io.Writer) {
 func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOperatorCase) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
-	fmt.Fprintln(w, `<div><h2>Operator Cases</h2><div class="subtle">A smaller action layer that connects architecture breakage, evidence references, proof surfaces, accepted evidence examples, and rerun criteria.</div></div>`)
+	fmt.Fprintln(w, `<div><h2>Operator Cases</h2><div class="subtle">A smaller action layer that connects architecture breakage, evidence references, proof surfaces, proof patches, and rerun criteria.</div></div>`)
 	fmt.Fprintln(w, "</div>")
 	if len(cases) == 0 {
 		fmt.Fprintln(w, `<div class="empty">No operator cases were returned for this status filter.</div>`)
@@ -1126,7 +1141,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(item.Question), esc(item.Finding))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s<div class="mono">%s</div></td>`, renderSmallList(limitStrings(item.StartingControls, 5)), esc(strings.Join(limitStrings(item.StartingTaskIDs, 5), ", ")))
-		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Evidence examples</h3>%s</td>`, renderSmallList(limitStrings(item.ProofSurfaces, 6)), renderSmallList(controlEvidenceExampleLines(item.EvidenceExamples, 2)))
+		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Proof patches</h3>%s<h3>Evidence examples</h3>%s</td>`, renderSmallList(limitStrings(item.ProofSurfaces, 6)), renderSmallList(controlProofPatchLines(item.ProofPatches, 2)), renderSmallList(controlEvidenceExampleLines(item.EvidenceExamples, 2)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 2)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -1182,7 +1197,7 @@ func renderControlVerificationTasksDashboard(w io.Writer, tasks []model.ControlV
 		return
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Task</th><th>Why</th><th>Evidence references</th><th>Add or verify at</th><th>Accepted indicators</th><th>Evidence examples</th><th>Rerun / done when</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Task</th><th>Why</th><th>Evidence references</th><th>Add or verify at</th><th>Accepted indicators</th><th>Proof patch</th><th>Rerun / done when</th></tr></thead><tbody>")
 	limit := len(tasks)
 	if limit > 16 {
 		limit = 16
@@ -1195,7 +1210,7 @@ func renderControlVerificationTasksDashboard(w io.Writer, tasks []model.ControlV
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(task.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.ProofSurfaces, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.RecognizedIndicators, 8)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(controlEvidenceExampleLines(task.EvidenceExamples, 2)))
+		fmt.Fprintf(w, `<td><h3>Patch</h3>%s<h3>Examples</h3>%s</td>`, renderSmallList(controlProofPatchLines(task.ProofPatches, 2)), renderSmallList(controlEvidenceExampleLines(task.EvidenceExamples, 2)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(task.RerunCommands, 2)), renderSmallList(limitStrings(task.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
