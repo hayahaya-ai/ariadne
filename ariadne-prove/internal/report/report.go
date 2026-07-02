@@ -324,6 +324,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
 	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
+	controlState := buildAssessControlState(firstAction, triage)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -338,6 +339,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		ControlFilter:    focus.ControlFilter,
 		Summary:          summary,
 		Triage:           triage,
+		ControlState:     controlState,
 		Inventory:        inventorySummary,
 		Exposure:         exposure,
 		ClosureEvidence:  closureEvidence,
@@ -409,6 +411,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
 	triage.EvidenceGapActions = assessScanEvidenceGapActions(r.TargetsFile, r.Mode, r.Agent, triage)
+	controlState := buildAssessControlState(firstAction, triage)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -424,6 +427,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		ControlFilter:    focus.ControlFilter,
 		Summary:          summary,
 		Triage:           triage,
+		ControlState:     controlState,
 		Inventory:        inventorySummary,
 		Exposure:         exposure,
 		ClosureEvidence:  closureEvidence,
@@ -1705,6 +1709,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 
 	renderAssessInventorySummary(w, r.Inventory, 4)
 	renderAssessTriage(w, r.Triage)
+	renderAssessControlState(w, r.ControlState)
 	renderAssessClosurePlan(w, r.ClosurePlan, 3)
 	action := r.FirstAction
 	if !action.Available {
@@ -2420,6 +2425,59 @@ func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInvent
 	}
 	triage.SignalDetails = buildAssessSignalDetails(summary, inventory, exposure, closure, action, triage, flaws)
 	return triage
+}
+
+func buildAssessControlState(action model.AssessFirstAction, triage model.AssessTriage) model.AssessControlState {
+	state := model.AssessControlState{
+		Available:                 action.Available,
+		Scope:                     "top_case",
+		MissingHardBarriers:       nonNilStrings(uniqueStrings(triage.MissingHardBarriers)),
+		PresentHardBarriers:       nonNilStrings(uniqueStrings(triage.PresentHardBarriers)),
+		PartialOrFrictionControls: nonNilStrings(uniqueStrings(triage.PartialOrFrictionControls)),
+		UnknownEvidence:           nonNilStrings(uniqueStrings(triage.UnknownEvidence)),
+		ProofSurfaces:             []string{},
+		EvidenceSources:           []string{},
+		Summary:                   []string{},
+		Limitations: []string{
+			"Control state is deterministic evidence state; it does not prove live enforcement unless runtime enforcement evidence is observed.",
+		},
+	}
+	if action.Available {
+		state.CaseID = action.CaseID
+		state.CaseTitle = action.Title
+		state.CurrentControl = action.CurrentAction.Control
+		state.CurrentProofSurface = action.CurrentAction.Surface
+		if assessFirstActionClosed(action) {
+			state.ProofSurfaces = nonNilStrings(assessActionEvidenceSurfaces(action))
+		} else {
+			state.ProofSurfaces = nonNilStrings(uniqueStrings(action.ProofSurfaces))
+		}
+		state.EvidenceSources = nonNilStrings(evidenceReferenceSources(action.EvidenceReferences, false))
+	}
+	if len(state.MissingHardBarriers) > 0 {
+		state.Summary = append(state.Summary, fmt.Sprintf("Missing hard-barrier evidence for %s.", strings.Join(limitStrings(state.MissingHardBarriers, 4), ", ")))
+	}
+	if len(state.PresentHardBarriers) > 0 {
+		state.Summary = append(state.Summary, fmt.Sprintf("Observed hard-barrier evidence for %s.", strings.Join(limitStrings(state.PresentHardBarriers, 4), ", ")))
+	}
+	if len(state.PartialOrFrictionControls) > 0 {
+		state.Summary = append(state.Summary, fmt.Sprintf("Partial or friction-only controls observed: %s.", strings.Join(limitStrings(state.PartialOrFrictionControls, 4), ", ")))
+	}
+	if len(state.UnknownEvidence) > 0 {
+		state.Summary = append(state.Summary, fmt.Sprintf("%d evidence gap(s) remain; Ariadne does not treat unknown evidence as safe.", len(state.UnknownEvidence)))
+	}
+	if len(state.Summary) == 0 && action.Available {
+		state.Summary = append(state.Summary, "No missing, partial, present, or unknown control-state facts were returned for this focused case.")
+	}
+	if len(state.Summary) == 0 && !action.Available {
+		state.Summary = append(state.Summary, "No focused control state is available for this filter.")
+	}
+	if !state.Available && (len(state.MissingHardBarriers) > 0 || len(state.PresentHardBarriers) > 0 || len(state.PartialOrFrictionControls) > 0 || len(state.UnknownEvidence) > 0) {
+		state.Available = true
+	}
+	state.Summary = uniqueStrings(state.Summary)
+	state.Limitations = uniqueStrings(state.Limitations)
+	return state
 }
 
 func buildAssessSignalDetails(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, triage model.AssessTriage, flaws []model.ZeroTrustArchitecture) []model.AssessSignal {
@@ -3515,6 +3573,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintln(w)
 
 	renderAssessTriage(w, r.Triage)
+	renderAssessControlState(w, r.ControlState)
 	renderAssessClosurePlan(w, r.ClosurePlan, 5)
 	renderAssessFirstAction(w, r.FirstAction)
 
@@ -3572,6 +3631,44 @@ func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
 	}
 	renderAssessTriageLines(w, "Proof loop", triage.ProofLoop, 6)
 	fmt.Fprintln(w)
+}
+
+func renderAssessControlState(w io.Writer, state model.AssessControlState) {
+	if !state.Available {
+		return
+	}
+	fmt.Fprintf(w, "Control state:\n")
+	if state.CaseID != "" {
+		fmt.Fprintf(w, "  - Scope: %s (%s)\n", firstNonEmpty(state.CaseTitle, state.CaseID), state.CaseID)
+	} else if state.Scope != "" {
+		fmt.Fprintf(w, "  - Scope: %s\n", readableToken(state.Scope))
+	}
+	if state.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", state.CurrentControl)
+	}
+	if state.CurrentProofSurface != "" {
+		fmt.Fprintf(w, "  - Current proof surface: %s\n", state.CurrentProofSurface)
+	}
+	for _, line := range limitStrings(state.Summary, 4) {
+		fmt.Fprintf(w, "  - %s\n", line)
+	}
+	renderAssessControlStateLines(w, "Missing hard barrier", state.MissingHardBarriers, 6)
+	renderAssessControlStateLines(w, "Present hard barrier", state.PresentHardBarriers, 6)
+	renderAssessControlStateLines(w, "Partial/friction control", state.PartialOrFrictionControls, 6)
+	renderAssessControlStateLines(w, "Unknown evidence", state.UnknownEvidence, 4)
+	if len(state.EvidenceSources) > 0 {
+		fmt.Fprintf(w, "  - Evidence sources: %s\n", strings.Join(limitStrings(state.EvidenceSources, 8), "; "))
+	}
+	if len(state.ProofSurfaces) > 0 {
+		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(state.ProofSurfaces, 8), "; "))
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessControlStateLines(w io.Writer, label string, values []string, limit int) {
+	for _, value := range limitStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
 }
 
 func renderAssessSignalDetails(w io.Writer, signals []model.AssessSignal, limit int) {

@@ -3969,6 +3969,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Risk boundary:",
 		"Normal capability:",
 		"Missing hard barrier:",
+		"Control state:",
+		"Current control: control:egress-destination-allowlist",
+		"Current proof surface: .ariadne/egress-policy.json",
+		"Missing hard-barrier evidence for control:egress-destination-allowlist",
 		"Closure plan:",
 		"Why this control:",
 		"What it closes:",
@@ -4059,11 +4063,23 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.Triage.ProofLoop) == 0 {
 		t.Fatalf("assessment should include fact-first signal triage: %+v", decoded.Triage)
 	}
+	if !decoded.ControlState.Available ||
+		decoded.ControlState.CaseID != "case:egress-output-boundary" ||
+		decoded.ControlState.CurrentControl != "control:egress-destination-allowlist" ||
+		decoded.ControlState.CurrentProofSurface != ".ariadne/egress-policy.json" ||
+		!containsString(decoded.ControlState.MissingHardBarriers, "control:egress-destination-allowlist") ||
+		!containsString(decoded.ControlState.EvidenceSources, ".claude/settings.json") ||
+		!containsString(decoded.ControlState.EvidenceSources, ".codex/config.toml") ||
+		!containsString(decoded.ControlState.ProofSurfaces, ".ariadne/egress-policy.json") ||
+		len(decoded.ControlState.Summary) == 0 {
+		t.Fatalf("assessment should expose a fact-backed control-state packet: %+v", decoded.ControlState)
+	}
 	for _, unwanted := range []string{
 		`"partial_or_friction_controls":null`,
 		`"present_hard_barriers":null`,
 		`"unknown_evidence":null`,
 		`"evidence_gap_actions":null`,
+		`"control_state":null`,
 	} {
 		if strings.Contains(jsonOut.String(), unwanted) {
 			t.Fatalf("assessment JSON should emit stable empty arrays, not %s:\n%s", unwanted, jsonOut.String())
@@ -4234,6 +4250,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"CLAUDE.md",
 		"Normal capability:",
 		"Missing hard barrier:",
+		"Control state:",
+		"Current control: control:egress-destination-allowlist",
+		"Current proof surface: .ariadne/egress-policy.json",
+		"Missing hard-barrier evidence for control:egress-destination-allowlist",
 		"Current action:",
 		"Control: control:egress-destination-allowlist",
 		"Proof surface: .ariadne/egress-policy.json",
@@ -4288,6 +4308,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"control:egress-destination-allowlist",
 		"What it closes",
 		"First Action",
+		"Control State",
+		"State Summary",
+		"Partial Or Friction Controls",
+		"Unknown Evidence",
+		"Missing hard-barrier evidence for control:egress-destination-allowlist",
 		"Current Action Packet",
 		"Proof To Add Or Verify",
 		"Field: egress_destination_allowlist=true",

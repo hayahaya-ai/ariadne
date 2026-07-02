@@ -300,6 +300,7 @@ type AssessReport struct {
 	ControlFilter    string                  `json:"control_filter,omitempty"`
 	Summary          AssessSummary           `json:"summary"`
 	Triage           AssessTriage            `json:"triage"`
+	ControlState     AssessControlState      `json:"control_state"`
 	Inventory        AssessInventory         `json:"inventory"`
 	Exposure         AssessExposure          `json:"exposure"`
 	ClosureEvidence  AssessClosureEvidence   `json:"closure_evidence"`
@@ -314,6 +315,23 @@ type AssessReport struct {
 	Redaction        RedactionInfo           `json:"redaction"`
 	Warnings         []string                `json:"warnings,omitempty"`
 	Limitations      []string                `json:"limitations"`
+}
+
+type AssessControlState struct {
+	Available                 bool     `json:"available"`
+	Scope                     string   `json:"scope,omitempty"`
+	CaseID                    string   `json:"case_id,omitempty"`
+	CaseTitle                 string   `json:"case_title,omitempty"`
+	CurrentControl            string   `json:"current_control,omitempty"`
+	CurrentProofSurface       string   `json:"current_proof_surface,omitempty"`
+	MissingHardBarriers       []string `json:"missing_hard_barriers"`
+	PresentHardBarriers       []string `json:"present_hard_barriers"`
+	PartialOrFrictionControls []string `json:"partial_or_friction_controls"`
+	UnknownEvidence           []string `json:"unknown_evidence"`
+	ProofSurfaces             []string `json:"proof_surfaces"`
+	EvidenceSources           []string `json:"evidence_sources"`
+	Summary                   []string `json:"summary"`
+	Limitations               []string `json:"limitations"`
 }
 
 type AssessFirstAction struct {

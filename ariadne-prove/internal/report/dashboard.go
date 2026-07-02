@@ -190,7 +190,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	renderAssessSummaryDashboard(w, r)
 	renderAssessTriageDashboard(w, r.TargetPath, r.Triage)
 	renderAssessClosurePlanDashboard(w, r.TargetPath, r.ClosurePlan)
-	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction)
+	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction, r.ControlState)
 	renderAssessClosureEvidenceDashboard(w, r.TargetPath, r.ClosureEvidence)
 	renderAssessCaseNavigationDashboard(w, r.TopCases)
 	renderAssessActiveCaseDashboard(w, r)
@@ -916,7 +916,7 @@ func renderAssessClosurePlanPatchHTML(root string, patch *model.ControlProofPatc
 	return renderDashboardHTMLList(controlProofPatchHTMLLines(root, []model.ControlProofPatch{*patch}, 1))
 }
 
-func renderAssessFirstActionDashboard(w io.Writer, root string, action model.AssessFirstAction) {
+func renderAssessFirstActionDashboard(w io.Writer, root string, action model.AssessFirstAction, state model.AssessControlState) {
 	if !action.Available {
 		return
 	}
@@ -943,9 +943,43 @@ func renderAssessFirstActionDashboard(w io.Writer, root string, action model.Ass
 	if action.NextStep != "" {
 		fmt.Fprintf(w, `<p><strong>Next step:</strong> %s</p>`, esc(action.NextStep))
 	}
+	renderAssessControlStateDashboard(w, root, state)
 	renderAssessCurrentActionPacketDashboard(w, root, action)
 	renderAssessWorkflowDashboard(w, root, action.Workflow)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessControlStateDashboard(w io.Writer, root string, state model.AssessControlState) {
+	if !state.Available {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Control State</h3>`)
+	renderMetricRow(w, []kv{
+		{"Missing hard barriers", fmt.Sprintf("%d", len(state.MissingHardBarriers))},
+		{"Present hard barriers", fmt.Sprintf("%d", len(state.PresentHardBarriers))},
+		{"Partial controls", fmt.Sprintf("%d", len(state.PartialOrFrictionControls))},
+		{"Unknown evidence", fmt.Sprintf("%d", len(state.UnknownEvidence))},
+	})
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>State Summary</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(state.Summary, 4)))
+	fmt.Fprintln(w, `<h3>Missing Hard Barriers</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(state.MissingHardBarriers, 6)))
+	fmt.Fprintln(w, `<h3>Present Hard Barriers</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(state.PresentHardBarriers, 6)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Partial Or Friction Controls</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(state.PartialOrFrictionControls, 6)))
+	fmt.Fprintln(w, `<h3>Unknown Evidence</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(state.UnknownEvidence, 4)))
+	fmt.Fprintln(w, `<h3>Evidence Sources</h3>`)
+	fmt.Fprintln(w, renderDashboardPathList(root, limitStrings(state.EvidenceSources, 8)))
+	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
+	fmt.Fprintln(w, renderDashboardPathList(root, limitStrings(state.ProofSurfaces, 8)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
 }
 
 func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action model.AssessFirstAction) {

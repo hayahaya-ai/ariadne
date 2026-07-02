@@ -40,6 +40,10 @@ expect_contains "$assess_txt" "What was inspected:"
 expect_contains "$assess_txt" "Signal triage:"
 expect_contains "$assess_txt" "Normal capability:"
 expect_contains "$assess_txt" "Missing hard barrier:"
+expect_contains "$assess_txt" "Control state:"
+expect_contains "$assess_txt" "Current control: control:egress-destination-allowlist"
+expect_contains "$assess_txt" "Current proof surface: .ariadne/egress-policy.json"
+expect_contains "$assess_txt" "Missing hard-barrier evidence for control:egress-destination-allowlist"
 expect_contains "$assess_txt" "First action:"
 expect_contains "$assess_txt" "Evidence sources: .claude/settings.json; .codex/config.toml; .env"
 expect_contains "$assess_txt" "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/output-policy.json; .claude/settings.json; .codex/config.toml"
@@ -47,6 +51,9 @@ expect_contains "$assess_txt" "Compare loop:"
 expect_contains "$assess_txt" "case-compare.html"
 
 expect_contains "$assess_json" '"run_kind": "assess"'
+expect_contains "$assess_json" '"control_state"'
+expect_contains "$assess_json" '"current_control": "control:egress-destination-allowlist"'
+expect_contains "$assess_json" '"current_proof_surface": ".ariadne/egress-policy.json"'
 expect_contains "$assess_json" '"first_action"'
 expect_contains "$assess_json" '"signal_details"'
 expect_contains "$assess_json" '"normal_capability"'
@@ -57,6 +64,8 @@ expect_contains "$assess_json" '.codex/config.toml'
 
 expect_contains "$assess_html" "Ariadne Assessment"
 expect_contains "$assess_html" "Signal Triage"
+expect_contains "$assess_html" "Control State"
+expect_contains "$assess_html" "State Summary"
 expect_contains "$assess_html" "Proof Loop"
 expect_contains "$assess_html" "copy-command"
 expect_contains "$assess_html" "case-compare.html"
@@ -87,6 +96,10 @@ expect_contains "$endpoint_action" "Signal triage:"
 expect_contains "$endpoint_action" "Normal capability:"
 expect_contains "$endpoint_action" "Missing hard barrier:"
 expect_contains "$endpoint_action" "Present hard barrier: control:network-restricted"
+expect_contains "$endpoint_action" "Control state:"
+expect_contains "$endpoint_action" "Current control: control:deny-by-default"
+expect_contains "$endpoint_action" "Current proof surface: .ariadne/agent-policy.json"
+expect_contains "$endpoint_action" "Missing hard-barrier evidence for control:deny-by-default"
 expect_contains "$endpoint_action" "Least Agency And Authority Scope"
 expect_contains "$endpoint_action" "Evidence sources:"
 expect_contains "$endpoint_action" ".claude/.mcp.json"
@@ -100,6 +113,9 @@ expect_contains "$endpoint_action" "case-compare.html"
 
 expect_contains "$endpoint_json" '"mode": "endpoint"'
 expect_contains "$endpoint_json" '"top_case_id": "case:least-agency-authority"'
+expect_contains "$endpoint_json" '"control_state"'
+expect_contains "$endpoint_json" '"current_control": "control:deny-by-default"'
+expect_contains "$endpoint_json" '"current_proof_surface": ".ariadne/agent-policy.json"'
 expect_contains "$endpoint_json" '"present_hard_barriers"'
 expect_contains "$endpoint_json" 'control:network-restricted'
 expect_contains "$endpoint_json" '.claude/.mcp.json'
@@ -107,6 +123,8 @@ expect_contains "$endpoint_json" '.gemini/settings.json'
 
 expect_contains "$endpoint_html" "Ariadne Assessment"
 expect_contains "$endpoint_html" "Signal Triage"
+expect_contains "$endpoint_html" "Control State"
+expect_contains "$endpoint_html" "State Summary"
 expect_contains "$endpoint_html" "Proof Loop"
 expect_contains "$endpoint_html" ".claude/.mcp.json"
 expect_contains "$endpoint_html" ".gemini/settings.json"
