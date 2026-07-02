@@ -859,6 +859,7 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 		{"State", firstNonEmpty(workbench.Case.State, "open")},
 	})
 	renderAssessWorkbenchSignalChainDashboard(w, r.TargetPath, workbench.SignalChain)
+	renderAssessWorkbenchProofStateDashboard(w, workbench.ProofState)
 	renderAssessWorkbenchActionChecklistDashboard(w, r.TargetPath, workbench.Actions)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
@@ -968,6 +969,45 @@ func dashboardSignalLimitationsHTML(limitations []string) string {
 		return ""
 	}
 	return `<div class="subtle">Limitations</div>` + renderSmallList(limitStrings(limitations, 2))
+}
+
+func renderAssessWorkbenchProofStateDashboard(w io.Writer, state model.AssessWorkbenchProofState) {
+	if state.CurrentState == "" && len(state.TargetControls) == 0 && state.ClosureCondition == "" {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Proof State</h3>`)
+	renderMetricRow(w, []kv{
+		{"Current state", readableToken(firstNonEmpty(state.CurrentState, "unknown"))},
+		{"Current control", firstNonEmpty(state.CurrentControl, "not recorded")},
+		{"Missing controls", fmt.Sprintf("%d", len(state.CurrentMissingControls))},
+		{"Target controls", fmt.Sprintf("%d", len(state.TargetControls))},
+	})
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<div class="subtle">Current proof facts</div>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+		"Missing: "+firstNonEmpty(strings.Join(limitStrings(state.CurrentMissingControls, 5), "; "), "none"),
+		"Observed: "+firstNonEmpty(strings.Join(limitStrings(state.CurrentPresentControls, 5), "; "), "none"),
+		"Target controls: "+firstNonEmpty(strings.Join(limitStrings(state.TargetControls, 5), "; "), "none"),
+		state.ClosureCondition,
+	)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<div class="subtle">Before / after artifacts</div>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
+		"Baseline: "+state.BaselineArtifact,
+		"After: "+state.AfterArtifact,
+		"Compare: "+state.CompareArtifact,
+	)))
+	if state.CompareCommand != "" {
+		fmt.Fprintln(w, renderCommandList([]string{state.CompareCommand}))
+	}
+	if len(state.SuccessCriteria) > 0 {
+		fmt.Fprintln(w, `<div class="subtle">Done when</div>`)
+		fmt.Fprintln(w, renderSmallList(limitStrings(state.SuccessCriteria, 3)))
+	}
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
 }
 
 func renderAssessWorkbenchActionChecklistDashboard(w io.Writer, root string, actions []model.AssessWorkbenchAction) {

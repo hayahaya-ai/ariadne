@@ -565,6 +565,7 @@
         "evidence_to_open",
         "graph_path",
         "proof",
+        "proof_state",
         "verify",
         "actions",
         "done_criteria",
@@ -588,6 +589,7 @@
           "items": { "type": "string" }
         },
         "proof": { "$ref": "#/$defs/assess_workbench_proof" },
+        "proof_state": { "$ref": "#/$defs/assess_workbench_proof_state" },
         "verify": { "$ref": "#/$defs/assess_workbench_verification" },
         "actions": {
           "type": "array",
@@ -598,6 +600,47 @@
           "items": { "type": "string" }
         },
         "change_readout": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_workbench_proof_state": {
+      "type": "object",
+      "required": [
+        "current_missing_controls",
+        "current_present_controls",
+        "target_controls",
+        "success_criteria",
+        "limitations"
+      ],
+      "properties": {
+        "current_state": { "type": "string" },
+        "current_control": { "type": "string" },
+        "current_missing_controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "current_present_controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "target_controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "baseline_artifact": { "type": "string" },
+        "after_artifact": { "type": "string" },
+        "compare_artifact": { "type": "string" },
+        "baseline_command": { "type": "string" },
+        "after_command": { "type": "string" },
+        "compare_command": { "type": "string" },
+        "closure_condition": { "type": "string" },
+        "success_criteria": {
           "type": "array",
           "items": { "type": "string" }
         },

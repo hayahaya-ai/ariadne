@@ -4455,6 +4455,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"exposure transition [actionable signal]",
 		"control evidence [missing]",
 		"next action [pending]",
+		"Proof state:",
+		"Current state: open",
+		"Current missing control: control:egress-destination-allowlist",
+		"Target controls: control:egress-destination-allowlist; control:network-restricted",
+		"Artifacts: before-proof.json -> after-proof.json -> case-compare.html",
+		"Compare: ariadne compare --before before-proof.json --after after-proof.json",
 		"Case lifecycle:",
 		"Current step: open_proof_action",
 		"Open Proof Action [current]:",
@@ -4689,6 +4695,15 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.OperatorWorkbench.Proof.GeneratedProofPaths, "proof-patches/surfaces/.ariadne/output-policy.json") ||
 		!containsString(decoded.OperatorWorkbench.Proof.ApplyCommands, "cp surfaces/.ariadne/egress-policy.json") ||
 		!containsString(decoded.OperatorWorkbench.Proof.ApplyCommands, "cp surfaces/.ariadne/output-policy.json") ||
+		decoded.OperatorWorkbench.ProofState.CurrentState != "open" ||
+		decoded.OperatorWorkbench.ProofState.CurrentControl != "control:egress-destination-allowlist" ||
+		!containsString(decoded.OperatorWorkbench.ProofState.CurrentMissingControls, "control:egress-destination-allowlist") ||
+		!containsString(decoded.OperatorWorkbench.ProofState.TargetControls, "control:network-restricted") ||
+		decoded.OperatorWorkbench.ProofState.BaselineArtifact != "before-proof.json" ||
+		decoded.OperatorWorkbench.ProofState.AfterArtifact != "after-proof.json" ||
+		decoded.OperatorWorkbench.ProofState.CompareArtifact != "case-compare.html" ||
+		!strings.Contains(decoded.OperatorWorkbench.ProofState.CompareCommand, "ariadne compare --before before-proof.json --after after-proof.json") ||
+		!strings.Contains(decoded.OperatorWorkbench.ProofState.ClosureCondition, "Rerun must show every target control") ||
 		!containsString(decoded.OperatorWorkbench.Verify.Commands, "ariadne compare --before before-proof.json --after after-proof.json") ||
 		!hasWorkbenchAction(decoded.OperatorWorkbench.Actions, "open_evidence", "current", ".claude/settings.json", "control:egress-destination-allowlist", "", "exact evidence refs") ||
 		!hasWorkbenchAction(decoded.OperatorWorkbench.Actions, "add_or_verify_control_evidence", "pending", "proof-patches/surfaces/.ariadne/egress-policy.json", "control:egress-destination-allowlist", "cp surfaces/.ariadne/egress-policy.json", "Relevant controls") ||
@@ -4754,6 +4769,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"operator_workbench":null`,
 		`"signal_chain":null`,
 		`"evidence_to_open":null`,
+		`"proof_state":null`,
 		`"change_readout":null`,
 		`"case_lifecycle":null`,
 		`"steps":null`,
@@ -5001,6 +5017,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"exposure transition [actionable signal]",
 		"control evidence [missing]",
 		"next action [pending]",
+		"Proof state:",
+		"Current state: open",
+		"Artifacts: before-proof.json -> after-proof.json -> case-compare.html",
 		"Case lifecycle:",
 		"Current step: open_proof_action",
 		"Open Proof Action [current]:",
@@ -5059,6 +5078,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Assessment Readout",
 		"Operator Workbench",
 		"Signal Chain",
+		"Proof State",
+		"Current proof facts",
+		"Before / after artifacts",
 		"workbench:normal-capability",
 		"workbench:exposure-transition",
 		"workbench:control-state",
@@ -6574,9 +6596,11 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
 	assertRequiredKeys(t, assessWorkflowStep, "id", "title", "summary", "current", "evidence_refs", "starting_controls", "proof_surfaces", "commands", "success_criteria")
 	assessOperatorWorkbench := schemaMap(t, assessSchema, "$defs", "assess_operator_workbench")
-	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "signal_chain", "evidence_to_open", "graph_path", "proof", "verify", "actions", "done_criteria", "change_readout", "limitations")
+	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "signal_chain", "evidence_to_open", "graph_path", "proof", "proof_state", "verify", "actions", "done_criteria", "change_readout", "limitations")
 	assessWorkbenchProof := schemaMap(t, assessSchema, "$defs", "assess_workbench_proof")
 	assertRequiredKeys(t, assessWorkbenchProof, "controls", "surfaces", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands")
+	assessWorkbenchProofState := schemaMap(t, assessSchema, "$defs", "assess_workbench_proof_state")
+	assertRequiredKeys(t, assessWorkbenchProofState, "current_missing_controls", "current_present_controls", "target_controls", "success_criteria", "limitations")
 	assessWorkbenchAction := schemaMap(t, assessSchema, "$defs", "assess_workbench_action")
 	assertRequiredKeys(t, assessWorkbenchAction, "step", "id", "title", "status", "instruction", "evidence_refs", "files", "commands", "controls", "done_criteria", "limitations")
 	assessCaseLifecycle := schemaMap(t, assessSchema, "$defs", "assess_case_lifecycle")

@@ -2219,6 +2219,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
 	renderAssessWorkbenchSignalChain(w, r.OperatorWorkbench.SignalChain, 4)
+	renderAssessWorkbenchProofState(w, r.OperatorWorkbench.ProofState)
 	renderAssessCaseLifecycle(w, r.CaseLifecycle, 9)
 	renderAssessClosurePlan(w, r.ClosurePlan, 3)
 	action := r.FirstAction
@@ -3791,6 +3792,7 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 		ApplyCommand:          current.ApplyCommand,
 		ApplyCommands:         applyCommands,
 	}
+	workbench.ProofState = buildAssessWorkbenchProofState(action, state, workbench.Proof.Controls, closed)
 	workbench.Verify = model.AssessWorkbenchVerification{
 		Commands: assessOperatorWorkbenchProofLoop(triage, action),
 	}
@@ -3814,6 +3816,7 @@ func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) m
 	workbench.Proof.SuggestedDestinations = nonNilStrings(uniqueStrings(workbench.Proof.SuggestedDestinations))
 	workbench.Proof.DestinationPaths = nonNilStrings(uniqueStrings(workbench.Proof.DestinationPaths))
 	workbench.Proof.ApplyCommands = nonNilStrings(uniqueStrings(workbench.Proof.ApplyCommands))
+	workbench.ProofState = normalizeAssessWorkbenchProofState(workbench.ProofState)
 	workbench.Verify.Commands = nonNilStrings(uniqueStrings(workbench.Verify.Commands))
 	workbench.Actions = nonNilAssessWorkbenchActions(workbench.Actions)
 	workbench.DoneCriteria = nonNilStrings(uniqueStrings(workbench.DoneCriteria))
@@ -3922,6 +3925,55 @@ func buildAssessWorkbenchSignalChain(action model.AssessFirstAction, state model
 			Limitations: []string{"Proof evidence is deterministic evidence Ariadne can parse; it is not a live enforcement claim unless runtime enforcement evidence is observed."},
 		},
 	})
+}
+
+func buildAssessWorkbenchProofState(action model.AssessFirstAction, state model.AssessControlState, targetControls []string, closed bool) model.AssessWorkbenchProofState {
+	if !action.Available {
+		return normalizeAssessWorkbenchProofState(model.AssessWorkbenchProofState{})
+	}
+	current := action.CurrentAction
+	baselineCommand := firstString(action.CompareCommands)
+	afterCommand := ""
+	if len(action.CompareCommands) > 1 {
+		afterCommand = action.CompareCommands[1]
+	}
+	compareCommand := current.CompareCommand
+	if compareCommand == "" && len(action.CompareCommands) > 2 {
+		compareCommand = action.CompareCommands[2]
+	}
+	currentState := firstNonEmpty(action.State, "open")
+	closureCondition := "Rerun must show every target control is no longer a missing hard barrier for this case."
+	if closed {
+		currentState = "closed"
+		closureCondition = "Focused case remains closed while observed hard-barrier evidence stays present."
+	}
+	return normalizeAssessWorkbenchProofState(model.AssessWorkbenchProofState{
+		CurrentState:           currentState,
+		CurrentControl:         firstNonEmpty(current.Control, state.CurrentControl),
+		CurrentMissingControls: state.MissingHardBarriers,
+		CurrentPresentControls: state.PresentHardBarriers,
+		TargetControls:         targetControls,
+		BaselineArtifact:       assessLifecycleOutArtifact(baselineCommand, "before-proof.json"),
+		AfterArtifact:          assessLifecycleOutArtifact(afterCommand, "after-proof.json"),
+		CompareArtifact:        assessLifecycleOutArtifact(compareCommand, "case-compare.html"),
+		BaselineCommand:        baselineCommand,
+		AfterCommand:           afterCommand,
+		CompareCommand:         compareCommand,
+		ClosureCondition:       closureCondition,
+		SuccessCriteria:        firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria),
+		Limitations: []string{
+			"Proof state is a deterministic checkpoint; it does not execute agents or prove live enforcement by itself.",
+		},
+	})
+}
+
+func normalizeAssessWorkbenchProofState(state model.AssessWorkbenchProofState) model.AssessWorkbenchProofState {
+	state.CurrentMissingControls = nonNilStrings(uniqueStrings(state.CurrentMissingControls))
+	state.CurrentPresentControls = nonNilStrings(uniqueStrings(state.CurrentPresentControls))
+	state.TargetControls = nonNilStrings(uniqueStrings(state.TargetControls))
+	state.SuccessCriteria = nonNilStrings(uniqueStrings(state.SuccessCriteria))
+	state.Limitations = nonNilStrings(uniqueStrings(state.Limitations))
+	return state
 }
 
 func buildAssessWorkbenchActions(workbench model.AssessOperatorWorkbench, action model.AssessFirstAction, state model.AssessControlState) []model.AssessWorkbenchAction {
@@ -5788,6 +5840,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
 	renderAssessWorkbenchSignalChain(w, r.OperatorWorkbench.SignalChain, 4)
+	renderAssessWorkbenchProofState(w, r.OperatorWorkbench.ProofState)
 	renderAssessCaseLifecycle(w, r.CaseLifecycle, 9)
 	renderAssessClosurePlan(w, r.ClosurePlan, 5)
 	renderAssessFirstAction(w, r.FirstAction)
@@ -6070,6 +6123,46 @@ func renderAssessWorkbenchSignalChain(w io.Writer, items []model.AssessSignalNoi
 	}
 	if len(items) > limit {
 		fmt.Fprintf(w, "  - %d more signal chain item(s) in JSON output\n", len(items)-limit)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessWorkbenchProofState(w io.Writer, state model.AssessWorkbenchProofState) {
+	if state.CurrentState == "" && len(state.TargetControls) == 0 && state.ClosureCondition == "" {
+		return
+	}
+	fmt.Fprintf(w, "Proof state:\n")
+	if state.CurrentState != "" {
+		fmt.Fprintf(w, "  - Current state: %s\n", readableToken(state.CurrentState))
+	}
+	if state.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", state.CurrentControl)
+	}
+	renderAssessControlStateBucketLines(w, "Current missing control", state.CurrentMissingControls, 5, "none for this checkpoint")
+	renderAssessControlStateBucketLines(w, "Current observed control", state.CurrentPresentControls, 5, "none observed for this checkpoint")
+	if len(state.TargetControls) > 0 {
+		fmt.Fprintf(w, "  - Target controls: %s\n", strings.Join(limitStrings(state.TargetControls, 5), "; "))
+	}
+	if state.ClosureCondition != "" {
+		fmt.Fprintf(w, "  - Closure condition: %s\n", state.ClosureCondition)
+	}
+	var artifacts []string
+	for _, artifact := range []string{state.BaselineArtifact, state.AfterArtifact, state.CompareArtifact} {
+		if artifact != "" {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	if len(artifacts) > 0 {
+		fmt.Fprintf(w, "  - Artifacts: %s\n", strings.Join(artifacts, " -> "))
+	}
+	if state.CompareCommand != "" {
+		fmt.Fprintf(w, "  - Compare: %s\n", state.CompareCommand)
+	}
+	if len(state.SuccessCriteria) > 0 {
+		fmt.Fprintf(w, "  - Done when: %s\n", strings.Join(limitStrings(state.SuccessCriteria, 3), "; "))
+	}
+	for _, limitation := range limitStrings(state.Limitations, 2) {
+		fmt.Fprintf(w, "  - Limitation: %s\n", limitation)
 	}
 	fmt.Fprintln(w)
 }

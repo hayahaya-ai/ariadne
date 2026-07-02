@@ -463,6 +463,7 @@ type AssessOperatorWorkbench struct {
 	EvidenceToOpen []EvidenceReference         `json:"evidence_to_open"`
 	GraphPath      []string                    `json:"graph_path"`
 	Proof          AssessWorkbenchProof        `json:"proof"`
+	ProofState     AssessWorkbenchProofState   `json:"proof_state"`
 	Verify         AssessWorkbenchVerification `json:"verify"`
 	Actions        []AssessWorkbenchAction     `json:"actions"`
 	DoneCriteria   []string                    `json:"done_criteria"`
@@ -497,6 +498,23 @@ type AssessWorkbenchProof struct {
 	DestinationPaths      []string                `json:"destination_paths"`
 	ApplyCommand          string                  `json:"apply_command,omitempty"`
 	ApplyCommands         []string                `json:"apply_commands"`
+}
+
+type AssessWorkbenchProofState struct {
+	CurrentState           string   `json:"current_state,omitempty"`
+	CurrentControl         string   `json:"current_control,omitempty"`
+	CurrentMissingControls []string `json:"current_missing_controls"`
+	CurrentPresentControls []string `json:"current_present_controls"`
+	TargetControls         []string `json:"target_controls"`
+	BaselineArtifact       string   `json:"baseline_artifact,omitempty"`
+	AfterArtifact          string   `json:"after_artifact,omitempty"`
+	CompareArtifact        string   `json:"compare_artifact,omitempty"`
+	BaselineCommand        string   `json:"baseline_command,omitempty"`
+	AfterCommand           string   `json:"after_command,omitempty"`
+	CompareCommand         string   `json:"compare_command,omitempty"`
+	ClosureCondition       string   `json:"closure_condition,omitempty"`
+	SuccessCriteria        []string `json:"success_criteria"`
+	Limitations            []string `json:"limitations"`
 }
 
 type AssessWorkbenchVerification struct {
