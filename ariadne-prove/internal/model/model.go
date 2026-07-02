@@ -324,6 +324,10 @@ type AssessDecision struct {
 	StartHere                 string              `json:"start_here"`
 	TopCaseID                 string              `json:"top_case_id,omitempty"`
 	TopCaseTitle              string              `json:"top_case_title,omitempty"`
+	CaseSeverity              string              `json:"case_severity,omitempty"`
+	CaseState                 string              `json:"case_state,omitempty"`
+	CurrentControl            string              `json:"current_control,omitempty"`
+	CurrentProofSurface       string              `json:"current_proof_surface,omitempty"`
 	WhyPrioritized            string              `json:"why_prioritized,omitempty"`
 	InspectionSummary         []string            `json:"inspection_summary"`
 	RiskReasons               []string            `json:"risk_reasons"`

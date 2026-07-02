@@ -2511,6 +2511,10 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 		StartHere:                 triage.StartHere,
 		TopCaseID:                 action.CaseID,
 		TopCaseTitle:              action.Title,
+		CaseSeverity:              action.Severity,
+		CaseState:                 action.State,
+		CurrentControl:            firstNonEmpty(action.CurrentAction.Control, state.CurrentControl),
+		CurrentProofSurface:       firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
 		WhyPrioritized:            action.WhyFirst,
 		InspectionSummary:         assessDecisionInspectionSummary(inventory, 3),
 		RiskReasons:               assessDecisionRiskReasons(triage.HardRiskSignals),
@@ -2567,6 +2571,10 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 	if !action.Available {
 		decision.TopCaseID = summary.TopCaseID
 		decision.TopCaseTitle = summary.TopCaseTitle
+		decision.CaseSeverity = ""
+		decision.CaseState = ""
+		decision.CurrentControl = ""
+		decision.CurrentProofSurface = ""
 		decision.WhyPrioritized = ""
 		decision.ProofCommand = ""
 		decision.GeneratedProofPath = ""
@@ -3945,6 +3953,18 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	}
 	if decision.WhyPrioritized != "" {
 		fmt.Fprintf(w, "  - Why first: %s\n", decision.WhyPrioritized)
+	}
+	if decision.CaseSeverity != "" {
+		fmt.Fprintf(w, "  - Severity: %s\n", strings.ToUpper(decision.CaseSeverity))
+	}
+	if decision.CaseState != "" {
+		fmt.Fprintf(w, "  - Case state: %s\n", readableToken(decision.CaseState))
+	}
+	if decision.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", decision.CurrentControl)
+	}
+	if decision.CurrentProofSurface != "" {
+		fmt.Fprintf(w, "  - Current proof surface: %s\n", decision.CurrentProofSurface)
 	}
 	renderAssessDecisionLines(w, "Inspected", decision.InspectionSummary, 5)
 	renderAssessDecisionLines(w, "Risk basis", decision.RiskReasons, 3)

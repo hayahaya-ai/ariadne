@@ -4092,6 +4092,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.Decision.StartHere != "case:egress-output-boundary" ||
 		decoded.Decision.TopCaseID != "case:egress-output-boundary" ||
 		decoded.Decision.TopCaseTitle != "Egress And Output Boundary" ||
+		decoded.Decision.CaseSeverity != "critical" ||
+		decoded.Decision.CaseState != "open" ||
+		decoded.Decision.CurrentControl != "control:egress-destination-allowlist" ||
+		decoded.Decision.CurrentProofSurface != ".ariadne/egress-policy.json" ||
 		!containsString(decoded.Decision.InspectionSummary, "AI surfaces: 5; typed facts: 5") ||
 		!containsString(decoded.Decision.InspectionSummary, "Runtime surface map:") ||
 		!containsString(decoded.Decision.RiskReasons, "exposed path(s) reach a sensitive boundary") ||
@@ -4313,6 +4317,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Action",
 		"Decision:",
 		"Verdict: action required",
+		"Severity: CRITICAL",
+		"Case state: open",
+		"Current control: control:egress-destination-allowlist",
+		"Current proof surface: .ariadne/egress-policy.json",
 		"Inspected: AI surfaces: 5; typed facts: 5",
 		"Inspected: Runtime surface map:",
 		"Risk basis:",
@@ -4404,7 +4412,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Assessment Readout",
 		"Decision Packet",
 		"Verdict",
+		"Severity",
+		"State",
 		"Why First",
+		"Active Case",
+		"Current control: control:egress-destination-allowlist",
+		"Current proof surface: .ariadne/egress-policy.json",
 		"Inspection Summary",
 		"Risk Basis",
 		"Evidence Facts",
@@ -5795,6 +5808,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, assessDecision, "suggested_destination")
 	assertSchemaProperty(t, assessDecision, "destination_path")
 	assertSchemaProperty(t, assessDecision, "apply_command")
+	assertSchemaProperty(t, assessDecision, "case_severity")
+	assertSchemaProperty(t, assessDecision, "case_state")
+	assertSchemaProperty(t, assessDecision, "current_control")
+	assertSchemaProperty(t, assessDecision, "current_proof_surface")
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
 	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "evidence_gap_actions", "signal_details", "evidence_refs", "next_action", "proof_loop")
 	assessSignal := schemaMap(t, assessSchema, "$defs", "assess_signal")

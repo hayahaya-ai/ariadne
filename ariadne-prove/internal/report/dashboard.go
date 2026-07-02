@@ -792,6 +792,8 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 	renderMetricRow(w, []kv{
 		{"Verdict", statusLabel(firstNonEmpty(decision.Status, "unknown"))},
 		{"Start here", firstNonEmpty(decision.StartHere, "none")},
+		{"Severity", strings.ToUpper(firstNonEmpty(decision.CaseSeverity, "none"))},
+		{"State", statusLabel(firstNonEmpty(decision.CaseState, "unknown"))},
 		{"Evidence files", fmt.Sprintf("%d", len(decision.EvidenceSources))},
 		{"Missing barriers", fmt.Sprintf("%d", len(decision.MissingHardBarriers))},
 		{"Done criteria", fmt.Sprintf("%d", len(decision.DoneCriteria))},
@@ -801,6 +803,23 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 	}
 	if decision.WhyPrioritized != "" {
 		fmt.Fprintf(w, `<p><strong>Why First:</strong> %s</p>`, esc(decision.WhyPrioritized))
+	}
+	var activeCase []string
+	if decision.TopCaseID != "" {
+		activeCase = append(activeCase, "Case ID: "+decision.TopCaseID)
+	}
+	if decision.TopCaseTitle != "" {
+		activeCase = append(activeCase, "Case title: "+decision.TopCaseTitle)
+	}
+	if decision.CurrentControl != "" {
+		activeCase = append(activeCase, "Current control: "+decision.CurrentControl)
+	}
+	if decision.CurrentProofSurface != "" {
+		activeCase = append(activeCase, "Current proof surface: "+decision.CurrentProofSurface)
+	}
+	if len(activeCase) > 0 {
+		fmt.Fprintln(w, `<h3>Active Case</h3>`)
+		fmt.Fprintln(w, renderSmallList(activeCase))
 	}
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
