@@ -26,15 +26,24 @@ ariadne help
 
 ## First Run
 
-Start with inventory mode:
+Assess the current developer machine:
+
+```bash
+ariadne self
+ariadne self --format html --out ariadne-self.html
+```
+
+Assess a repository or mounted path:
+
+```bash
+ariadne assess --path .
+ariadne dashboard --path . --out ariadne-dashboard.html
+```
+
+Export lower-level deterministic evidence when you need automation inputs:
 
 ```bash
 ariadne inventory --path . --format json --out inventory.json
-```
-
-Then run exposure analysis:
-
-```bash
 ariadne prove --path . --format json --out exposure.json
 ```
 
@@ -43,8 +52,9 @@ ariadne prove --path . --format json --out exposure.json
 Endpoint mode inspects known user-level agent configuration locations for the current home directory:
 
 ```bash
-ariadne inventory --path "$HOME" --mode endpoint
-ariadne prove --path "$HOME" --mode endpoint
+ariadne self
+ariadne assess --path "$HOME" --mode endpoint
+ariadne dashboard --path "$HOME" --mode endpoint --out ariadne-self.html
 ```
 
 ## Multi-Target Scan

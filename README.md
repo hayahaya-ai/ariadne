@@ -15,11 +15,13 @@ The active implementation is in [`ariadne-prove/`](ariadne-prove/).
 ```bash
 make build
 make verify-first-run
+./bin/ariadne self
+./bin/ariadne self --format html --out /tmp/ariadne-self.html
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format html --out /tmp/ariadne-assess.html
 ```
 
-The first command builds the CLI. The second command runs the product verification loop against known fixtures. The third command is the compact first-run triage experience: it tells you what Ariadne inspected, what facts it collected, which operator case is first, what evidence supports it, what is normal agent capability, what is real risk, what hard barrier is missing, and how to prove the fix worked. Use `--format table` when you want the full terminal audit trail.
+The first command builds the CLI. The second command runs the product verification loop against known fixtures. `ariadne self` is the local developer-machine assessment: it inspects the current `HOME` in endpoint mode and returns the first operator action. `ariadne assess --path ...` is the repo or mounted-path assessment. Both tell you what Ariadne inspected, what facts it collected, which operator case is first, what evidence supports it, what is normal agent capability, what is real risk, what hard barrier is missing, and how to prove the fix worked. Use `--format table` when you want the full terminal audit trail.
 
 ## First-Run Triage Loop
 
@@ -67,6 +69,8 @@ The HTML version includes clickable local evidence links and copy-path buttons:
 Use endpoint mode when the target looks like a developer home directory or mounted endpoint snapshot:
 
 ```bash
+./bin/ariadne self
+./bin/ariadne self --format html --out /tmp/ariadne-self.html
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format action
 ./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format json
 ```
@@ -129,6 +133,7 @@ make test
 make build
 make verify-first-run
 ./bin/ariadne help
+./bin/ariadne self
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 make scan
 ```
@@ -136,6 +141,8 @@ make scan
 From `ariadne-prove/`:
 
 ```bash
+./bin/ariadne self
+./bin/ariadne self --format html --out ariadne-self.html
 ./bin/ariadne architecture --path .
 ./bin/ariadne architecture --targets targets.txt
 ./bin/ariadne architecture --path . --mode endpoint --include-sensitive-paths

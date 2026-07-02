@@ -116,6 +116,50 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 	}
 }
 
+func TestRunSelfDefaultsToEndpointAssessment(t *testing.T) {
+	root := t.TempDir()
+	target, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "messy-ai-surfaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", target)
+	summaryPath := filepath.Join(root, "self-summary.txt")
+	htmlPath := filepath.Join(root, "self-dashboard.html")
+
+	runSelf([]string{
+		"--out", summaryPath,
+	})
+	runSelf([]string{
+		"--format", "html",
+		"--out", htmlPath,
+	})
+
+	summary := readTestFile(t, summaryPath)
+	for _, want := range []string{
+		"Ariadne Summary",
+		"Mode: endpoint",
+		"Decision:",
+		"Next action:",
+		"Identity And Credentials",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("self summary missing %q:\n%s", want, summary)
+		}
+	}
+
+	rendered := readTestFile(t, htmlPath)
+	for _, want := range []string{
+		"Ariadne Assessment",
+		"--mode endpoint",
+		"Operator Cases",
+		"Export proof files",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("self dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 	root := t.TempDir()
 	outPath := filepath.Join(root, "proof-plan.json")

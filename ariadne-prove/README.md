@@ -104,6 +104,8 @@ make test
 Inspect the current repository:
 
 ```bash
+./bin/ariadne self
+./bin/ariadne self --format html --out ariadne-self.html
 ./bin/ariadne assess --path .
 ./bin/ariadne assess --path . --format html --out ariadne-assessment.html
 ./bin/ariadne inventory --path .
@@ -174,6 +176,7 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 
 | Command | Purpose |
 | --- | --- |
+| `ariadne self` | Primary local developer-machine readout. Inspects the current `HOME` in endpoint mode and shows the first operator action. Use `--format html --out ariadne-self.html` for the local dashboard. |
 | `ariadne assess --path <dir>` | Primary first-run readout: inspected surfaces, exposure posture, Zero Trust architecture breaks, top operator cases, evidence refs, and next commands. Use `--format action` for the compact current-action packet. |
 | `ariadne assess --targets <file>` | Fleet first-run readout across local or mounted targets, with recurring break paths grouped into operator cases. |
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |
