@@ -3697,6 +3697,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Accepted evidence:",
 		"Proof patch:",
 		"What was inspected:",
+		"Fact highlights:",
 		"Runtime surface map:",
 		".claude/settings.json",
 		"Architecture break paths:",
@@ -3743,6 +3744,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if decoded.Summary.Surfaces == 0 || decoded.Inventory.Surfaces == 0 || decoded.Inventory.GraphNodes == 0 {
 		t.Fatalf("assessment should include inventory summary: %+v", decoded.Inventory)
+	}
+	if len(decoded.Inventory.FactHighlights) == 0 ||
+		!containsAssessFactSource(decoded.Inventory.FactHighlights, ".claude/settings.json") ||
+		!containsAssessFactSource(decoded.Inventory.FactHighlights, ".codex/config.toml") ||
+		!containsAssessFactSource(decoded.Inventory.FactHighlights, "CLAUDE.md") ||
+		!containsAssessFactSource(decoded.Inventory.FactHighlights, ".env") {
+		t.Fatalf("assessment should include source-backed fact highlights: %+v", decoded.Inventory.FactHighlights)
 	}
 	if decoded.Summary.BreakingArchitectureFlaws == 0 || decoded.Architecture == nil || len(decoded.Architecture.Flaws) == 0 {
 		t.Fatalf("assessment should include architecture break paths: summary=%+v architecture=%+v", decoded.Summary, decoded.Architecture)
@@ -3882,6 +3890,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"What was inspected:",
 		"AI surfaces:",
 		"typed facts:",
+		"Fact highlights:",
 		"Runtime surface map:",
 		".codex/config.toml",
 		"CLAUDE.md",
@@ -3977,6 +3986,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Accepted evidence",
 		"Done When",
 		"What Was Inspected",
+		"Fact Highlights",
 		"Runtime Surface Map",
 		"Source refs",
 		"Modeled facts",
@@ -4235,6 +4245,7 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 		"Ariadne Assess",
 		"Targets:",
 		"What was inspected:",
+		"Fact highlights:",
 		"Runtime surface map:",
 		"combined:.claude/settings.json",
 		"combined:.codex/config.toml",
@@ -4259,6 +4270,7 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 		"What was inspected:",
 		"AI surfaces:",
 		"Runtime surface map:",
+		"Fact highlights:",
 		"Normal capability:",
 		"agent runtime surface(s) were observed",
 		"combined:.claude/settings.json",
@@ -4289,6 +4301,12 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	}
 	if decoded.Inventory.Surfaces == 0 || decoded.Inventory.Facts == 0 || decoded.Inventory.GraphNodes == 0 || decoded.Inventory.GraphEdges == 0 {
 		t.Fatalf("fleet assessment should include aggregate inspected inventory: %+v", decoded.Inventory)
+	}
+	if len(decoded.Inventory.FactHighlights) == 0 ||
+		!containsAssessFactTargetSource(decoded.Inventory.FactHighlights, "combined", ".claude/settings.json") ||
+		!containsAssessFactTargetSource(decoded.Inventory.FactHighlights, "safe", ".ariadne/agent-policy.json") ||
+		!containsAssessFactTargetSource(decoded.Inventory.FactHighlights, "repo-only", "CLAUDE.md") {
+		t.Fatalf("fleet assessment should include target/source fact highlights: %+v", decoded.Inventory.FactHighlights)
 	}
 	if decoded.Summary.Surfaces != decoded.Inventory.Surfaces || decoded.Summary.Facts != decoded.Inventory.Facts || decoded.Summary.GraphNodes != decoded.Inventory.GraphNodes || decoded.Summary.GraphEdges != decoded.Inventory.GraphEdges {
 		t.Fatalf("fleet assessment summary should mirror aggregate inspected inventory: summary=%+v inventory=%+v", decoded.Summary, decoded.Inventory)
@@ -4980,7 +4998,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
 	assertRequiredKeys(t, assessWorkflowStep, "id", "title", "summary", "current", "evidence_refs", "starting_controls", "proof_surfaces", "commands", "success_criteria")
 	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")
-	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes", "surface_map")
+	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes", "surface_map", "fact_highlights")
+	assessFact := schemaMap(t, assessSchema, "$defs", "assess_fact")
+	assertRequiredKeys(t, assessFact, "type", "evidence_grade", "redaction", "summary")
 	surfaceMap := schemaMap(t, assessSchema, "$defs", "surface_map")
 	assertRequiredKeys(t, surfaceMap, "runtime", "scope", "surface_count", "parsed", "summarized", "boundary_indicators", "skipped", "source_refs", "categories", "handling_modes", "authorities", "tools", "controls")
 	assessExposure := schemaMap(t, assessSchema, "$defs", "assess_exposure")
@@ -5460,6 +5480,24 @@ func containsExactString(values []string, target string) bool {
 func containsString(values []string, fragment string) bool {
 	for _, value := range values {
 		if strings.Contains(value, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAssessFactSource(values []model.AssessFact, source string) bool {
+	for _, value := range values {
+		if strings.Contains(value.Source, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAssessFactTargetSource(values []model.AssessFact, target string, source string) bool {
+	for _, value := range values {
+		if value.Target == target && strings.Contains(value.Source, source) {
 			return true
 		}
 	}

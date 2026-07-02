@@ -427,7 +427,8 @@
         "boundaries",
         "surface_categories",
         "handling_modes",
-        "surface_map"
+        "surface_map",
+        "fact_highlights"
       ],
       "properties": {
         "target_path": { "type": "string" },
@@ -453,6 +454,31 @@
           "type": "array",
           "items": { "$ref": "#/$defs/surface_map" }
         },
+        "fact_highlights": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_fact" }
+        },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "assess_fact": {
+      "type": "object",
+      "required": [
+        "type",
+        "evidence_grade",
+        "redaction",
+        "summary"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "runtime": { "type": "string" },
+        "scope": { "type": "string" },
+        "target": { "type": "string" },
+        "source": { "type": "string" },
+        "evidence_grade": { "type": "string" },
+        "redaction": { "type": "string" },
+        "summary": { "type": "string" },
         "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },

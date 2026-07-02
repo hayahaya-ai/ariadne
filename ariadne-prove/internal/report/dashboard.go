@@ -1384,11 +1384,57 @@ func renderAssessInventoryDashboard(w io.Writer, inventory model.AssessInventory
 	fmt.Fprintln(w, renderSmallList(assessCountLines(inventory.HandlingModes)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
+	if len(inventory.FactHighlights) > 0 {
+		fmt.Fprintln(w, `<h3>Fact Highlights</h3>`)
+		renderAssessFactHighlightTable(w, inventory.TargetPath, inventory.FactHighlights)
+	}
 	if len(inventory.SurfaceMap) > 0 {
 		fmt.Fprintln(w, `<h3>Runtime Surface Map</h3>`)
 		renderAssessSurfaceMapTable(w, inventory.SurfaceMap)
 	}
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessFactHighlightTable(w io.Writer, root string, items []model.AssessFact) {
+	if len(items) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No fact highlights were retained for this assessment.</div>`)
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, "<thead><tr><th>Fact</th><th>Source</th><th>Evidence</th><th>Summary</th></tr></thead><tbody>")
+	for _, item := range limitAssessFacts(items, 8) {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div></td>`, esc(firstNonEmpty(item.Type, "fact")), esc(firstNonEmpty(item.Runtime, item.Scope, "unknown")))
+		fmt.Fprintf(w, `<td>%s</td>`, dashboardFactHighlightSourceHTML(root, item))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(nonEmptyStrings(item.EvidenceGrade, item.Redaction)))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(item.Summary))
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(items) > 8 {
+		fmt.Fprintf(w, `<tr><td colspan="4" class="subtle">%d additional fact highlight(s) in JSON output</td></tr>`, len(items)-8)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
+func dashboardFactHighlightSourceHTML(root string, item model.AssessFact) string {
+	source := strings.TrimSpace(item.Source)
+	if item.Target != "" {
+		if source == "" {
+			return fmt.Sprintf(`<span class="mono">%s</span>`, esc(item.Target))
+		}
+		return fmt.Sprintf(`<span class="mono">%s:%s</span>`, esc(item.Target), esc(source))
+	}
+	if source == "" {
+		return `<span class="subtle">not recorded</span>`
+	}
+	return dashboardFileRefHTML(root, source)
+}
+
+func limitAssessFacts(items []model.AssessFact, limit int) []model.AssessFact {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return append([]model.AssessFact{}, items[:limit]...)
 }
 
 func renderAssessSurfaceMapTable(w io.Writer, items []model.SurfaceMap) {

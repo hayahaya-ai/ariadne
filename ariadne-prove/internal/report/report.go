@@ -1828,6 +1828,7 @@ func buildAssessInventory(r model.InventoryReport) model.AssessInventory {
 		SurfaceCategories: assessSurfaceCounts(r.Collection.Surfaces, func(surface model.Surface) string { return surface.Category }),
 		HandlingModes:     assessSurfaceCounts(r.Collection.Surfaces, func(surface model.Surface) string { return surface.HandlingMode }),
 		SurfaceMap:        append([]model.SurfaceMap{}, r.SurfaceMap...),
+		FactHighlights:    assessFactHighlights(r.Collection.Facts, 12),
 		Limitations:       append([]string{}, r.Limitations...),
 	}
 }
@@ -1849,6 +1850,7 @@ func buildAssessScanInventory(r model.ScanReport) model.AssessInventory {
 		SurfaceCategories: []model.AssessCount{},
 		HandlingModes:     []model.AssessCount{},
 		SurfaceMap:        []model.SurfaceMap{},
+		FactHighlights:    []model.AssessFact{},
 		Limitations: []string{
 			"Fleet inspected summary is aggregated from completed target reports.",
 			"Surface counts are unique target/source references, not raw file counts.",
@@ -1939,7 +1941,112 @@ func buildAssessScanInventory(r model.ScanReport) model.AssessInventory {
 	inventory.Boundaries = len(boundaries)
 	inventory.SurfaceCategories = assessCountsFromMap(categoryCounts)
 	inventory.SurfaceMap = assessScanSurfaceMaps(groups)
+	inventory.FactHighlights = assessScanFactHighlights(r, 5)
 	return inventory
+}
+
+func assessFactHighlights(facts []model.Fact, limit int) []model.AssessFact {
+	if limit <= 0 || limit > len(facts) {
+		limit = len(facts)
+	}
+	out := make([]model.AssessFact, 0, limit)
+	for _, fact := range facts[:limit] {
+		out = append(out, model.AssessFact{
+			ID:            fact.ID,
+			Type:          fact.Type,
+			Runtime:       fact.Runtime,
+			Scope:         fact.Scope,
+			Source:        fact.Source,
+			EvidenceGrade: fact.EvidenceGrade,
+			Redaction:     fact.Redaction,
+			Summary:       fact.Summary,
+			Limitations:   nonNilStrings(fact.Limitations),
+		})
+	}
+	if out == nil {
+		return []model.AssessFact{}
+	}
+	return out
+}
+
+func assessScanFactHighlights(r model.ScanReport, perTargetLimit int) []model.AssessFact {
+	if perTargetLimit <= 0 {
+		perTargetLimit = 5
+	}
+	var groups [][]model.AssessFact
+	maxGroup := 0
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		targetID := assessScanTargetID(target)
+		group := assessScanTargetFactHighlights(targetID, target.Report.Evidence, perTargetLimit)
+		if len(group) == 0 {
+			continue
+		}
+		if len(group) > maxGroup {
+			maxGroup = len(group)
+		}
+		groups = append(groups, group)
+	}
+	out := make([]model.AssessFact, 0, len(groups)*perTargetLimit)
+	for i := 0; i < maxGroup; i++ {
+		for _, group := range groups {
+			if i < len(group) {
+				out = append(out, group[i])
+			}
+		}
+	}
+	if out == nil {
+		return []model.AssessFact{}
+	}
+	return out
+}
+
+func assessScanTargetFactHighlights(targetID string, evidence []model.Evidence, limit int) []model.AssessFact {
+	out := make([]model.AssessFact, 0, limit)
+	seenControlSources := map[string]bool{}
+	seenKeys := map[string]bool{}
+	for _, item := range evidence {
+		kind := strings.TrimSpace(item.Kind)
+		source := strings.TrimSpace(item.Source)
+		summary := strings.TrimSpace(item.Summary)
+		if kind == "" && source == "" && summary == "" {
+			continue
+		}
+		if kind == "control" && source != "" {
+			if seenControlSources[source] {
+				continue
+			}
+			seenControlSources[source] = true
+		}
+		key := kind + "\x00" + source + "\x00" + summary
+		if seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+		out = append(out, model.AssessFact{
+			ID:            item.ID,
+			Type:          firstNonEmpty(kind, "evidence"),
+			Runtime:       item.Runtime,
+			Scope:         "fleet",
+			Target:        targetID,
+			Source:        source,
+			EvidenceGrade: firstNonEmpty(item.Grade, "observed"),
+			Redaction:     "summary-only",
+			Summary:       summary,
+			Limitations: []string{
+				"Derived from scan report evidence; raw collector redaction status is not retained in fleet assessment.",
+			},
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	if out == nil {
+		return []model.AssessFact{}
+	}
+	return out
 }
 
 func assessScanSurfaceGroupFor(groups map[string]*assessScanSurfaceGroup, runtime string, scope string) *assessScanSurfaceGroup {
@@ -3544,7 +3651,39 @@ func renderAssessInventorySummary(w io.Writer, inventory model.AssessInventory, 
 	if len(inventory.SurfaceMap) > 0 {
 		fmt.Fprintf(w, "  - Runtime surface map: %s\n", strings.Join(limitStrings(surfaceMapSummaryLines(inventory.SurfaceMap), surfaceMapLimit), "; "))
 	}
+	if len(inventory.FactHighlights) > 0 {
+		fmt.Fprintf(w, "  - Fact highlights:\n")
+		for _, line := range limitStrings(assessFactHighlightLines(inventory.FactHighlights), 8) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
 	fmt.Fprintln(w)
+}
+
+func assessFactHighlightLines(items []model.AssessFact) []string {
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		parts := []string{firstNonEmpty(item.Type, "fact")}
+		source := strings.TrimSpace(item.Source)
+		if item.Target != "" && source != "" {
+			source = item.Target + ":" + source
+		}
+		if source != "" {
+			parts = append(parts, "from "+source)
+		}
+		if item.EvidenceGrade != "" || item.Redaction != "" {
+			parts = append(parts, "["+strings.Join(nonEmptyStrings(item.EvidenceGrade, item.Redaction), "/")+"]")
+		}
+		line := strings.Join(parts, " ")
+		if item.Summary != "" {
+			line += ": " + item.Summary
+		}
+		lines = append(lines, line)
+	}
+	if lines == nil {
+		return []string{}
+	}
+	return lines
 }
 
 func surfaceMapSummaryLines(items []model.SurfaceMap) []string {

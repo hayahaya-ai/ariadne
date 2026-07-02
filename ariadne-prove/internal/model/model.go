@@ -460,7 +460,21 @@ type AssessInventory struct {
 	SurfaceCategories []AssessCount `json:"surface_categories"`
 	HandlingModes     []AssessCount `json:"handling_modes"`
 	SurfaceMap        []SurfaceMap  `json:"surface_map"`
+	FactHighlights    []AssessFact  `json:"fact_highlights"`
 	Limitations       []string      `json:"limitations,omitempty"`
+}
+
+type AssessFact struct {
+	ID            string   `json:"id,omitempty"`
+	Type          string   `json:"type"`
+	Runtime       string   `json:"runtime,omitempty"`
+	Scope         string   `json:"scope,omitempty"`
+	Target        string   `json:"target,omitempty"`
+	Source        string   `json:"source,omitempty"`
+	EvidenceGrade string   `json:"evidence_grade"`
+	Redaction     string   `json:"redaction"`
+	Summary       string   `json:"summary"`
+	Limitations   []string `json:"limitations,omitempty"`
 }
 
 type AssessExposure struct {
