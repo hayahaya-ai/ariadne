@@ -630,6 +630,7 @@
         "proof",
         "proof_state",
         "verify",
+        "closure_loop",
         "actions",
         "done_criteria",
         "change_readout",
@@ -654,6 +655,10 @@
         "proof": { "$ref": "#/$defs/assess_workbench_proof" },
         "proof_state": { "$ref": "#/$defs/assess_workbench_proof_state" },
         "verify": { "$ref": "#/$defs/assess_workbench_verification" },
+        "closure_loop": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_closure_loop_step" }
+        },
         "actions": {
           "type": "array",
           "items": { "$ref": "#/$defs/assess_workbench_action" }
@@ -704,6 +709,53 @@
         "compare_command": { "type": "string" },
         "closure_condition": { "type": "string" },
         "success_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_closure_loop_step": {
+      "type": "object",
+      "required": [
+        "step",
+        "id",
+        "title",
+        "status",
+        "summary",
+        "commands",
+        "artifacts",
+        "files",
+        "controls",
+        "done_criteria",
+        "limitations"
+      ],
+      "properties": {
+        "step": { "type": "integer" },
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["current", "pending", "completed"] },
+        "summary": { "type": "string" },
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "done_criteria": {
           "type": "array",
           "items": { "type": "string" }
         },

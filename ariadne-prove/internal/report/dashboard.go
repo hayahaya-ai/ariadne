@@ -933,6 +933,7 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 	})
 	renderAssessWorkbenchSignalChainDashboard(w, r.TargetPath, workbench.SignalChain)
 	renderAssessWorkbenchProofStateDashboard(w, workbench.ProofState)
+	renderAssessClosureLoopDashboard(w, r.TargetPath, workbench.ClosureLoop)
 	renderAssessWorkbenchActionChecklistDashboard(w, r.TargetPath, workbench.Actions)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
@@ -1081,6 +1082,58 @@ func renderAssessWorkbenchProofStateDashboard(w io.Writer, state model.AssessWor
 	}
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
+}
+
+func renderAssessClosureLoopDashboard(w io.Writer, root string, steps []model.AssessClosureLoopStep) {
+	if len(steps) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Closure Loop</h3>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, `<thead><tr><th>Step</th><th>Status</th><th>Action</th><th>Files / Artifacts</th><th>Commands</th><th>Done When</th></tr></thead><tbody>`)
+	for _, step := range steps {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>%d</strong><div class="mono">%s</div></td>`, step.Step, esc(step.ID))
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div></td>`, cssClass(step.Status), esc(readableToken(step.Status)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div>%s</div>%s</td>`, esc(step.Title), esc(step.Summary), assessClosureLoopControlsHTML(step.Controls))
+		fmt.Fprintf(w, `<td>%s</td>`, assessClosureLoopFilesArtifactsHTML(root, step))
+		fmt.Fprintf(w, `<td>%s</td>`, renderCommandList(step.Commands))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(step.DoneCriteria, 4)), assessClosureLoopLimitationsHTML(step.Limitations))
+		fmt.Fprintln(w, `</tr>`)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+}
+
+func assessClosureLoopControlsHTML(controls []string) string {
+	if len(controls) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Controls</div>` + renderSmallList(limitStrings(controls, 4))
+}
+
+func assessClosureLoopFilesArtifactsHTML(root string, step model.AssessClosureLoopStep) string {
+	var parts []string
+	if len(step.Files) > 0 {
+		parts = append(parts, `<div class="subtle">Files</div>`+renderDashboardActionFileList(root, limitStrings(step.Files, 5)))
+	}
+	if len(step.Artifacts) > 0 {
+		lines := make([]string, 0, len(step.Artifacts))
+		for _, artifact := range limitStrings(step.Artifacts, 5) {
+			lines = append(lines, dashboardCopyablePathLineHTML("Artifact", artifact))
+		}
+		parts = append(parts, `<div class="subtle">Artifacts</div>`+renderDashboardHTMLList(lines))
+	}
+	if len(parts) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	return strings.Join(parts, "")
+}
+
+func assessClosureLoopLimitationsHTML(limitations []string) string {
+	if len(limitations) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Limits</div>` + renderSmallList(limitStrings(limitations, 3))
 }
 
 func renderAssessWorkbenchActionChecklistDashboard(w io.Writer, root string, actions []model.AssessWorkbenchAction) {

@@ -510,6 +510,7 @@ type AssessOperatorWorkbench struct {
 	Proof          AssessWorkbenchProof        `json:"proof"`
 	ProofState     AssessWorkbenchProofState   `json:"proof_state"`
 	Verify         AssessWorkbenchVerification `json:"verify"`
+	ClosureLoop    []AssessClosureLoopStep     `json:"closure_loop"`
 	Actions        []AssessWorkbenchAction     `json:"actions"`
 	DoneCriteria   []string                    `json:"done_criteria"`
 	ChangeReadout  []string                    `json:"change_readout"`
@@ -598,6 +599,20 @@ type AssessWorkbenchProofState struct {
 
 type AssessWorkbenchVerification struct {
 	Commands []string `json:"commands"`
+}
+
+type AssessClosureLoopStep struct {
+	Step         int      `json:"step"`
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Status       string   `json:"status"`
+	Summary      string   `json:"summary"`
+	Commands     []string `json:"commands"`
+	Artifacts    []string `json:"artifacts"`
+	Files        []string `json:"files"`
+	Controls     []string `json:"controls"`
+	DoneCriteria []string `json:"done_criteria"`
+	Limitations  []string `json:"limitations"`
 }
 
 type AssessWorkbenchAction struct {

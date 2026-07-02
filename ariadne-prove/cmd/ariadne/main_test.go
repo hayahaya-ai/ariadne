@@ -138,6 +138,7 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 		"Ariadne Assessment",
 		"Operator Packet",
 		"Operator Cases",
+		"Closure Loop",
 		"Export proof files",
 		"--patch-dir proof-patches",
 	} {
@@ -289,6 +290,10 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"top_case_id": "case:identity-credentials"`,
 		`"first_action"`,
 		`"operator_packet"`,
+		`"operator_workbench"`,
+		`"closure_loop"`,
+		`"save_baseline_proof"`,
+		`"closure_decision"`,
 		`"source_reference_workbench"`,
 		`"rows"`,
 		`"inspect_command"`,
@@ -359,6 +364,9 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		".claude/settings.local.json",
 		"Signal Quality",
 		"Lethal Trifecta",
+		"Closure Loop",
+		"Save Baseline Proof",
+		"Closure Decision",
 		"Operator Cases",
 		"Export proof files",
 	} {

@@ -213,6 +213,9 @@ expect_contains "$assess_json" '"apply_commands"'
 expect_contains "$assess_json" 'cp surfaces/.ariadne/output-policy.json'
 expect_contains "$assess_json" '"first_action"'
 expect_contains "$assess_json" '"operator_workbench"'
+expect_contains "$assess_json" '"closure_loop"'
+expect_contains "$assess_json" '"save_baseline_proof"'
+expect_contains "$assess_json" '"closure_decision"'
 expect_contains "$assess_json" '"evidence_to_open"'
 expect_contains "$assess_json" '"source_reference_workbench"'
 expect_contains "$assess_json" '"inspect_command"'
@@ -237,6 +240,7 @@ expect_contains "$assess_html" "Exact files and lines to open first"
 expect_contains "$assess_html" "Inspect command"
 expect_contains "$assess_html" "sed -n"
 expect_contains "$assess_html" "Operator Workbench"
+expect_contains "$assess_html" "Closure Loop"
 expect_contains "$assess_html" "1. Current Case"
 expect_contains "$assess_html" "2. Evidence To Open"
 expect_contains "$assess_html" "3. Add Or Verify Proof"
@@ -246,6 +250,7 @@ expect_contains "$assess_html" "Change Readout"
 expect_contains "$assess_html" "Case Lifecycle"
 expect_contains "$assess_html" "Open Proof Action"
 expect_contains "$assess_html" "Save Baseline Proof"
+expect_contains "$assess_html" "Closure Decision"
 expect_contains "$assess_html" "Compare Proof State"
 expect_contains "$assess_html" "Decision Packet"
 expect_contains "$assess_html" "Inspection Summary"
@@ -367,6 +372,10 @@ expect_contains "$self_bundle/assessment.json" '"run_kind": "assess"'
 expect_contains "$self_bundle/assessment.json" '"signal_quality"'
 expect_contains "$self_bundle/assessment.json" '"lethal_trifecta"'
 expect_contains "$self_bundle/assessment.json" '"operator_packet"'
+expect_contains "$self_bundle/assessment.json" '"operator_workbench"'
+expect_contains "$self_bundle/assessment.json" '"closure_loop"'
+expect_contains "$self_bundle/assessment.json" '"save_baseline_proof"'
+expect_contains "$self_bundle/assessment.json" '"closure_decision"'
 expect_contains "$self_bundle/assessment.json" '"source_reference_workbench"'
 expect_contains "$self_bundle/assessment.json" '"inspect_command"'
 expect_contains "$self_bundle/assessment.json" '"metadata_only"'
@@ -392,6 +401,9 @@ expect_contains "$self_bundle/dashboard.html" "Inspect command"
 expect_contains "$self_bundle/dashboard.html" "sed -n"
 expect_contains "$self_bundle/dashboard.html" "ls -ld"
 expect_contains "$self_bundle/dashboard.html" "Operator Workbench"
+expect_contains "$self_bundle/dashboard.html" "Closure Loop"
+expect_contains "$self_bundle/dashboard.html" "Save Baseline Proof"
+expect_contains "$self_bundle/dashboard.html" "Closure Decision"
 expect_contains "$self_bundle/dashboard.html" "Case Lifecycle"
 expect_contains "$self_bundle/dashboard.html" "Signal / Noise Evidence"
 expect_contains "$self_bundle/dashboard.html" "Signal Quality"
@@ -504,6 +516,9 @@ expect_contains "$endpoint_json" '"apply_command": "cd proof-patches'
 expect_contains "$endpoint_json" '"present_hard_barriers"'
 expect_contains "$endpoint_json" 'control:network-restricted'
 expect_contains "$endpoint_json" '"operator_workbench"'
+expect_contains "$endpoint_json" '"closure_loop"'
+expect_contains "$endpoint_json" '"save_baseline_proof"'
+expect_contains "$endpoint_json" '"closure_decision"'
 expect_contains "$endpoint_json" '"evidence_to_open"'
 expect_contains "$endpoint_json" '"source_reference_workbench"'
 expect_contains "$endpoint_json" '"inspect_command"'
@@ -526,6 +541,7 @@ expect_contains "$endpoint_html" "Inspect command"
 expect_contains "$endpoint_html" "sed -n"
 expect_contains "$endpoint_html" "ls -ld"
 expect_contains "$endpoint_html" "Operator Workbench"
+expect_contains "$endpoint_html" "Closure Loop"
 expect_contains "$endpoint_html" "1. Current Case"
 expect_contains "$endpoint_html" "2. Evidence To Open"
 expect_contains "$endpoint_html" "3. Add Or Verify Proof"
@@ -535,6 +551,7 @@ expect_contains "$endpoint_html" "Change Readout"
 expect_contains "$endpoint_html" "Case Lifecycle"
 expect_contains "$endpoint_html" "Open Proof Action"
 expect_contains "$endpoint_html" "Save Baseline Proof"
+expect_contains "$endpoint_html" "Closure Decision"
 expect_contains "$endpoint_html" "Compare Proof State"
 expect_contains "$endpoint_html" "Decision Packet"
 expect_contains "$endpoint_html" "Inspection Summary"

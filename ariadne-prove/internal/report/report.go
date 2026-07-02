@@ -3974,6 +3974,7 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 		Commands: assessOperatorWorkbenchProofLoop(triage, action),
 	}
 	workbench.DoneCriteria = firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria)
+	workbench.ClosureLoop = buildAssessClosureLoop(workbench, action, state)
 	workbench.Actions = buildAssessWorkbenchActions(workbench, action, state)
 	workbench.ChangeReadout = []string{
 		"Save a before proof artifact, add or verify the proof evidence, rerun the case, save an after proof artifact, then compare before and after.",
@@ -3995,6 +3996,7 @@ func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) m
 	workbench.Proof.ApplyCommands = nonNilStrings(uniqueStrings(workbench.Proof.ApplyCommands))
 	workbench.ProofState = normalizeAssessWorkbenchProofState(workbench.ProofState)
 	workbench.Verify.Commands = nonNilStrings(uniqueStrings(workbench.Verify.Commands))
+	workbench.ClosureLoop = nonNilAssessClosureLoopSteps(workbench.ClosureLoop)
 	workbench.Actions = nonNilAssessWorkbenchActions(workbench.Actions)
 	workbench.DoneCriteria = nonNilStrings(uniqueStrings(workbench.DoneCriteria))
 	workbench.ChangeReadout = nonNilStrings(uniqueStrings(workbench.ChangeReadout))
@@ -4151,6 +4153,139 @@ func normalizeAssessWorkbenchProofState(state model.AssessWorkbenchProofState) m
 	state.SuccessCriteria = nonNilStrings(uniqueStrings(state.SuccessCriteria))
 	state.Limitations = nonNilStrings(uniqueStrings(state.Limitations))
 	return state
+}
+
+func buildAssessClosureLoop(workbench model.AssessOperatorWorkbench, action model.AssessFirstAction, state model.AssessControlState) []model.AssessClosureLoopStep {
+	if !workbench.Available {
+		return []model.AssessClosureLoopStep{}
+	}
+	controls := firstNonEmptyStrings(workbench.Proof.Controls, firstNonEmptyStrings(state.MissingHardBarriers, state.PresentHardBarriers))
+	proofFiles := firstNonEmptyStrings(
+		firstNonEmptyStrings(workbench.Proof.GeneratedProofPaths, workbench.Proof.DestinationPaths),
+		firstNonEmptyStrings(workbench.Proof.SuggestedDestinations, workbench.Proof.Surfaces),
+	)
+	closed := workbench.Mode == "closed_case"
+	if closed {
+		return nonNilAssessClosureLoopSteps([]model.AssessClosureLoopStep{
+			{
+				Step:         1,
+				ID:           "inspect_observed_evidence",
+				Title:        "Inspect Observed Evidence",
+				Status:       "current",
+				Summary:      "Confirm the hard-barrier evidence Ariadne observed for this focused case.",
+				Files:        firstNonEmptyStrings(evidenceReferenceSources(workbench.EvidenceToOpen, false), proofFiles),
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Observed hard-barrier evidence remains present."}),
+			},
+			{
+				Step:         2,
+				ID:           "rerun_if_changed",
+				Title:        "Rerun If Evidence Changes",
+				Status:       "pending",
+				Summary:      "Rerun the focused case after repo, runtime, policy, or proof evidence changes.",
+				Commands:     firstNonEmptyStrings(nonEmptyStrings(assessCurrentRerunCommand(action)), firstStrings(action.RerunCommands, 1)),
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Rerun keeps the case controlled or closed."}),
+			},
+			{
+				Step:         3,
+				ID:           "compare_if_changed",
+				Title:        "Compare If Evidence Changes",
+				Status:       "pending",
+				Summary:      "Compare before and after proof artifacts if closure state needs to be proven again.",
+				Commands:     action.CompareCommands,
+				Artifacts:    nonEmptyStrings(workbench.ProofState.BaselineArtifact, workbench.ProofState.AfterArtifact, workbench.ProofState.CompareArtifact),
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Compare output shows the focused case stayed closed or controlled."}),
+			},
+		})
+	}
+	applyCommands := firstNonEmptyStrings(nonEmptyStrings(action.CurrentAction.PatchExportCommand, workbench.Proof.ApplyCommand), workbench.Proof.ApplyCommands)
+	return nonNilAssessClosureLoopSteps([]model.AssessClosureLoopStep{
+		{
+			Step:         1,
+			ID:           "save_baseline_proof",
+			Title:        "Save Baseline Proof",
+			Status:       "current",
+			Summary:      "Save proof state before changing evidence so compare has a baseline.",
+			Commands:     nonEmptyStrings(workbench.ProofState.BaselineCommand),
+			Artifacts:    nonEmptyStrings(workbench.ProofState.BaselineArtifact),
+			Controls:     controls,
+			DoneCriteria: []string{"Baseline proof artifact exists before evidence changes."},
+		},
+		{
+			Step:         2,
+			ID:           "add_or_verify_proof",
+			Title:        "Add Or Verify Proof",
+			Status:       "pending",
+			Summary:      firstNonEmpty(workbench.Proof.Instruction, action.NextStep, "Add or verify parser-recognized hard-barrier evidence."),
+			Commands:     applyCommands,
+			Files:        proofFiles,
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Accepted evidence is present at the proof surface."}),
+			Limitations:  []string{"Suggested proof files are review-first evidence artifacts; they are not automatic remediation."},
+		},
+		{
+			Step:         3,
+			ID:           "rerun_case",
+			Title:        "Rerun Case",
+			Status:       "pending",
+			Summary:      "Rerun the focused case so Ariadne recomputes deterministic facts, graph paths, and control state.",
+			Commands:     firstNonEmptyStrings(nonEmptyStrings(assessCurrentRerunCommand(action)), firstStrings(action.RerunCommands, 1)),
+			Controls:     controls,
+			DoneCriteria: []string{"Rerun reflects the added or verified control evidence."},
+		},
+		{
+			Step:         4,
+			ID:           "save_after_proof",
+			Title:        "Save After Proof",
+			Status:       "pending",
+			Summary:      "Save proof state after rerun so compare can show the actual case transition.",
+			Commands:     nonEmptyStrings(workbench.ProofState.AfterCommand),
+			Artifacts:    nonEmptyStrings(workbench.ProofState.AfterArtifact),
+			Controls:     controls,
+			DoneCriteria: []string{"After proof artifact exists after rerun."},
+		},
+		{
+			Step:         5,
+			ID:           "compare_state",
+			Title:        "Compare State",
+			Status:       "pending",
+			Summary:      "Compare before and after proof artifacts to decide whether the case closed, stayed open, reopened, or changed.",
+			Commands:     nonEmptyStrings(workbench.ProofState.CompareCommand),
+			Artifacts:    nonEmptyStrings(workbench.ProofState.CompareArtifact),
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Compare output shows whether the focused case closed or stayed open."}),
+		},
+		{
+			Step:         6,
+			ID:           "closure_decision",
+			Title:        "Closure Decision",
+			Status:       "pending",
+			Summary:      "Use compare output and rerun case state as the closure readout.",
+			Artifacts:    nonEmptyStrings(workbench.ProofState.CompareArtifact),
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Case no longer appears as open for the selected status filter."}),
+			Limitations:  []string{"Closure is deterministic evidence state; live runtime enforcement requires separate observed enforcement evidence when applicable."},
+		},
+	})
+}
+
+func nonNilAssessClosureLoopSteps(items []model.AssessClosureLoopStep) []model.AssessClosureLoopStep {
+	if items == nil {
+		return []model.AssessClosureLoopStep{}
+	}
+	out := make([]model.AssessClosureLoopStep, 0, len(items))
+	for _, item := range items {
+		item.Commands = nonNilStrings(uniqueStrings(item.Commands))
+		item.Artifacts = nonNilStrings(uniqueStrings(item.Artifacts))
+		item.Files = nonNilStrings(uniqueStrings(item.Files))
+		item.Controls = nonNilStrings(uniqueStrings(item.Controls))
+		item.DoneCriteria = nonNilStrings(uniqueStrings(item.DoneCriteria))
+		item.Limitations = nonNilStrings(uniqueStrings(item.Limitations))
+		out = append(out, item)
+	}
+	return out
 }
 
 func buildAssessOperatorPacket(decision model.AssessDecision, quality model.AssessSignalQuality, state model.AssessControlState, action model.AssessFirstAction, workbench model.AssessOperatorWorkbench) model.AssessOperatorPacket {
