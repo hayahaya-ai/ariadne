@@ -158,6 +158,11 @@ expect_contains "$assess_txt" "case-compare.html"
 
 expect_contains "$assess_json" '"run_kind": "assess"'
 expect_contains "$assess_json" '"decision"'
+expect_contains "$assess_json" '"signal_noise"'
+expect_contains "$assess_json" '"expected_capability"'
+expect_contains "$assess_json" '"exposure_transition"'
+expect_contains "$assess_json" '"downgrade_evidence"'
+expect_contains "$assess_json" '"Capability alone is not exposure."'
 expect_contains "$assess_json" '"signal_quality"'
 expect_contains "$assess_json" '"lethal_trifecta"'
 expect_contains "$assess_json" '"untrusted_content"'
@@ -228,6 +233,10 @@ expect_contains "$assess_html" "Unknown Evidence"
 expect_contains "$assess_html" "Evidence Gap Actions"
 expect_contains "$assess_html" "Decision Limits"
 expect_contains "$assess_html" "Signal Quality"
+expect_contains "$assess_html" "Signal / Noise Evidence"
+expect_contains "$assess_html" "Expected Capability"
+expect_contains "$assess_html" "Exposure Transition"
+expect_contains "$assess_html" "Downgrade Evidence"
 expect_contains "$assess_html" "Lethal Trifecta"
 expect_contains "$assess_html" "Exposure to untrusted content"
 expect_contains "$assess_html" "Access to private data"
@@ -295,6 +304,7 @@ expect_contains "$self_summary" "Identity And Credentials"
 expect_contains "$self_summary" "Next action:"
 expect_contains "$self_html" "Ariadne Assessment"
 expect_contains "$self_html" "Operator Workbench"
+expect_contains "$self_html" "Signal / Noise Evidence"
 expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
@@ -318,6 +328,7 @@ expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
 expect_contains "$self_bundle/dashboard.html" "Operator Workbench"
+expect_contains "$self_bundle/dashboard.html" "Signal / Noise Evidence"
 expect_contains "$self_bundle/dashboard.html" "Signal Quality"
 expect_contains "$self_bundle/dashboard.html" "Lethal Trifecta"
 expect_contains "$self_bundle/proof-action.txt" "Ariadne Proof Action"
@@ -379,6 +390,10 @@ expect_contains "$endpoint_action" "case-compare.html"
 
 expect_contains "$endpoint_json" '"mode": "endpoint"'
 expect_contains "$endpoint_json" '"decision"'
+expect_contains "$endpoint_json" '"signal_noise"'
+expect_contains "$endpoint_json" '"expected_capability"'
+expect_contains "$endpoint_json" '"exposure_transition"'
+expect_contains "$endpoint_json" '"downgrade_evidence"'
 expect_contains "$endpoint_json" '"signal_quality"'
 expect_contains "$endpoint_json" '"lethal_trifecta"'
 expect_contains "$endpoint_json" '"noise_filters"'
@@ -434,6 +449,10 @@ expect_contains "$endpoint_html" "Unknown Evidence"
 expect_contains "$endpoint_html" "Evidence Gap Actions"
 expect_contains "$endpoint_html" "Decision Limits"
 expect_contains "$endpoint_html" "Signal Quality"
+expect_contains "$endpoint_html" "Signal / Noise Evidence"
+expect_contains "$endpoint_html" "Expected Capability"
+expect_contains "$endpoint_html" "Exposure Transition"
+expect_contains "$endpoint_html" "Downgrade Evidence"
 expect_contains "$endpoint_html" "Lethal Trifecta"
 expect_contains "$endpoint_html" "Noise Filters"
 expect_contains "$endpoint_html" "Signal Triage"

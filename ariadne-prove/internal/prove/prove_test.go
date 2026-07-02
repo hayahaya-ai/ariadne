@@ -4434,6 +4434,26 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.SignalQuality.EvidenceReferences) == 0 {
 		t.Fatalf("assessment should include deterministic signal-quality separation: %+v", decoded.SignalQuality)
 	}
+	trustInputSignal, ok := findSignalNoiseItem(decoded.SignalNoise.ExpectedCapability, "capability:trust-inputs")
+	if !ok {
+		t.Fatalf("signal/noise model should include trust-input capability facts: %+v", decoded.SignalNoise)
+	}
+	if containsString(trustInputSignal.Sources, ".env") {
+		t.Fatalf("trust-input signal should not include secret boundary sources as input sources: %+v", trustInputSignal)
+	}
+	if decoded.SignalNoise.Status != "action_required" ||
+		!strings.Contains(decoded.SignalNoise.Summary, "Expected agent capability becomes actionable signal") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.ExpectedCapability, "capability:authorities", "normal_until_correlated", ".claude/settings.json", "", "") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.ExpectedCapability, "capability:trust-inputs", "normal_input_until_privileged_influence", "CLAUDE.md", "", "") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.ExposureTransition, "transition:capability-to-boundary", "actionable_signal", ".claude/settings.json", "control:egress-destination-allowlist", "authority:broad-local|reaches|boundary:external-destination") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.ExposureTransition, "transition:missing-hard-barrier", "actionable_signal", ".codex/config.toml", "control:network-restricted", "trustinput:repo-instruction|influences|runtime:codex") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.ControlEvidence, "control:missing-hard-barriers", "missing", ".ariadne/egress-policy.json", "control:egress-destination-allowlist", "") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.DowngradeEvidence, "downgrade:prove-hard-barrier", "would_close_or_downgrade", ".ariadne/egress-policy.json", "control:egress-destination-allowlist", "") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.DowngradeEvidence, "downgrade:remove-supported-path", "would_downgrade", ".claude/settings.json", "", "authority:broad-local|reaches|boundary:external-destination") ||
+		!containsString(decoded.SignalNoise.DecisionRules, "Capability alone is not exposure") ||
+		len(decoded.SignalNoise.Limitations) == 0 {
+		t.Fatalf("assessment should include structured signal/noise facts: %+v", decoded.SignalNoise)
+	}
 	if decoded.LethalTrifecta.Status != model.StatusExposed ||
 		!decoded.LethalTrifecta.Present ||
 		!decoded.LethalTrifecta.Complete ||
@@ -4545,6 +4565,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"evidence_gap_actions":null`,
 		`"control_state":null`,
 		`"decision":null`,
+		`"signal_noise":null`,
+		`"expected_capability":null`,
+		`"exposure_transition":null`,
+		`"downgrade_evidence":null`,
 		`"signal_quality":null`,
 		`"lethal_trifecta":null`,
 		`"ingredients":null`,
@@ -4875,6 +4899,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Close Or Downgrade By",
 		"Decision Rules",
 		"Capability alone is not exposure",
+		"Signal / Noise Evidence",
+		"Expected Capability",
+		"Exposure Transition",
+		"Control Evidence",
+		"Downgrade Evidence",
+		"transition:capability-to-boundary",
+		"normal until correlated",
 		"Lethal Trifecta",
 		"Private data, untrusted content, and external communication",
 		"Exposure to untrusted content",
@@ -7277,6 +7308,35 @@ func hasClosureFamilyTarget(items []model.ArchitectureClosureFamily, target stri
 		}
 	}
 	return false
+}
+
+func findSignalNoiseItem(items []model.AssessSignalNoiseItem, id string) (model.AssessSignalNoiseItem, bool) {
+	for _, item := range items {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return model.AssessSignalNoiseItem{}, false
+}
+
+func hasSignalNoiseItem(items []model.AssessSignalNoiseItem, id string, disposition string, sourceFragment string, controlFragment string, graphFragment string) bool {
+	item, ok := findSignalNoiseItem(items, id)
+	if !ok {
+		return false
+	}
+	if disposition != "" && item.Disposition != disposition {
+		return false
+	}
+	if sourceFragment != "" && !containsString(item.Sources, sourceFragment) {
+		return false
+	}
+	if controlFragment != "" && !containsString(item.Controls, controlFragment) {
+		return false
+	}
+	if graphFragment != "" && !containsString(item.GraphEdges, graphFragment) {
+		return false
+	}
+	return true
 }
 
 func renderProofPlanJSON(t *testing.T, r model.Report, caseID string) []byte {

@@ -191,6 +191,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	renderAssessOperatorWorkbenchDashboard(w, r)
 	renderAssessDecisionDashboard(w, r.TargetPath, r.Decision)
 	renderAssessSignalQualityDashboard(w, r.TargetPath, r.SignalQuality)
+	renderAssessSignalNoiseDashboard(w, r.TargetPath, r.SignalNoise)
 	renderAssessLethalTrifectaDashboard(w, r.TargetPath, r.LethalTrifecta)
 	renderAssessTriageDashboard(w, r.TargetPath, r.Triage)
 	renderAssessClosurePlanDashboard(w, r.TargetPath, r.ClosurePlan)
@@ -1095,6 +1096,95 @@ func renderAssessSignalQualityDashboard(w io.Writer, root string, quality model.
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessSignalNoiseDashboard(w io.Writer, root string, signal model.AssessSignalNoise) {
+	totalItems := len(signal.ExpectedCapability) + len(signal.ExposureTransition) + len(signal.ControlEvidence) + len(signal.DowngradeEvidence) + len(signal.EvidenceGaps)
+	if signal.Status == "" && signal.Summary == "" && totalItems == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Signal / Noise Evidence</h2><div class="subtle">Expected capability, exposure transitions, control evidence, downgrade evidence, and gaps as separate facts.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Status", statusLabel(firstNonEmpty(signal.Status, "unknown"))},
+		{"Expected", fmt.Sprintf("%d", len(signal.ExpectedCapability))},
+		{"Transitions", fmt.Sprintf("%d", len(signal.ExposureTransition))},
+		{"Controls", fmt.Sprintf("%d", len(signal.ControlEvidence))},
+		{"Downgrade", fmt.Sprintf("%d", len(signal.DowngradeEvidence))},
+		{"Gaps", fmt.Sprintf("%d", len(signal.EvidenceGaps))},
+	})
+	if signal.Summary != "" {
+		fmt.Fprintf(w, `<p><strong>Readout:</strong> %s</p>`, esc(signal.Summary))
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, `<thead><tr><th>Bucket</th><th>Disposition</th><th>Fact</th><th>Evidence / Sources</th><th>Graph / Controls</th></tr></thead><tbody>`)
+	renderAssessSignalNoiseRows(w, root, "Expected Capability", signal.ExpectedCapability)
+	renderAssessSignalNoiseRows(w, root, "Exposure Transition", signal.ExposureTransition)
+	renderAssessSignalNoiseRows(w, root, "Control Evidence", signal.ControlEvidence)
+	renderAssessSignalNoiseRows(w, root, "Downgrade Evidence", signal.DowngradeEvidence)
+	renderAssessSignalNoiseRows(w, root, "Evidence Gaps", signal.EvidenceGaps)
+	fmt.Fprintln(w, `</tbody></table></div>`)
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Decision Rules</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(signal.DecisionRules, 5)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Limits</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(signal.Limitations, 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessSignalNoiseRows(w io.Writer, root string, bucket string, items []model.AssessSignalNoiseItem) {
+	for _, item := range items {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(bucket), esc(item.ID), esc(item.Category))
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div></td>`, cssClass(item.Disposition), esc(readableToken(item.Disposition)))
+		fmt.Fprintf(w, `<td>%s%s</td>`, esc(item.Summary), assessSignalNoiseRiskBoundaryHTML(item.RiskBoundary))
+		fmt.Fprintf(w, `<td>%s</td>`, renderAssessSignalNoiseEvidenceHTML(root, item))
+		fmt.Fprintf(w, `<td>%s</td>`, renderAssessSignalNoiseGraphControlHTML(item))
+		fmt.Fprintln(w, `</tr>`)
+	}
+}
+
+func assessSignalNoiseRiskBoundaryHTML(value string) string {
+	if value == "" {
+		return ""
+	}
+	return fmt.Sprintf(`<div class="subtle">%s</div>`, esc(value))
+}
+
+func renderAssessSignalNoiseEvidenceHTML(root string, item model.AssessSignalNoiseItem) string {
+	var parts []string
+	if len(item.EvidenceReferences) > 0 {
+		parts = append(parts, `<h3>Evidence</h3>`+renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
+	}
+	if len(item.Sources) > 0 {
+		parts = append(parts, `<h3>Sources</h3>`+renderSmallList(limitStrings(item.Sources, 5)))
+	}
+	if len(parts) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	return strings.Join(parts, "")
+}
+
+func renderAssessSignalNoiseGraphControlHTML(item model.AssessSignalNoiseItem) string {
+	var parts []string
+	if len(item.GraphEdges) > 0 {
+		parts = append(parts, `<h3>Graph</h3>`+renderSmallList(limitStrings(item.GraphEdges, 5)))
+	}
+	if len(item.Controls) > 0 {
+		parts = append(parts, `<h3>Controls</h3>`+renderSmallList(limitStrings(item.Controls, 5)))
+	}
+	if len(item.Limitations) > 0 {
+		parts = append(parts, `<h3>Limits</h3>`+renderSmallList(limitStrings(item.Limitations, 3)))
+	}
+	if len(parts) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	return strings.Join(parts, "")
 }
 
 func renderAssessLethalTrifectaDashboard(w io.Writer, root string, trifecta model.AssessLethalTrifecta) {

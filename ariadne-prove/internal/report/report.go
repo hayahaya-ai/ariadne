@@ -328,6 +328,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
 	controlState := buildAssessControlState(firstAction, triage)
 	signalQuality := buildAssessSignalQuality(summary, inventorySummary, triage, controlState, firstAction)
+	signalNoise := buildAssessSignalNoise(summary, inventorySummary, triage, controlState, signalQuality, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, r.TargetPath)
 	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
@@ -345,6 +346,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		Summary:           summary,
 		Decision:          decision,
 		Triage:            triage,
+		SignalNoise:       signalNoise,
 		SignalQuality:     signalQuality,
 		ControlState:      controlState,
 		Inventory:         inventorySummary,
@@ -423,6 +425,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	triage.EvidenceGapActions = assessScanEvidenceGapActions(r.TargetsFile, r.Mode, r.Agent, triage)
 	controlState := buildAssessControlState(firstAction, triage)
 	signalQuality := buildAssessSignalQuality(summary, inventorySummary, triage, controlState, firstAction)
+	signalNoise := buildAssessSignalNoise(summary, inventorySummary, triage, controlState, signalQuality, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, "")
 	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
@@ -441,6 +444,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		Summary:           summary,
 		Decision:          decision,
 		Triage:            triage,
+		SignalNoise:       signalNoise,
 		SignalQuality:     signalQuality,
 		ControlState:      controlState,
 		Inventory:         inventorySummary,
@@ -3273,6 +3277,308 @@ func buildAssessSignalQuality(summary model.AssessSummary, inventory model.Asses
 		quality.ActionableBecause = append(quality.ActionableBecause, "No open operator case was produced for the current filter.")
 	}
 	return quality
+}
+
+func buildAssessSignalNoise(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, quality model.AssessSignalQuality, action model.AssessFirstAction) model.AssessSignalNoise {
+	closedAction := assessFirstActionClosed(action)
+	out := model.AssessSignalNoise{
+		Status:             firstNonEmpty(quality.Status, triage.Status, "unknown"),
+		ExpectedCapability: []model.AssessSignalNoiseItem{},
+		ExposureTransition: []model.AssessSignalNoiseItem{},
+		ControlEvidence:    []model.AssessSignalNoiseItem{},
+		DowngradeEvidence:  []model.AssessSignalNoiseItem{},
+		EvidenceGaps:       []model.AssessSignalNoiseItem{},
+		DecisionRules:      append([]string{}, quality.DecisionRules...),
+		Limitations: []string{
+			"Signal/noise separation is deterministic: Ariadne reports observed capability facts separately from graph-supported exposure transitions and control evidence.",
+		},
+	}
+	switch {
+	case closedAction:
+		out.Summary = "Expected agent capability is present, but Ariadne observed hard-barrier evidence for the focused path."
+	case action.Available && len(state.MissingHardBarriers) > 0:
+		out.Summary = "Expected agent capability becomes actionable signal only where graph evidence reaches a boundary and hard-barrier evidence is missing."
+	case action.Available:
+		out.Summary = "A focused case exists, but Ariadne separates expected capability from exposure until the control state is reviewed."
+	case len(triage.UnknownEvidence) > 0:
+		out.Summary = "Ariadne found evidence gaps; unknown evidence is not counted as safe or exposed."
+	default:
+		out.Summary = "No supported exposure transition was produced for the current filter."
+	}
+
+	if inventory.Runtimes > 0 {
+		out.ExpectedCapability = append(out.ExpectedCapability, model.AssessSignalNoiseItem{
+			ID:                 "capability:runtimes",
+			Category:           "expected_capability",
+			Disposition:        "normal",
+			Summary:            fmt.Sprintf("%d agent runtime surface(s) were observed. Runtime presence is expected capability, not exposure by itself.", inventory.Runtimes),
+			RiskBoundary:       "Runtime presence becomes relevant only when graph evidence shows influence, authority, boundary reachability, and control state.",
+			EvidenceReferences: signalNoiseEvidenceReferencesByKind(action.EvidenceReferences, "runtime"),
+			Sources:            signalNoiseSourcesFor(inventory, action.EvidenceReferences, "runtime"),
+		})
+	}
+	if inventory.Authorities > 0 {
+		out.ExpectedCapability = append(out.ExpectedCapability, model.AssessSignalNoiseItem{
+			ID:                 "capability:authorities",
+			Category:           "expected_capability",
+			Disposition:        "normal_until_correlated",
+			Summary:            fmt.Sprintf("%d authority surface(s) were observed. Authority is normal for useful agents but is not a finding until correlated into a supported path.", inventory.Authorities),
+			RiskBoundary:       "Authority becomes actionable when untrusted influence can use it to reach a sensitive boundary without an observed hard barrier.",
+			EvidenceReferences: signalNoiseEvidenceReferencesByKind(action.EvidenceReferences, "authority"),
+			Sources:            signalNoiseSourcesFor(inventory, action.EvidenceReferences, "authority"),
+		})
+	}
+	if inventory.Tools > 0 {
+		out.ExpectedCapability = append(out.ExpectedCapability, model.AssessSignalNoiseItem{
+			ID:                 "capability:tools",
+			Category:           "expected_capability",
+			Disposition:        "normal_until_scope_or_integrity_gap",
+			Summary:            fmt.Sprintf("%d tool surface(s) were observed. Tools are normal capability unless scope, integrity, approval, or egress controls are missing.", inventory.Tools),
+			RiskBoundary:       "Tool capability becomes exposure when the graph shows reachable authority or boundary impact without hard-barrier evidence.",
+			EvidenceReferences: signalNoiseEvidenceReferencesByKind(action.EvidenceReferences, "tool"),
+			Sources:            signalNoiseSourcesFor(inventory, action.EvidenceReferences, "tool"),
+		})
+	}
+	if inventory.TrustInputs > 0 {
+		out.ExpectedCapability = append(out.ExpectedCapability, model.AssessSignalNoiseItem{
+			ID:                 "capability:trust-inputs",
+			Category:           "expected_capability",
+			Disposition:        "normal_input_until_privileged_influence",
+			Summary:            fmt.Sprintf("%d trust input surface(s) were observed. Instructions are expected inputs unless they can steer privileged runtime authority.", inventory.TrustInputs),
+			RiskBoundary:       "Input becomes actionable when it influences a runtime that has authority reaching sensitive boundaries.",
+			EvidenceReferences: signalNoiseEvidenceReferencesByKind(action.EvidenceReferences, "trust_input"),
+			Sources:            signalNoiseSourcesFor(inventory, action.EvidenceReferences, "trust_input"),
+		})
+	}
+
+	if len(state.GraphEdges) > 0 || len(state.PathSummary) > 0 {
+		disposition := "review"
+		if len(state.MissingHardBarriers) > 0 {
+			disposition = "actionable_signal"
+		}
+		if closedAction {
+			disposition = "controlled"
+		}
+		out.ExposureTransition = append(out.ExposureTransition, model.AssessSignalNoiseItem{
+			ID:                 "transition:capability-to-boundary",
+			Category:           "exposure_transition",
+			Disposition:        disposition,
+			Summary:            "Graph evidence connects expected agent capability to a sensitive boundary for the focused case.",
+			RiskBoundary:       "This is where capability stops being noise: Ariadne has a supported graph path, then evaluates whether control evidence breaks it.",
+			GraphEdges:         state.GraphEdges,
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            state.EvidenceSources,
+			Controls:           firstNonEmptyStrings(state.MissingHardBarriers, state.PresentHardBarriers),
+		})
+	}
+	if len(state.MissingHardBarriers) > 0 {
+		out.ExposureTransition = append(out.ExposureTransition, model.AssessSignalNoiseItem{
+			ID:                 "transition:missing-hard-barrier",
+			Category:           "exposure_transition",
+			Disposition:        "actionable_signal",
+			Summary:            "The focused path remains actionable because hard-barrier evidence is missing for the modeled controls.",
+			RiskBoundary:       "A missing hard barrier does not create capability; it explains why an already supported path remains open.",
+			GraphEdges:         state.GraphEdges,
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            state.EvidenceSources,
+			Controls:           state.MissingHardBarriers,
+		})
+	}
+
+	if len(state.MissingHardBarriers) > 0 {
+		out.ControlEvidence = append(out.ControlEvidence, model.AssessSignalNoiseItem{
+			ID:          "control:missing-hard-barriers",
+			Category:    "control_evidence",
+			Disposition: "missing",
+			Summary:     "Ariadne did not observe parser-recognized hard-barrier evidence for the focused path.",
+			Sources:     firstNonEmptyStrings(state.ProofSurfaces, nonEmptyStrings(action.CurrentAction.Surface)),
+			Controls:    state.MissingHardBarriers,
+		})
+	}
+	if len(state.PresentHardBarriers) > 0 {
+		out.ControlEvidence = append(out.ControlEvidence, model.AssessSignalNoiseItem{
+			ID:                 "control:observed-hard-barriers",
+			Category:           "control_evidence",
+			Disposition:        "observed",
+			Summary:            "Ariadne observed hard-barrier evidence for the focused path.",
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            firstNonEmptyStrings(assessActionEvidenceSurfaces(action), state.EvidenceSources),
+			Controls:           state.PresentHardBarriers,
+		})
+	}
+	if len(state.PartialOrFrictionControls) > 0 {
+		out.ControlEvidence = append(out.ControlEvidence, model.AssessSignalNoiseItem{
+			ID:                 "control:partial-or-friction",
+			Category:           "control_evidence",
+			Disposition:        "partial_or_friction",
+			Summary:            "Ariadne observed partial or friction controls, but they do not close the path without hard-barrier evidence.",
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            state.EvidenceSources,
+			Controls:           state.PartialOrFrictionControls,
+		})
+	}
+
+	if action.Available {
+		out.DowngradeEvidence = append(out.DowngradeEvidence, model.AssessSignalNoiseItem{
+			ID:                 "downgrade:prove-hard-barrier",
+			Category:           "downgrade_evidence",
+			Disposition:        "would_close_or_downgrade",
+			Summary:            "Ariadne would close or downgrade this case if rerun evidence shows parser-recognized hard-barrier controls for the focused path.",
+			RiskBoundary:       "The case changes state only after deterministic evidence changes the control state or graph path.",
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            firstNonEmptyStrings(state.ProofSurfaces, nonEmptyStrings(action.CurrentAction.Surface)),
+			Controls:           firstNonEmptyStrings(state.MissingHardBarriers, state.PresentHardBarriers),
+		})
+	}
+	if len(state.GraphEdges) > 0 {
+		out.DowngradeEvidence = append(out.DowngradeEvidence, model.AssessSignalNoiseItem{
+			ID:           "downgrade:remove-supported-path",
+			Category:     "downgrade_evidence",
+			Disposition:  "would_downgrade",
+			Summary:      "Ariadne would downgrade the signal if rerun evidence removes the supported influence, authority, boundary, or reachability edges.",
+			RiskBoundary: "Expected capability returns to noise when the graph no longer connects it to boundary impact.",
+			GraphEdges:   state.GraphEdges,
+			Sources:      state.EvidenceSources,
+		})
+	}
+
+	if len(state.UnknownEvidence) > 0 {
+		out.EvidenceGaps = append(out.EvidenceGaps, model.AssessSignalNoiseItem{
+			ID:          "gap:unknown-evidence",
+			Category:    "evidence_gap",
+			Disposition: "unknown",
+			Summary:     "Some paths need more deterministic evidence before Ariadne can classify them.",
+			Controls:    state.UnknownEvidence,
+		})
+	}
+	if len(triage.EvidenceGapActions) > 0 {
+		out.EvidenceGaps = append(out.EvidenceGaps, model.AssessSignalNoiseItem{
+			ID:          "gap:next-collector-actions",
+			Category:    "evidence_gap",
+			Disposition: "needs_collection",
+			Summary:     "These commands or collection steps would produce stronger deterministic evidence.",
+			Sources:     triage.EvidenceGapActions,
+		})
+	}
+	if summary.NotObservedArchitectureFlaws > 0 || summary.UnknownArchitectureFlaws > 0 {
+		out.EvidenceGaps = append(out.EvidenceGaps, model.AssessSignalNoiseItem{
+			ID:          "gap:architecture-coverage",
+			Category:    "evidence_gap",
+			Disposition: "coverage_gap",
+			Summary:     fmt.Sprintf("%d unknown and %d not-observed architecture area(s) remain in the current evidence set.", summary.UnknownArchitectureFlaws, summary.NotObservedArchitectureFlaws),
+		})
+	}
+	return normalizeAssessSignalNoise(out)
+}
+
+func normalizeAssessSignalNoise(out model.AssessSignalNoise) model.AssessSignalNoise {
+	out.ExpectedCapability = normalizeAssessSignalNoiseItems(out.ExpectedCapability)
+	out.ExposureTransition = normalizeAssessSignalNoiseItems(out.ExposureTransition)
+	out.ControlEvidence = normalizeAssessSignalNoiseItems(out.ControlEvidence)
+	out.DowngradeEvidence = normalizeAssessSignalNoiseItems(out.DowngradeEvidence)
+	out.EvidenceGaps = normalizeAssessSignalNoiseItems(out.EvidenceGaps)
+	out.DecisionRules = nonNilStrings(uniqueStrings(out.DecisionRules))
+	out.Limitations = nonNilStrings(uniqueStrings(out.Limitations))
+	return out
+}
+
+func normalizeAssessSignalNoiseItems(items []model.AssessSignalNoiseItem) []model.AssessSignalNoiseItem {
+	out := make([]model.AssessSignalNoiseItem, 0, len(items))
+	for _, item := range items {
+		item.GraphEdges = nonNilStrings(uniqueStrings(item.GraphEdges))
+		item.EvidenceReferences = nonNilEvidenceReferences(dedupeEvidenceReferences(item.EvidenceReferences))
+		item.Sources = nonNilStrings(uniqueStrings(item.Sources))
+		item.Controls = nonNilStrings(uniqueStrings(item.Controls))
+		item.Limitations = nonNilStrings(uniqueStrings(item.Limitations))
+		out = append(out, item)
+	}
+	if out == nil {
+		return []model.AssessSignalNoiseItem{}
+	}
+	return out
+}
+
+func signalNoiseEvidenceReferencesByKind(refs []model.EvidenceReference, kinds ...string) []model.EvidenceReference {
+	kindSet := map[string]bool{}
+	for _, kind := range kinds {
+		kindSet[strings.ToLower(strings.TrimSpace(kind))] = true
+	}
+	var out []model.EvidenceReference
+	for _, ref := range refs {
+		if kindSet[strings.ToLower(strings.TrimSpace(ref.Kind))] {
+			out = append(out, ref)
+		}
+	}
+	return dedupeEvidenceReferences(out)
+}
+
+func signalNoiseSourcesFor(inventory model.AssessInventory, refs []model.EvidenceReference, capability string) []string {
+	var out []string
+	out = append(out, signalNoiseSourcesFromEvidence(refs, capability)...)
+	out = append(out, signalNoiseSourcesFromFacts(inventory.FactHighlights, capability)...)
+	if capability == "authority" || capability == "tool" {
+		out = append(out, signalNoiseSourcesFromSurfaceMap(inventory.SurfaceMap, capability)...)
+	}
+	return uniqueStrings(out)
+}
+
+func signalNoiseSourcesFromEvidence(refs []model.EvidenceReference, capability string) []string {
+	var out []string
+	for _, ref := range refs {
+		if ref.Source == "" {
+			continue
+		}
+		kind := strings.ToLower(strings.TrimSpace(ref.Kind))
+		id := strings.ToLower(strings.TrimSpace(ref.ID))
+		if kind == capability || strings.Contains(id, strings.ReplaceAll(capability, "_", "-")) {
+			out = append(out, ref.Source)
+		}
+	}
+	return out
+}
+
+func signalNoiseSourcesFromSurfaceMap(maps []model.SurfaceMap, capability string) []string {
+	var out []string
+	for _, item := range maps {
+		switch capability {
+		case "runtime":
+			if item.Runtime != "" {
+				out = append(out, item.SourceRefs...)
+			}
+		case "authority":
+			if len(item.Authorities) > 0 {
+				out = append(out, item.SourceRefs...)
+			}
+		case "tool":
+			if len(item.Tools) > 0 {
+				out = append(out, item.SourceRefs...)
+			}
+		case "trust_input":
+			for _, category := range item.Categories {
+				if strings.Contains(strings.ToLower(category.Name), "trust") {
+					out = append(out, item.SourceRefs...)
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+func signalNoiseSourcesFromFacts(facts []model.AssessFact, capability string) []string {
+	var out []string
+	capability = strings.ReplaceAll(strings.ToLower(capability), "_", "-")
+	for _, fact := range facts {
+		if fact.Source == "" {
+			continue
+		}
+		factType := strings.ReplaceAll(strings.ToLower(fact.Type), "_", "-")
+		factID := strings.ToLower(fact.ID)
+		if strings.Contains(factType, capability) || strings.Contains(factID, capability) {
+			out = append(out, fact.Source)
+		}
+	}
+	return out
 }
 
 func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction, targetPath string) model.AssessDecision {

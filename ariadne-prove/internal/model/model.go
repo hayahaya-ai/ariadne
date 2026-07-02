@@ -324,6 +324,7 @@ type AssessReport struct {
 	Summary           AssessSummary           `json:"summary"`
 	Decision          AssessDecision          `json:"decision"`
 	Triage            AssessTriage            `json:"triage"`
+	SignalNoise       AssessSignalNoise       `json:"signal_noise"`
 	SignalQuality     AssessSignalQuality     `json:"signal_quality"`
 	ControlState      AssessControlState      `json:"control_state"`
 	Inventory         AssessInventory         `json:"inventory"`
@@ -601,6 +602,31 @@ type AssessSignalQuality struct {
 	EvidenceReferences   []EvidenceReference `json:"evidence_refs"`
 	DecisionRules        []string            `json:"decision_rules"`
 	Limitations          []string            `json:"limitations"`
+}
+
+type AssessSignalNoise struct {
+	Status             string                  `json:"status"`
+	Summary            string                  `json:"summary"`
+	ExpectedCapability []AssessSignalNoiseItem `json:"expected_capability"`
+	ExposureTransition []AssessSignalNoiseItem `json:"exposure_transition"`
+	ControlEvidence    []AssessSignalNoiseItem `json:"control_evidence"`
+	DowngradeEvidence  []AssessSignalNoiseItem `json:"downgrade_evidence"`
+	EvidenceGaps       []AssessSignalNoiseItem `json:"evidence_gaps"`
+	DecisionRules      []string                `json:"decision_rules"`
+	Limitations        []string                `json:"limitations"`
+}
+
+type AssessSignalNoiseItem struct {
+	ID                 string              `json:"id"`
+	Category           string              `json:"category"`
+	Disposition        string              `json:"disposition"`
+	Summary            string              `json:"summary"`
+	RiskBoundary       string              `json:"risk_boundary,omitempty"`
+	GraphEdges         []string            `json:"graph_edges"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	Sources            []string            `json:"sources"`
+	Controls           []string            `json:"controls"`
+	Limitations        []string            `json:"limitations"`
 }
 
 type AssessInventory struct {
