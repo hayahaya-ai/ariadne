@@ -115,6 +115,8 @@
         "evidence_refs",
         "starting_controls",
         "proof_surfaces",
+        "evidence_examples",
+        "proof_patches",
         "rerun_commands",
         "compare_commands",
         "success_criteria"
@@ -138,6 +140,14 @@
         "proof_surfaces": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "evidence_examples": {
+          "type": "array",
+          "items": { "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_evidence_example" }
+        },
+        "proof_patches": {
+          "type": "array",
+          "items": { "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_proof_patch" }
         },
         "rerun_commands": {
           "type": "array",

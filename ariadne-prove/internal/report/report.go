@@ -1350,6 +1350,8 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 		EvidenceReferences: []model.EvidenceReference{},
 		StartingControls:   []string{},
 		ProofSurfaces:      []string{},
+		EvidenceExamples:   []model.ControlEvidenceExample{},
+		ProofPatches:       []model.ControlProofPatch{},
 		RerunCommands:      []string{},
 		CompareCommands:    []string{},
 		SuccessCriteria:    []string{},
@@ -1368,6 +1370,8 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 	action.EvidenceReferences = append([]model.EvidenceReference{}, item.EvidenceReferences...)
 	action.StartingControls = append([]string{}, item.StartingControls...)
 	action.ProofSurfaces = append([]string{}, item.ProofSurfaces...)
+	action.EvidenceExamples = append([]model.ControlEvidenceExample{}, item.EvidenceExamples...)
+	action.ProofPatches = append([]model.ControlProofPatch{}, item.ProofPatches...)
 	action.RerunCommands = append([]string{}, item.RerunCommands...)
 	action.CompareCommands = append([]string{}, item.CompareCommands...)
 	action.SuccessCriteria = append([]string{}, item.SuccessCriteria...)
@@ -1387,6 +1391,12 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 	}
 	if action.ProofSurfaces == nil {
 		action.ProofSurfaces = []string{}
+	}
+	if action.EvidenceExamples == nil {
+		action.EvidenceExamples = []model.ControlEvidenceExample{}
+	}
+	if action.ProofPatches == nil {
+		action.ProofPatches = []model.ControlProofPatch{}
 	}
 	if action.RerunCommands == nil {
 		action.RerunCommands = []string{}
@@ -1699,6 +1709,12 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 	}
 	if len(action.ProofSurfaces) > 0 {
 		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(action.ProofSurfaces, 4), "; "))
+	}
+	if len(action.EvidenceExamples) > 0 {
+		fmt.Fprintf(w, "  - Accepted evidence: %s\n", strings.Join(controlEvidenceExampleLines(action.EvidenceExamples, 1), "; "))
+	}
+	if len(action.ProofPatches) > 0 {
+		fmt.Fprintf(w, "  - Proof patch: %s\n", strings.Join(controlProofPatchLines(action.ProofPatches, 1), "; "))
 	}
 	if len(action.RerunCommands) > 0 {
 		fmt.Fprintf(w, "  - Rerun: %s\n", action.RerunCommands[0])

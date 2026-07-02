@@ -3500,6 +3500,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Readout:",
 		"First action:",
 		"Why first:",
+		"Accepted evidence:",
+		"Proof patch:",
 		"What was inspected:",
 		"Architecture break paths:",
 		"Operator cases:",
@@ -3545,6 +3547,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.FirstAction.NextStep == "" ||
 		len(decoded.FirstAction.EvidenceReferences) == 0 ||
 		len(decoded.FirstAction.ProofSurfaces) == 0 ||
+		len(decoded.FirstAction.EvidenceExamples) == 0 ||
+		len(decoded.FirstAction.ProofPatches) == 0 ||
 		len(decoded.FirstAction.RerunCommands) == 0 ||
 		len(decoded.FirstAction.SuccessCriteria) == 0 {
 		t.Fatalf("assessment should include a fact-backed first action: %+v", decoded.FirstAction)
@@ -3574,6 +3578,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assessment",
 		"Assessment Readout",
 		"First Action",
+		"Accepted Evidence",
+		"Proof Patch",
 		"Case Navigation",
 		"Active Case Workbench",
 		"href=\"#case-case-egress-output-boundary\"",
@@ -4299,7 +4305,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
-	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "rerun_commands", "compare_commands", "success_criteria")
+	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria")
 	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")
 	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes", "surface_map")
 	surfaceMap := schemaMap(t, assessSchema, "$defs", "surface_map")

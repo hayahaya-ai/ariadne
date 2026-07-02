@@ -143,7 +143,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `case_board`, the same operator case-board contract emitted by `ariadne cases`
 - `top_cases`, a bounded case-first queue for humans
 - `top_case_proof_plan`, the focused proof-plan contract for the highest-priority case, including evidence refs, proof patches, rerun commands, compare commands, and success criteria
-- `first_action`, the highest-priority case distilled into one fact-backed action with priority reason, next step, evidence refs, proof surfaces, rerun commands, compare commands, and success criteria
+- `first_action`, the highest-priority case distilled into one fact-backed action with priority reason, next step, evidence refs, proof surfaces, accepted evidence examples, proof patches, rerun commands, compare commands, and success criteria
 - `next_commands`, including the exact `assess`, focused `cases`, focused `proofs`, `controls`, and `architecture` commands to rerun
 
 The assessment contract is a composition layer. It does not create a separate classification engine; classifications and `first_action` remain derived from deterministic facts, graph edges, architecture flaws, ranked operator cases, and missing hard-barrier controls.

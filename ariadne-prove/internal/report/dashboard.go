@@ -692,6 +692,10 @@ func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstActio
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Prove At</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(action.ProofSurfaces, 6)))
+	fmt.Fprintln(w, `<h3>Accepted Evidence</h3>`)
+	fmt.Fprintln(w, renderSmallList(controlEvidenceExampleLines(action.EvidenceExamples, 2)))
+	fmt.Fprintln(w, `<h3>Proof Patch</h3>`)
+	fmt.Fprintln(w, renderSmallList(controlProofPatchLines(action.ProofPatches, 2)))
 	fmt.Fprintln(w, `<h3>Rerun</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(action.RerunCommands, 3)))
 	if len(action.CompareCommands) > 0 {

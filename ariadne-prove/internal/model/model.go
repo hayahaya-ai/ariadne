@@ -269,19 +269,21 @@ type AssessReport struct {
 }
 
 type AssessFirstAction struct {
-	Available          bool                `json:"available"`
-	CaseID             string              `json:"case_id,omitempty"`
-	Title              string              `json:"title,omitempty"`
-	Severity           string              `json:"severity,omitempty"`
-	State              string              `json:"state,omitempty"`
-	WhyFirst           string              `json:"why_first,omitempty"`
-	NextStep           string              `json:"next_step,omitempty"`
-	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
-	StartingControls   []string            `json:"starting_controls"`
-	ProofSurfaces      []string            `json:"proof_surfaces"`
-	RerunCommands      []string            `json:"rerun_commands"`
-	CompareCommands    []string            `json:"compare_commands"`
-	SuccessCriteria    []string            `json:"success_criteria"`
+	Available          bool                     `json:"available"`
+	CaseID             string                   `json:"case_id,omitempty"`
+	Title              string                   `json:"title,omitempty"`
+	Severity           string                   `json:"severity,omitempty"`
+	State              string                   `json:"state,omitempty"`
+	WhyFirst           string                   `json:"why_first,omitempty"`
+	NextStep           string                   `json:"next_step,omitempty"`
+	EvidenceReferences []EvidenceReference      `json:"evidence_refs"`
+	StartingControls   []string                 `json:"starting_controls"`
+	ProofSurfaces      []string                 `json:"proof_surfaces"`
+	EvidenceExamples   []ControlEvidenceExample `json:"evidence_examples"`
+	ProofPatches       []ControlProofPatch      `json:"proof_patches"`
+	RerunCommands      []string                 `json:"rerun_commands"`
+	CompareCommands    []string                 `json:"compare_commands"`
+	SuccessCriteria    []string                 `json:"success_criteria"`
 }
 
 type AssessSummary struct {
