@@ -312,6 +312,21 @@ type AssessFirstAction struct {
 	CompareCommands    []string                 `json:"compare_commands"`
 	SuccessCriteria    []string                 `json:"success_criteria"`
 	Workflow           []AssessWorkflowStep     `json:"workflow"`
+	CurrentAction      AssessCurrentAction      `json:"current_action"`
+}
+
+type AssessCurrentAction struct {
+	Available            bool     `json:"available"`
+	WorkflowStepID       string   `json:"workflow_step_id"`
+	WorkflowStepTitle    string   `json:"workflow_step_title"`
+	Instruction          string   `json:"instruction"`
+	Control              string   `json:"control"`
+	Surface              string   `json:"surface"`
+	ProofPatchIndex      int      `json:"proof_patch_index"`
+	EvidenceExampleIndex int      `json:"evidence_example_index"`
+	RerunCommand         string   `json:"rerun_command"`
+	CompareCommand       string   `json:"compare_command"`
+	SuccessCriteria      []string `json:"success_criteria"`
 }
 
 type AssessWorkflowStep struct {

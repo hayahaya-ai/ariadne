@@ -3517,6 +3517,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"First action:",
 		"Why first:",
 		"Current workflow step: Add Or Verify Proof",
+		"Current action:",
 		"Workflow:",
 		"Inspect Evidence:",
 		"Add Or Verify Proof [current]:",
@@ -3602,6 +3603,16 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.FirstAction.Workflow[3].Commands) == 0 {
 		t.Fatalf("first action workflow should preserve evidence, proof, rerun, and compare steps: %+v", decoded.FirstAction.Workflow)
 	}
+	if !decoded.FirstAction.CurrentAction.Available ||
+		decoded.FirstAction.CurrentAction.WorkflowStepID != "add_or_verify_proof" ||
+		decoded.FirstAction.CurrentAction.ProofPatchIndex != 0 ||
+		decoded.FirstAction.CurrentAction.EvidenceExampleIndex != 0 ||
+		decoded.FirstAction.CurrentAction.Control != decoded.FirstAction.ProofPatches[0].Control ||
+		decoded.FirstAction.CurrentAction.Surface != decoded.FirstAction.ProofPatches[0].Surface ||
+		decoded.FirstAction.CurrentAction.RerunCommand == "" ||
+		decoded.FirstAction.CurrentAction.CompareCommand == "" {
+		t.Fatalf("first action current_action should point to the active proof patch and commands: %+v", decoded.FirstAction.CurrentAction)
+	}
 	if decoded.TopCaseProofPlan == nil ||
 		decoded.TopCaseProofPlan.CaseFilter != decoded.TopCases[0].ID ||
 		decoded.TopCaseProofPlan.Summary.ProofPatches == 0 ||
@@ -3627,6 +3638,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assessment",
 		"Assessment Readout",
 		"First Action",
+		"Current Action",
 		"Action Workflow",
 		"Inspect Evidence",
 		"CURRENT",
@@ -4363,7 +4375,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
-	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "workflow")
+	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "workflow", "current_action")
+	assessCurrentAction := schemaMap(t, assessSchema, "$defs", "assess_current_action")
+	assertRequiredKeys(t, assessCurrentAction, "available", "workflow_step_id", "workflow_step_title", "instruction", "control", "surface", "proof_patch_index", "evidence_example_index", "rerun_command", "compare_command", "success_criteria")
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
 	assertRequiredKeys(t, assessWorkflowStep, "id", "title", "summary", "current", "evidence_refs", "starting_controls", "proof_surfaces", "commands", "success_criteria")
 	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")

@@ -120,7 +120,8 @@
         "rerun_commands",
         "compare_commands",
         "success_criteria",
-        "workflow"
+        "workflow",
+        "current_action"
       ],
       "properties": {
         "available": { "type": "boolean" },
@@ -165,6 +166,41 @@
         "workflow": {
           "type": "array",
           "items": { "$ref": "#/$defs/assess_workflow_step" }
+        },
+        "current_action": {
+          "$ref": "#/$defs/assess_current_action"
+        }
+      }
+    },
+    "assess_current_action": {
+      "type": "object",
+      "required": [
+        "available",
+        "workflow_step_id",
+        "workflow_step_title",
+        "instruction",
+        "control",
+        "surface",
+        "proof_patch_index",
+        "evidence_example_index",
+        "rerun_command",
+        "compare_command",
+        "success_criteria"
+      ],
+      "properties": {
+        "available": { "type": "boolean" },
+        "workflow_step_id": { "type": "string" },
+        "workflow_step_title": { "type": "string" },
+        "instruction": { "type": "string" },
+        "control": { "type": "string" },
+        "surface": { "type": "string" },
+        "proof_patch_index": { "type": "integer" },
+        "evidence_example_index": { "type": "integer" },
+        "rerun_command": { "type": "string" },
+        "compare_command": { "type": "string" },
+        "success_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },

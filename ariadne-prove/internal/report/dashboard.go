@@ -683,6 +683,7 @@ func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstActio
 	if action.NextStep != "" {
 		fmt.Fprintf(w, `<p><strong>Next step:</strong> %s</p>`, esc(action.NextStep))
 	}
+	renderAssessCurrentActionDashboard(w, action.CurrentAction)
 	renderAssessWorkflowDashboard(w, action.Workflow)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
@@ -707,6 +708,63 @@ func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstActio
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessCurrentActionDashboard(w io.Writer, action model.AssessCurrentAction) {
+	if !action.Available {
+		return
+	}
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Current Action</h3>`)
+	fmt.Fprintln(w, renderSmallList(assessCurrentActionLines(action)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>After Proof</h3>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(action.RerunCommand, action.CompareCommand)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+}
+
+func assessCurrentActionLines(action model.AssessCurrentAction) []string {
+	var out []string
+	if action.WorkflowStepTitle != "" {
+		out = append(out, "Step: "+action.WorkflowStepTitle)
+	}
+	if action.Control != "" {
+		out = append(out, "Control: "+action.Control)
+	}
+	if action.Surface != "" {
+		out = append(out, "Surface: "+action.Surface)
+	}
+	if action.ProofPatchIndex >= 0 {
+		out = append(out, fmt.Sprintf("Proof patch: #%d", action.ProofPatchIndex+1))
+	}
+	if action.EvidenceExampleIndex >= 0 {
+		out = append(out, fmt.Sprintf("Accepted evidence: #%d", action.EvidenceExampleIndex+1))
+	}
+	if action.Instruction != "" {
+		out = append(out, "Instruction: "+action.Instruction)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func nonEmptyStrings(values ...string) []string {
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		out = append(out, value)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func renderAssessWorkflowDashboard(w io.Writer, workflow []model.AssessWorkflowStep) {

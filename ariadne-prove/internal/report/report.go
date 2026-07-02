@@ -1478,6 +1478,7 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 		CompareCommands:    []string{},
 		SuccessCriteria:    []string{},
 		Workflow:           []model.AssessWorkflowStep{},
+		CurrentAction:      emptyAssessCurrentAction(),
 	}
 	if len(cases) == 0 {
 		return action
@@ -1531,7 +1532,55 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 		action.SuccessCriteria = []string{}
 	}
 	action.Workflow = buildAssessFirstActionWorkflow(action)
+	action.CurrentAction = buildAssessCurrentAction(action)
 	return action
+}
+
+func emptyAssessCurrentAction() model.AssessCurrentAction {
+	return model.AssessCurrentAction{
+		Available:            false,
+		ProofPatchIndex:      -1,
+		EvidenceExampleIndex: -1,
+		SuccessCriteria:      []string{},
+	}
+}
+
+func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurrentAction {
+	current := emptyAssessCurrentAction()
+	if !action.Available {
+		return current
+	}
+	step, ok := currentAssessWorkflowStep(action.Workflow)
+	if !ok {
+		return current
+	}
+	current.Available = true
+	current.WorkflowStepID = step.ID
+	current.WorkflowStepTitle = step.Title
+	current.Instruction = firstNonEmpty(action.NextStep, step.Summary)
+	current.SuccessCriteria = append([]string{}, action.SuccessCriteria...)
+	if len(action.ProofPatches) > 0 {
+		patch := action.ProofPatches[0]
+		current.ProofPatchIndex = 0
+		current.Control = patch.Control
+		current.Surface = patch.Surface
+		if current.Instruction == "" {
+			current.Instruction = patch.Summary
+		}
+	}
+	if len(action.EvidenceExamples) > 0 {
+		current.EvidenceExampleIndex = 0
+		if current.Surface == "" {
+			current.Surface = action.EvidenceExamples[0].Surface
+		}
+	}
+	if len(action.RerunCommands) > 0 {
+		current.RerunCommand = action.RerunCommands[0]
+	}
+	if len(action.CompareCommands) > 0 {
+		current.CompareCommand = action.CompareCommands[len(action.CompareCommands)-1]
+	}
+	return current
 }
 
 func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.AssessWorkflowStep {
@@ -1880,6 +1929,7 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 	if action.NextStep != "" {
 		fmt.Fprintf(w, "  - Next step: %s\n", action.NextStep)
 	}
+	renderAssessCurrentAction(w, action.CurrentAction)
 	renderAssessFirstActionWorkflow(w, action.Workflow)
 	if len(action.EvidenceReferences) > 0 {
 		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLinesBySource(action.EvidenceReferences, 3), "; "))
@@ -1900,6 +1950,30 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 		fmt.Fprintf(w, "  - Compare loop: %s\n", strings.Join(limitStrings(action.CompareCommands, 3), "; "))
 	}
 	fmt.Fprintln(w)
+}
+
+func renderAssessCurrentAction(w io.Writer, action model.AssessCurrentAction) {
+	if !action.Available {
+		return
+	}
+	parts := []string{}
+	if action.Control != "" {
+		parts = append(parts, action.Control)
+	}
+	if action.Surface != "" {
+		parts = append(parts, "at "+action.Surface)
+	}
+	if action.ProofPatchIndex >= 0 {
+		parts = append(parts, fmt.Sprintf("proof patch #%d", action.ProofPatchIndex+1))
+	}
+	line := strings.Join(parts, " ")
+	if line == "" {
+		line = firstNonEmpty(action.Instruction, action.WorkflowStepTitle)
+	}
+	fmt.Fprintf(w, "  - Current action: %s\n", line)
+	if action.RerunCommand != "" {
+		fmt.Fprintf(w, "    After proof: %s\n", action.RerunCommand)
+	}
 }
 
 func renderAssessFirstActionWorkflow(w io.Writer, workflow []model.AssessWorkflowStep) {
