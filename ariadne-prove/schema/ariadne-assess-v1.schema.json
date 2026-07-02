@@ -561,6 +561,7 @@
       "required": [
         "available",
         "case",
+        "signal_chain",
         "evidence_to_open",
         "graph_path",
         "proof",
@@ -574,6 +575,10 @@
         "available": { "type": "boolean" },
         "mode": { "type": "string" },
         "case": { "$ref": "#/$defs/assess_workbench_case" },
+        "signal_chain": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_signal_noise_item" }
+        },
         "evidence_to_open": {
           "type": "array",
           "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }

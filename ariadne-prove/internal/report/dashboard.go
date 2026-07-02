@@ -858,6 +858,7 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(workbench.EvidenceToOpen)))},
 		{"State", firstNonEmpty(workbench.Case.State, "open")},
 	})
+	renderAssessWorkbenchSignalChainDashboard(w, r.TargetPath, workbench.SignalChain)
 	renderAssessWorkbenchActionChecklistDashboard(w, r.TargetPath, workbench.Actions)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
@@ -906,6 +907,67 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessWorkbenchSignalChainDashboard(w io.Writer, root string, items []model.AssessSignalNoiseItem) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Signal Chain</h3>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, `<thead><tr><th>Fact</th><th>Status</th><th>Readout</th><th>Evidence</th><th>Graph / controls</th></tr></thead><tbody>`)
+	for _, item := range items {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div></td>`, esc(readableToken(firstNonEmpty(item.Category, item.ID))), esc(item.ID))
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div></td>`, cssClass(item.Disposition), esc(readableToken(item.Disposition)))
+		fmt.Fprintf(w, `<td>%s%s</td>`, esc(item.Summary), dashboardSignalRiskBoundaryHTML(item))
+		fmt.Fprintf(w, `<td>%s%s</td>`,
+			renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)),
+			dashboardSignalSourcesHTML(root, item.Sources),
+		)
+		fmt.Fprintf(w, `<td>%s%s%s</td>`,
+			dashboardSignalGraphHTML(item.GraphEdges),
+			dashboardSignalControlsHTML(item.Controls),
+			dashboardSignalLimitationsHTML(item.Limitations),
+		)
+		fmt.Fprintln(w, `</tr>`)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+}
+
+func dashboardSignalRiskBoundaryHTML(item model.AssessSignalNoiseItem) string {
+	if item.RiskBoundary == "" {
+		return ""
+	}
+	return `<div class="subtle">Boundary</div>` + renderSmallList([]string{item.RiskBoundary})
+}
+
+func dashboardSignalSourcesHTML(root string, sources []string) string {
+	if len(sources) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Sources</div>` + renderDashboardPathList(root, limitStrings(sources, 5))
+}
+
+func dashboardSignalGraphHTML(edges []string) string {
+	if len(edges) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Graph</div>` + renderDashboardHTMLList(limitStrings(edges, 4))
+}
+
+func dashboardSignalControlsHTML(controls []string) string {
+	if len(controls) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Controls</div>` + renderSmallList(limitStrings(controls, 5))
+}
+
+func dashboardSignalLimitationsHTML(limitations []string) string {
+	if len(limitations) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Limitations</div>` + renderSmallList(limitStrings(limitations, 2))
 }
 
 func renderAssessWorkbenchActionChecklistDashboard(w io.Writer, root string, actions []model.AssessWorkbenchAction) {

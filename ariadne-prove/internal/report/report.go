@@ -2218,6 +2218,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	renderAssessLethalTrifecta(w, r.LethalTrifecta)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
+	renderAssessWorkbenchSignalChain(w, r.OperatorWorkbench.SignalChain, 4)
 	renderAssessCaseLifecycle(w, r.CaseLifecycle, 9)
 	renderAssessClosurePlan(w, r.ClosurePlan, 3)
 	action := r.FirstAction
@@ -3767,6 +3768,7 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 	}
 	workbench.EvidenceToOpen = dedupeEvidenceReferences(evidenceRefs)
 	workbench.GraphPath = firstNonEmptyStrings(state.PathSummary, state.GraphEdges)
+	workbench.SignalChain = buildAssessWorkbenchSignalChain(action, state)
 	workbench.Proof = model.AssessWorkbenchProof{
 		Mode:                  proofMode,
 		Control:               current.Control,
@@ -3799,6 +3801,7 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 }
 
 func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) model.AssessOperatorWorkbench {
+	workbench.SignalChain = normalizeAssessSignalNoiseItems(workbench.SignalChain)
 	workbench.EvidenceToOpen = nonNilEvidenceReferences(dedupeEvidenceReferences(workbench.EvidenceToOpen))
 	workbench.GraphPath = nonNilStrings(uniqueStrings(workbench.GraphPath))
 	workbench.Proof.Controls = nonNilStrings(uniqueStrings(workbench.Proof.Controls))
@@ -3813,6 +3816,108 @@ func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) m
 	workbench.ChangeReadout = nonNilStrings(uniqueStrings(workbench.ChangeReadout))
 	workbench.Limitations = nonNilStrings(uniqueStrings(workbench.Limitations))
 	return workbench
+}
+
+func buildAssessWorkbenchSignalChain(action model.AssessFirstAction, state model.AssessControlState) []model.AssessSignalNoiseItem {
+	if !action.Available {
+		return []model.AssessSignalNoiseItem{}
+	}
+	evidenceRefs := action.CurrentAction.EvidenceReferences
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = action.EvidenceReferences
+	}
+	evidenceRefs = dedupeEvidenceReferences(evidenceRefs)
+	capabilityRefs := signalNoiseEvidenceReferencesByKind(evidenceRefs, "runtime", "authority", "tool", "trust_input")
+	if len(capabilityRefs) == 0 {
+		capabilityRefs = evidenceRefs
+	}
+	capabilitySources := evidenceReferenceSources(capabilityRefs, false)
+	evidenceSources := evidenceReferenceSources(evidenceRefs, false)
+	controls := firstNonEmptyStrings(state.MissingHardBarriers, state.PresentHardBarriers)
+	proofSurfaces := firstNonEmptyStrings(
+		nonEmptyStrings(action.CurrentAction.Surface),
+		firstNonEmptyStrings(state.ProofSurfaces, action.ProofSurfaces),
+	)
+	closed := assessFirstActionClosed(action)
+
+	transitionDisposition := "review"
+	if len(state.MissingHardBarriers) > 0 {
+		transitionDisposition = "actionable_signal"
+	}
+	if closed {
+		transitionDisposition = "controlled"
+	}
+
+	controlDisposition := "not_observed"
+	controlSummary := "No parser-recognized hard-barrier control evidence was observed for the focused path."
+	controlSet := state.MissingHardBarriers
+	switch {
+	case len(state.MissingHardBarriers) > 0:
+		controlDisposition = "missing"
+		controlSummary = "Hard-barrier evidence is missing for the focused path."
+	case len(state.PresentHardBarriers) > 0:
+		controlDisposition = "observed"
+		controlSummary = "Parser-recognized hard-barrier evidence is present for the focused path."
+		controlSet = state.PresentHardBarriers
+	case len(state.PartialOrFrictionControls) > 0:
+		controlDisposition = "partial_or_friction"
+		controlSummary = "Only partial or friction controls were observed; Ariadne does not count them as path-breaking evidence."
+		controlSet = state.PartialOrFrictionControls
+	case len(state.UnknownEvidence) > 0:
+		controlDisposition = "unknown"
+		controlSummary = "Control state has unknown evidence; Ariadne does not treat unknown evidence as safe."
+		controlSet = state.UnknownEvidence
+	}
+
+	nextDisposition := "pending"
+	nextSummary := "Add or verify parser-recognized hard-barrier evidence, then rerun and compare proof state."
+	if closed {
+		nextDisposition = "completed"
+		nextSummary = "Keep the observed hard-barrier evidence in place and rerun if the environment changes."
+	}
+
+	return normalizeAssessSignalNoiseItems([]model.AssessSignalNoiseItem{
+		{
+			ID:                 "workbench:normal-capability",
+			Category:           "expected_capability",
+			Disposition:        "normal_until_correlated",
+			Summary:            "Agent runtimes, authority, tools, and instructions are expected capability until correlated into a supported boundary path.",
+			RiskBoundary:       "Capability becomes action only when graph evidence connects influence, authority, boundary reachability, and control state.",
+			EvidenceReferences: capabilityRefs,
+			Sources:            capabilitySources,
+		},
+		{
+			ID:                 "workbench:exposure-transition",
+			Category:           "exposure_transition",
+			Disposition:        transitionDisposition,
+			Summary:            "Graph evidence connects capability to the focused case boundary.",
+			RiskBoundary:       "This is where Ariadne separates normal agent capability from actionable exposure.",
+			GraphEdges:         state.GraphEdges,
+			EvidenceReferences: evidenceRefs,
+			Sources:            evidenceSources,
+			Controls:           controls,
+		},
+		{
+			ID:                 "workbench:control-state",
+			Category:           "control_evidence",
+			Disposition:        controlDisposition,
+			Summary:            controlSummary,
+			RiskBoundary:       "A path is downgraded only when deterministic control evidence breaks or removes the supported path.",
+			GraphEdges:         state.GraphEdges,
+			EvidenceReferences: evidenceRefs,
+			Sources:            firstNonEmptyStrings(proofSurfaces, evidenceSources),
+			Controls:           controlSet,
+		},
+		{
+			ID:          "workbench:next-proof-action",
+			Category:    "next_action",
+			Disposition: nextDisposition,
+			Summary:     nextSummary,
+			Sources:     proofSurfaces,
+			Controls:    firstNonEmptyStrings(controls, nonEmptyStrings(action.CurrentAction.Control)),
+			Limitations: []string{"Proof evidence is deterministic evidence Ariadne can parse; it is not a live enforcement claim unless runtime enforcement evidence is observed."},
+		},
+	})
 }
 
 func buildAssessWorkbenchActions(workbench model.AssessOperatorWorkbench, action model.AssessFirstAction, state model.AssessControlState) []model.AssessWorkbenchAction {
@@ -5521,6 +5626,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	renderAssessLethalTrifecta(w, r.LethalTrifecta)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
+	renderAssessWorkbenchSignalChain(w, r.OperatorWorkbench.SignalChain, 4)
 	renderAssessCaseLifecycle(w, r.CaseLifecycle, 9)
 	renderAssessClosurePlan(w, r.ClosurePlan, 5)
 	renderAssessFirstAction(w, r.FirstAction)
@@ -5772,6 +5878,37 @@ func renderAssessControlState(w io.Writer, state model.AssessControlState) {
 	renderAssessEvidenceSources(w, state.EvidenceSources, 8)
 	if len(state.ProofSurfaces) > 0 {
 		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(state.ProofSurfaces, 8), "; "))
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessWorkbenchSignalChain(w io.Writer, items []model.AssessSignalNoiseItem, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	fmt.Fprintf(w, "Signal chain:\n")
+	for _, item := range items[:limit] {
+		label := readableToken(firstNonEmpty(item.Category, item.ID))
+		disposition := readableToken(firstNonEmpty(item.Disposition, "unknown"))
+		fmt.Fprintf(w, "  - %s [%s]: %s\n", label, disposition, item.Summary)
+		if item.RiskBoundary != "" {
+			fmt.Fprintf(w, "    Boundary: %s\n", item.RiskBoundary)
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(item.EvidenceReferences, 2), "; "))
+		}
+		if len(item.GraphEdges) > 0 {
+			fmt.Fprintf(w, "    Graph: %s\n", strings.Join(limitStrings(item.GraphEdges, 2), "; "))
+		}
+		if len(item.Controls) > 0 {
+			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(limitStrings(item.Controls, 4), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "  - %d more signal chain item(s) in JSON output\n", len(items)-limit)
 	}
 	fmt.Fprintln(w)
 }

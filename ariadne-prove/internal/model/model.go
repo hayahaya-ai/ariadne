@@ -459,6 +459,7 @@ type AssessOperatorWorkbench struct {
 	Available      bool                        `json:"available"`
 	Mode           string                      `json:"mode,omitempty"`
 	Case           AssessWorkbenchCase         `json:"case"`
+	SignalChain    []AssessSignalNoiseItem     `json:"signal_chain"`
 	EvidenceToOpen []EvidenceReference         `json:"evidence_to_open"`
 	GraphPath      []string                    `json:"graph_path"`
 	Proof          AssessWorkbenchProof        `json:"proof"`

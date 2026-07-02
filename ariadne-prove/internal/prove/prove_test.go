@@ -4394,6 +4394,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Current control: control:egress-destination-allowlist",
 		"Current proof surface: .ariadne/egress-policy.json",
 		"Missing hard-barrier evidence for control:egress-destination-allowlist",
+		"Signal chain:",
+		"expected capability [normal until correlated]",
+		"exposure transition [actionable signal]",
+		"control evidence [missing]",
+		"next action [pending]",
 		"Case lifecycle:",
 		"Current step: open_proof_action",
 		"Open Proof Action [current]:",
@@ -4617,6 +4622,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.OperatorWorkbench.Proof.ProofPatch.Surface != ".ariadne/egress-policy.json" ||
 		decoded.OperatorWorkbench.Proof.EvidenceExample == nil ||
 		decoded.OperatorWorkbench.Proof.EvidenceExample.Surface != ".ariadne/egress-policy.json" ||
+		!hasSignalNoiseItem(decoded.OperatorWorkbench.SignalChain, "workbench:normal-capability", "normal_until_correlated", ".claude/settings.json", "", "") ||
+		!hasSignalNoiseItem(decoded.OperatorWorkbench.SignalChain, "workbench:exposure-transition", "actionable_signal", ".claude/settings.json", "control:egress-destination-allowlist", "authority:broad-local|reaches|boundary:external-destination") ||
+		!hasSignalNoiseItem(decoded.OperatorWorkbench.SignalChain, "workbench:control-state", "missing", ".ariadne/egress-policy.json", "control:egress-destination-allowlist", "authority:broad-local|reaches|boundary:external-destination") ||
+		!hasSignalNoiseItem(decoded.OperatorWorkbench.SignalChain, "workbench:next-proof-action", "pending", ".ariadne/egress-policy.json", "control:egress-destination-allowlist", "") ||
 		!containsEvidenceReferenceSource(decoded.OperatorWorkbench.EvidenceToOpen, ".claude/settings.json") ||
 		!containsEvidenceReferenceSource(decoded.OperatorWorkbench.EvidenceToOpen, ".codex/config.toml") ||
 		!containsString(decoded.OperatorWorkbench.GraphPath, "authority broad local -> boundary external destination (reaches)") ||
@@ -4687,6 +4696,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"generated_proof_paths":null`,
 		`"apply_commands":null`,
 		`"operator_workbench":null`,
+		`"signal_chain":null`,
 		`"evidence_to_open":null`,
 		`"change_readout":null`,
 		`"case_lifecycle":null`,
@@ -4930,6 +4940,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Path to fix:",
 		"Supported graph edge: trust input repo instruction -> runtime claude (influences)",
 		"boundary external destination (reaches)",
+		"Signal chain:",
+		"expected capability [normal until correlated]",
+		"exposure transition [actionable signal]",
+		"control evidence [missing]",
+		"next action [pending]",
 		"Case lifecycle:",
 		"Current step: open_proof_action",
 		"Open Proof Action [current]:",
@@ -4987,6 +5002,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assessment",
 		"Assessment Readout",
 		"Operator Workbench",
+		"Signal Chain",
+		"workbench:normal-capability",
+		"workbench:exposure-transition",
+		"workbench:control-state",
+		"workbench:next-proof-action",
 		"Action Checklist",
 		"open_evidence",
 		"Open the cited evidence and confirm the graph path before changing controls.",
@@ -6498,7 +6518,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
 	assertRequiredKeys(t, assessWorkflowStep, "id", "title", "summary", "current", "evidence_refs", "starting_controls", "proof_surfaces", "commands", "success_criteria")
 	assessOperatorWorkbench := schemaMap(t, assessSchema, "$defs", "assess_operator_workbench")
-	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "evidence_to_open", "graph_path", "proof", "verify", "actions", "done_criteria", "change_readout", "limitations")
+	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "signal_chain", "evidence_to_open", "graph_path", "proof", "verify", "actions", "done_criteria", "change_readout", "limitations")
 	assessWorkbenchProof := schemaMap(t, assessSchema, "$defs", "assess_workbench_proof")
 	assertRequiredKeys(t, assessWorkbenchProof, "controls", "surfaces", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands")
 	assessWorkbenchAction := schemaMap(t, assessSchema, "$defs", "assess_workbench_action")
