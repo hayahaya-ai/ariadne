@@ -1306,6 +1306,12 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 			fmt.Fprintf(w, "  - Instruction: %s\n", action.CurrentAction.Instruction)
 		}
 	}
+	if len(action.CurrentAction.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "\nEvidence to inspect:\n")
+		for _, line := range evidenceReferenceLinesBySource(action.CurrentAction.EvidenceReferences, 4) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+	}
 	if example := assessCurrentEvidenceExampleLine(action); example != "" {
 		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
 	}
@@ -1658,6 +1664,7 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 func emptyAssessCurrentAction() model.AssessCurrentAction {
 	return model.AssessCurrentAction{
 		Available:            false,
+		EvidenceReferences:   []model.EvidenceReference{},
 		ProofPatchIndex:      -1,
 		EvidenceExampleIndex: -1,
 		SuccessCriteria:      []string{},
@@ -1677,6 +1684,7 @@ func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurren
 	current.WorkflowStepID = step.ID
 	current.WorkflowStepTitle = step.Title
 	current.Instruction = firstNonEmpty(action.NextStep, step.Summary)
+	current.EvidenceReferences = append([]model.EvidenceReference{}, action.EvidenceReferences...)
 	current.SuccessCriteria = append([]string{}, action.SuccessCriteria...)
 	if len(action.ProofPatches) > 0 {
 		patch := action.ProofPatches[0]

@@ -737,6 +737,9 @@ func assessCurrentActionLines(action model.AssessCurrentAction) []string {
 	if action.Surface != "" {
 		out = append(out, "Surface: "+action.Surface)
 	}
+	for _, line := range evidenceReferenceLinesBySource(action.EvidenceReferences, 4) {
+		out = append(out, "Evidence: "+line)
+	}
 	if action.ProofPatchIndex >= 0 {
 		if action.ProofPatch != nil {
 			for _, line := range controlProofPatchLines([]model.ControlProofPatch{*action.ProofPatch}, 1) {

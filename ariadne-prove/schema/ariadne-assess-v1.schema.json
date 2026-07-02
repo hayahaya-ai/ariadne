@@ -181,6 +181,7 @@
         "instruction",
         "control",
         "surface",
+        "evidence_refs",
         "proof_patch_index",
         "evidence_example_index",
         "rerun_command",
@@ -194,6 +195,10 @@
         "instruction": { "type": "string" },
         "control": { "type": "string" },
         "surface": { "type": "string" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
         "proof_patch_index": { "type": "integer" },
         "proof_patch": {
           "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_proof_patch"

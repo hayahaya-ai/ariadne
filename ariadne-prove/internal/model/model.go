@@ -322,6 +322,7 @@ type AssessCurrentAction struct {
 	Instruction          string                  `json:"instruction"`
 	Control              string                  `json:"control"`
 	Surface              string                  `json:"surface"`
+	EvidenceReferences   []EvidenceReference     `json:"evidence_refs"`
 	ProofPatchIndex      int                     `json:"proof_patch_index"`
 	ProofPatch           *ControlProofPatch      `json:"proof_patch,omitempty"`
 	EvidenceExampleIndex int                     `json:"evidence_example_index"`

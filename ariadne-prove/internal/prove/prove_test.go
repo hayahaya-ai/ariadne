@@ -3613,6 +3613,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.FirstAction.CurrentAction.ProofPatch.Surface != decoded.FirstAction.ProofPatches[0].Surface ||
 		decoded.FirstAction.CurrentAction.EvidenceExample == nil ||
 		decoded.FirstAction.CurrentAction.EvidenceExample.Surface != decoded.FirstAction.EvidenceExamples[0].Surface ||
+		len(decoded.FirstAction.CurrentAction.EvidenceReferences) == 0 ||
 		decoded.FirstAction.CurrentAction.RerunCommand == "" ||
 		decoded.FirstAction.CurrentAction.CompareCommand == "" {
 		t.Fatalf("first action current_action should point to the active proof patch and commands: %+v", decoded.FirstAction.CurrentAction)
@@ -3643,6 +3644,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Current action:",
 		"Control: control:egress-destination-allowlist",
 		"Proof surface: .ariadne/egress-policy.json",
+		"Evidence to inspect:",
+		".claude/settings.json",
 		"Accepted evidence:",
 		"Proof patch:",
 		"Rerun:",
@@ -3674,6 +3677,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Assessment Readout",
 		"First Action",
 		"Current Action",
+		"Evidence: target: .claude/settings.json",
 		"Proof patch: .ariadne/egress-policy.json",
 		"Accepted evidence: .ariadne/egress-policy.json",
 		"Action Workflow",
@@ -4414,7 +4418,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
 	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "workflow", "current_action")
 	assessCurrentAction := schemaMap(t, assessSchema, "$defs", "assess_current_action")
-	assertRequiredKeys(t, assessCurrentAction, "available", "workflow_step_id", "workflow_step_title", "instruction", "control", "surface", "proof_patch_index", "evidence_example_index", "rerun_command", "compare_command", "success_criteria")
+	assertRequiredKeys(t, assessCurrentAction, "available", "workflow_step_id", "workflow_step_title", "instruction", "control", "surface", "evidence_refs", "proof_patch_index", "evidence_example_index", "rerun_command", "compare_command", "success_criteria")
 	assertSchemaProperty(t, assessCurrentAction, "proof_patch")
 	assertSchemaProperty(t, assessCurrentAction, "evidence_example")
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
