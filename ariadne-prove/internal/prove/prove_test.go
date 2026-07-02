@@ -3244,6 +3244,8 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"before-proof.json",
 		"after-proof.json",
 		"ariadne compare --before before-proof.json --after after-proof.json",
+		"Export suggested files:",
+		"--patch-dir proof-patches",
 		"Proof plans are deterministic evidence plans",
 	} {
 		if !strings.Contains(out, want) {
@@ -3273,6 +3275,11 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		!containsString(decoded.CompareCommands, "--out after-proof.json") ||
 		!containsString(decoded.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") {
 		t.Fatalf("proof plan should carry before/after compare loop commands: %+v", decoded.CompareCommands)
+	}
+	if !strings.Contains(decoded.PatchExportCommand, "ariadne proofs --path") ||
+		!strings.Contains(decoded.PatchExportCommand, "--case case:input-trust-boundary") ||
+		!strings.Contains(decoded.PatchExportCommand, "--patch-dir proof-patches") {
+		t.Fatalf("proof plan should carry focused proof patch export command: %q", decoded.PatchExportCommand)
 	}
 	if !containsString(decoded.Limitations, "deterministic evidence") {
 		t.Fatalf("proof plan should keep declared-evidence limitation: %+v", decoded.Limitations)
@@ -3328,7 +3335,9 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"Proof Patches",
 		"Evidence References",
 		"Rerun Commands",
+		"Export Suggested Files",
 		"Compare Loop",
+		"--patch-dir proof-patches",
 		"before-proof.json",
 		"after-proof.json",
 		"case-compare.html",
@@ -3615,6 +3624,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.FirstAction.ProofPatches) == 0 ||
 		len(decoded.FirstAction.RerunCommands) == 0 ||
 		len(decoded.FirstAction.CompareCommands) == 0 ||
+		decoded.FirstAction.PatchExportCommand == "" ||
 		len(decoded.FirstAction.SuccessCriteria) == 0 ||
 		len(decoded.FirstAction.Workflow) != 4 {
 		t.Fatalf("assessment should include a fact-backed first action: %+v", decoded.FirstAction)
@@ -3646,7 +3656,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.FirstAction.CurrentAction.EvidenceExample.Surface != decoded.FirstAction.EvidenceExamples[0].Surface ||
 		len(decoded.FirstAction.CurrentAction.EvidenceReferences) == 0 ||
 		decoded.FirstAction.CurrentAction.RerunCommand == "" ||
-		decoded.FirstAction.CurrentAction.CompareCommand == "" {
+		decoded.FirstAction.CurrentAction.CompareCommand == "" ||
+		decoded.FirstAction.CurrentAction.PatchExportCommand == "" {
 		t.Fatalf("first action current_action should point to the active proof patch and commands: %+v", decoded.FirstAction.CurrentAction)
 	}
 	if decoded.TopCaseProofPlan == nil ||
@@ -3679,6 +3690,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		".claude/settings.json",
 		"Accepted evidence:",
 		"Proof patch:",
+		"Export suggested files:",
+		"--patch-dir proof-patches",
 		"Rerun:",
 		"Compare loop:",
 		"Done when:",
@@ -3713,6 +3726,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`.ariadne/egress-policy.json">.ariadne/egress-policy.json</a>`,
 		"Proof patch:",
 		"Accepted evidence:",
+		"Export suggested files:",
+		"--patch-dir proof-patches",
 		"Action Workflow",
 		"Inspect Evidence",
 		"CURRENT",
@@ -4396,6 +4411,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"evidence_refs",
 		"rerun_commands",
 		"compare_commands",
+		"patch_export_command",
 		"success_criteria",
 		"redaction",
 		"limitations",
@@ -4449,9 +4465,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
-	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "workflow", "current_action")
+	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "patch_export_command", "success_criteria", "workflow", "current_action")
 	assessCurrentAction := schemaMap(t, assessSchema, "$defs", "assess_current_action")
-	assertRequiredKeys(t, assessCurrentAction, "available", "workflow_step_id", "workflow_step_title", "instruction", "control", "surface", "evidence_refs", "proof_patch_index", "evidence_example_index", "rerun_command", "compare_command", "success_criteria")
+	assertRequiredKeys(t, assessCurrentAction, "available", "workflow_step_id", "workflow_step_title", "instruction", "control", "surface", "evidence_refs", "proof_patch_index", "evidence_example_index", "rerun_command", "compare_command", "patch_export_command", "success_criteria")
 	assertSchemaProperty(t, assessCurrentAction, "proof_patch")
 	assertSchemaProperty(t, assessCurrentAction, "evidence_example")
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")

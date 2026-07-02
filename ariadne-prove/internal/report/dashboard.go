@@ -731,7 +731,7 @@ func renderAssessCurrentActionDashboard(w io.Writer, root string, action model.A
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>After Proof</h3>`)
-	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(action.RerunCommand, action.CompareCommand)))
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(action.PatchExportCommand, action.RerunCommand, action.CompareCommand)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 }
@@ -766,6 +766,9 @@ func assessCurrentActionHTMLLines(root string, action model.AssessCurrentAction)
 	}
 	if action.Instruction != "" {
 		out = append(out, "Instruction: "+esc(action.Instruction))
+	}
+	if action.PatchExportCommand != "" {
+		out = append(out, "Export suggested files: "+esc(action.PatchExportCommand))
 	}
 	if out == nil {
 		return []string{}
@@ -1765,7 +1768,9 @@ func renderProofPlanCommandsDashboard(w io.Writer, r model.ProofPlanReport) {
 	fmt.Fprintln(w, `<div><h3>Rerun</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(r.RerunCommands, 6)))
 	fmt.Fprintln(w, `</div>`)
-	fmt.Fprintln(w, `<div><h3>Done When</h3>`)
+	fmt.Fprintln(w, `<div><h3>Export Suggested Files</h3>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(r.PatchExportCommand)))
+	fmt.Fprintln(w, `<h3>Done When</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(r.SuccessCriteria, 6)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)

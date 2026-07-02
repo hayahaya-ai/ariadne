@@ -119,6 +119,7 @@
         "proof_patches",
         "rerun_commands",
         "compare_commands",
+        "patch_export_command",
         "success_criteria",
         "workflow",
         "current_action"
@@ -159,6 +160,7 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "patch_export_command": { "type": "string" },
         "success_criteria": {
           "type": "array",
           "items": { "type": "string" }
@@ -186,6 +188,7 @@
         "evidence_example_index",
         "rerun_command",
         "compare_command",
+        "patch_export_command",
         "success_criteria"
       ],
       "properties": {
@@ -209,6 +212,7 @@
         },
         "rerun_command": { "type": "string" },
         "compare_command": { "type": "string" },
+        "patch_export_command": { "type": "string" },
         "success_criteria": {
           "type": "array",
           "items": { "type": "string" }

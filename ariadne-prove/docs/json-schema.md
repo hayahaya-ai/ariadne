@@ -143,7 +143,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `case_board`, the same operator case-board contract emitted by `ariadne cases`
 - `top_cases`, a bounded case-first queue for humans
 - `top_case_proof_plan`, the focused proof-plan contract for the highest-priority case, including evidence refs, proof patches, rerun commands, compare commands, and success criteria
-- `first_action`, the highest-priority case distilled into one fact-backed action with priority reason, next step, evidence refs, proof surfaces, accepted evidence examples, proof patches, rerun commands, compare commands, success criteria, an ordered evidence -> proof -> rerun -> compare workflow, and `current_action` pointers to the active workflow step, source evidence refs, rerun command, and compare command. When available, `current_action` also embeds the selected proof patch and accepted evidence example so clients can render the active action without re-indexing arrays.
+- `first_action`, the highest-priority case distilled into one fact-backed action with priority reason, next step, evidence refs, proof surfaces, accepted evidence examples, proof patches, rerun commands, compare commands, suggested proof export command, success criteria, an ordered evidence -> proof -> rerun -> compare workflow, and `current_action` pointers to the active workflow step, source evidence refs, rerun command, compare command, and proof export command. When available, `current_action` also embeds the selected proof patch and accepted evidence example so clients can render the active action without re-indexing arrays.
 - `next_commands`, including the exact `assess`, focused `cases`, focused `proofs`, `controls`, and `architecture` commands to rerun
 
 The assessment contract is a composition layer. It does not create a separate classification engine; classifications and `first_action` remain derived from deterministic facts, graph edges, architecture flaws, ranked operator cases, and missing hard-barrier controls.
@@ -183,6 +183,7 @@ This catalog is derived from the architecture closure plan. It does not create a
 - `evidence_refs`, the file or graph evidence that caused the proof request
 - `rerun_commands` and `success_criteria`, so automation can close the loop after evidence is added
 - `compare_commands`, with the exact before-proof, after-proof, and compare commands for the rerun loop
+- `patch_export_command`, the exact command to export suggested proof evidence files for the focused proof plan when export is supported
 - `limitations`, including the distinction between declared evidence and observed runtime enforcement
 
 This proof plan is read-only by default. It narrows the action packet for an operator or dashboard, but it does not write policy files and does not claim that declared evidence proves live enforcement. When invoked with `--patch-dir <dir>`, Ariadne exports suggested proof evidence files plus a manifest under that directory; the export is still review-first and does not mutate the scanned repo.

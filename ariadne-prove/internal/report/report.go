@@ -381,6 +381,10 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 	rerunCommands = uniqueStrings(rerunCommands)
 	successCriteria = uniqueStrings(successCriteria)
 	compareCommands := proofPlanCompareCommands(catalog)
+	patchExportCommand := ""
+	if len(patches) > 0 {
+		patchExportCommand = proofPlanPatchExportCommand(catalog)
+	}
 	cases := append([]model.ControlOperatorCase{}, catalog.OperatorCases...)
 	if cases == nil {
 		cases = []model.ControlOperatorCase{}
@@ -424,10 +428,42 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 		EvidenceReferences: evidenceRefs,
 		RerunCommands:      rerunCommands,
 		CompareCommands:    compareCommands,
+		PatchExportCommand: patchExportCommand,
 		SuccessCriteria:    successCriteria,
 		Redaction:          catalog.Redaction,
 		Limitations:        limitations,
 	}
+}
+
+func proofPlanCommand(catalog model.ControlCatalogReport, caseID string) string {
+	mode := firstNonEmpty(catalog.Mode, "repo")
+	agent := firstNonEmpty(catalog.Agent, "all")
+	status := firstNonEmpty(catalog.StatusFilter, "breaking")
+	var command string
+	switch catalog.RunKind {
+	case "case_board_scan", "control_catalog_scan":
+		command = fmt.Sprintf("ariadne proofs --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+	default:
+		path := firstNonEmpty(catalog.TargetPath, "<target-path>")
+		command = fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+	}
+	caseID = strings.TrimSpace(caseID)
+	if caseID != "" {
+		command += " --case " + shellQuoteCommandArg(caseID)
+	}
+	return command
+}
+
+func proofPlanPatchExportCommand(catalog model.ControlCatalogReport) string {
+	switch catalog.RunKind {
+	case "case_board_scan", "control_catalog_scan":
+		return ""
+	}
+	caseID := strings.TrimSpace(catalog.CaseFilter)
+	if caseID == "" && len(catalog.OperatorCases) == 1 {
+		caseID = catalog.OperatorCases[0].ID
+	}
+	return proofPlanCommand(catalog, caseID) + " --patch-dir proof-patches"
 }
 
 func proofPlanCompareCommands(catalog model.ControlCatalogReport) []string {
@@ -438,21 +474,7 @@ func proofPlanCompareCommands(catalog model.ControlCatalogReport) []string {
 		caseID = catalog.OperatorCases[0].ID
 	}
 	proofCommand := func(out string) string {
-		mode := firstNonEmpty(catalog.Mode, "repo")
-		agent := firstNonEmpty(catalog.Agent, "all")
-		status := firstNonEmpty(catalog.StatusFilter, "breaking")
-		var command string
-		switch catalog.RunKind {
-		case "case_board_scan", "control_catalog_scan":
-			command = fmt.Sprintf("ariadne proofs --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
-		default:
-			path := firstNonEmpty(catalog.TargetPath, "<target-path>")
-			command = fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
-		}
-		if caseID != "" {
-			command += " --case " + shellQuoteCommandArg(caseID)
-		}
-		return command + " --format json --out " + shellQuoteCommandArg(out)
+		return proofPlanCommand(catalog, caseID) + " --format json --out " + shellQuoteCommandArg(out)
 	}
 	return []string{
 		proofCommand(before),
@@ -1334,6 +1356,9 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	if patch := assessCurrentProofPatchLine(action); patch != "" {
 		fmt.Fprintf(w, "\nProof patch:\n  - %s\n", patch)
 	}
+	if action.CurrentAction.PatchExportCommand != "" {
+		fmt.Fprintf(w, "\nExport suggested files:\n  - %s\n", action.CurrentAction.PatchExportCommand)
+	}
 	if rerun := assessCurrentRerunCommand(action); rerun != "" {
 		fmt.Fprintf(w, "\nRerun:\n  - %s\n", rerun)
 	}
@@ -1617,6 +1642,7 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 		ProofPatches:       []model.ControlProofPatch{},
 		RerunCommands:      []string{},
 		CompareCommands:    []string{},
+		PatchExportCommand: "",
 		SuccessCriteria:    []string{},
 		Workflow:           []model.AssessWorkflowStep{},
 		CurrentAction:      emptyAssessCurrentAction(),
@@ -1647,6 +1673,7 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 		if len(action.CompareCommands) == 0 {
 			action.CompareCommands = append([]string{}, proofPlan.CompareCommands...)
 		}
+		action.PatchExportCommand = proofPlan.PatchExportCommand
 	}
 	if action.EvidenceReferences == nil {
 		action.EvidenceReferences = []model.EvidenceReference{}
@@ -1726,6 +1753,7 @@ func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurren
 	if len(action.CompareCommands) > 0 {
 		current.CompareCommand = action.CompareCommands[len(action.CompareCommands)-1]
 	}
+	current.PatchExportCommand = action.PatchExportCommand
 	return current
 }
 
@@ -2825,6 +2853,10 @@ func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {
 		for _, command := range limitStrings(r.CompareCommands, 3) {
 			fmt.Fprintf(w, "  - %s\n", command)
 		}
+	}
+	if r.PatchExportCommand != "" {
+		fmt.Fprintf(w, "\nExport suggested files:\n")
+		fmt.Fprintf(w, "  - %s\n", r.PatchExportCommand)
 	}
 	if len(r.Limitations) > 0 {
 		fmt.Fprintf(w, "\nLimitations:\n")

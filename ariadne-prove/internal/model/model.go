@@ -174,6 +174,7 @@ type ProofPlanReport struct {
 	EvidenceReferences []EvidenceReference   `json:"evidence_refs"`
 	RerunCommands      []string              `json:"rerun_commands"`
 	CompareCommands    []string              `json:"compare_commands"`
+	PatchExportCommand string                `json:"patch_export_command"`
 	SuccessCriteria    []string              `json:"success_criteria"`
 	Redaction          RedactionInfo         `json:"redaction"`
 	Limitations        []string              `json:"limitations"`
@@ -310,6 +311,7 @@ type AssessFirstAction struct {
 	ProofPatches       []ControlProofPatch      `json:"proof_patches"`
 	RerunCommands      []string                 `json:"rerun_commands"`
 	CompareCommands    []string                 `json:"compare_commands"`
+	PatchExportCommand string                   `json:"patch_export_command"`
 	SuccessCriteria    []string                 `json:"success_criteria"`
 	Workflow           []AssessWorkflowStep     `json:"workflow"`
 	CurrentAction      AssessCurrentAction      `json:"current_action"`
@@ -329,6 +331,7 @@ type AssessCurrentAction struct {
 	EvidenceExample      *ControlEvidenceExample `json:"evidence_example,omitempty"`
 	RerunCommand         string                  `json:"rerun_command"`
 	CompareCommand       string                  `json:"compare_command"`
+	PatchExportCommand   string                  `json:"patch_export_command"`
 	SuccessCriteria      []string                `json:"success_criteria"`
 }
 
