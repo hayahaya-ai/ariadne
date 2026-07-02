@@ -2469,11 +2469,15 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 		})
 	}
 	if !closedAction && len(triage.MissingHardBarriers) > 0 {
+		missingSummary := fmt.Sprintf("%d starting hard-barrier control(s) are missing or unproven for the top case.", len(triage.MissingHardBarriers))
+		if summary.MissingHardBarrierControls > len(triage.MissingHardBarriers) {
+			missingSummary = fmt.Sprintf("%s %d missing hard-barrier control instance(s) remain across all open cases.", missingSummary, summary.MissingHardBarrierControls)
+		}
 		signals = append(signals, model.AssessSignal{
 			ID:                 "signal:missing-hard-barriers",
 			Category:           "missing_control",
 			Disposition:        "missing_hard_barrier",
-			Summary:            fmt.Sprintf("%d hard-barrier control(s) are missing or unproven for open cases.", len(triage.MissingHardBarriers)),
+			Summary:            missingSummary,
 			WhyItMatters:       "Ariadne prioritizes controls that break the modeled path, not soft guidance or friction-only mitigations.",
 			GraphEdges:         actionGraphEdges,
 			EvidenceReferences: actionEvidence,

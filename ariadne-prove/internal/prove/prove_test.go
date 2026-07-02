@@ -3790,6 +3790,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !hasAssessSignal(decoded.Triage.SignalDetails, "missing_control", "missing_hard_barrier", "hard-barrier control") {
 		t.Fatalf("triage signal details should include missing hard barriers: %+v", decoded.Triage.SignalDetails)
 	}
+	if !hasAssessSignal(decoded.Triage.SignalDetails, "missing_control", "missing_hard_barrier", "starting hard-barrier control(s) are missing or unproven for the top case") ||
+		!hasAssessSignal(decoded.Triage.SignalDetails, "missing_control", "missing_hard_barrier", "missing hard-barrier control instance(s) remain across all open cases") {
+		t.Fatalf("missing hard-barrier signal should distinguish top-case starting controls from all open cases: %+v", decoded.Triage.SignalDetails)
+	}
+	if strings.Contains(jsonOut.String(), "missing or unproven for open cases") {
+		t.Fatalf("assessment JSON should not blur top-case controls with all open cases:\n%s", jsonOut.String())
+	}
 	if !assessSignalHasEvidence(decoded.Triage.SignalDetails, "signal:top-operator-case") {
 		t.Fatalf("top risk signal should retain evidence references: %+v", decoded.Triage.SignalDetails)
 	}
@@ -3897,6 +3904,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Signal details:",
 		"signal:top-operator-case",
 		"signal:normal-agent-capability",
+		"starting hard-barrier control(s) are missing or unproven for the top case",
+		"missing hard-barrier control instance(s) remain across all open cases",
 		"Graph:",
 		"Closure plan:",
 		"control:egress-destination-allowlist -> Egress And Output Boundary",
@@ -3931,6 +3940,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Architecture break paths:",
 		"Operator cases:",
 		"Top case proof packet:",
+		"missing or unproven for open cases",
 	} {
 		if strings.Contains(actionRendered, unwanted) {
 			t.Fatalf("assessment action output should stay compact and omit %q:\n%s", unwanted, actionRendered)
