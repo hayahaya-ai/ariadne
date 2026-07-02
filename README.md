@@ -16,11 +16,74 @@ The active implementation is in [`ariadne-prove/`](ariadne-prove/).
 make build
 make verify-first-run
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
-./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces
-./bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk
-./bin/ariadne scan --targets ariadne-prove/testdata/realpath/targets.txt
-./bin/ariadne dashboard --path ariadne-prove/testdata/realpath/combined-risk --out ariadne-dashboard.html
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format html --out /tmp/ariadne-assess.html
 ```
+
+The first command builds the CLI. The second command runs the product verification loop against known fixtures. The third command is the first-run triage experience: it tells you what Ariadne inspected, what facts it collected, which operator case is first, what evidence supports it, what is normal agent capability, what is real risk, what hard barrier is missing, and how to prove the fix worked.
+
+## First-Run Triage Loop
+
+Ariadne is meant to be used as an operator workflow, not just a scanner.
+
+```bash
+# 1. Get the first action.
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
+
+# 2. Focus the prioritized case.
+./bin/ariadne cases --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary
+
+# 3. Save the baseline proof state.
+./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --format json --out before-proof.json
+
+# 4. See the proof evidence Ariadne expects.
+./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary
+
+# 5. Export suggested proof files for review.
+./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --patch-dir proof-patches
+
+# 6. Rerun after applying real control evidence.
+./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --format json --out after-proof.json
+
+# 7. Compare before and after.
+./bin/ariadne compare --before before-proof.json --after after-proof.json
+```
+
+On the `combined-risk` fixture, the first action currently starts with `case:egress-output-boundary` because Ariadne connected these facts:
+
+- repo instructions can influence local agent runtimes
+- Claude/Codex configuration grants broad or file-read authority
+- a secret-like boundary exists
+- external communication or tool-mediated egress is reachable
+- no hard egress or output barrier is proven
+
+The HTML version includes clickable local evidence links and copy-path buttons:
+
+```bash
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format html --out /tmp/ariadne-assess.html
+```
+
+## Endpoint Mode
+
+Use endpoint mode when the target looks like a developer home directory or mounted endpoint snapshot:
+
+```bash
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format action
+./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format json
+```
+
+Endpoint mode discovers AI surfaces such as Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, MCP, and Ariadne proof policy files. It parses known security-relevant files, summarizes private context surfaces, models authorities and boundaries, and then ranks operator cases.
+
+## Fact Contract
+
+Ariadne separates facts from interpretation:
+
+- **Observed fact:** a file, config, instruction, cache, MCP, tool, authority, control, or boundary was discovered.
+- **Declared fact:** a config or policy says a control exists.
+- **Inferred fact:** Ariadne can model authority or reachability from deterministic evidence.
+- **Classification:** Ariadne connects facts into a graph path and labels the path `exposed`, `protected`, or `inconclusive`.
+- **Operator case:** Ariadne ranks missing hard barriers that would break a supported path.
+
+If Ariadne cannot cite facts, evidence references, graph edges, controls, and limitations, it should not present a conclusion as more than unknown or inconclusive.
 
 ## What It Does
 
