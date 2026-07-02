@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-proof-plan-v1.schema.json",
+  "title": "Ariadne Proof Plan Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "mode",
+    "agent",
+    "status_filter",
+    "summary",
+    "cases",
+    "proof_patches",
+    "evidence_refs",
+    "rerun_commands",
+    "success_criteria",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "type": "string", "enum": ["proof_plan", "proof_plan_scan"] },
+    "target_path": { "type": "string" },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "status_filter": { "type": "string" },
+    "case_filter": { "type": "string" },
+    "summary": { "$ref": "#/$defs/proof_plan_summary" },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_operator_case" }
+    },
+    "proof_patches": {
+      "type": "array",
+      "items": { "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_proof_patch" }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+    },
+    "rerun_commands": { "type": "array", "items": { "type": "string" } },
+    "success_criteria": { "type": "array", "items": { "type": "string" } },
+    "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "proof_plan_summary": {
+      "type": "object",
+      "required": ["cases", "proof_patches", "evidence_refs", "controls", "targets", "flaws"],
+      "properties": {
+        "cases": { "type": "integer" },
+        "proof_patches": { "type": "integer" },
+        "evidence_refs": { "type": "integer" },
+        "controls": { "type": "integer" },
+        "targets": { "type": "integer" },
+        "flaws": { "type": "integer" }
+      }
+    }
+  }
+}

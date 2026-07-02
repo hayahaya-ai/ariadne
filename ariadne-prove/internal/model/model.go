@@ -158,6 +158,35 @@ type ControlCatalogReport struct {
 	Limitations       []string                     `json:"limitations"`
 }
 
+type ProofPlanReport struct {
+	SchemaVersion      string                `json:"schema_version"`
+	RunID              string                `json:"run_id"`
+	GeneratedAt        time.Time             `json:"generated_at"`
+	RunKind            string                `json:"run_kind"`
+	TargetPath         string                `json:"target_path,omitempty"`
+	Mode               string                `json:"mode"`
+	Agent              string                `json:"agent"`
+	StatusFilter       string                `json:"status_filter"`
+	CaseFilter         string                `json:"case_filter,omitempty"`
+	Summary            ProofPlanSummary      `json:"summary"`
+	Cases              []ControlOperatorCase `json:"cases"`
+	ProofPatches       []ControlProofPatch   `json:"proof_patches"`
+	EvidenceReferences []EvidenceReference   `json:"evidence_refs"`
+	RerunCommands      []string              `json:"rerun_commands"`
+	SuccessCriteria    []string              `json:"success_criteria"`
+	Redaction          RedactionInfo         `json:"redaction"`
+	Limitations        []string              `json:"limitations"`
+}
+
+type ProofPlanSummary struct {
+	Cases              int `json:"cases"`
+	ProofPatches       int `json:"proof_patches"`
+	EvidenceReferences int `json:"evidence_refs"`
+	Controls           int `json:"controls"`
+	Targets            int `json:"targets"`
+	Flaws              int `json:"flaws"`
+}
+
 type AssessReport struct {
 	SchemaVersion    string                  `json:"schema_version"`
 	RunID            string                  `json:"run_id"`

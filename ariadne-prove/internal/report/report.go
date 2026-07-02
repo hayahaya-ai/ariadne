@@ -212,6 +212,30 @@ func RenderCasesScan(w io.Writer, r model.ScanReport, format string, statusFilte
 	return renderControlCaseBoard(w, catalog, format)
 }
 
+func RenderProofs(w io.Writer, r model.Report, format string, statusFilter string, caseFilter string) error {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCaseBoardReport(architecture)
+	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
+		return err
+	}
+	return renderProofPlan(w, BuildProofPlanReport(catalog), format)
+}
+
+func RenderProofsScan(w io.Writer, r model.ScanReport, format string, statusFilter string, caseFilter string) error {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCaseBoardScanReport(architecture)
+	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
+		return err
+	}
+	return renderProofPlan(w, BuildProofPlanReport(catalog), format)
+}
+
 func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogReport {
 	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
 	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
@@ -261,6 +285,92 @@ func BuildControlCaseBoardReport(r model.ArchitectureReport) model.ControlCatalo
 	catalog.RunKind = "case_board"
 	rewriteControlCatalogAsCaseBoard(&catalog)
 	return catalog
+}
+
+func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanReport {
+	var patches []model.ControlProofPatch
+	var evidenceRefs []model.EvidenceReference
+	var rerunCommands []string
+	var successCriteria []string
+	targets := map[string]bool{}
+	flaws := map[string]bool{}
+	controls := map[string]bool{}
+	for _, item := range catalog.OperatorCases {
+		patches = append(patches, item.ProofPatches...)
+		evidenceRefs = append(evidenceRefs, item.EvidenceReferences...)
+		rerunCommands = append(rerunCommands, item.RerunCommands...)
+		successCriteria = append(successCriteria, item.SuccessCriteria...)
+		for _, target := range item.Targets {
+			targets[target] = true
+		}
+		for _, flaw := range item.Flaws {
+			flaws[flaw] = true
+		}
+		for _, control := range item.StartingControls {
+			controls[control] = true
+		}
+	}
+	if len(catalog.OperatorCases) == 0 {
+		for _, task := range catalog.VerificationTasks {
+			patches = append(patches, task.ProofPatches...)
+			evidenceRefs = append(evidenceRefs, task.EvidenceReferences...)
+			rerunCommands = append(rerunCommands, task.RerunCommands...)
+			successCriteria = append(successCriteria, task.SuccessCriteria...)
+			if task.Control != "" {
+				controls[task.Control] = true
+			}
+			for _, target := range task.Targets {
+				targets[target] = true
+			}
+		}
+	}
+	patches = dedupeControlProofPatches(patches)
+	evidenceRefs = dedupeEvidenceReferences(evidenceRefs)
+	rerunCommands = uniqueStrings(rerunCommands)
+	successCriteria = uniqueStrings(successCriteria)
+	cases := append([]model.ControlOperatorCase{}, catalog.OperatorCases...)
+	if cases == nil {
+		cases = []model.ControlOperatorCase{}
+	}
+	if patches == nil {
+		patches = []model.ControlProofPatch{}
+	}
+	if evidenceRefs == nil {
+		evidenceRefs = []model.EvidenceReference{}
+	}
+	if rerunCommands == nil {
+		rerunCommands = []string{}
+	}
+	if successCriteria == nil {
+		successCriteria = []string{}
+	}
+	limitations := uniqueSortedStrings(append([]string{
+		"Proof plans are deterministic evidence plans; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.",
+		"Add proof only when the named control is actually implemented or enforced in the environment.",
+	}, catalog.Limitations...))
+	runKind := "proof_plan"
+	if catalog.RunKind == "case_board_scan" || catalog.RunKind == "control_catalog_scan" {
+		runKind = "proof_plan_scan"
+	}
+	return model.ProofPlanReport{
+		SchemaVersion:      model.SchemaVersion,
+		RunID:              catalog.RunID,
+		GeneratedAt:        catalog.GeneratedAt,
+		RunKind:            runKind,
+		TargetPath:         catalog.TargetPath,
+		Mode:               catalog.Mode,
+		Agent:              catalog.Agent,
+		StatusFilter:       catalog.StatusFilter,
+		CaseFilter:         catalog.CaseFilter,
+		Summary:            model.ProofPlanSummary{Cases: len(catalog.OperatorCases), ProofPatches: len(patches), EvidenceReferences: len(evidenceRefs), Controls: len(controls), Targets: len(targets), Flaws: len(flaws)},
+		Cases:              cases,
+		ProofPatches:       patches,
+		EvidenceReferences: evidenceRefs,
+		RerunCommands:      rerunCommands,
+		SuccessCriteria:    successCriteria,
+		Redaction:          catalog.Redaction,
+		Limitations:        limitations,
+	}
 }
 
 func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
@@ -1508,6 +1618,125 @@ func renderControlCaseBoard(w io.Writer, r model.ControlCatalogReport, format st
 	}
 }
 
+func renderProofPlan(w io.Writer, r model.ProofPlanReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderProofPlanTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	default:
+		return fmt.Errorf("unknown proofs format: %s", format)
+	}
+}
+
+func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {
+	fmt.Fprintf(w, "Ariadne proof plan:\n")
+	fmt.Fprintf(w, "  Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "proof_plan"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	if r.TargetPath != "" {
+		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
+	}
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, "  Case: %s\n", r.CaseFilter)
+	}
+	fmt.Fprintf(w, "  Proof queue: %d case(s), %d proof patch(es), %d evidence reference(s), %d control(s), %d target(s), %d flaw(s)\n\n",
+		r.Summary.Cases,
+		r.Summary.ProofPatches,
+		r.Summary.EvidenceReferences,
+		r.Summary.Controls,
+		r.Summary.Targets,
+		r.Summary.Flaws,
+	)
+	if len(r.Cases) > 0 {
+		fmt.Fprintf(w, "Cases:\n")
+		for _, item := range limitProofPlanCases(r.Cases, 5) {
+			fmt.Fprintf(w, "  - #%d %s %s (%s)\n", item.Rank, strings.ToUpper(item.Severity), item.Title, item.ID)
+			if item.NextStep != "" {
+				fmt.Fprintf(w, "    Next step: %s\n", item.NextStep)
+			}
+			if len(item.EvidenceReferences) > 0 {
+				fmt.Fprintf(w, "    Evidence to inspect: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+			}
+		}
+		if len(r.Cases) > 5 {
+			fmt.Fprintf(w, "  - %d more case(s) in JSON output\n", len(r.Cases)-5)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(r.ProofPatches) == 0 {
+		fmt.Fprintf(w, "Proof patches:\n")
+		fmt.Fprintf(w, "  - no proof patches matched this filter\n\n")
+		return nil
+	}
+	fmt.Fprintf(w, "Proof patches:\n")
+	for _, patch := range limitProofPlanPatches(r.ProofPatches, 12) {
+		fmt.Fprintf(w, "  - %s -> %s (%s)\n", patch.Control, patch.Surface, patch.Operation)
+		if len(patch.Fields) > 0 {
+			fmt.Fprintf(w, "    Fields: %s\n", strings.Join(controlProofPatchFieldLines(patch.Fields), "; "))
+		}
+		if patch.Example != "" {
+			fmt.Fprintf(w, "    Example: %s\n", compactExample(patch.Example))
+		}
+		if len(patch.RerunCommands) > 0 {
+			fmt.Fprintf(w, "    Rerun: %s\n", strings.Join(limitStrings(patch.RerunCommands, 2), "; "))
+		}
+		if len(patch.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "    Done when: %s\n", strings.Join(limitStrings(patch.SuccessCriteria, 2), "; "))
+		}
+		if len(patch.Limitations) > 0 {
+			fmt.Fprintf(w, "    Limitation: %s\n", patch.Limitations[0])
+		}
+	}
+	if len(r.ProofPatches) > 12 {
+		fmt.Fprintf(w, "  - %d more proof patch(es) in JSON output\n", len(r.ProofPatches)-12)
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range limitStrings(r.Limitations, 5) {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func controlProofPatchFieldLines(fields []model.ControlProofPatchField) []string {
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		name := field.Name
+		if name == "" {
+			name = field.Indicator
+		}
+		if field.ValueJSON != "" {
+			out = append(out, name+"="+field.ValueJSON)
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func limitProofPlanCases(items []model.ControlOperatorCase, limit int) []model.ControlOperatorCase {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	if limit == 0 {
+		return []model.ControlOperatorCase{}
+	}
+	return items[:limit]
+}
+
+func limitProofPlanPatches(items []model.ControlProofPatch, limit int) []model.ControlProofPatch {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	if limit == 0 {
+		return []model.ControlProofPatch{}
+	}
+	return items[:limit]
+}
+
 func renderControlCaseBoardTable(w io.Writer, r model.ControlCatalogReport) error {
 	fmt.Fprintf(w, "Ariadne operator case board:\n")
 	if r.TargetPath != "" {
@@ -1631,6 +1860,7 @@ func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error 
 func rewriteControlCatalogAsCaseBoard(catalog *model.ControlCatalogReport) {
 	for i := range catalog.OperatorCases {
 		catalog.OperatorCases[i].RerunCommands = caseBoardRerunCommands(catalog.OperatorCases[i].RerunCommands)
+		catalog.OperatorCases[i].ProofPatches = proofPatchesWithRerunCommands(catalog.OperatorCases[i].ProofPatches, caseBoardRerunCommands)
 		catalog.OperatorCases[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.OperatorCases[i].SuccessCriteria)
 	}
 	for i := range catalog.Workstreams {
@@ -1638,6 +1868,7 @@ func rewriteControlCatalogAsCaseBoard(catalog *model.ControlCatalogReport) {
 	}
 	for i := range catalog.VerificationTasks {
 		catalog.VerificationTasks[i].RerunCommands = caseBoardRerunCommands(catalog.VerificationTasks[i].RerunCommands)
+		catalog.VerificationTasks[i].ProofPatches = proofPatchesWithRerunCommands(catalog.VerificationTasks[i].ProofPatches, caseBoardRerunCommands)
 		catalog.VerificationTasks[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.VerificationTasks[i].SuccessCriteria)
 	}
 }
@@ -1661,6 +1892,9 @@ func filterControlCaseBoard(catalog *model.ControlCatalogReport, caseFilter stri
 	}
 	catalog.CaseFilter = selected.ID
 	selected.RerunCommands = caseBoardFocusedRerunCommands(selected.RerunCommands, selected.ID)
+	selected.ProofPatches = proofPatchesWithRerunCommands(selected.ProofPatches, func(commands []string) []string {
+		return caseBoardFocusedRerunCommands(commands, selected.ID)
+	})
 	caseID := strings.TrimPrefix(selected.ID, "case:")
 	controls := map[string]bool{}
 	taskIDs := map[string]bool{}
@@ -1709,6 +1943,9 @@ func filterControlCaseBoard(catalog *model.ControlCatalogReport, caseFilter stri
 	for _, item := range catalog.VerificationTasks {
 		if controls[item.Control] || taskIDs[item.ID] {
 			item.RerunCommands = caseBoardFocusedRerunCommands(item.RerunCommands, selected.ID)
+			item.ProofPatches = proofPatchesWithRerunCommands(item.ProofPatches, func(commands []string) []string {
+				return caseBoardFocusedRerunCommands(commands, selected.ID)
+			})
 			tasks = append(tasks, item)
 		}
 	}
@@ -1720,6 +1957,18 @@ func filterControlCaseBoard(catalog *model.ControlCatalogReport, caseFilter stri
 	catalog.VerificationTasks = nonNilControlVerificationTasks(tasks)
 	catalog.Summary = summarizeControlCatalog(catalog.Controls)
 	return nil
+}
+
+func proofPatchesWithRerunCommands(patches []model.ControlProofPatch, rewrite func([]string) []string) []model.ControlProofPatch {
+	if len(patches) == 0 {
+		return []model.ControlProofPatch{}
+	}
+	out := make([]model.ControlProofPatch, 0, len(patches))
+	for _, patch := range patches {
+		patch.RerunCommands = rewrite(patch.RerunCommands)
+		out = append(out, patch)
+	}
+	return out
 }
 
 func caseBoardFocusedRerunCommands(commands []string, caseID string) []string {

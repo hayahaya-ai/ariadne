@@ -171,6 +171,17 @@ This catalog is derived from the architecture closure plan. It does not create a
 
 `ariadne cases --format json` emits the same evidence contract with `run_kind` set to `case_board` or `case_board_scan`. The table and HTML renderers are case-first: they lead with `operator_cases` and keep controls, workstreams, proof specs, and verification tasks as supporting evidence for automation and deeper review. When `--case <case-id>` is supplied, `case_filter` records the selected case and the arrays are narrowed to that case's supporting evidence.
 
+`ariadne proofs --format json` emits a focused proof-plan contract with:
+
+- `summary`, counting selected cases, proof patches, evidence references, controls, targets, and flaws
+- `cases`, preserving the focused operator cases that produced the proof plan
+- `proof_patches`, the parser-recognized evidence patches to add or verify
+- `evidence_refs`, the file or graph evidence that caused the proof request
+- `rerun_commands` and `success_criteria`, so automation can close the loop after evidence is added
+- `limitations`, including the distinction between declared evidence and observed runtime enforcement
+
+This proof plan is read-only. It narrows the action packet for an operator or dashboard, but it does not write policy files and does not claim that declared evidence proves live enforcement.
+
 `ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, operator cases, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, proof patches, evidence examples, and actions.
 
 `ariadne cases --format html` renders the same contract as an operator case board: summary metrics, prioritized cases, evidence references, starting controls, proof surfaces, proof patches, example evidence, rerun commands, done criteria, and a compact evidence model.

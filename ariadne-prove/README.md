@@ -166,6 +166,7 @@ repo-only,/srv/repos/example
 | `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets and route recurring break paths to fleet cases. |
 | `ariadne cases --path <dir>` | Show the operator case board for architecture break paths and what proof closes them. Use `--case <case-id>` to focus one case. |
 | `ariadne cases --targets <file>` | Group operator cases across many targets. |
+| `ariadne proofs --path <dir> --case <case-id>` | Show the focused proof patches, evidence refs, rerun commands, and success criteria for one closure case. |
 | `ariadne controls --path <dir>` | Show missing hard-barrier controls, proof surfaces, and the flaws they close. Use `--format html` for the focused operator dashboard. |
 | `ariadne controls --targets <file>` | Group missing hard-barrier controls across many targets. |
 | `ariadne scan --targets <file>` | Run `prove` across many local or mounted targets and aggregate the results. |
@@ -260,6 +261,8 @@ Prove output adds:
 - limitations
 
 Cases output is the case-first operator view of the architecture closure plan. It starts with the few architecture break paths an operator can act on, then shows rank, priority reason, state, state reason, next step, evidence refs, starting controls, proof surfaces, proof patches, evidence examples, rerun commands, and success criteria for each case. Case rank follows deterministic closure priority from severity and affected flaws, targets, and missing hard barriers. Case state and next step are derived from missing hard-barrier controls and parser-recognized proof tasks. Use `--case case:input-trust-boundary` or the unprefixed case id to focus the table, JSON, or HTML output on one case and its supporting evidence.
+
+Proofs output is the narrower closure-loop action view. Use `ariadne proofs --path . --case case:input-trust-boundary` when the operator already knows which case to work and needs only the evidence references, proof patches, parser-recognized fields, rerun commands, success criteria, and limitations. It is read-only: proof patches are evidence plans, not automatic remediation or proof of live enforcement.
 
 Architecture output includes an operator case workflow section so the readout does not stop at "what is breaking." It prints the case-board command and focused `--case` commands for the top closure families.
 

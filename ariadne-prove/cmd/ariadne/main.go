@@ -29,6 +29,8 @@ func main() {
 		runArchitecture(os.Args[2:])
 	case "cases":
 		runCases(os.Args[2:])
+	case "proofs":
+		runProofs(os.Args[2:])
 	case "controls":
 		runControls(os.Args[2:])
 	case "inventory":
@@ -163,6 +165,57 @@ func runCases(args []string) {
 	}
 	defer closeFn()
 	if err := report.RenderCases(writer, r, *format, *status, *caseID); err != nil {
+		fatal(err)
+	}
+}
+
+func runProofs(args []string) {
+	fs := flag.NewFlagSet("proofs", flag.ExitOnError)
+	targetsFile := fs.String("targets", "", "file of proof-plan targets, one path per line or id,path")
+	path := fs.String("path", ".", "repo or workspace path to inspect")
+	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
+	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
+	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
+	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
+	format := fs.String("format", "table", "output format: table, json")
+	outPath := fs.String("out", "", "write output to file")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	if *targetsFile != "" {
+		r, err := prove.RunScan(prove.Options{
+			TargetsFile:           *targetsFile,
+			Agent:                 *agent,
+			Mode:                  *mode,
+			IncludeSensitivePaths: *includeSensitive,
+		})
+		if err != nil {
+			fatal(err)
+		}
+		writer, closeFn, err := outputWriter(*outPath)
+		if err != nil {
+			fatal(err)
+		}
+		defer closeFn()
+		if err := report.RenderProofsScan(writer, r, *format, *status, *caseID); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	r, err := prove.RunPath(prove.Options{
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		IncludeSensitivePaths: *includeSensitive,
+	})
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	if err := report.RenderProofs(writer, r, *format, *status, *caseID); err != nil {
 		fatal(err)
 	}
 }
@@ -486,6 +539,7 @@ Commands:
   assess        Assess one path or target list and show the first-run Zero Trust case board
   architecture   Show Zero Trust agent architecture flaws, filtered to breaking by default
   cases          Show the operator case board for architecture break paths
+  proofs         Show focused proof patches for closing operator cases
   controls       Show missing hard-barrier controls and where to prove them
   inventory      Collect deterministic AI surface facts without classifying exposure
   prove          Prove supported exposure paths for a real path or Story Lab scenario
@@ -507,6 +561,8 @@ Examples:
   ariadne cases --path . --case case:input-trust-boundary
   ariadne cases --path . --format html --out cases-dashboard.html
   ariadne cases --targets targets.txt
+  ariadne proofs --path . --case case:input-trust-boundary
+  ariadne proofs --path . --case case:input-trust-boundary --format json
   ariadne controls --path .
   ariadne controls --path . --format json
   ariadne controls --path . --format html --out controls-dashboard.html

@@ -3080,6 +3080,56 @@ func TestProofPatchCanCloseInputTrustCase(t *testing.T) {
 	}
 }
 
+func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderProofs(&table, r, "table", "breaking", "input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne proof plan:",
+		"Case: case:input-trust-boundary",
+		"Proof queue: 1 case(s), 2 proof patch(es)",
+		"Evidence to inspect:",
+		"Proof patches:",
+		"control:input-isolation -> .ariadne/input-policy.json",
+		"input_isolation=true",
+		"trusted_instruction_sources=true",
+		"ariadne cases --path",
+		"--case case:input-trust-boundary",
+		"Proof plans are deterministic evidence plans",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("proof plan table missing %q:\n%s", want, out)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderProofs(&jsonOut, r, "json", "breaking", "case:input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ProofPlanReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "proof_plan" || decoded.CaseFilter != "case:input-trust-boundary" {
+		t.Fatalf("unexpected proof plan metadata: %+v", decoded)
+	}
+	if decoded.Summary.Cases != 1 || decoded.Summary.ProofPatches != 2 || len(decoded.ProofPatches) != 2 {
+		t.Fatalf("proof plan should focus one case with two patches: summary=%+v patches=%+v", decoded.Summary, decoded.ProofPatches)
+	}
+	if !proofPlanPatchHasFocusedRerun(decoded.ProofPatches, "control:input-isolation", ".ariadne/input-policy.json", "--case case:input-trust-boundary") {
+		t.Fatalf("proof plan patch should carry focused rerun command: %+v", decoded.ProofPatches)
+	}
+	if !containsString(decoded.Limitations, "deterministic evidence") {
+		t.Fatalf("proof plan should keep declared-evidence limitation: %+v", decoded.Limitations)
+	}
+}
+
 func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	path := realPathFixture(t, "combined-risk")
 	inventory, err := RunInventory(Options{Path: path})
@@ -3765,6 +3815,27 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	controlProofPatchField := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_patch_field")
 	assertRequiredKeys(t, controlProofPatchField, "indicator", "name", "value_json")
 
+	proofPlanSchema := loadSchema(t, "ariadne-proof-plan-v1.schema.json")
+	assertRequiredKeys(t, proofPlanSchema,
+		"schema_version",
+		"run_id",
+		"generated_at",
+		"run_kind",
+		"mode",
+		"agent",
+		"status_filter",
+		"summary",
+		"cases",
+		"proof_patches",
+		"evidence_refs",
+		"rerun_commands",
+		"success_criteria",
+		"redaction",
+		"limitations",
+	)
+	proofPlanSummary := schemaMap(t, proofPlanSchema, "$defs", "proof_plan_summary")
+	assertRequiredKeys(t, proofPlanSummary, "cases", "proof_patches", "evidence_refs", "controls", "targets", "flaws")
+
 	assessSchema := loadSchema(t, "ariadne-assess-v1.schema.json")
 	assertRequiredKeys(t, assessSchema,
 		"schema_version",
@@ -4356,6 +4427,20 @@ func hasControlOperatorCaseID(items []model.ControlOperatorCase, id string) bool
 	for _, item := range items {
 		if item.ID == id {
 			return true
+		}
+	}
+	return false
+}
+
+func proofPlanPatchHasFocusedRerun(items []model.ControlProofPatch, control string, surface string, commandPart string) bool {
+	for _, item := range items {
+		if item.Control != control || item.Surface != surface {
+			continue
+		}
+		for _, command := range item.RerunCommands {
+			if strings.Contains(command, commandPart) {
+				return true
+			}
 		}
 	}
 	return false
