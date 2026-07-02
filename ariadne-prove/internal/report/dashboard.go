@@ -58,6 +58,111 @@ func renderScanDashboard(w io.Writer, r model.ScanReport) error {
 	return nil
 }
 
+func renderInventoryDashboard(w io.Writer, r model.InventoryReport) error {
+	title := "Ariadne Inventory"
+	fmt.Fprintln(w, "<!doctype html>")
+	fmt.Fprintln(w, `<html lang="en">`)
+	renderDashboardHead(w, title)
+	fmt.Fprintln(w, "<body>")
+	fmt.Fprintln(w, `<main class="shell">`)
+	renderDashboardHeaderWithSubtitle(w, title, "Fact-only AI surface discovery. No exposure classification is performed in this view.", []kv{
+		{"Target", firstNonEmpty(r.TargetPath, "not recorded")},
+		{"Mode", firstNonEmpty(r.Mode, "unknown")},
+		{"Agent", firstNonEmpty(r.Agent, "unknown")},
+		{"Run kind", firstNonEmpty(r.RunKind, "inventory")},
+	})
+	renderInventorySummaryDashboard(w, r)
+	renderInventorySurfaceMapDashboard(w, r.SurfaceMap)
+	renderInventorySurfacesDashboard(w, r.Collection.Surfaces)
+	renderInventoryFactsDashboard(w, r.Collection.Facts)
+	renderInventoryGraphDashboard(w, r.Graph)
+	renderRunNotes(w, r.Warnings, r.Limitations)
+	fmt.Fprintln(w, "</main>")
+	fmt.Fprintln(w, "</body>")
+	fmt.Fprintln(w, "</html>")
+	return nil
+}
+
+func renderInventorySummaryDashboard(w io.Writer, r model.InventoryReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Inventory Readout</h2><div class="subtle">Fact-only discovery: Ariadne has not classified exposure in this view.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"AI surfaces", fmt.Sprintf("%d", len(r.Collection.Surfaces))},
+		{"Typed facts", fmt.Sprintf("%d", len(r.Collection.Facts))},
+		{"Runtimes", fmt.Sprintf("%d", len(r.Collection.Runtimes))},
+		{"Tools", fmt.Sprintf("%d", len(r.Collection.Tools))},
+		{"Authorities", fmt.Sprintf("%d", len(r.Collection.Authorities))},
+	})
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderInventorySurfaceMapDashboard(w io.Writer, surfaceMap []model.SurfaceMap) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Runtime Surface Map</h2><div class="subtle">Source-backed runtime groups, handling modes, and modeled facts.</div></div></div>`)
+	renderAssessSurfaceMapTable(w, surfaceMap)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderInventorySurfacesDashboard(w io.Writer, surfaces []model.Surface) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Discovered Surfaces</h2><div class="subtle">Observed files, directories, and bounded discovery decisions.</div></div></div>`)
+	if len(surfaces) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No supported AI surfaces were discovered.</div>`)
+		fmt.Fprintln(w, `</section>`)
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, "<thead><tr><th>Source</th><th>Runtime</th><th>Category</th><th>Handling</th><th>Summary</th></tr></thead><tbody>")
+	for _, surface := range surfaces {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(surface.Source))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(surface.Runtime))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(surface.Category))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(surface.HandlingMode))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(surface.Summary))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderInventoryFactsDashboard(w io.Writer, facts []model.Fact) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Modeled Facts</h2><div class="subtle">Normalized facts emitted by parsers and safe summarizers.</div></div></div>`)
+	if len(facts) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No deterministic facts were collected.</div>`)
+		fmt.Fprintln(w, `</section>`)
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, "<thead><tr><th>Source</th><th>Type</th><th>Runtime</th><th>Evidence</th><th>Redaction</th><th>Summary</th></tr></thead><tbody>")
+	for _, fact := range facts {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(firstNonEmpty(fact.Source, "not recorded")))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(fact.Type))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(firstNonEmpty(fact.Runtime, "not recorded")))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(fact.EvidenceGrade))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(fact.Redaction))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(fact.Summary))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderInventoryGraphDashboard(w io.Writer, graph model.Graph) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Graph Shape</h2><div class="subtle">Inventory graph nodes and edges available for downstream exposure evaluation.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Nodes", fmt.Sprintf("%d", len(graph.Nodes))},
+		{"Edges", fmt.Sprintf("%d", len(graph.Edges))},
+		{"Runtimes", fmt.Sprintf("%d", countNodes(graph, "runtime"))},
+		{"Authorities", fmt.Sprintf("%d", countNodes(graph, "authority"))},
+		{"Controls", fmt.Sprintf("%d", countNodes(graph, "control"))},
+	})
+	fmt.Fprintln(w, `</section>`)
+}
+
 func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	title := "Ariadne Assessment"
 	if r.RunKind == "assess_scan" {
@@ -522,10 +627,14 @@ tr:target {
 }
 
 func renderDashboardHeader(w io.Writer, title string, fields []kv) {
+	renderDashboardHeaderWithSubtitle(w, title, "Fact collection, graph-backed exposure paths, and selected priority interpretation.", fields)
+}
+
+func renderDashboardHeaderWithSubtitle(w io.Writer, title string, subtitle string, fields []kv) {
 	fmt.Fprintln(w, `<section class="topbar">`)
 	fmt.Fprintln(w, `<div class="title">`)
 	fmt.Fprintf(w, "<h1>%s</h1>\n", esc(title))
-	fmt.Fprintln(w, `<div class="subtle">Fact collection, graph-backed exposure paths, and selected priority interpretation.</div>`)
+	fmt.Fprintf(w, `<div class="subtle">%s</div>`, esc(subtitle))
 	fmt.Fprintln(w, "</div>")
 	for _, field := range fields {
 		fmt.Fprintln(w, `<div class="metric">`)

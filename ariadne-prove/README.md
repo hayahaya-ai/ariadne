@@ -107,6 +107,7 @@ Inspect the current repository:
 ./bin/ariadne assess --path .
 ./bin/ariadne assess --path . --format html --out ariadne-assessment.html
 ./bin/ariadne inventory --path .
+./bin/ariadne inventory --path . --format html --out inventory-dashboard.html
 ./bin/ariadne prove --path .
 ./bin/ariadne architecture --path . --format html --out architecture-dashboard.html
 ./bin/ariadne cases --path .

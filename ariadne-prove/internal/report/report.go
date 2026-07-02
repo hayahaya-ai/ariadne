@@ -1099,6 +1099,8 @@ func RenderInventory(w io.Writer, r model.InventoryReport, format string) error 
 		return renderGraphDOT(w, "Ariadne inventory graph", r.Graph)
 	case "mermaid":
 		return renderGraphMermaid(w, "Ariadne inventory graph", r.Graph)
+	case "html", "dashboard":
+		return renderInventoryDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown format: %s", format)
 	}

@@ -401,7 +401,7 @@ func runInventory(args []string) {
 	path := fs.String("path", ".", "repo or workspace path to inventory")
 	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
-	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
+	format := fs.String("format", "table", "output format: table, json, html, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -607,6 +607,7 @@ Examples:
   ariadne controls --targets targets.txt
   ariadne inventory --path .
   ariadne inventory --path . --mode endpoint --format json
+  ariadne inventory --path . --format html --out inventory-dashboard.html
   ariadne inventory --path . --format mermaid --out graph.mmd
   ariadne prove --path .
   ariadne dashboard --path . --out ariadne-dashboard.html

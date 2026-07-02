@@ -2550,7 +2550,31 @@ func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 	if !strings.Contains(table.String(), "Runtime surface map:") || !strings.Contains(table.String(), ".continue/config.json") {
 		t.Fatalf("inventory table should include source-backed runtime surface map:\n%s", table.String())
 	}
+	var htmlOut bytes.Buffer
+	if err := report.RenderInventory(&htmlOut, r, "html"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Inventory",
+		"Inventory Readout",
+		"Runtime Surface Map",
+		"Discovered Surfaces",
+		"Modeled Facts",
+		"Graph Shape",
+		".continue/config.json",
+		".aider.chat.history.md",
+		"Fact-only discovery",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("inventory dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "selected priority interpretation") {
+		t.Fatalf("inventory dashboard should not use assessment-language header:\n%s", rendered)
+	}
 	combined := string(blob) + table.String()
+	combined += rendered
 	for _, forbidden := range []string{
 		"MESSY_REALPATH_FAKE_SECRET_DO_NOT_LEAK",
 		"MESSY_PRIVATE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK",
