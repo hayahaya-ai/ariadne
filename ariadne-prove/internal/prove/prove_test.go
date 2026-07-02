@@ -4095,6 +4095,7 @@ func TestAssessSummaryIsCompactFirstRunReadout(t *testing.T) {
 		"Compare:",
 		"Done when:",
 		"More detail:",
+		"--format table",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("assessment summary missing %q:\n%s", want, out)
@@ -4466,6 +4467,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if !containsString(decoded.NextCommands, "ariadne cases --path") {
 		t.Fatalf("assessment should include focused case command: %+v", decoded.NextCommands)
+	}
+	if !containsString(decoded.NextCommands, "ariadne assess --path") ||
+		!containsString(decoded.NextCommands, "--format table") {
+		t.Fatalf("assessment should route the detail command to explicit table output: %+v", decoded.NextCommands)
 	}
 	if !containsString(decoded.NextCommands, "ariadne proofs --path") {
 		t.Fatalf("assessment should include focused proof plan command: %+v", decoded.NextCommands)
@@ -5050,7 +5055,8 @@ func TestAssessReportSupportsFocusedCaseAndControl(t *testing.T) {
 	}
 	if !containsString(decoded.NextCommands, "ariadne assess --path") ||
 		!containsString(decoded.NextCommands, "--case case:input-trust-boundary") ||
-		!containsString(decoded.NextCommands, "--control control:trusted-source-policy") {
+		!containsString(decoded.NextCommands, "--control control:trusted-source-policy") ||
+		!containsString(decoded.NextCommands, "--format table") {
 		t.Fatalf("focused assessment should preserve focus flags in rerun commands: %+v", decoded.NextCommands)
 	}
 
@@ -5336,6 +5342,10 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	}
 	if !containsString(decoded.NextCommands, "ariadne cases --targets "+targetFile) {
 		t.Fatalf("fleet assessment should include focused fleet case command: %+v", decoded.NextCommands)
+	}
+	if !containsString(decoded.NextCommands, "ariadne assess --targets "+targetFile) ||
+		!containsString(decoded.NextCommands, "--format table") {
+		t.Fatalf("fleet assessment should route the detail command to explicit table output: %+v", decoded.NextCommands)
 	}
 	if !containsString(decoded.NextCommands, "ariadne proofs --targets "+targetFile) {
 		t.Fatalf("fleet assessment should include focused fleet proof plan command: %+v", decoded.NextCommands)

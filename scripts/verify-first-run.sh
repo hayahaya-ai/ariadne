@@ -80,6 +80,7 @@ expect_contains "$assess_summary" "After proof:"
 expect_contains "$assess_summary" "Compare:"
 expect_contains "$assess_summary" "Done when:"
 expect_contains "$assess_summary" "More detail:"
+expect_contains "$assess_summary" "--format table"
 expect_not_contains "$assess_summary" "additional items in JSON"
 expect_not_contains "$assess_summary" "more evidence reference(s) in JSON"
 

@@ -4050,7 +4050,7 @@ func reportExposures(r model.Report) []model.ExposureResult {
 
 func assessPathCommands(path, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
 	cli := ariadneCommand()
-	base := assessFocusCommand(fmt.Sprintf("%s assess --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
+	base := assessFocusCommand(fmt.Sprintf("%s assess --path %s --mode %s --agent %s --status %s --format table", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
 	commands := []string{base}
 	if len(cases) > 0 {
 		commands = append(commands, fmt.Sprintf("%s cases --path %s --mode %s --agent %s --status %s --case %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
@@ -4081,7 +4081,7 @@ func assessPathEvidenceGapActions(path, mode, agent string, triage model.AssessT
 func assessScanCommands(targetsFile, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
 	cli := ariadneCommand()
 	targetsArg := targetsFileCommandArg(targetsFile)
-	base := assessFocusCommand(fmt.Sprintf("%s assess --targets %s --mode %s --agent %s --status %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
+	base := assessFocusCommand(fmt.Sprintf("%s assess --targets %s --mode %s --agent %s --status %s --format table", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
 	commands := []string{base}
 	if len(cases) > 0 {
 		commands = append(commands, fmt.Sprintf("%s cases --targets %s --mode %s --agent %s --status %s --case %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
