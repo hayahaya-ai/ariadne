@@ -3354,6 +3354,9 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"Proof To Add Or Verify",
 		"Surface:",
 		`class="file-link mono" href="file://`,
+		`class="file-ref"`,
+		`data-copy-value="`,
+		`Copy path</button>`,
 		">CLAUDE.md</a>",
 		"Missing hard barriers",
 		"Evidence payload",
@@ -3384,6 +3387,9 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	}
 	if strings.Contains(rendered, `data-command="1 additional items in JSON"`) {
 		t.Fatalf("proof plan dashboard should not render summary text as a copyable command:\n%s", rendered)
+	}
+	if strings.Contains(rendered, `data-copy-value="runtime input isolation settings"`) {
+		t.Fatalf("proof plan dashboard should only expose copy-path actions for local paths:\n%s", rendered)
 	}
 }
 
@@ -3760,6 +3766,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Field: external_destination_allowlist=true",
 		"Current Action",
 		`class="file-link mono" href="file:///`,
+		`class="file-ref"`,
+		`data-copy-value="`,
+		`Copy path</button>`,
 		`.claude/settings.json">.claude/settings.json</a>`,
 		`.codex/config.toml">.codex/config.toml</a>`,
 		`.ariadne/egress-policy.json">.ariadne/egress-policy.json</a>`,
@@ -3813,6 +3822,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if strings.Contains(rendered, `data-command="1 additional items in JSON"`) {
 		t.Fatalf("assessment dashboard should not render summary text as a copyable command:\n%s", rendered)
+	}
+	if strings.Contains(rendered, `data-copy-value="runtime input isolation settings"`) {
+		t.Fatalf("assessment dashboard should only expose copy-path actions for local paths:\n%s", rendered)
 	}
 	operatorStart := strings.Index(rendered, "<h2>Operator Cases</h2>")
 	operatorEnd := strings.Index(rendered, "<h2>Architecture Break Paths</h2>")

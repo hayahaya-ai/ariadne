@@ -279,6 +279,7 @@ Dashboard output adds:
 - issue summary
 - Zero Trust boundary coverage map
 - prioritized issue table
+- copyable local evidence paths and copyable rerun/proof/compare commands
 - exposure paths
 - facts dive with graph edges and evidence rows
 - warnings and limitations

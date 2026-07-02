@@ -571,6 +571,26 @@ tr:last-child td { border-bottom: 0; }
 .file-link:hover {
   border-bottom-color: var(--accent);
 }
+.file-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.copy-inline {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.copy-inline:hover {
+  border-color: var(--accent);
+}
 .two-col {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -671,22 +691,22 @@ tr:target {
 </style>`)
 	fmt.Fprintln(w, `<script>
 document.addEventListener("click", function (event) {
-  var button = event.target.closest("[data-copy-command]");
+  var button = event.target.closest("[data-copy-command], [data-copy-value]");
   if (!button) return;
-  var command = button.getAttribute("data-command") || "";
-  if (!command) return;
+  var copyValue = button.getAttribute("data-command") || button.getAttribute("data-copy-value") || "";
+  if (!copyValue) return;
   var done = function () {
     var previous = button.textContent;
     button.textContent = "Copied";
     setTimeout(function () { button.textContent = previous; }, 1200);
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(command).then(done).catch(function () {
-      fallbackCopy(command, done);
+    navigator.clipboard.writeText(copyValue).then(done).catch(function () {
+      fallbackCopy(copyValue, done);
     });
     return;
   }
-  fallbackCopy(command, done);
+  fallbackCopy(copyValue, done);
 });
 function fallbackCopy(text, done) {
   var textarea = document.createElement("textarea");
@@ -3311,14 +3331,28 @@ func dashboardFileRefHTML(root, value string) string {
 	if value == "" {
 		return ""
 	}
-	href := dashboardFileHref(root, value)
-	if href == "" {
+	path := dashboardFilePath(root, value)
+	if path == "" {
 		return fmt.Sprintf(`<span class="mono">%s</span>`, esc(value))
 	}
-	return fmt.Sprintf(`<a class="file-link mono" href="%s">%s</a>`, esc(href), esc(value))
+	href := (&url.URL{Scheme: "file", Path: path}).String()
+	return fmt.Sprintf(
+		`<span class="file-ref"><a class="file-link mono" href="%s">%s</a><button type="button" class="copy-inline" data-copy-value="%s">Copy path</button></span>`,
+		esc(href),
+		esc(value),
+		esc(path),
+	)
 }
 
 func dashboardFileHref(root, value string) string {
+	path := dashboardFilePath(root, value)
+	if path == "" {
+		return ""
+	}
+	return (&url.URL{Scheme: "file", Path: path}).String()
+}
+
+func dashboardFilePath(root, value string) string {
 	value = strings.TrimSpace(value)
 	if !dashboardLooksLikeLocalPath(value) {
 		return ""
@@ -3335,7 +3369,7 @@ func dashboardFileHref(root, value string) string {
 	if path == "." || path == string(filepath.Separator) {
 		return ""
 	}
-	return (&url.URL{Scheme: "file", Path: path}).String()
+	return path
 }
 
 func dashboardLooksLikeLocalPath(value string) bool {
