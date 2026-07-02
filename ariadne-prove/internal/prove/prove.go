@@ -243,6 +243,7 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 		IncludeSensitivePaths: opts.IncludeSensitivePaths,
 	})
 	graph := BuildGraph(collection)
+	surfaceMap := BuildSurfaceMap(collection)
 	return model.InventoryReport{
 		SchemaVersion: model.SchemaVersion,
 		RunID:         randomID(),
@@ -252,6 +253,7 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 		Mode:          opts.Mode,
 		Agent:         opts.Agent,
 		Collection:    collection,
+		SurfaceMap:    surfaceMap,
 		Graph:         graph,
 		Redaction: model.RedactionInfo{
 			Level:                  "default",
@@ -265,6 +267,158 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, MCP, and generic repo instruction surfaces are supported in this milestone.",
 		},
 	}, nil
+}
+
+func BuildSurfaceMap(c model.Collection) []model.SurfaceMap {
+	type surfaceMapBuilder struct {
+		item         model.SurfaceMap
+		sourceSeen   map[string]bool
+		categorySeen map[string]int
+		handlingSeen map[string]int
+		authSeen     map[string]bool
+		toolSeen     map[string]bool
+		controlSeen  map[string]bool
+	}
+	builders := map[string]*surfaceMapBuilder{}
+	ensure := func(runtime, scope string) *surfaceMapBuilder {
+		if runtime == "" {
+			runtime = "unknown"
+		}
+		if scope == "" {
+			scope = "unknown"
+		}
+		key := runtime + "\x00" + scope
+		if builders[key] == nil {
+			builders[key] = &surfaceMapBuilder{
+				item: model.SurfaceMap{
+					Runtime: runtime,
+					Scope:   scope,
+				},
+				sourceSeen:   map[string]bool{},
+				categorySeen: map[string]int{},
+				handlingSeen: map[string]int{},
+				authSeen:     map[string]bool{},
+				toolSeen:     map[string]bool{},
+				controlSeen:  map[string]bool{},
+			}
+		}
+		return builders[key]
+	}
+	for _, surface := range c.Surfaces {
+		b := ensure(surface.Runtime, surface.Scope)
+		b.item.SurfaceCount++
+		switch surface.HandlingMode {
+		case "parse":
+			b.item.Parsed++
+		case "summarize":
+			b.item.Summarized++
+		case "boundary_indicator":
+			b.item.BoundaryIndicators++
+		case "skip":
+			b.item.Skipped++
+		}
+		if surface.Source != "" && !b.sourceSeen[surface.Source] {
+			b.sourceSeen[surface.Source] = true
+			b.item.SourceRefs = append(b.item.SourceRefs, surface.Source)
+		}
+		if surface.Category != "" {
+			b.categorySeen[surface.Category]++
+		}
+		if surface.HandlingMode != "" {
+			b.handlingSeen[surface.HandlingMode]++
+		}
+	}
+	for _, authority := range c.Authorities {
+		if authority.Runtime == "" {
+			continue
+		}
+		b := ensure(authority.Runtime, scopeForRuntime(c, authority.Runtime))
+		if authority.Kind != "" && !b.authSeen[authority.Kind] {
+			b.authSeen[authority.Kind] = true
+			b.item.Authorities = append(b.item.Authorities, authority.Kind)
+		}
+	}
+	for _, tool := range c.Tools {
+		if tool.Runtime == "" {
+			continue
+		}
+		b := ensure(tool.Runtime, scopeForRuntime(c, tool.Runtime))
+		if tool.Kind != "" && !b.toolSeen[tool.Kind] {
+			b.toolSeen[tool.Kind] = true
+			b.item.Tools = append(b.item.Tools, tool.Kind)
+		}
+	}
+	for _, control := range c.Controls {
+		if control.Runtime == "" {
+			continue
+		}
+		b := ensure(control.Runtime, scopeForRuntime(c, control.Runtime))
+		if control.Kind != "" && !b.controlSeen[control.Kind] {
+			b.controlSeen[control.Kind] = true
+			b.item.Controls = append(b.item.Controls, control.Kind)
+		}
+	}
+	var out []model.SurfaceMap
+	for _, builder := range builders {
+		item := builder.item
+		sort.Strings(item.SourceRefs)
+		sort.Strings(item.Authorities)
+		sort.Strings(item.Tools)
+		sort.Strings(item.Controls)
+		item.Categories = countsFromMap(builder.categorySeen)
+		item.HandlingModes = countsFromMap(builder.handlingSeen)
+		item.Limitations = surfaceMapLimitations(item)
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Runtime == out[j].Runtime {
+			return out[i].Scope < out[j].Scope
+		}
+		return out[i].Runtime < out[j].Runtime
+	})
+	return out
+}
+
+func scopeForRuntime(c model.Collection, runtime string) string {
+	for _, surface := range c.Surfaces {
+		if surface.Runtime == runtime && surface.Scope != "" {
+			return surface.Scope
+		}
+	}
+	for _, runtimeEvidence := range c.Runtimes {
+		if runtimeEvidence.Kind == runtime && runtimeEvidence.Scope != "" {
+			return runtimeEvidence.Scope
+		}
+	}
+	return "unknown"
+}
+
+func countsFromMap(values map[string]int) []model.AssessCount {
+	var out []model.AssessCount
+	for name, count := range values {
+		out = append(out, model.AssessCount{Name: name, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Count > out[j].Count
+	})
+	return out
+}
+
+func surfaceMapLimitations(item model.SurfaceMap) []string {
+	var out []string
+	if item.Summarized > 0 {
+		out = append(out, "Private or high-volume surfaces were summarized by metadata only.")
+	}
+	if item.BoundaryIndicators > 0 {
+		out = append(out, "Sensitive boundary indicators use path and filename signals only.")
+	}
+	if item.Skipped > 0 {
+		out = append(out, "Skipped surfaces were intentionally excluded by bounded discovery rules.")
+	}
+	return out
 }
 
 func RunScan(opts Options) (model.ScanReport, error) {

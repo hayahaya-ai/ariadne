@@ -1153,6 +1153,7 @@ func buildAssessInventory(r model.InventoryReport) model.AssessInventory {
 		Boundaries:        len(r.Collection.Boundaries),
 		SurfaceCategories: assessSurfaceCounts(r.Collection.Surfaces, func(surface model.Surface) string { return surface.Category }),
 		HandlingModes:     assessSurfaceCounts(r.Collection.Surfaces, func(surface model.Surface) string { return surface.HandlingMode }),
+		SurfaceMap:        append([]model.SurfaceMap{}, r.SurfaceMap...),
 		Limitations:       append([]string{}, r.Limitations...),
 	}
 }
@@ -1585,6 +1586,9 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 		if len(r.Inventory.HandlingModes) > 0 {
 			fmt.Fprintf(w, "  - Handling modes: %s\n", assessCountLine(r.Inventory.HandlingModes))
 		}
+		if len(r.Inventory.SurfaceMap) > 0 {
+			fmt.Fprintf(w, "  - Runtime surface map: %s\n", strings.Join(limitStrings(surfaceMapSummaryLines(r.Inventory.SurfaceMap), 5), "; "))
+		}
 		fmt.Fprintln(w)
 	}
 
@@ -1761,11 +1765,43 @@ func assessCountLine(items []model.AssessCount) string {
 	return strings.Join(parts, "; ")
 }
 
+func surfaceMapSummaryLines(items []model.SurfaceMap) []string {
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("%s/%s=%d", item.Runtime, item.Scope, item.SurfaceCount))
+	}
+	return lines
+}
+
 func renderInventoryTable(w io.Writer, r model.InventoryReport) error {
 	fmt.Fprintf(w, "Ariadne Inventory\n\n")
 	fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
 	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
 	fmt.Fprintf(w, "Agent: %s\n\n", r.Agent)
+	fmt.Fprintf(w, "Runtime surface map:\n")
+	if len(r.SurfaceMap) == 0 {
+		fmt.Fprintf(w, "  - no runtime surface groups built\n")
+	} else {
+		for _, group := range r.SurfaceMap {
+			fmt.Fprintf(w, "  - %s/%s: surfaces=%d parse=%d summarize=%d boundary=%d skip=%d\n", group.Runtime, group.Scope, group.SurfaceCount, group.Parsed, group.Summarized, group.BoundaryIndicators, group.Skipped)
+			if len(group.SourceRefs) > 0 {
+				fmt.Fprintf(w, "    Sources: %s\n", strings.Join(limitStrings(group.SourceRefs, 6), "; "))
+			}
+			if len(group.Authorities) > 0 {
+				fmt.Fprintf(w, "    Authorities: %s\n", strings.Join(limitStrings(group.Authorities, 5), "; "))
+			}
+			if len(group.Tools) > 0 {
+				fmt.Fprintf(w, "    Tools: %s\n", strings.Join(limitStrings(group.Tools, 5), "; "))
+			}
+			if len(group.Controls) > 0 {
+				fmt.Fprintf(w, "    Controls: %s\n", strings.Join(limitStrings(group.Controls, 5), "; "))
+			}
+			if len(group.Limitations) > 0 {
+				fmt.Fprintf(w, "    Limits: %s\n", strings.Join(limitStrings(group.Limitations, 3), "; "))
+			}
+		}
+	}
+	fmt.Fprintln(w)
 	fmt.Fprintf(w, "AI surfaces discovered:\n")
 	if len(r.Collection.Surfaces) == 0 {
 		fmt.Fprintf(w, "  - none discovered for supported surface families\n")

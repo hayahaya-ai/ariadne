@@ -232,6 +232,7 @@ Every run separates facts from classification.
 
 Inventory output includes:
 
+- a runtime surface map with source refs, handling counts, modeled authorities, tools, controls, and limitations
 - discovered surfaces
 - parsed facts
 - modeled authorities, controls, and boundaries

@@ -120,7 +120,8 @@
         "controls",
         "boundaries",
         "surface_categories",
-        "handling_modes"
+        "handling_modes",
+        "surface_map"
       ],
       "properties": {
         "target_path": { "type": "string" },
@@ -142,6 +143,44 @@
           "type": "array",
           "items": { "$ref": "#/$defs/assess_count" }
         },
+        "surface_map": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/surface_map" }
+        },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "surface_map": {
+      "type": "object",
+      "required": [
+        "runtime",
+        "scope",
+        "surface_count",
+        "parsed",
+        "summarized",
+        "boundary_indicators",
+        "skipped",
+        "source_refs",
+        "categories",
+        "handling_modes",
+        "authorities",
+        "tools",
+        "controls"
+      ],
+      "properties": {
+        "runtime": { "type": "string" },
+        "scope": { "type": "string" },
+        "surface_count": { "type": "integer" },
+        "parsed": { "type": "integer" },
+        "summarized": { "type": "integer" },
+        "boundary_indicators": { "type": "integer" },
+        "skipped": { "type": "integer" },
+        "source_refs": { "type": "array", "items": { "type": "string" } },
+        "categories": { "type": "array", "items": { "$ref": "#/$defs/assess_count" } },
+        "handling_modes": { "type": "array", "items": { "$ref": "#/$defs/assess_count" } },
+        "authorities": { "type": "array", "items": { "type": "string" } },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },

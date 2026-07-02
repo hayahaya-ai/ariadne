@@ -309,6 +309,7 @@ type AssessInventory struct {
 	Boundaries        int           `json:"boundaries"`
 	SurfaceCategories []AssessCount `json:"surface_categories"`
 	HandlingModes     []AssessCount `json:"handling_modes"`
+	SurfaceMap        []SurfaceMap  `json:"surface_map"`
 	Limitations       []string      `json:"limitations,omitempty"`
 }
 
@@ -347,6 +348,23 @@ type AssessClosurePath struct {
 type AssessCount struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
+}
+
+type SurfaceMap struct {
+	Runtime            string        `json:"runtime"`
+	Scope              string        `json:"scope"`
+	SurfaceCount       int           `json:"surface_count"`
+	Parsed             int           `json:"parsed"`
+	Summarized         int           `json:"summarized"`
+	BoundaryIndicators int           `json:"boundary_indicators"`
+	Skipped            int           `json:"skipped"`
+	SourceRefs         []string      `json:"source_refs"`
+	Categories         []AssessCount `json:"categories"`
+	HandlingModes      []AssessCount `json:"handling_modes"`
+	Authorities        []string      `json:"authorities"`
+	Tools              []string      `json:"tools"`
+	Controls           []string      `json:"controls"`
+	Limitations        []string      `json:"limitations,omitempty"`
 }
 
 type ControlCatalogSummary struct {
@@ -837,6 +855,7 @@ type InventoryReport struct {
 	Mode          string        `json:"mode"`
 	Agent         string        `json:"agent"`
 	Collection    Collection    `json:"collection"`
+	SurfaceMap    []SurfaceMap  `json:"surface_map"`
 	Graph         Graph         `json:"graph"`
 	Redaction     RedactionInfo `json:"redaction"`
 	Warnings      []string      `json:"warnings,omitempty"`

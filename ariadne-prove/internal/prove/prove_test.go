@@ -2521,6 +2521,17 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	if !hasGraphNodeType(r.Graph, "command-hook") {
 		t.Fatalf("expected command-hook surface node in graph")
 	}
+	continueMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "continue", "repo")
+	if !containsString(continueMap.SourceRefs, ".continue/config.json") || !containsString(continueMap.SourceRefs, ".continue/rules/security.md") {
+		t.Fatalf("continue surface map should retain source refs: %+v", continueMap)
+	}
+	if continueMap.Parsed == 0 || !containsString(continueMap.Authorities, "file-read") || !containsString(continueMap.Tools, "mcp-configured") {
+		t.Fatalf("continue surface map should retain parsed facts, authorities, and tools: %+v", continueMap)
+	}
+	aiderMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "aider", "repo")
+	if aiderMap.Summarized == 0 || !containsString(aiderMap.SourceRefs, ".aider.chat.history.md") {
+		t.Fatalf("aider surface map should summarize private context with source refs: %+v", aiderMap)
+	}
 }
 
 func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
@@ -2535,6 +2546,9 @@ func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 	var table bytes.Buffer
 	if err := report.RenderInventory(&table, r, "table"); err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(table.String(), "Runtime surface map:") || !strings.Contains(table.String(), ".continue/config.json") {
+		t.Fatalf("inventory table should include source-backed runtime surface map:\n%s", table.String())
 	}
 	combined := string(blob) + table.String()
 	for _, forbidden := range []string{
@@ -2590,6 +2604,14 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	}
 	if !r.Graph.HasEdge("runtime:gemini|can_call|tool:agent-command-shell") {
 		t.Fatalf("endpoint graph missing Gemini command shell edge")
+	}
+	aiderMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "aider", "endpoint")
+	if !containsString(aiderMap.SourceRefs, ".aider.conf.yml") || !containsString(aiderMap.SourceRefs, ".aider.chat.history.md") {
+		t.Fatalf("endpoint aider surface map missing relative source refs: %+v", aiderMap)
+	}
+	geminiMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "gemini", "endpoint")
+	if !containsString(geminiMap.Authorities, "local-code-execution") || !containsString(geminiMap.Tools, "agent-command-shell") {
+		t.Fatalf("endpoint gemini surface map missing modeled command facts: %+v", geminiMap)
 	}
 	blob, err := json.Marshal(r)
 	if err != nil {
@@ -4194,7 +4216,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")
-	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes")
+	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes", "surface_map")
+	surfaceMap := schemaMap(t, assessSchema, "$defs", "surface_map")
+	assertRequiredKeys(t, surfaceMap, "runtime", "scope", "surface_count", "parsed", "summarized", "boundary_indicators", "skipped", "source_refs", "categories", "handling_modes", "authorities", "tools", "controls")
 	assessExposure := schemaMap(t, assessSchema, "$defs", "assess_exposure")
 	assertRequiredKeys(t, assessExposure, "paths", "exposed", "protected", "inconclusive", "top_paths")
 	assessClosureEvidence := schemaMap(t, assessSchema, "$defs", "assess_closure_evidence")
@@ -4503,6 +4527,17 @@ func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {
 		}
 	}
 	t.Fatalf("missing surface kind %s in %+v", kind, surfaces)
+}
+
+func requireSurfaceMapRuntime(t *testing.T, items []model.SurfaceMap, runtime string, scope string) model.SurfaceMap {
+	t.Helper()
+	for _, item := range items {
+		if item.Runtime == runtime && item.Scope == scope {
+			return item
+		}
+	}
+	t.Fatalf("missing surface map group %s/%s in %+v", runtime, scope, items)
+	return model.SurfaceMap{}
 }
 
 func hasSurfaceSource(surfaces []model.Surface, source string) bool {
