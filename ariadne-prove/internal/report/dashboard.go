@@ -886,10 +886,12 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, renderDashboardHTMLList(assessWorkbenchEvidenceExampleHTMLLines(r.TargetPath, workbench.Proof)))
 	if len(workbench.Proof.GeneratedProofPaths) > 0 || len(workbench.Proof.ApplyCommands) > 0 || workbench.Proof.GeneratedProofPath != "" || workbench.Proof.ApplyCommand != "" {
 		fmt.Fprintln(w, `<h3>Generated Proof Files</h3>`)
-		generated := append([]string{}, workbench.Proof.GeneratedProofPaths...)
-		generated = append(generated, workbench.Proof.DestinationPaths...)
-		fmt.Fprintln(w, renderSmallList(firstStrings(uniqueStrings(generated), 10)))
-		fmt.Fprintln(w, renderCommandList(workbench.Proof.ApplyCommands))
+		fmt.Fprintln(w, renderAssessProofBundleActionTable(
+			r.TargetPath,
+			firstNonEmptyStrings(workbench.Proof.GeneratedProofPaths, nonEmptyStrings(workbench.Proof.GeneratedProofPath)),
+			firstNonEmptyStrings(workbench.Proof.DestinationPaths, firstNonEmptyStrings(workbench.Proof.SuggestedDestinations, nonEmptyStrings(workbench.Proof.DestinationPath, workbench.Proof.SuggestedDestination))),
+			firstNonEmptyStrings(workbench.Proof.ApplyCommands, nonEmptyStrings(workbench.Proof.ApplyCommand)),
+		))
 	}
 	fmt.Fprintln(w, `<h3>4. Verify The Change</h3>`)
 	fmt.Fprintln(w, renderProofLoopCommandList(workbench.Verify.Commands))
@@ -1068,32 +1070,22 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 	fmt.Fprintln(w, renderDashboardPathList(root, nonEmptyStrings(decision.ProofSurface)))
 	if decision.GeneratedProofPath != "" || decision.DestinationPath != "" || decision.ApplyCommand != "" {
 		fmt.Fprintln(w, `<h3>Review / Apply Generated Proof</h3>`)
-		var applyLines []string
-		if decision.GeneratedProofPath != "" {
-			applyLines = append(applyLines, "Generated file: "+decision.GeneratedProofPath)
-		}
-		if decision.DestinationPath != "" {
-			applyLines = append(applyLines, "Suggested destination: "+decision.DestinationPath)
-		} else if decision.SuggestedDestination != "" {
-			applyLines = append(applyLines, "Suggested destination: "+decision.SuggestedDestination)
-		}
-		fmt.Fprintln(w, renderSmallList(applyLines))
-		if decision.ApplyCommand != "" {
-			fmt.Fprintln(w, renderCommandList([]string{decision.ApplyCommand}))
-		}
+		fmt.Fprintln(w, renderAssessProofBundleActionTable(
+			root,
+			nonEmptyStrings(decision.GeneratedProofPath),
+			nonEmptyStrings(firstNonEmpty(decision.DestinationPath, decision.SuggestedDestination)),
+			nonEmptyStrings(decision.ApplyCommand),
+		))
 	}
 	if len(decision.GeneratedProofPaths) > 0 || len(decision.ApplyCommands) > 0 {
 		fmt.Fprintln(w, `<h3>Review / Apply Full Proof Bundle</h3>`)
 		renderAssessDecisionClosureBundleDashboard(w, decision)
-		var bundleLines []string
-		for _, path := range decision.GeneratedProofPaths {
-			bundleLines = append(bundleLines, "Generated file: "+path)
-		}
-		for _, path := range decision.DestinationPaths {
-			bundleLines = append(bundleLines, "Suggested destination: "+path)
-		}
-		fmt.Fprintln(w, renderSmallList(bundleLines))
-		fmt.Fprintln(w, renderCommandList(decision.ApplyCommands))
+		fmt.Fprintln(w, renderAssessProofBundleActionTable(
+			root,
+			decision.GeneratedProofPaths,
+			firstNonEmptyStrings(decision.DestinationPaths, decision.SuggestedDestinations),
+			decision.ApplyCommands,
+		))
 	}
 	fmt.Fprintln(w, `<h3>Commands</h3>`)
 	fmt.Fprintln(w, renderCommandList(nonEmptyStrings(decision.BeforeProofCommand, decision.ProofCommand, decision.RerunCommand, decision.AfterProofCommand, decision.CompareCommand)))
@@ -1567,30 +1559,22 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 	}
 	if current.GeneratedProofPath != "" || current.DestinationPath != "" || current.ApplyCommand != "" {
 		fmt.Fprintln(w, `<h3>Review / Apply Generated Proof</h3>`)
-		var applyLines []string
-		if current.GeneratedProofPath != "" {
-			applyLines = append(applyLines, "Generated file: "+current.GeneratedProofPath)
-		}
-		if current.DestinationPath != "" {
-			applyLines = append(applyLines, "Suggested destination: "+current.DestinationPath)
-		}
-		fmt.Fprintln(w, renderSmallList(applyLines))
-		if current.ApplyCommand != "" {
-			fmt.Fprintln(w, renderCommandList([]string{current.ApplyCommand}))
-		}
+		fmt.Fprintln(w, renderAssessProofBundleActionTable(
+			root,
+			nonEmptyStrings(current.GeneratedProofPath),
+			nonEmptyStrings(firstNonEmpty(current.DestinationPath, current.SuggestedDestination)),
+			nonEmptyStrings(current.ApplyCommand),
+		))
 	}
 	if len(action.GeneratedProofPaths) > 0 || len(action.ApplyCommands) > 0 {
 		fmt.Fprintln(w, `<h3>Review / Apply Full Proof Bundle</h3>`)
 		renderAssessClosureBundleDashboard(w, root, action)
-		var bundleLines []string
-		for _, path := range action.GeneratedProofPaths {
-			bundleLines = append(bundleLines, "Generated file: "+path)
-		}
-		for _, path := range action.DestinationPaths {
-			bundleLines = append(bundleLines, "Suggested destination: "+path)
-		}
-		fmt.Fprintln(w, renderSmallList(bundleLines))
-		fmt.Fprintln(w, renderCommandList(action.ApplyCommands))
+		fmt.Fprintln(w, renderAssessProofBundleActionTable(
+			root,
+			action.GeneratedProofPaths,
+			firstNonEmptyStrings(action.DestinationPaths, action.SuggestedDestinations),
+			action.ApplyCommands,
+		))
 	}
 	fmt.Fprintln(w, `<h3>Rerun</h3>`)
 	fmt.Fprintln(w, renderCommandList(limitStrings(rerunCommands, 3)))
@@ -4198,6 +4182,87 @@ func renderCommandList(commands []string) string {
 	return b.String()
 }
 
+func renderAssessProofBundleActionTable(root string, generated []string, destinations []string, commands []string) string {
+	generated = nonEmptyStrings(generated...)
+	destinations = nonEmptyStrings(destinations...)
+	commands = nonEmptyStrings(commands...)
+	rows := maxDashboardRowCount(len(generated), len(destinations), len(commands))
+	if rows == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="subtle">Proof Bundle Actions</div>`)
+	b.WriteString(`<div class="table-wrap"><table class="compact-table">`)
+	b.WriteString(`<thead><tr><th>Generated Artifact</th><th>Suggested Destination</th><th>Apply Command</th></tr></thead><tbody>`)
+	for idx := 0; idx < rows; idx++ {
+		b.WriteString(`<tr>`)
+		fmt.Fprintf(&b, `<td>%s</td>`, dashboardGeneratedArtifactHTML(generated, idx))
+		fmt.Fprintf(&b, `<td>%s</td>`, dashboardSuggestedDestinationHTML(root, destinations, idx))
+		fmt.Fprintf(&b, `<td>%s</td>`, renderCommandList(stringAt(commands, idx)))
+		b.WriteString(`</tr>`)
+	}
+	b.WriteString(`</tbody></table></div>`)
+	return b.String()
+}
+
+func dashboardGeneratedArtifactHTML(values []string, idx int) string {
+	value := firstStringAt(values, idx)
+	if value == "" {
+		return `<span class="subtle">none</span>`
+	}
+	return dashboardCopyablePathLineHTML("Generated file", value)
+}
+
+func dashboardSuggestedDestinationHTML(root string, values []string, idx int) string {
+	value := firstStringAt(values, idx)
+	if value == "" {
+		return `<span class="subtle">none</span>`
+	}
+	ref := dashboardFileRefWithLabelHTML(root, value, dashboardRelativePathLabel(root, value))
+	if ref == "" {
+		return dashboardCopyablePathLineHTML("Suggested destination", value)
+	}
+	return "Suggested destination: " + ref
+}
+
+func dashboardCopyablePathLineHTML(label string, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return `<span class="subtle">none</span>`
+	}
+	line := strings.TrimSpace(label + ": " + value)
+	return fmt.Sprintf(
+		`<span class="file-ref"><span class="mono">%s</span><button type="button" class="copy-inline" data-copy-value="%s">Copy path</button></span>`,
+		esc(line),
+		esc(value),
+	)
+}
+
+func maxDashboardRowCount(values ...int) int {
+	max := 0
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+	return max
+}
+
+func firstStringAt(values []string, idx int) string {
+	if idx < 0 || idx >= len(values) {
+		return ""
+	}
+	return values[idx]
+}
+
+func stringAt(values []string, idx int) []string {
+	value := firstStringAt(values, idx)
+	if value == "" {
+		return []string{}
+	}
+	return []string{value}
+}
+
 func renderProofLoopCommandList(values []string) string {
 	values = nonEmptyStrings(values...)
 	if len(values) == 0 {
@@ -4441,19 +4506,23 @@ func controlProofPatchHTMLLines(root string, patches []model.ControlProofPatch, 
 }
 
 func dashboardFileRefHTML(root, value string) string {
+	return dashboardFileRefWithLabelHTML(root, value, value)
+}
+
+func dashboardFileRefWithLabelHTML(root, value, label string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
 	}
 	path := dashboardFilePath(root, value)
 	if path == "" {
-		return fmt.Sprintf(`<span class="mono">%s</span>`, esc(value))
+		return fmt.Sprintf(`<span class="mono">%s</span>`, esc(firstNonEmpty(label, value)))
 	}
 	href := (&url.URL{Scheme: "file", Path: path}).String()
 	return fmt.Sprintf(
 		`<span class="file-ref"><a class="file-link mono" href="%s">%s</a><button type="button" class="copy-inline" data-copy-value="%s">Copy path</button></span>`,
 		esc(href),
-		esc(value),
+		esc(firstNonEmpty(label, value)),
 		esc(path),
 	)
 }
@@ -4484,6 +4553,24 @@ func dashboardFilePath(root, value string) string {
 		return ""
 	}
 	return path
+}
+
+func dashboardRelativePathLabel(root, value string) string {
+	value = strings.TrimSpace(value)
+	path := dashboardFilePath(root, value)
+	if path == "" || !filepath.IsAbs(path) {
+		return value
+	}
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return value
+	}
+	root = filepath.Clean(root)
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return value
+	}
+	return rel
 }
 
 func dashboardLooksLikeLocalPath(value string) bool {
