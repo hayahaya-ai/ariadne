@@ -857,6 +857,7 @@ func assessPathCommands(path, mode, agent, statusFilter string, cases []model.Co
 	commands := []string{base}
 	if len(cases) > 0 {
 		commands = append(commands, fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 	}
 	commands = append(commands,
 		fmt.Sprintf("ariadne controls --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
@@ -870,6 +871,7 @@ func assessScanCommands(mode, agent, statusFilter string, cases []model.ControlO
 	commands := []string{base}
 	if len(cases) > 0 {
 		commands = append(commands, fmt.Sprintf("ariadne cases --targets <targets-file> --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("ariadne proofs --targets <targets-file> --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 	}
 	commands = append(commands,
 		fmt.Sprintf("ariadne controls --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
@@ -1763,6 +1765,7 @@ func renderControlCaseBoardTable(w io.Writer, r model.ControlCatalogReport) erro
 	renderControlOperatorCases(w, r.OperatorCases, 10)
 	fmt.Fprintf(w, "  Evidence model:\n")
 	fmt.Fprintf(w, "    - Cases are derived from deterministic facts, graph edges, architecture flaws, and missing hard-barrier controls.\n")
+	fmt.Fprintf(w, "    - Use `ariadne proofs --case <case-id>` for the focused proof patches and rerun criteria for one case.\n")
 	fmt.Fprintf(w, "    - Use `ariadne controls --format json` for the full control catalog and lower-level verification tasks.\n")
 	fmt.Fprintln(w)
 	return nil

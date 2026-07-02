@@ -142,7 +142,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `architecture` for single-target assessment, or `architecture_scan` for target-list assessment
 - `case_board`, the same operator case-board contract emitted by `ariadne cases`
 - `top_cases`, a bounded case-first queue for humans
-- `next_commands`, including the exact `assess`, focused `cases`, `controls`, and `architecture` commands to rerun
+- `next_commands`, including the exact `assess`, focused `cases`, focused `proofs`, `controls`, and `architecture` commands to rerun
 
 The assessment contract is a composition layer. It does not create a separate classification engine; classifications remain derived from deterministic facts, graph edges, architecture flaws, and missing hard-barrier controls.
 

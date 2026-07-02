@@ -2908,6 +2908,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"ariadne cases --path",
 		"Done when:",
 		"Evidence model:",
+		"Use `ariadne proofs --case <case-id>`",
 		"Use `ariadne controls --format json`",
 	} {
 		if !strings.Contains(out, want) {
@@ -3191,6 +3192,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !containsString(decoded.NextCommands, "ariadne cases --path") {
 		t.Fatalf("assessment should include focused case command: %+v", decoded.NextCommands)
 	}
+	if !containsString(decoded.NextCommands, "ariadne proofs --path") {
+		t.Fatalf("assessment should include focused proof plan command: %+v", decoded.NextCommands)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
@@ -3216,6 +3220,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Operator Cases",
 		"Architecture Break Paths",
 		"Next Commands",
+		"ariadne proofs --path",
 		"case:egress-output-boundary",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -3332,6 +3337,9 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	}
 	if !containsString(decoded.NextCommands, "ariadne cases --targets <targets-file>") {
 		t.Fatalf("fleet assessment should include focused fleet case command: %+v", decoded.NextCommands)
+	}
+	if !containsString(decoded.NextCommands, "ariadne proofs --targets <targets-file>") {
+		t.Fatalf("fleet assessment should include focused fleet proof plan command: %+v", decoded.NextCommands)
 	}
 }
 

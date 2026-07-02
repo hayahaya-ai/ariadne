@@ -763,7 +763,7 @@ func renderAssessCommandsDashboard(w io.Writer, commands []string) {
 		return
 	}
 	fmt.Fprintln(w, `<section class="panel">`)
-	fmt.Fprintln(w, `<div class="section-head"><div><h2>Next Commands</h2><div class="subtle">Rerun the same assessment, focus the top case, or inspect the full proof catalog.</div></div></div>`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Next Commands</h2><div class="subtle">Rerun the same assessment, focus the top case, open the proof plan, or inspect the full proof catalog.</div></div></div>`)
 	fmt.Fprintln(w, renderSmallList(commands))
 	fmt.Fprintln(w, `</section>`)
 }
@@ -782,7 +782,7 @@ func assessCountLines(items []model.AssessCount) []string {
 func assessCaseCommands(commands []string, item model.ControlOperatorCase) []string {
 	out := make([]string, 0, len(commands)+len(item.RerunCommands))
 	for _, command := range commands {
-		if strings.Contains(command, "ariadne cases ") || strings.Contains(command, "ariadne assess ") {
+		if strings.Contains(command, "ariadne cases ") || strings.Contains(command, "ariadne proofs ") || strings.Contains(command, "ariadne assess ") {
 			out = append(out, command)
 		}
 	}
