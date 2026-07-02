@@ -134,13 +134,13 @@ The LLM does not collect facts. Ariadne collects and redacts the facts first, th
 Generate an ingestible follow-up review packet:
 
 ```bash
-ariadne prove --path . --llm-request-out llm-request.json
+ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
 ```
 
 Generate a lower-bias inventory-blind packet:
 
 ```bash
-ariadne prove --path . --llm-request-out llm-request.json --llm-review-profile inventory-blind
+ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
 ```
 
 Inventory-blind packets omit Ariadne's exposure paths and deterministic issue ranking. They are for exploratory review and collector-gap discovery; Ariadne does not ingest them as findings until the hypothesis is mapped back to deterministic exposure evidence.

@@ -215,6 +215,75 @@ func RunPath(opts Options) (model.Report, error) {
 	return report, nil
 }
 
+func RunReviewPacket(opts Options) (model.LLMReviewRequest, []byte, string, error) {
+	if opts.Path == "" {
+		opts.Path = "."
+	}
+	if opts.Agent == "" {
+		opts.Agent = "all"
+	}
+	if opts.Mode == "" {
+		opts.Mode = "repo"
+	}
+	root, err := filepath.Abs(opts.Path)
+	if err != nil {
+		return model.LLMReviewRequest{}, nil, "", err
+	}
+	home := ""
+	base := root
+	if opts.Mode == "endpoint" {
+		home = resolveEndpointHome(root)
+		base = home
+	}
+	collection := adapter.Collect(adapter.Options{
+		RepoPath:              root,
+		HomePath:              home,
+		Mode:                  opts.Mode,
+		Runtime:               opts.Agent,
+		StoryDir:              base,
+		IncludeSensitivePaths: opts.IncludeSensitivePaths,
+	})
+	graph := BuildGraph(collection)
+	exposures := EvaluateAll(collection, graph, opts.Mode)
+	normalizeRealPathExposures(exposures)
+	attachExposureSetEvidenceReferences(collection, graph, exposures)
+	policy, err := loadPolicy(root, opts.RulesPath)
+	if err != nil {
+		return model.LLMReviewRequest{}, nil, "", err
+	}
+	limitations := []string{
+		"Real path mode is static and local; it does not execute Claude, Codex, MCP servers, package managers, reviewers, or networks.",
+		"Review packets contain redacted deterministic facts and graph evidence only.",
+		"Reviewer output is interpretation, not raw evidence; unsupported claims must be mapped back to deterministic evidence before use.",
+	}
+	redaction := model.RedactionInfo{
+		Level:                  "default",
+		SensitivePathsIncluded: opts.IncludeSensitivePaths,
+		CanaryValuesIncluded:   false,
+	}
+	deterministic := interpret.Evaluate(interpret.Input{
+		Target:     root,
+		Mode:       opts.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  exposures,
+		Policy:     policy,
+	})
+	return interpret.BuildLLMReviewRequest(interpret.Input{
+		Target:     root,
+		Mode:       opts.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  exposures,
+		Policy:     policy,
+	}, deterministic, interpret.Options{
+		ReviewProfile:  opts.LLMReviewProfile,
+		Question:       "What should a reviewer inspect about this agent exposure posture?",
+		Redaction:      redaction,
+		RunLimitations: limitations,
+	})
+}
+
 func RunInventory(opts Options) (model.InventoryReport, error) {
 	if opts.Path == "" {
 		opts.Path = "."

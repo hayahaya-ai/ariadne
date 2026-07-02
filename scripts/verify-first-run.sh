@@ -47,9 +47,8 @@ cases_txt="$workdir/cases.txt"
 proofs_action="$workdir/proofs-action.txt"
 closure_dir="$workdir/ariadne-closure"
 llm_request="$workdir/llm-request.json"
-llm_request_run="$workdir/llm-request-run.json"
+llm_request_summary="$workdir/llm-request-summary.txt"
 llm_blind_request="$workdir/llm-request-inventory-blind.json"
-llm_blind_run="$workdir/llm-request-inventory-blind-run.json"
 llm_blind_error="$workdir/llm-inventory-blind-ingest.err"
 
 "$bin" assess --path "$fixture" --out "$assess_summary"
@@ -63,8 +62,8 @@ llm_blind_error="$workdir/llm-inventory-blind-ingest.err"
 "$bin" cases --path "$fixture" --out "$cases_txt"
 "$bin" proofs --path "$fixture" --case case:input-trust-boundary --format action --out "$proofs_action"
 "$bin" closure --path "$fixture" --case case:egress-output-boundary --dir "$closure_dir"
-"$bin" prove --path "$fixture" --llm-request-out "$llm_request" --format json --out "$llm_request_run"
-"$bin" prove --path "$fixture" --llm-request-out "$llm_blind_request" --llm-review-profile inventory-blind --format json --out "$llm_blind_run"
+"$bin" review-packet --path "$fixture" --profile follow-up --packet-out "$llm_request" --out "$llm_request_summary"
+"$bin" review-packet --path "$fixture" --profile inventory-blind --format json --out "$llm_blind_request"
 if "$bin" prove --path "$fixture" --interpret llm --llm-review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --llm-review-profile inventory-blind --format json --out "$workdir/llm-blind-ingest.json" 2> "$llm_blind_error"; then
   echo "inventory-blind LLM review ingestion unexpectedly succeeded" >&2
   echo "artifacts left in: $workdir" >&2
@@ -121,6 +120,15 @@ expect_contains "$assess_summary" "--format table"
 expect_not_contains "$assess_summary" "additional items in JSON"
 expect_not_contains "$assess_summary" "more evidence reference(s) in JSON"
 
+expect_contains "$llm_request_summary" "Ariadne Review Packet"
+expect_contains "$llm_request_summary" "Profile: follow_up"
+expect_contains "$llm_request_summary" "Packet JSON:"
+expect_contains "$llm_request_summary" "Ingestible as findings: yes"
+expect_contains "$llm_request_summary" "Evidence available:"
+expect_contains "$llm_request_summary" "Reviewer tasks:"
+expect_contains "$llm_request_summary" "review_top_exposures"
+expect_contains "$llm_request_summary" "Forbidden claims:"
+expect_contains "$llm_request_summary" "ariadne prove --interpret llm --llm-review <file>"
 expect_contains "$llm_request" '"schema_version": "ariadne.llm_review_request/v1"'
 expect_contains "$llm_request" '"review_profile": "follow_up"'
 expect_contains "$llm_request" '"review_contract"'

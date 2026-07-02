@@ -222,6 +222,76 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 	}
 }
 
+func TestRunReviewPacketWritesSummaryAndPacket(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+	summaryPath := filepath.Join(root, "review-summary.txt")
+	packetPath := filepath.Join(root, "llm-request.json")
+	blindPath := filepath.Join(root, "llm-request-blind.json")
+
+	runReviewPacket([]string{
+		"--path", target,
+		"--profile", "follow-up",
+		"--packet-out", packetPath,
+		"--out", summaryPath,
+	})
+	runReviewPacket([]string{
+		"--path", target,
+		"--profile", "inventory-blind",
+		"--format", "json",
+		"--out", blindPath,
+	})
+
+	summary := readTestFile(t, summaryPath)
+	for _, want := range []string{
+		"Ariadne Review Packet",
+		"Profile: follow_up",
+		"Packet JSON:",
+		"Ingestible as findings: yes",
+		"Evidence available:",
+		"Reviewer tasks:",
+		"review_top_exposures",
+		"Forbidden claims:",
+		"ariadne prove --interpret llm --llm-review <file>",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("review packet summary missing %q:\n%s", want, summary)
+		}
+	}
+
+	packet := readTestFile(t, packetPath)
+	for _, want := range []string{
+		`"schema_version": "ariadne.llm_review_request/v1"`,
+		`"review_profile": "follow_up"`,
+		`"review_contract"`,
+		`"citation_catalog"`,
+		`"data-egress-chain"`,
+		`"source_refs"`,
+	} {
+		if !strings.Contains(packet, want) {
+			t.Fatalf("follow-up packet missing %q:\n%s", want, packet)
+		}
+	}
+	if strings.Contains(packet, "REALPATH_FAKE_SECRET_DO_NOT_LEAK") {
+		t.Fatalf("follow-up packet leaked fake secret value")
+	}
+
+	blind := readTestFile(t, blindPath)
+	for _, want := range []string{
+		`"review_profile": "inventory_blind"`,
+		`"exposures": []`,
+		`"mode": "not_included"`,
+		`"issues": []`,
+		`"exposure_ids": []`,
+		`"fact_ids"`,
+		`"Final Ariadne findings, accepted issue priorities, or exposure classifications."`,
+	} {
+		if !strings.Contains(blind, want) {
+			t.Fatalf("inventory-blind packet missing %q:\n%s", want, blind)
+		}
+	}
+}
+
 func TestRunSelfDefaultsToEndpointAssessment(t *testing.T) {
 	root := t.TempDir()
 	target, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "messy-ai-surfaces"))

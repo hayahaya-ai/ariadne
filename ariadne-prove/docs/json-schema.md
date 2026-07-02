@@ -208,7 +208,7 @@ When a focused case has been closed by deterministic hard-barrier evidence, `ari
 
 `ariadne cases --format html` renders the same contract as an operator case board: summary metrics, prioritized cases, evidence references, starting controls, proof surfaces, proof patches, example evidence, rerun commands, done criteria, and a compact evidence model.
 
-LLM review mode uses two JSON payloads:
+`ariadne review-packet` emits the LLM review request JSON. LLM review mode uses two JSON payloads:
 
 - request packet: `ariadne.llm_review_request/v1`
 - review response: `ariadne.llm_review/v1`

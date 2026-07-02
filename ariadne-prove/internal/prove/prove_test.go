@@ -554,6 +554,37 @@ func TestRunPathRejectsInventoryBlindLLMInterpretation(t *testing.T) {
 	}
 }
 
+func TestRunReviewPacketBuildsUserFacingPacket(t *testing.T) {
+	request, payload, digest, err := RunReviewPacket(Options{Path: realPathFixture(t, "combined-risk"), LLMReviewProfile: "follow-up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest == "" || len(payload) == 0 {
+		t.Fatalf("expected packet payload and digest")
+	}
+	if request.ReviewProfile != "follow_up" || len(request.ReviewerTasks) == 0 || len(request.CitationCatalog.SourceRefs) == 0 {
+		t.Fatalf("review packet missing product contract fields: %+v", request)
+	}
+	if !containsString(request.CitationCatalog.ExposureIDs, "data-egress-chain") {
+		t.Fatalf("follow-up packet should include exposure anchors: %+v", request.CitationCatalog.ExposureIDs)
+	}
+	if strings.Contains(string(payload), "REALPATH_FAKE_SECRET_DO_NOT_LEAK") {
+		t.Fatalf("review packet leaked fake secret value")
+	}
+
+	blind, blindPayload, _, err := RunReviewPacket(Options{Path: realPathFixture(t, "combined-risk"), LLMReviewProfile: "inventory-blind"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blind.ReviewProfile != "inventory_blind" || len(blind.Exposures) != 0 || len(blind.Deterministic.Issues) != 0 {
+		t.Fatalf("inventory-blind packet should omit exposure anchors: %+v", blind)
+	}
+	out := string(blindPayload)
+	if !strings.Contains(out, `"exposure_ids": []`) || strings.Contains(out, `"exposure_ids": null`) {
+		t.Fatalf("inventory-blind packet should emit stable empty exposure array:\n%s", out)
+	}
+}
+
 func TestDataEgressChainProtectedStoryControlBreaksPath(t *testing.T) {
 	r, err := RunStory(Options{StoryRoot: storyRoot(t), StoryID: "data-egress-chain-protected"})
 	if err != nil {

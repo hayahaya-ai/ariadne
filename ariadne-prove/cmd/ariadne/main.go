@@ -45,6 +45,8 @@ func main() {
 		runClosure(os.Args[2:])
 	case "inventory":
 		runInventory(os.Args[2:])
+	case "review-packet":
+		runReviewPacket(os.Args[2:])
 	case "scan":
 		runScan(os.Args[2:])
 	case "dashboard":
@@ -1248,6 +1250,53 @@ func runInventory(args []string) {
 	}
 }
 
+func runReviewPacket(args []string) {
+	fs := flag.NewFlagSet("review-packet", flag.ExitOnError)
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to review")
+	agent := fs.String("agent", "all", agentHelp)
+	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
+	profile := fs.String("profile", "follow-up", "review profile: follow-up, inventory-blind")
+	format := fs.String("format", "summary", "output format: summary, json")
+	outPath := fs.String("out", "", "write command output to file")
+	packetOut := fs.String("packet-out", "", "write review packet JSON to file while rendering summary")
+	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	request, payload, digest, err := prove.RunReviewPacket(prove.Options{
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		RulesPath:             *rulesPath,
+		LLMReviewProfile:      *profile,
+		IncludeSensitivePaths: *includeSensitive,
+	})
+	if err != nil {
+		fatal(err)
+	}
+	if *packetOut != "" {
+		if err := os.WriteFile(*packetOut, append(payload, '\n'), 0o644); err != nil {
+			fatal(err)
+		}
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	switch strings.ToLower(strings.TrimSpace(*format)) {
+	case "", "summary", "table":
+		if err := report.RenderLLMReviewRequestSummary(writer, request, digest, *packetOut); err != nil {
+			fatal(err)
+		}
+	case "json":
+		if _, err := writer.Write(append(payload, '\n')); err != nil {
+			fatal(err)
+		}
+	default:
+		fatal(fmt.Errorf("unknown review-packet format: %s", *format))
+	}
+}
+
 func runProve(args []string) {
 	fs := flag.NewFlagSet("prove", flag.ExitOnError)
 	storyID := fs.String("story", "", "story id to prove")
@@ -1444,6 +1493,7 @@ Commands:
   compare        Compare two Ariadne JSON reports and show case state changes
   closure        Create a local before/change/after/compare closure workspace
   inventory      Collect deterministic AI surface facts without classifying exposure
+  review-packet  Create a fact-bound review packet for human or LLM inspection
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
   dashboard      Write a local HTML operator dashboard for one target or a target list
@@ -1489,6 +1539,8 @@ Examples:
   ariadne inventory --path . --mode endpoint --format json
   ariadne inventory --path . --format html --out inventory-dashboard.html
   ariadne inventory --path . --format mermaid --out graph.mmd
+  ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
+  ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
   ariadne prove --path .
   ariadne dashboard --path . --out ariadne-dashboard.html
   ariadne dashboard --path . --view exposure --out exposure-dashboard.html
@@ -1498,8 +1550,6 @@ Examples:
   ariadne scan --targets targets.txt --format html --out fleet-dashboard.html
   ariadne prove --path . --agent codex --format json
   ariadne prove --path . --rules .ariadne/rules.json
-  ariadne prove --path . --llm-request-out llm-request.json
-  ariadne prove --path . --llm-request-out llm-request.json --llm-review-profile inventory-blind
   ariadne prove --path . --interpret llm --llm-review llm-review.json
   ariadne prove --story local-agent-secret-exposed
   ariadne prove --story local-agent-secret-exposed --format json`))

@@ -107,7 +107,7 @@ If Ariadne cannot cite facts, evidence references, graph edges, controls, and li
 - Detects declared Zero Trust agent controls such as approval, sandbox, output filtering, continuous authorization, resource limits, credential-helper, request-to-action traceability, retention, memory integrity, provenance, and credential-isolation posture.
 - Detects AI supply-chain evidence such as AI-BOM or ML-BOM surfaces, model provenance, dependency health, provider review, signing, and runtime validation declarations.
 - Flags inline credential field indicators in agent configuration without emitting values.
-- Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
+- Creates fact-bound review packets for optional human or LLM review, including follow-up packets over Ariadne exposure IDs and inventory-blind packets for lower-bias hypothesis review.
 - Writes local HTML operator dashboards with first action, evidence links, proof bundles, case boards, and Zero Trust boundary coverage views.
 - Emits JSON for automation, fleet aggregation, and security data pipelines.
 
@@ -159,7 +159,8 @@ From `ariadne-prove/`:
 ./bin/ariadne dashboard --path . --view exposure --out exposure-dashboard.html
 ./bin/ariadne dashboard --targets targets.txt --out fleet-dashboard.html
 ./bin/ariadne prove --path . --rules .ariadne/rules.json
-./bin/ariadne prove --path . --llm-request-out llm-request.json
+./bin/ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
+./bin/ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
 ./bin/ariadne prove --path . --interpret llm --llm-review llm-review.json
 ./bin/ariadne stories list
 ./bin/ariadne prove --story data-egress-chain-exposed

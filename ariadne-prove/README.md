@@ -122,7 +122,8 @@ Inspect the current repository:
 ./bin/ariadne controls --path . --format html --out controls-dashboard.html
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
 ./bin/ariadne dashboard --path . --view exposure --out exposure-dashboard.html
-./bin/ariadne prove --path . --llm-request-out llm-request.json
+./bin/ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
+./bin/ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
 ```
 
 Emit JSON:
@@ -186,6 +187,7 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 | `ariadne assess --path <dir>` | Primary first-run readout: inspected surfaces, exposure posture, Zero Trust architecture breaks, top operator cases, evidence refs, and next commands. Use `--format runbook` for the action-first operator runbook, `--format runbook-json` for the same runbook with run metadata, `--format operator` for the compact ticket-style handoff, `--format operator-json` for the same packet with run metadata, `--format action` for the fuller current-action workflow, and `--format table` for the full terminal audit trail. |
 | `ariadne assess --targets <file>` | Fleet first-run readout across local or mounted targets, with recurring break paths grouped into operator cases. |
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |
+| `ariadne review-packet --path <dir>` | Create a redacted, fact-bound packet for human or LLM review. Use `--profile follow-up --packet-out llm-request.json` for ingestible review over Ariadne exposure IDs, or `--profile inventory-blind --format json --out llm-request.json` for lower-bias hypothesis and collector-gap review. |
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
 | `ariadne architecture --path <dir>` | Show focused Zero Trust architecture flaws for one target and the case-board commands to investigate them. |
 | `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets and route recurring break paths to fleet cases. |
