@@ -1043,6 +1043,20 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 		fmt.Fprintln(w, `<div class="subtle">Export suggested files:</div>`)
 		fmt.Fprintln(w, renderCommandList([]string{current.PatchExportCommand}))
 	}
+	if current.GeneratedProofPath != "" || current.DestinationPath != "" || current.ApplyCommand != "" {
+		fmt.Fprintln(w, `<h3>Review / Apply Generated Proof</h3>`)
+		var applyLines []string
+		if current.GeneratedProofPath != "" {
+			applyLines = append(applyLines, "Generated file: "+current.GeneratedProofPath)
+		}
+		if current.DestinationPath != "" {
+			applyLines = append(applyLines, "Suggested destination: "+current.DestinationPath)
+		}
+		fmt.Fprintln(w, renderSmallList(applyLines))
+		if current.ApplyCommand != "" {
+			fmt.Fprintln(w, renderCommandList([]string{current.ApplyCommand}))
+		}
+	}
 	fmt.Fprintln(w, `<h3>Rerun</h3>`)
 	fmt.Fprintln(w, renderCommandList(limitStrings(rerunCommands, 3)))
 	fmt.Fprintln(w, `<h3>Compare Loop</h3>`)

@@ -4074,6 +4074,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.ControlState.Summary) == 0 {
 		t.Fatalf("assessment should expose a fact-backed control-state packet: %+v", decoded.ControlState)
 	}
+	if decoded.FirstAction.CurrentAction.GeneratedProofPath != "proof-patches/surfaces/.ariadne/egress-policy.json" ||
+		!strings.HasSuffix(decoded.FirstAction.CurrentAction.DestinationPath, "/.ariadne/egress-policy.json") ||
+		!strings.Contains(decoded.FirstAction.CurrentAction.ApplyCommand, "cd proof-patches") ||
+		!strings.Contains(decoded.FirstAction.CurrentAction.ApplyCommand, "cp surfaces/.ariadne/egress-policy.json") {
+		t.Fatalf("assessment current action should include review/apply proof details: %+v", decoded.FirstAction.CurrentAction)
+	}
 	for _, unwanted := range []string{
 		`"partial_or_friction_controls":null`,
 		`"present_hard_barriers":null`,
@@ -4125,9 +4131,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !containsString(decoded.Triage.ProofLoop, "ariadne compare --before before-proof.json --after after-proof.json") {
 		t.Fatalf("triage should preserve the compare proof loop: %+v", decoded.Triage.ProofLoop)
 	}
-	if len(decoded.Triage.ProofLoop) != 6 ||
+	if len(decoded.Triage.ProofLoop) != 7 ||
 		!containsString(decoded.Triage.ProofLoop, "Open focused proof action: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Export suggested proof files: ariadne proofs --path") ||
+		!containsString(decoded.Triage.ProofLoop, "Review/apply generated proof file: cd proof-patches") ||
 		!containsString(decoded.Triage.ProofLoop, "Rerun after evidence changes: ariadne cases --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Compare proof state: ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html") {
 		t.Fatalf("triage proof loop should preserve every command needed for proof/rerun/compare: %+v", decoded.Triage.ProofLoop)
@@ -4262,9 +4269,14 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Accepted evidence:",
 		"Proof patch:",
 		"Proof loop: Open focused proof action:",
+		"Proof loop: Review/apply generated proof file:",
 		"--format action",
 		"Export suggested files:",
 		"--patch-dir proof-patches",
+		"Review/apply generated proof:",
+		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
+		"Suggested destination:",
+		"Review/apply: cd proof-patches",
 		"Rerun:",
 		"Compare loop:",
 		"Done when:",
@@ -4328,6 +4340,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Proof patch:",
 		"Accepted evidence:",
 		"Export suggested files:",
+		"Review / Apply Generated Proof",
+		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
+		"Suggested destination:",
 		"--patch-dir proof-patches",
 		"Action Workflow",
 		"Inspect Evidence",
@@ -4558,6 +4573,7 @@ func TestAssessCommandsHonorCommandEnvironment(t *testing.T) {
 	for _, want := range []string{
 		"Open focused proof action: ./bin/ariadne proofs --path",
 		"Export suggested proof files: ./bin/ariadne proofs --path",
+		"Review/apply generated proof file: cd proof-patches",
 		"Rerun after evidence changes: ./bin/ariadne cases --path",
 		"Compare proof state: ./bin/ariadne compare --before before-proof.json --after after-proof.json",
 	} {

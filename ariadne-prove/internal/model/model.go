@@ -372,6 +372,10 @@ type AssessCurrentAction struct {
 	RerunCommand         string                  `json:"rerun_command"`
 	CompareCommand       string                  `json:"compare_command"`
 	PatchExportCommand   string                  `json:"patch_export_command"`
+	GeneratedProofPath   string                  `json:"generated_proof_path,omitempty"`
+	SuggestedDestination string                  `json:"suggested_destination,omitempty"`
+	DestinationPath      string                  `json:"destination_path,omitempty"`
+	ApplyCommand         string                  `json:"apply_command,omitempty"`
 	SuccessCriteria      []string                `json:"success_criteria"`
 }
 

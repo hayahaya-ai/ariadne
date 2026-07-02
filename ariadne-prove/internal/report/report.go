@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -320,7 +321,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	summary := buildAssessSummary(inventorySummary, exposure, architecture.Summary, caseBoard.Summary, caseBoard.OperatorCases)
 	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
 	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
-	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
+	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan, r.TargetPath)
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
 	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
@@ -406,7 +407,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	}
 	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
 	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
-	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
+	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan, "")
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
@@ -1765,6 +1766,18 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	if action.CurrentAction.PatchExportCommand != "" {
 		fmt.Fprintf(w, "\nExport suggested files:\n  - %s\n", action.CurrentAction.PatchExportCommand)
 	}
+	if action.CurrentAction.GeneratedProofPath != "" || action.CurrentAction.DestinationPath != "" || action.CurrentAction.ApplyCommand != "" {
+		fmt.Fprintf(w, "\nReview/apply generated proof:\n")
+		if action.CurrentAction.GeneratedProofPath != "" {
+			fmt.Fprintf(w, "  - Generated file: %s\n", action.CurrentAction.GeneratedProofPath)
+		}
+		if action.CurrentAction.DestinationPath != "" {
+			fmt.Fprintf(w, "  - Suggested destination: %s\n", action.CurrentAction.DestinationPath)
+		}
+		if action.CurrentAction.ApplyCommand != "" {
+			fmt.Fprintf(w, "  - Review/apply: %s\n", action.CurrentAction.ApplyCommand)
+		}
+	}
 	if rerun := assessCurrentRerunCommand(action); rerun != "" {
 		fmt.Fprintf(w, "\nRerun:\n  - %s\n", rerun)
 	}
@@ -2790,6 +2803,9 @@ func assessTriageProofLoop(action model.AssessFirstAction) []string {
 	} else if action.PatchExportCommand != "" {
 		out = append(out, "Export suggested proof files: "+action.PatchExportCommand)
 	}
+	if action.CurrentAction.ApplyCommand != "" {
+		out = append(out, "Review/apply generated proof file: "+action.CurrentAction.ApplyCommand)
+	}
 	if rerun := assessCurrentRerunCommand(action); rerun != "" {
 		out = append(out, "Rerun after evidence changes: "+rerun)
 	}
@@ -2824,6 +2840,25 @@ func proofActionCommandFromPatchExport(command string) string {
 		return strings.TrimSpace(command[:idx]) + " --format action"
 	}
 	return command + " --format action"
+}
+
+func proofPatchExportDirFromCommand(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	idx := strings.LastIndex(command, " --patch-dir ")
+	if idx < 0 {
+		return ""
+	}
+	value := strings.TrimSpace(command[idx+len(" --patch-dir "):])
+	if value == "" {
+		return ""
+	}
+	if space := strings.IndexByte(value, ' '); space >= 0 {
+		value = value[:space]
+	}
+	return strings.Trim(value, `"'`)
 }
 
 func zeroTrustSummaryFromArchitectureScan(summary model.ArchitectureScanSummary) model.ZeroTrustSummary {
@@ -2872,7 +2907,7 @@ func buildTopCaseProofPlan(catalog model.ControlCatalogReport) *model.ProofPlanR
 	return &plan
 }
 
-func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.ProofPlanReport) model.AssessFirstAction {
+func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.ProofPlanReport, targetPath string) model.AssessFirstAction {
 	action := model.AssessFirstAction{
 		Available:          false,
 		EvidenceReferences: []model.EvidenceReference{},
@@ -2950,7 +2985,7 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 		action.Flaws = []string{}
 	}
 	action.Workflow = buildAssessFirstActionWorkflow(action)
-	action.CurrentAction = buildAssessCurrentAction(action)
+	action.CurrentAction = buildAssessCurrentAction(action, targetPath)
 	return action
 }
 
@@ -3118,7 +3153,7 @@ func emptyAssessCurrentAction() model.AssessCurrentAction {
 	}
 }
 
-func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurrentAction {
+func buildAssessCurrentAction(action model.AssessFirstAction, targetPath string) model.AssessCurrentAction {
 	current := emptyAssessCurrentAction()
 	if !action.Available {
 		return current
@@ -3162,7 +3197,25 @@ func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurren
 		current.CompareCommand = action.CompareCommands[len(action.CompareCommands)-1]
 	}
 	current.PatchExportCommand = action.PatchExportCommand
+	attachAssessCurrentActionApplyStep(&current, targetPath)
 	return current
+}
+
+func attachAssessCurrentActionApplyStep(current *model.AssessCurrentAction, targetPath string) {
+	if current == nil || current.PatchExportCommand == "" || current.Surface == "" {
+		return
+	}
+	exportDir := proofPatchExportDirFromCommand(current.PatchExportCommand)
+	if exportDir == "" {
+		return
+	}
+	relPath := proofPatchExportSurfaceRelPath(current.Surface)
+	destinationPath := proofPatchSuggestedDestinationPath(targetPath, current.Surface)
+	applyCommand := proofPatchApplyCommand(exportDir, relPath, destinationPath)
+	current.GeneratedProofPath = filepath.Clean(filepath.Join(exportDir, relPath))
+	current.SuggestedDestination = current.Surface
+	current.DestinationPath = destinationPath
+	current.ApplyCommand = applyCommand
 }
 
 func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.AssessWorkflowStep {
@@ -3629,7 +3682,7 @@ func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
 	if triage.NextAction != "" {
 		fmt.Fprintf(w, "  - Next action: %s\n", triage.NextAction)
 	}
-	renderAssessTriageLines(w, "Proof loop", triage.ProofLoop, 6)
+	renderAssessTriageLines(w, "Proof loop", triage.ProofLoop, 8)
 	fmt.Fprintln(w)
 }
 
@@ -3825,6 +3878,15 @@ func renderAssessCurrentAction(w io.Writer, action model.AssessCurrentAction) {
 	fmt.Fprintf(w, "  - Current action: %s\n", line)
 	if action.RerunCommand != "" {
 		fmt.Fprintf(w, "    After proof: %s\n", action.RerunCommand)
+	}
+	if action.GeneratedProofPath != "" {
+		fmt.Fprintf(w, "    Generated proof file: %s\n", action.GeneratedProofPath)
+	}
+	if action.DestinationPath != "" {
+		fmt.Fprintf(w, "    Suggested destination: %s\n", action.DestinationPath)
+	}
+	if action.ApplyCommand != "" {
+		fmt.Fprintf(w, "    Review/apply: %s\n", action.ApplyCommand)
 	}
 }
 
