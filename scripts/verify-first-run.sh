@@ -455,6 +455,7 @@ endpoint_action="$workdir/endpoint-assess-action.txt"
 endpoint_json="$workdir/endpoint-assess.json"
 endpoint_html="$workdir/endpoint-assess.html"
 endpoint_cases="$workdir/endpoint-cases.txt"
+managed_inventory="$workdir/managed-workflow-inventory.json"
 self_summary="$workdir/self-summary.txt"
 self_html="$workdir/self.html"
 self_bundle="$workdir/ariadne-self"
@@ -465,6 +466,7 @@ self_bundle="$workdir/ariadne-self"
 "$bin" assess --path "$endpoint_fixture" --mode endpoint --format json --out "$endpoint_json"
 "$bin" assess --path "$endpoint_fixture" --mode endpoint --format html --out "$endpoint_html"
 "$bin" cases --path "$endpoint_fixture" --mode endpoint --case case:least-agency-authority --out "$endpoint_cases"
+"$bin" inventory --path "$endpoint_fixture" --format json --out "$managed_inventory"
 
 expect_contains "$self_summary" "Ariadne Summary"
 expect_contains "$self_summary" "Mode: endpoint"
@@ -550,6 +552,14 @@ expect_contains "$self_bundle/operator-packet.json" '"case_id": "case:identity-c
 expect_contains "$self_bundle/operator-packet.json" '"compare_state"'
 expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
+expect_contains "$managed_inventory" '.github/workflows/ai-review.yml'
+expect_contains "$managed_inventory" '"managed-workflow-trigger"'
+expect_contains "$managed_inventory" '"repository-write"'
+expect_contains "$managed_inventory" '"cloud-identity-token"'
+expect_contains "$managed_inventory" '"credential-access"'
+expect_contains "$managed_inventory" '"ci-secret-boundary"'
+expect_contains "$managed_inventory" '"repository-integrity-boundary"'
+expect_contains "$managed_inventory" '"cloud-identity-boundary"'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
 expect_contains "$self_bundle/dashboard.html" "Source Reference Workbench"
 expect_contains "$self_bundle/dashboard.html" "Exact files and lines to open first"

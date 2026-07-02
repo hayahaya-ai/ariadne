@@ -230,6 +230,7 @@ Current deterministic discovery covers:
 - `CLAUDE.md`, `AGENTS.md`, and nested agent instruction files
 - Cursor, Windsurf, Continue, Gemini, GitHub Copilot, Cline, and Roo instruction or rule files
 - GitHub Actions workflows under `.github/workflows/*.yml` and `.github/workflows/*.yaml` as managed/CI agent execution surfaces
+- managed workflow facts for trigger trust, agent-like workflow steps, repository-write token authority, OIDC/cloud identity token authority, CI secret references, external communication, and approval gates
 - MCP configuration, including VS Code `.vscode/mcp.json`, Cline `.cline/mcp.json`, and Roo `.roo/mcp.json`
 - plugin, skill, extension, and config surfaces
 - command files and command-like workflow surfaces

@@ -540,6 +540,17 @@ func collectGitHubActionsWorkflow(c *model.Collection, s model.Surface) {
 	configID := "config:" + runtime + "-" + s.Scope
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", "GitHub Actions workflow source was collected."))
 	text := strings.ToLower(string(data))
+	if workflowHasUntrustedTrigger(text) {
+		c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
+			ID:      "trustinput:managed-workflow-trigger",
+			Kind:    "managed-workflow-trigger",
+			Runtime: runtime,
+			Source:  source,
+			Risky:   true,
+			Summary: "Workflow can be triggered by pull request, issue, or other repository event input.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:managed-workflow-trigger", "trust-input", source, "declared", "Managed workflow trigger surface was parsed without executing the workflow."))
+	}
 	if workflowAgentLike(text) {
 		c.Tools = appendUniqueTool(c.Tools, model.Tool{
 			ID:      "tool:managed-agent-workflow",
@@ -583,6 +594,58 @@ func collectGitHubActionsWorkflow(c *model.Collection, s model.Surface) {
 			Source:  source,
 			Summary: "GitHub Actions workflow declares write-capable permissions or broad workflow token posture.",
 		})
+	}
+	if workflowHasRepositoryWritePermission(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:repository-write",
+			Kind:    "repository-write",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitHub Actions workflow token can write repository, pull request, issue, or package state.",
+		})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:repository-integrity-boundary",
+			Kind:     "repository-integrity-boundary",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Repository state, pull requests, issues, packages, or code review outputs controlled by workflow token permissions.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:repository-write", "authority", source, "declared", "Repository write-capable workflow token permission was collected."))
+	}
+	if workflowHasOIDCTokenPermission(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:cloud-identity-token",
+			Kind:    "cloud-identity-token",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitHub Actions workflow can request an OIDC identity token for cloud or external identity federation.",
+		})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:cloud-identity-boundary",
+			Kind:     "cloud-identity-boundary",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Cloud or external identity provider trust boundary reachable through workflow OIDC token issuance.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:cloud-identity-token", "authority", source, "declared", "OIDC id-token workflow permission was collected."))
+	}
+	if workflowReferencesSecrets(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:credential-access",
+			Kind:    "credential-access",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitHub Actions workflow references CI secret context or secret-backed environment variables.",
+		})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:ci-secret-boundary",
+			Kind:     "ci-secret-boundary",
+			Source:   source,
+			Abstract: false,
+			Summary:  "CI secret or secret-backed environment boundary; secret values are not emitted.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:credential-access", "authority", source, "declared", "CI secret context reference was collected without emitting secret values."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:ci-secret-boundary", "boundary", source, "observed", "Workflow references CI secret context; values were not read or emitted."))
 	}
 	if containsExternalCommunication(text) || strings.Contains(text, "uses:") {
 		addExternalCommunication(c, runtime, source, "GitHub Actions workflow can call external actions, package registries, APIs, or web endpoints.")
@@ -1655,6 +1718,14 @@ func workflowReadsRepo(text string) bool {
 		strings.Contains(text, "${{ github.workspace }}")
 }
 
+func workflowHasUntrustedTrigger(text string) bool {
+	return strings.Contains(text, "pull_request") ||
+		strings.Contains(text, "pull_request_target") ||
+		strings.Contains(text, "issue_comment") ||
+		strings.Contains(text, "workflow_run") ||
+		strings.Contains(text, "repository_dispatch")
+}
+
 func workflowHasWritePermission(text string) bool {
 	return strings.Contains(text, "write-all") ||
 		strings.Contains(text, "contents: write") ||
@@ -1662,6 +1733,28 @@ func workflowHasWritePermission(text string) bool {
 		strings.Contains(text, "issues: write") ||
 		strings.Contains(text, "id-token: write") ||
 		strings.Contains(text, "packages: write")
+}
+
+func workflowHasRepositoryWritePermission(text string) bool {
+	return strings.Contains(text, "write-all") ||
+		strings.Contains(text, "contents: write") ||
+		strings.Contains(text, "pull-requests: write") ||
+		strings.Contains(text, "issues: write") ||
+		strings.Contains(text, "packages: write") ||
+		strings.Contains(text, "actions: write") ||
+		strings.Contains(text, "checks: write") ||
+		strings.Contains(text, "statuses: write")
+}
+
+func workflowHasOIDCTokenPermission(text string) bool {
+	return strings.Contains(text, "id-token: write")
+}
+
+func workflowReferencesSecrets(text string) bool {
+	return strings.Contains(text, "${{ secrets.") ||
+		strings.Contains(text, "secrets.") ||
+		strings.Contains(text, " secrets:") ||
+		strings.Contains(text, "\nsecrets:")
 }
 
 func workflowScopedPermissions(text string) bool {

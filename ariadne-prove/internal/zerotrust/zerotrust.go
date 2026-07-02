@@ -658,7 +658,7 @@ func authorityBoundary(c model.Collection, g model.Graph, exposures []model.Expo
 }
 
 func sensitiveBoundary(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrustCheck {
-	evidence := boundaryEvidence(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:external-destination")
+	evidence := boundaryEvidence(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:credential-material", "boundary:ci-secret-boundary", "boundary:external-destination")
 	status := model.ZeroTrustNotObserved
 	finding := "No supported sensitive boundary was modeled."
 	if len(evidence) > 0 {
@@ -741,8 +741,8 @@ func outputBoundary(c model.Collection, g model.Graph, exposures []model.Exposur
 	controls := controlIDs(c, outputControlIDs()...)
 	controlEvidence := controlsEvidence(c, outputControlIDs()...)
 	riskEvidence := firstEvidence(
-		boundaryEvidence(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:credential-material"),
-		authorityEvidenceByID(c, "authority:file-read", "authority:broad-local"),
+		boundaryEvidence(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:credential-material", "boundary:ci-secret-boundary"),
+		authorityEvidenceByID(c, "authority:file-read", "authority:broad-local", "authority:credential-access"),
 		trustInputEvidence(c, true),
 	)
 	status := model.ZeroTrustNotObserved
@@ -2739,18 +2739,18 @@ func hasOutputRelevantSurface(c model.Collection) bool {
 	return len(c.Runtimes) > 0 ||
 		len(c.TrustInputs) > 0 ||
 		hasAnyControl(c, outputControlIDs()...) ||
-		hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:credential-material")
+		hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:credential-material", "boundary:ci-secret-boundary")
 }
 
 func hasOutputLeakRisk(c model.Collection, exposures []model.ExposureResult) bool {
-	if hasBoundaryID(c, "boundary:credential-material") {
+	if hasAnyBoundary(c, "boundary:credential-material", "boundary:ci-secret-boundary") {
 		return true
 	}
 	if statusForExposures(exposures, "prompt-injection-to-secret-canary", "data-egress-chain") == model.ZeroTrustBreaking {
 		return true
 	}
-	privateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local")
-	privateBoundary := hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context")
+	privateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:credential-access")
+	privateBoundary := hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:memory-credential-retention", "boundary:credential-material", "boundary:ci-secret-boundary")
 	return privateAuthority && privateBoundary
 }
 
@@ -3054,8 +3054,8 @@ func hasEgressArchitectureRisk(c model.Collection) bool {
 	if !hasExternal {
 		return false
 	}
-	privateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local")
-	privateBoundary := hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:memory-credential-retention", "boundary:credential-material")
+	privateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:credential-access")
+	privateBoundary := hasAnyBoundary(c, "boundary:secret-like-file", "boundary:developer-secret-boundary", "boundary:agent-private-context", "boundary:memory-credential-retention", "boundary:credential-material", "boundary:ci-secret-boundary")
 	return len(trustInputEvidence(c, true)) > 0 ||
 		(privateAuthority && privateBoundary) ||
 		hasAuthority(c, "authority:local-code-execution") ||

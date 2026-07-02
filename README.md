@@ -78,7 +78,7 @@ Use endpoint mode when the target looks like a developer home directory or mount
 ./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format json
 ```
 
-Endpoint mode discovers AI surfaces such as Claude, Codex, GitHub Copilot in VS Code, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, Cline, Roo Code, MCP, and Ariadne proof policy files. It parses known security-relevant files, summarizes private context surfaces, models authorities and boundaries, and then ranks operator cases. The self-assessment bundle is the recommended handoff artifact when you need to inspect results later, attach evidence to a ticket, or share the readout with another operator.
+Endpoint mode discovers local AI surfaces such as Claude, Codex, GitHub Copilot in VS Code, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, Cline, Roo Code, MCP, and Ariadne proof policy files. Repo assessment also discovers managed-agent workflow surfaces such as GitHub Actions. It parses known security-relevant files, summarizes private context surfaces, models authorities and boundaries, and then ranks operator cases. For managed workflows, Ariadne separates the trigger, workflow tool invocation, repository-write permission, OIDC/cloud identity permission, CI secret reference, external communication, and approval gate as separate facts. The self-assessment bundle is the recommended handoff artifact when you need to inspect results later, attach evidence to a ticket, or share the readout with another operator.
 
 ## Fact Contract
 
@@ -98,6 +98,7 @@ If Ariadne cannot cite facts, evidence references, graph edges, controls, and li
 - Parses known security-relevant config and instruction files.
 - Summarizes private or high-volume agent context without emitting content, including count-only credential-like filename indicators.
 - Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
+- Models managed workflow agent paths such as pull-request-triggered AI reviews with repository token, OIDC, CI secret, and egress facts.
 - Exports graph evidence as JSON, Graphviz DOT, or Mermaid for review and visualization.
 - Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
 - Maps exposure evidence to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.

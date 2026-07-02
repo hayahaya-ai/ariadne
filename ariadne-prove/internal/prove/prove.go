@@ -1292,7 +1292,8 @@ func outputSensitiveBoundary(boundaryID string) bool {
 		"boundary:developer-secret-boundary",
 		"boundary:agent-private-context",
 		"boundary:memory-credential-retention",
-		"boundary:credential-material":
+		"boundary:credential-material",
+		"boundary:ci-secret-boundary":
 		return true
 	default:
 		return false
@@ -1410,6 +1411,9 @@ func controlRequiresApprovalAuthority(controlID, authorityID string) bool {
 	case "authority:broad-local",
 		"authority:local-code-execution",
 		"authority:external-communication",
+		"authority:repository-write",
+		"authority:cloud-identity-token",
+		"authority:credential-access",
 		"authority:delegated-agent-authority":
 		return true
 	default:
@@ -1619,6 +1623,12 @@ func authorityReachesBoundary(authorityID, boundaryID string) bool {
 		return authorityID == "authority:external-communication" || authorityID == "authority:broad-local"
 	case "boundary:agent-delegation-boundary":
 		return authorityID == "authority:delegated-agent-authority"
+	case "boundary:repository-integrity-boundary":
+		return authorityID == "authority:repository-write"
+	case "boundary:cloud-identity-boundary":
+		return authorityID == "authority:cloud-identity-token"
+	case "boundary:ci-secret-boundary":
+		return authorityID == "authority:credential-access" || authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
 	default:
 		return false
 	}
@@ -1797,8 +1807,8 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 			break
 		}
 	}
-	hasPrivateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local")
-	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context") || hasBoundary(c, "boundary:memory-credential-retention")
+	hasPrivateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:credential-access")
+	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context") || hasBoundary(c, "boundary:memory-credential-retention") || hasBoundary(c, "boundary:credential-material") || hasBoundary(c, "boundary:ci-secret-boundary")
 	hasExternalCommunication := hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local")
 	hasExternalDestination := hasBoundary(c, "boundary:external-destination")
 	hasHardEgressControl := hasHardEgressBreak(c)
@@ -1999,6 +2009,7 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"runtime:codex|has_authority|authority:broad-local",
 		"runtime:claude|has_authority|authority:broad-local",
 		"runtime:github-actions|has_authority|authority:broad-local",
+		"runtime:github-actions|has_authority|authority:credential-access",
 		"authority:file-read|reaches|boundary:secret-like-file",
 		"authority:file-read|reaches|boundary:developer-secret-boundary",
 		"authority:file-read|reaches|boundary:agent-private-context",
@@ -2007,6 +2018,9 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"authority:broad-local|reaches|boundary:developer-secret-boundary",
 		"authority:broad-local|reaches|boundary:agent-private-context",
 		"authority:broad-local|reaches|boundary:memory-credential-retention",
+		"authority:credential-access|reaches|boundary:ci-secret-boundary",
+		"authority:local-code-execution|reaches|boundary:ci-secret-boundary",
+		"authority:broad-local|reaches|boundary:ci-secret-boundary",
 		"runtime:codex|has_authority|authority:external-communication",
 		"runtime:claude|has_authority|authority:external-communication",
 		"runtime:github-actions|has_authority|authority:external-communication",

@@ -2803,12 +2803,20 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	if !containsString(actionsMap.SourceRefs, ".github/workflows/ai-review.yml") ||
 		!containsString(actionsMap.Tools, "managed-agent-workflow") ||
 		!containsString(actionsMap.Authorities, "local-code-execution") ||
+		!containsString(actionsMap.Authorities, "repository-write") ||
+		!containsString(actionsMap.Authorities, "cloud-identity-token") ||
+		!containsString(actionsMap.Authorities, "credential-access") ||
 		!containsString(actionsMap.Authorities, "external-communication") ||
 		!containsString(actionsMap.Controls, "approval-required") {
 		t.Fatalf("github actions surface map should retain workflow source refs, tools, authority, and controls: %+v", actionsMap)
 	}
 	if !r.Graph.HasEdge("runtime:github-actions|can_call|tool:managed-agent-workflow") ||
+		!r.Graph.HasEdge("trustinput:managed-workflow-trigger|influences|runtime:github-actions") ||
 		!r.Graph.HasEdge("tool:managed-agent-workflow|grants|authority:local-code-execution") ||
+		!r.Graph.HasEdge("runtime:github-actions|has_authority|authority:repository-write") ||
+		!r.Graph.HasEdge("authority:repository-write|reaches|boundary:repository-integrity-boundary") ||
+		!r.Graph.HasEdge("authority:cloud-identity-token|reaches|boundary:cloud-identity-boundary") ||
+		!r.Graph.HasEdge("authority:credential-access|reaches|boundary:ci-secret-boundary") ||
 		!r.Graph.HasEdge("control:approval-required|requires_approval|tool:managed-agent-workflow") {
 		t.Fatalf("graph should connect managed workflow launch, authority, and approval control: %+v", r.Graph.Edges)
 	}
