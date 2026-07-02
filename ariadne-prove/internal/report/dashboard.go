@@ -912,6 +912,18 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 			fmt.Fprintln(w, renderCommandList([]string{decision.ApplyCommand}))
 		}
 	}
+	if len(decision.GeneratedProofPaths) > 0 || len(decision.ApplyCommands) > 0 {
+		fmt.Fprintln(w, `<h3>Review / Apply Full Proof Bundle</h3>`)
+		var bundleLines []string
+		for _, path := range decision.GeneratedProofPaths {
+			bundleLines = append(bundleLines, "Generated file: "+path)
+		}
+		for _, path := range decision.DestinationPaths {
+			bundleLines = append(bundleLines, "Suggested destination: "+path)
+		}
+		fmt.Fprintln(w, renderSmallList(bundleLines))
+		fmt.Fprintln(w, renderCommandList(decision.ApplyCommands))
+	}
 	fmt.Fprintln(w, `<h3>Commands</h3>`)
 	fmt.Fprintln(w, renderCommandList(nonEmptyStrings(decision.BeforeProofCommand, decision.ProofCommand, decision.RerunCommand, decision.AfterProofCommand, decision.CompareCommand)))
 	fmt.Fprintln(w, `<h3>Done When</h3>`)

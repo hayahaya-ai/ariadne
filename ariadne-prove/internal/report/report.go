@@ -326,7 +326,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
 	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
 	controlState := buildAssessControlState(firstAction, triage)
-	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction)
+	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, r.TargetPath)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -415,7 +415,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
 	triage.EvidenceGapActions = assessScanEvidenceGapActions(r.TargetsFile, r.Mode, r.Agent, triage)
 	controlState := buildAssessControlState(firstAction, triage)
-	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction)
+	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, "")
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -2676,7 +2676,8 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 	return state
 }
 
-func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction) model.AssessDecision {
+func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction, targetPath string) model.AssessDecision {
+	generatedProofPaths, suggestedDestinations, destinationPaths, applyCommands := assessDecisionProofBundle(action, targetPath)
 	decision := model.AssessDecision{
 		Status:                    firstNonEmpty(triage.Status, "no_supported_signal"),
 		Headline:                  firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
@@ -2703,9 +2704,13 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 		ProofSurface:              firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
 		ProofCommand:              firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand),
 		GeneratedProofPath:        action.CurrentAction.GeneratedProofPath,
+		GeneratedProofPaths:       generatedProofPaths,
 		SuggestedDestination:      action.CurrentAction.SuggestedDestination,
+		SuggestedDestinations:     suggestedDestinations,
 		DestinationPath:           action.CurrentAction.DestinationPath,
+		DestinationPaths:          destinationPaths,
 		ApplyCommand:              action.CurrentAction.ApplyCommand,
+		ApplyCommands:             applyCommands,
 		RerunCommand:              action.CurrentAction.RerunCommand,
 		CompareCommand:            action.CurrentAction.CompareCommand,
 		DoneCriteria:              firstStrings(uniqueStrings(firstNonEmptyStrings(action.CurrentAction.SuccessCriteria, action.SuccessCriteria)), 3),
@@ -2750,9 +2755,13 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 		decision.WhyPrioritized = ""
 		decision.ProofCommand = ""
 		decision.GeneratedProofPath = ""
+		decision.GeneratedProofPaths = []string{}
 		decision.SuggestedDestination = ""
+		decision.SuggestedDestinations = []string{}
 		decision.DestinationPath = ""
+		decision.DestinationPaths = []string{}
 		decision.ApplyCommand = ""
+		decision.ApplyCommands = []string{}
 		decision.RerunCommand = ""
 		decision.BeforeProofCommand = ""
 		decision.AfterProofCommand = ""
@@ -2769,9 +2778,54 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 	decision.PartialOrFrictionControls = nonNilStrings(decision.PartialOrFrictionControls)
 	decision.UnknownEvidence = nonNilStrings(decision.UnknownEvidence)
 	decision.EvidenceGapActions = nonNilStrings(decision.EvidenceGapActions)
+	decision.GeneratedProofPaths = nonNilStrings(decision.GeneratedProofPaths)
+	decision.SuggestedDestinations = nonNilStrings(decision.SuggestedDestinations)
+	decision.DestinationPaths = nonNilStrings(decision.DestinationPaths)
+	decision.ApplyCommands = nonNilStrings(decision.ApplyCommands)
 	decision.DoneCriteria = nonNilStrings(decision.DoneCriteria)
 	decision.Limitations = uniqueStrings(decision.Limitations)
 	return decision
+}
+
+func assessDecisionProofBundle(action model.AssessFirstAction, targetPath string) ([]string, []string, []string, []string) {
+	if !action.Available || action.PatchExportCommand == "" {
+		return []string{}, []string{}, []string{}, []string{}
+	}
+	exportDir := proofPatchExportDirFromCommand(action.PatchExportCommand)
+	if exportDir == "" {
+		return []string{}, []string{}, []string{}, []string{}
+	}
+	surfaces := proofPatchBundleSurfaces(action.ProofPatches)
+	generated := make([]string, 0, len(surfaces))
+	suggested := make([]string, 0, len(surfaces))
+	destinations := make([]string, 0, len(surfaces))
+	apply := make([]string, 0, len(surfaces))
+	for _, surface := range surfaces {
+		relPath := proofPatchExportSurfaceRelPath(surface)
+		destinationPath := proofPatchSuggestedDestinationPath(targetPath, surface)
+		generated = append(generated, filepath.Clean(filepath.Join(exportDir, relPath)))
+		suggested = append(suggested, surface)
+		destinations = append(destinations, destinationPath)
+		apply = append(apply, proofPatchApplyCommand(exportDir, relPath, destinationPath))
+	}
+	return uniqueStrings(generated), uniqueStrings(suggested), uniqueStrings(destinations), uniqueStrings(apply)
+}
+
+func proofPatchBundleSurfaces(patches []model.ControlProofPatch) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, patch := range patches {
+		surface := strings.TrimSpace(patch.Surface)
+		if surface == "" || strings.Contains(surface, "supported control evidence") || seen[surface] {
+			continue
+		}
+		seen[surface] = true
+		out = append(out, surface)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func assessDecisionInspectionSummary(inventory model.AssessInventory, surfaceMapLimit int) []string {
@@ -4166,6 +4220,7 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	if decision.GeneratedProofPath != "" {
 		fmt.Fprintf(w, "  - Generated file: %s\n", decision.GeneratedProofPath)
 	}
+	renderAssessDecisionLines(w, "Generated bundle file", decision.GeneratedProofPaths, 5)
 	if decision.DestinationPath != "" {
 		fmt.Fprintf(w, "  - Suggested destination: %s\n", decision.DestinationPath)
 	} else if decision.SuggestedDestination != "" {
@@ -4174,6 +4229,7 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	if decision.ApplyCommand != "" {
 		fmt.Fprintf(w, "  - Review/apply: %s\n", decision.ApplyCommand)
 	}
+	renderAssessDecisionLines(w, "Review/apply bundle", decision.ApplyCommands, 5)
 	if decision.RerunCommand != "" {
 		fmt.Fprintf(w, "  - Rerun: %s\n", decision.RerunCommand)
 	}

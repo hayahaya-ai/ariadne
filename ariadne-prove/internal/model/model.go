@@ -368,9 +368,13 @@ type AssessDecision struct {
 	ProofCommand              string              `json:"proof_command,omitempty"`
 	BeforeProofCommand        string              `json:"before_proof_command,omitempty"`
 	GeneratedProofPath        string              `json:"generated_proof_path,omitempty"`
+	GeneratedProofPaths       []string            `json:"generated_proof_paths"`
 	SuggestedDestination      string              `json:"suggested_destination,omitempty"`
+	SuggestedDestinations     []string            `json:"suggested_destinations"`
 	DestinationPath           string              `json:"destination_path,omitempty"`
+	DestinationPaths          []string            `json:"destination_paths"`
 	ApplyCommand              string              `json:"apply_command,omitempty"`
+	ApplyCommands             []string            `json:"apply_commands"`
 	RerunCommand              string              `json:"rerun_command,omitempty"`
 	AfterProofCommand         string              `json:"after_proof_command,omitempty"`
 	CompareCommand            string              `json:"compare_command,omitempty"`

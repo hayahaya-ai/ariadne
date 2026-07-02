@@ -4143,9 +4143,17 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!strings.Contains(decoded.Decision.ProofCommand, "--patch-dir proof-patches") ||
 		!strings.Contains(decoded.Decision.BeforeProofCommand, "--out before-proof.json") ||
 		decoded.Decision.GeneratedProofPath != "proof-patches/surfaces/.ariadne/egress-policy.json" ||
+		!containsString(decoded.Decision.GeneratedProofPaths, "proof-patches/surfaces/.ariadne/egress-policy.json") ||
+		!containsString(decoded.Decision.GeneratedProofPaths, "proof-patches/surfaces/.ariadne/output-policy.json") ||
 		decoded.Decision.SuggestedDestination != ".ariadne/egress-policy.json" ||
+		!containsString(decoded.Decision.SuggestedDestinations, ".ariadne/egress-policy.json") ||
+		!containsString(decoded.Decision.SuggestedDestinations, ".ariadne/output-policy.json") ||
 		!strings.HasSuffix(decoded.Decision.DestinationPath, "/.ariadne/egress-policy.json") ||
+		!containsString(decoded.Decision.DestinationPaths, "/.ariadne/egress-policy.json") ||
+		!containsString(decoded.Decision.DestinationPaths, "/.ariadne/output-policy.json") ||
 		!strings.Contains(decoded.Decision.ApplyCommand, "cp surfaces/.ariadne/egress-policy.json") ||
+		!containsString(decoded.Decision.ApplyCommands, "cp surfaces/.ariadne/egress-policy.json") ||
+		!containsString(decoded.Decision.ApplyCommands, "cp surfaces/.ariadne/output-policy.json") ||
 		!strings.Contains(decoded.Decision.RerunCommand, "ariadne cases --path") ||
 		!strings.Contains(decoded.Decision.AfterProofCommand, "--out after-proof.json") ||
 		!strings.Contains(decoded.Decision.CompareCommand, "ariadne compare --before before-proof.json --after after-proof.json") ||
@@ -4182,6 +4190,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"risk_reasons":null`,
 		`"path_summary":null`,
 		`"graph_edges":null`,
+		`"generated_proof_paths":null`,
+		`"apply_commands":null`,
 	} {
 		if strings.Contains(jsonOut.String(), unwanted) {
 			t.Fatalf("assessment JSON should emit stable empty arrays, not %s:\n%s", unwanted, jsonOut.String())
@@ -4363,8 +4373,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Proof command: ariadne proofs --path",
 		"--patch-dir proof-patches",
 		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
+		"Generated bundle file: proof-patches/surfaces/.ariadne/egress-policy.json",
+		"Generated bundle file: proof-patches/surfaces/.ariadne/output-policy.json",
 		"Suggested destination:",
 		"Review/apply: cd proof-patches",
+		"Review/apply bundle: cd proof-patches",
+		"cp surfaces/.ariadne/output-policy.json",
 		"After proof: ariadne proofs --path",
 		"--out after-proof.json",
 		"Decision limit:",
@@ -4497,8 +4511,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Accepted evidence:",
 		"Export suggested files:",
 		"Review / Apply Generated Proof",
+		"Review / Apply Full Proof Bundle",
 		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
+		"Generated file: proof-patches/surfaces/.ariadne/output-policy.json",
 		"Suggested destination:",
+		`.ariadne/output-policy.json">.ariadne/output-policy.json</a>`,
 		"--patch-dir proof-patches",
 		"Action Workflow",
 		"Inspect Evidence",
@@ -5839,13 +5856,17 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessDecision := schemaMap(t, assessSchema, "$defs", "assess_decision")
-	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "inspection_summary", "risk_reasons", "normal_capabilities", "evidence_sources", "evidence_refs", "path_summary", "missing_hard_barriers", "present_hard_barriers", "partial_or_friction_controls", "unknown_evidence", "evidence_gap_actions", "done_criteria", "limitations")
+	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "inspection_summary", "risk_reasons", "normal_capabilities", "evidence_sources", "evidence_refs", "path_summary", "missing_hard_barriers", "present_hard_barriers", "partial_or_friction_controls", "unknown_evidence", "evidence_gap_actions", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessDecision, "before_proof_command")
 	assertSchemaProperty(t, assessDecision, "after_proof_command")
 	assertSchemaProperty(t, assessDecision, "generated_proof_path")
+	assertSchemaProperty(t, assessDecision, "generated_proof_paths")
 	assertSchemaProperty(t, assessDecision, "suggested_destination")
+	assertSchemaProperty(t, assessDecision, "suggested_destinations")
 	assertSchemaProperty(t, assessDecision, "destination_path")
+	assertSchemaProperty(t, assessDecision, "destination_paths")
 	assertSchemaProperty(t, assessDecision, "apply_command")
+	assertSchemaProperty(t, assessDecision, "apply_commands")
 	assertSchemaProperty(t, assessDecision, "case_severity")
 	assertSchemaProperty(t, assessDecision, "case_state")
 	assertSchemaProperty(t, assessDecision, "current_control")

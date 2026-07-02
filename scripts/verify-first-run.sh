@@ -65,7 +65,11 @@ expect_contains "$assess_txt" "First action:"
 expect_contains "$assess_txt" "Save baseline proof before changes:"
 expect_contains "$assess_txt" "Review/apply generated proof file:"
 expect_contains "$assess_txt" "Generated proof file: proof-patches/surfaces/.ariadne/egress-policy.json"
+expect_contains "$assess_txt" "Generated bundle file: proof-patches/surfaces/.ariadne/egress-policy.json"
+expect_contains "$assess_txt" "Generated bundle file: proof-patches/surfaces/.ariadne/output-policy.json"
 expect_contains "$assess_txt" "Review/apply: cd proof-patches"
+expect_contains "$assess_txt" "Review/apply bundle: cd proof-patches"
+expect_contains "$assess_txt" "cp surfaces/.ariadne/output-policy.json"
 expect_contains "$assess_txt" "Save after proof after rerun:"
 expect_contains "$assess_txt" "Evidence sources: .claude/settings.json; .codex/config.toml; .env"
 expect_contains "$assess_txt" "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/output-policy.json; .claude/settings.json; .codex/config.toml"
@@ -94,9 +98,15 @@ expect_contains "$assess_json" '"path_summary"'
 expect_contains "$assess_json" '"graph_edges"'
 expect_contains "$assess_json" 'authority:broad-local|reaches|boundary:external-destination'
 expect_contains "$assess_json" '"generated_proof_path": "proof-patches/surfaces/.ariadne/egress-policy.json"'
+expect_contains "$assess_json" '"generated_proof_paths"'
+expect_contains "$assess_json" '"proof-patches/surfaces/.ariadne/output-policy.json"'
 expect_contains "$assess_json" '"suggested_destination": ".ariadne/egress-policy.json"'
+expect_contains "$assess_json" '"suggested_destinations"'
+expect_contains "$assess_json" '".ariadne/output-policy.json"'
 expect_contains "$assess_json" '"destination_path"'
 expect_contains "$assess_json" '"apply_command": "cd proof-patches'
+expect_contains "$assess_json" '"apply_commands"'
+expect_contains "$assess_json" 'cp surfaces/.ariadne/output-policy.json'
 expect_contains "$assess_json" '"first_action"'
 expect_contains "$assess_json" '"signal_details"'
 expect_contains "$assess_json" '"normal_capability"'
@@ -122,7 +132,9 @@ expect_contains "$assess_html" "State Summary"
 expect_contains "$assess_html" "Path To Fix"
 expect_contains "$assess_html" "Graph Edges"
 expect_contains "$assess_html" "Review / Apply Generated Proof"
+expect_contains "$assess_html" "Review / Apply Full Proof Bundle"
 expect_contains "$assess_html" "Generated file: proof-patches/surfaces/.ariadne/egress-policy.json"
+expect_contains "$assess_html" "Generated file: proof-patches/surfaces/.ariadne/output-policy.json"
 expect_contains "$assess_html" "Save baseline proof before changes"
 expect_contains "$assess_html" "Save after proof after rerun"
 expect_contains "$assess_html" "Proof Loop"
@@ -264,38 +276,42 @@ compare_html="$workdir/compare.html"
 export_dir="$workdir/proof-patches"
 export_log="$workdir/proof-export.log"
 
-"$bin" proofs --path "$loop_target" --case case:input-trust-boundary --format json --out "$before_json"
-"$bin" proofs --path "$loop_target" --case case:input-trust-boundary --patch-dir "$export_dir" --format action --out "$workdir/proof-export-action.txt" 2> "$export_log"
+"$bin" proofs --path "$loop_target" --case case:egress-output-boundary --format json --out "$before_json"
+"$bin" proofs --path "$loop_target" --case case:egress-output-boundary --patch-dir "$export_dir" --format action --out "$workdir/proof-export-action.txt" 2> "$export_log"
 
 expect_contains "$export_log" "Generated proof files:"
 expect_contains "$export_log" "Review/apply:"
-expect_contains "$export_log" "input-policy.json"
+expect_contains "$export_log" "egress-policy.json"
+expect_contains "$export_log" "output-policy.json"
 
 mkdir -p "$loop_target/.ariadne"
-cp "$export_dir/surfaces/.ariadne/input-policy.json" "$loop_target/.ariadne/input-policy.json"
+cp "$export_dir/surfaces/.ariadne/egress-policy.json" "$loop_target/.ariadne/egress-policy.json"
+cp "$export_dir/surfaces/.ariadne/output-policy.json" "$loop_target/.ariadne/output-policy.json"
 
-"$bin" cases --path "$loop_target" --case case:input-trust-boundary --out "$after_case"
-"$bin" proofs --path "$loop_target" --case case:input-trust-boundary --format json --out "$after_json"
+"$bin" cases --path "$loop_target" --case case:egress-output-boundary --out "$after_case"
+"$bin" proofs --path "$loop_target" --case case:egress-output-boundary --format json --out "$after_json"
 "$bin" compare --before "$before_json" --after "$after_json" --out "$compare_txt"
 "$bin" compare --before "$before_json" --after "$after_json" --format json --out "$compare_json"
 "$bin" compare --before "$before_json" --after "$after_json" --format html --out "$compare_html"
 
 expect_contains "$after_case" "State: closed"
 expect_contains "$after_case" "0 missing hard-barrier controls"
-expect_contains "$after_case" ".ariadne/input-policy.json"
+expect_contains "$after_case" ".ariadne/egress-policy.json"
+expect_contains "$after_case" ".ariadne/output-policy.json"
 
 expect_contains "$compare_txt" "Decision:"
 expect_contains "$compare_txt" "Verdict: proof succeeded"
 expect_contains "$compare_txt" "Readout: Proof worked"
 expect_contains "$compare_txt" "open -> closed"
-expect_contains "$compare_txt" "Proof patches: 2 -> 0"
+expect_contains "$compare_txt" "Proof patches: 5 -> 0"
 expect_contains "$compare_txt" "Added evidence:"
-expect_contains "$compare_txt" ".ariadne/input-policy.json"
+expect_contains "$compare_txt" ".ariadne/egress-policy.json"
+expect_contains "$compare_txt" ".ariadne/output-policy.json"
 
 expect_contains "$compare_json" '"decision"'
 expect_contains "$compare_json" '"status": "proof_succeeded"'
-expect_contains "$compare_json" '"top_case_id": "case:input-trust-boundary"'
-expect_contains "$compare_json" '"proof_patches_before": 2'
+expect_contains "$compare_json" '"top_case_id": "case:egress-output-boundary"'
+expect_contains "$compare_json" '"proof_patches_before": 5'
 expect_contains "$compare_json" '"proof_patches_after": 0'
 expect_contains "$compare_json" '"added_evidence_sources"'
 expect_contains "$compare_json" '"before_state": "open"'
@@ -306,7 +322,8 @@ expect_contains "$compare_html" "PROOF SUCCEEDED"
 expect_contains "$compare_html" "CLOSED"
 expect_contains "$compare_html" "open"
 expect_contains "$compare_html" "closed"
-expect_contains "$compare_html" ".ariadne/input-policy.json"
+expect_contains "$compare_html" ".ariadne/egress-policy.json"
+expect_contains "$compare_html" ".ariadne/output-policy.json"
 
 echo "First-run verification passed"
 echo "  artifacts: $workdir"
