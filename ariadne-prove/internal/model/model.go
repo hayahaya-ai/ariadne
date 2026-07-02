@@ -324,6 +324,7 @@ type AssessReport struct {
 	Summary           AssessSummary           `json:"summary"`
 	Decision          AssessDecision          `json:"decision"`
 	Triage            AssessTriage            `json:"triage"`
+	SourceReferences  AssessSourceReferences  `json:"source_reference_workbench"`
 	SignalNoise       AssessSignalNoise       `json:"signal_noise"`
 	SignalQuality     AssessSignalQuality     `json:"signal_quality"`
 	ControlState      AssessControlState      `json:"control_state"`
@@ -345,6 +346,29 @@ type AssessReport struct {
 	Redaction         RedactionInfo           `json:"redaction"`
 	Warnings          []string                `json:"warnings,omitempty"`
 	Limitations       []string                `json:"limitations"`
+}
+
+type AssessSourceReferences struct {
+	Available          bool                 `json:"available"`
+	Summary            string               `json:"summary"`
+	EvidenceReferences []EvidenceReference  `json:"evidence_refs"`
+	Rows               []AssessSourceRefRow `json:"rows"`
+	LocalFiles         int                  `json:"local_files"`
+	MetadataOnly       int                  `json:"metadata_only"`
+	ContentInspectable int                  `json:"content_inspectable"`
+	Limitations        []string             `json:"limitations"`
+}
+
+type AssessSourceRefRow struct {
+	Source         string `json:"source"`
+	DisplaySource  string `json:"display_source"`
+	Line           string `json:"line"`
+	Kind           string `json:"kind"`
+	Fact           string `json:"fact"`
+	LocalPath      string `json:"local_path,omitempty"`
+	LocalFile      bool   `json:"local_file"`
+	MetadataOnly   bool   `json:"metadata_only"`
+	InspectCommand string `json:"inspect_command,omitempty"`
 }
 
 type AssessOperatorPacketReport struct {

@@ -76,6 +76,8 @@ expect_contains "$assess_summary" "Exposure to untrusted content=present"
 expect_contains "$assess_summary" "Evidence:"
 expect_contains "$assess_summary" "Evidence files: .claude/settings.json; .codex/config.toml; .env"
 expect_contains "$assess_summary" "Modeled/internal evidence: zt:control-strength"
+expect_contains "$assess_summary" "Source references:"
+expect_contains "$assess_summary" "Inspect:"
 expect_contains "$assess_summary" "Path:"
 expect_contains "$assess_summary" "Controls:"
 expect_contains "$assess_summary" "Missing hard barrier: control:egress-destination-allowlist"
@@ -212,6 +214,9 @@ expect_contains "$assess_json" 'cp surfaces/.ariadne/output-policy.json'
 expect_contains "$assess_json" '"first_action"'
 expect_contains "$assess_json" '"operator_workbench"'
 expect_contains "$assess_json" '"evidence_to_open"'
+expect_contains "$assess_json" '"source_reference_workbench"'
+expect_contains "$assess_json" '"inspect_command"'
+expect_contains "$assess_json" '"content_inspectable"'
 expect_contains "$assess_json" '"change_readout"'
 expect_contains "$assess_json" '"case_lifecycle"'
 expect_contains "$assess_json" '"current_step_id"'
@@ -327,6 +332,8 @@ expect_contains "$self_summary" "Ariadne Summary"
 expect_contains "$self_summary" "Mode: endpoint"
 expect_contains "$self_summary" "Decision:"
 expect_contains "$self_summary" "Identity And Credentials"
+expect_contains "$self_summary" "Source references:"
+expect_contains "$self_summary" "Inspect:"
 expect_contains "$self_summary" "Next action:"
 expect_contains "$self_html" "Ariadne Assessment"
 expect_contains "$self_html" "Operator Workbench"
@@ -360,6 +367,9 @@ expect_contains "$self_bundle/assessment.json" '"run_kind": "assess"'
 expect_contains "$self_bundle/assessment.json" '"signal_quality"'
 expect_contains "$self_bundle/assessment.json" '"lethal_trifecta"'
 expect_contains "$self_bundle/assessment.json" '"operator_packet"'
+expect_contains "$self_bundle/assessment.json" '"source_reference_workbench"'
+expect_contains "$self_bundle/assessment.json" '"inspect_command"'
+expect_contains "$self_bundle/assessment.json" '"metadata_only"'
 expect_contains "$self_bundle/assessment.json" '"top_case_id": "case:identity-credentials"'
 expect_contains "$self_bundle/operator-packet.txt" "Ariadne Operator Packet"
 expect_contains "$self_bundle/operator-packet.txt" "case:identity-credentials"
@@ -495,6 +505,9 @@ expect_contains "$endpoint_json" '"present_hard_barriers"'
 expect_contains "$endpoint_json" 'control:network-restricted'
 expect_contains "$endpoint_json" '"operator_workbench"'
 expect_contains "$endpoint_json" '"evidence_to_open"'
+expect_contains "$endpoint_json" '"source_reference_workbench"'
+expect_contains "$endpoint_json" '"inspect_command"'
+expect_contains "$endpoint_json" '"metadata_only"'
 expect_contains "$endpoint_json" '"change_readout"'
 expect_contains "$endpoint_json" '"case_lifecycle"'
 expect_contains "$endpoint_json" '"current_step_id"'

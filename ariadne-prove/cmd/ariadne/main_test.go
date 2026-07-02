@@ -246,6 +246,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"Identity And Credentials",
 		"Signal quality:",
 		"Lethal trifecta:",
+		"Source references:",
+		"Inspect:",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("self summary missing %q:\n%s", want, summary)
@@ -287,6 +289,11 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"top_case_id": "case:identity-credentials"`,
 		`"first_action"`,
 		`"operator_packet"`,
+		`"source_reference_workbench"`,
+		`"rows"`,
+		`"inspect_command"`,
+		`"metadata_only"`,
+		`"content_inspectable"`,
 	} {
 		if !strings.Contains(assessmentJSON, want) {
 			t.Fatalf("self bundle assessment JSON missing %q:\n%s", want, assessmentJSON)

@@ -332,6 +332,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, r.TargetPath)
 	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
 	operatorPacket := buildAssessOperatorPacket(decision, signalQuality, controlState, firstAction, operatorWorkbench)
+	sourceReferences := buildAssessSourceReferenceWorkbench(r.TargetPath, operatorPacket, operatorWorkbench, decision, signalQuality, triage, firstAction, topCases)
 	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
@@ -348,6 +349,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		Summary:           summary,
 		Decision:          decision,
 		Triage:            triage,
+		SourceReferences:  sourceReferences,
 		SignalNoise:       signalNoise,
 		SignalQuality:     signalQuality,
 		ControlState:      controlState,
@@ -433,6 +435,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, "")
 	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
 	operatorPacket := buildAssessOperatorPacket(decision, signalQuality, controlState, firstAction, operatorWorkbench)
+	sourceReferences := buildAssessSourceReferenceWorkbench("", operatorPacket, operatorWorkbench, decision, signalQuality, triage, firstAction, topCases)
 	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
@@ -450,6 +453,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		Summary:           summary,
 		Decision:          decision,
 		Triage:            triage,
+		SourceReferences:  sourceReferences,
 		SignalNoise:       signalNoise,
 		SignalQuality:     signalQuality,
 		ControlState:      controlState,
@@ -2145,9 +2149,7 @@ func renderAssessSummary(w io.Writer, r model.AssessReport) error {
 
 	fmt.Fprintf(w, "\nEvidence:\n")
 	renderAssessEvidenceSources(w, r.Decision.EvidenceSources, 8)
-	for _, ref := range firstOrderedEvidenceReferences(r.Decision.EvidenceReferences, 4) {
-		fmt.Fprintf(w, "  - Fact: %s\n", evidenceReferenceLine(ref))
-	}
+	renderAssessSummarySourceReferences(w, r.SourceReferences, 2)
 
 	if len(r.Decision.PathSummary) > 0 {
 		fmt.Fprintf(w, "\nPath:\n")
@@ -2165,6 +2167,31 @@ func renderAssessSummary(w io.Writer, r model.AssessReport) error {
 	renderAssessSummaryNextAction(w, r)
 	renderAssessSummaryLimitations(w, r.Limitations)
 	return nil
+}
+
+func renderAssessSummarySourceReferences(w io.Writer, refs model.AssessSourceReferences, limit int) {
+	if !refs.Available || len(refs.Rows) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Source references:\n")
+	rows := refs.Rows
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	for _, row := range rows {
+		meta := ""
+		if row.MetadataOnly {
+			meta = " metadata-only"
+		}
+		line := fmt.Sprintf("%s [%s%s] %s", firstNonEmpty(row.DisplaySource, row.Source), firstNonEmpty(row.Kind, "evidence"), meta, row.Fact)
+		if row.InspectCommand != "" {
+			line += " Inspect: " + row.InspectCommand
+		}
+		fmt.Fprintf(w, "  - %s\n", line)
+	}
+	if limit > 0 && len(refs.Rows) > limit {
+		fmt.Fprintf(w, "  - %d more source reference(s) in JSON and dashboard output\n", len(refs.Rows)-limit)
+	}
 }
 
 func renderAssessSummaryBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
