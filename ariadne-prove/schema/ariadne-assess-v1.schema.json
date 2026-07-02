@@ -565,6 +565,7 @@
         "graph_path",
         "proof",
         "verify",
+        "actions",
         "done_criteria",
         "change_readout",
         "limitations"
@@ -583,11 +584,62 @@
         },
         "proof": { "$ref": "#/$defs/assess_workbench_proof" },
         "verify": { "$ref": "#/$defs/assess_workbench_verification" },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_workbench_action" }
+        },
         "done_criteria": {
           "type": "array",
           "items": { "type": "string" }
         },
         "change_readout": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_workbench_action": {
+      "type": "object",
+      "required": [
+        "step",
+        "id",
+        "title",
+        "status",
+        "instruction",
+        "evidence_refs",
+        "files",
+        "commands",
+        "controls",
+        "done_criteria",
+        "limitations"
+      ],
+      "properties": {
+        "step": { "type": "integer" },
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string", "enum": ["current", "pending", "completed"] },
+        "instruction": { "type": "string" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "done_criteria": {
           "type": "array",
           "items": { "type": "string" }
         },

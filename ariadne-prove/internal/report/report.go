@@ -3702,6 +3702,7 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 		Available:      action.Available,
 		EvidenceToOpen: []model.EvidenceReference{},
 		GraphPath:      []string{},
+		Actions:        []model.AssessWorkbenchAction{},
 		DoneCriteria:   []string{},
 		ChangeReadout:  []string{},
 		Limitations: []string{
@@ -3788,6 +3789,7 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 		Commands: assessOperatorWorkbenchProofLoop(triage, action),
 	}
 	workbench.DoneCriteria = firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria)
+	workbench.Actions = buildAssessWorkbenchActions(workbench, action, state)
 	workbench.ChangeReadout = []string{
 		"Save a before proof artifact, add or verify the proof evidence, rerun the case, save an after proof artifact, then compare before and after.",
 		"The compare report is the readout for whether the case closed, stayed open, reopened, or changed.",
@@ -3806,10 +3808,119 @@ func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) m
 	workbench.Proof.DestinationPaths = nonNilStrings(uniqueStrings(workbench.Proof.DestinationPaths))
 	workbench.Proof.ApplyCommands = nonNilStrings(uniqueStrings(workbench.Proof.ApplyCommands))
 	workbench.Verify.Commands = nonNilStrings(uniqueStrings(workbench.Verify.Commands))
+	workbench.Actions = nonNilAssessWorkbenchActions(workbench.Actions)
 	workbench.DoneCriteria = nonNilStrings(uniqueStrings(workbench.DoneCriteria))
 	workbench.ChangeReadout = nonNilStrings(uniqueStrings(workbench.ChangeReadout))
 	workbench.Limitations = nonNilStrings(uniqueStrings(workbench.Limitations))
 	return workbench
+}
+
+func buildAssessWorkbenchActions(workbench model.AssessOperatorWorkbench, action model.AssessFirstAction, state model.AssessControlState) []model.AssessWorkbenchAction {
+	if !workbench.Available {
+		return []model.AssessWorkbenchAction{}
+	}
+	evidenceRefs := dedupeEvidenceReferences(workbench.EvidenceToOpen)
+	evidenceFiles := evidenceReferenceSources(evidenceRefs, false)
+	proofFiles := firstNonEmptyStrings(
+		firstNonEmptyStrings(workbench.Proof.GeneratedProofPaths, workbench.Proof.DestinationPaths),
+		firstNonEmptyStrings(workbench.Proof.SuggestedDestinations, workbench.Proof.Surfaces),
+	)
+	controls := firstNonEmptyStrings(
+		workbench.Proof.Controls,
+		firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(workbench.Proof.Control)),
+	)
+	closed := workbench.Mode == "closed_case"
+
+	actions := []model.AssessWorkbenchAction{
+		{
+			Step:               1,
+			ID:                 "open_evidence",
+			Title:              "Open Evidence",
+			Status:             "current",
+			Instruction:        "Open the cited evidence and confirm the graph path before changing controls.",
+			EvidenceReferences: evidenceRefs,
+			Files:              evidenceFiles,
+			Controls:           controls,
+			DoneCriteria:       []string{"You can point to the exact evidence refs and graph path supporting the case."},
+		},
+	}
+	if closed {
+		actions = append(actions,
+			model.AssessWorkbenchAction{
+				Step:         2,
+				ID:           "verify_observed_control",
+				Title:        "Verify Observed Control",
+				Status:       "current",
+				Instruction:  "Keep the observed hard-barrier evidence in place and rerun if the repo, runtime, or policy changes.",
+				Files:        firstNonEmptyStrings(proofFiles, evidenceFiles),
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Observed hard-barrier evidence remains present for the focused case."}),
+			},
+			model.AssessWorkbenchAction{
+				Step:         3,
+				ID:           "rerun_if_changed",
+				Title:        "Rerun If Evidence Changes",
+				Status:       "pending",
+				Instruction:  "Rerun the focused case when evidence changes so Ariadne can confirm the closure still holds.",
+				Commands:     workbench.Verify.Commands,
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Rerun keeps the focused case closed or controlled."}),
+			},
+		)
+		return nonNilAssessWorkbenchActions(actions)
+	}
+
+	actions = append(actions,
+		model.AssessWorkbenchAction{
+			Step:         2,
+			ID:           "add_or_verify_control_evidence",
+			Title:        "Add Or Verify Control Evidence",
+			Status:       "pending",
+			Instruction:  firstNonEmpty(workbench.Proof.Instruction, action.NextStep, "Add or verify hard-barrier evidence for the focused control."),
+			Files:        proofFiles,
+			Commands:     firstNonEmptyStrings(nonEmptyStrings(workbench.Proof.ApplyCommand), workbench.Proof.ApplyCommands),
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(firstNonEmptyStrings(action.SuccessCriteria, workbench.DoneCriteria), []string{"Accepted evidence is present at the proof surface."}),
+		},
+		model.AssessWorkbenchAction{
+			Step:         3,
+			ID:           "rerun_case",
+			Title:        "Rerun Case",
+			Status:       "pending",
+			Instruction:  "Rerun the focused case so Ariadne recomputes deterministic facts, graph paths, and control state.",
+			Commands:     firstNonEmptyStrings(nonEmptyStrings(action.CurrentAction.RerunCommand), firstStrings(action.RerunCommands, 1)),
+			Controls:     controls,
+			DoneCriteria: []string{"The rerun reflects the new or verified control evidence."},
+		},
+		model.AssessWorkbenchAction{
+			Step:         4,
+			ID:           "compare_proof_state",
+			Title:        "Compare Proof State",
+			Status:       "pending",
+			Instruction:  "Compare before and after proof artifacts to decide whether the case closed, stayed open, reopened, or changed.",
+			Commands:     firstNonEmptyStrings(nonEmptyStrings(action.CurrentAction.CompareCommand), action.CompareCommands),
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Compare output shows whether the focused case closed or stayed open."}),
+		},
+	)
+	return nonNilAssessWorkbenchActions(actions)
+}
+
+func nonNilAssessWorkbenchActions(items []model.AssessWorkbenchAction) []model.AssessWorkbenchAction {
+	if items == nil {
+		return []model.AssessWorkbenchAction{}
+	}
+	out := make([]model.AssessWorkbenchAction, 0, len(items))
+	for _, item := range items {
+		item.EvidenceReferences = nonNilEvidenceReferences(dedupeEvidenceReferences(item.EvidenceReferences))
+		item.Files = nonNilStrings(uniqueStrings(item.Files))
+		item.Commands = nonNilStrings(uniqueStrings(item.Commands))
+		item.Controls = nonNilStrings(uniqueStrings(item.Controls))
+		item.DoneCriteria = nonNilStrings(uniqueStrings(item.DoneCriteria))
+		item.Limitations = nonNilStrings(uniqueStrings(item.Limitations))
+		out = append(out, item)
+	}
+	return out
 }
 
 func assessOperatorWorkbenchProofLoop(triage model.AssessTriage, action model.AssessFirstAction) []string {

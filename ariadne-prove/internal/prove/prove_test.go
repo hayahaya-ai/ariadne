@@ -4621,6 +4621,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.OperatorWorkbench.Proof.ApplyCommands, "cp surfaces/.ariadne/egress-policy.json") ||
 		!containsString(decoded.OperatorWorkbench.Proof.ApplyCommands, "cp surfaces/.ariadne/output-policy.json") ||
 		!containsString(decoded.OperatorWorkbench.Verify.Commands, "ariadne compare --before before-proof.json --after after-proof.json") ||
+		!hasWorkbenchAction(decoded.OperatorWorkbench.Actions, "open_evidence", "current", ".claude/settings.json", "control:egress-destination-allowlist", "", "exact evidence refs") ||
+		!hasWorkbenchAction(decoded.OperatorWorkbench.Actions, "add_or_verify_control_evidence", "pending", "proof-patches/surfaces/.ariadne/egress-policy.json", "control:egress-destination-allowlist", "cp surfaces/.ariadne/egress-policy.json", "Relevant controls") ||
+		!hasWorkbenchAction(decoded.OperatorWorkbench.Actions, "rerun_case", "pending", "", "control:egress-destination-allowlist", "ariadne cases --path", "rerun reflects") ||
+		!hasWorkbenchAction(decoded.OperatorWorkbench.Actions, "compare_proof_state", "pending", "", "control:egress-destination-allowlist", "ariadne compare --before before-proof.json --after after-proof.json", "Relevant controls") ||
 		len(decoded.OperatorWorkbench.DoneCriteria) == 0 ||
 		!containsString(decoded.OperatorWorkbench.ChangeReadout, "compare report is the readout") {
 		t.Fatalf("assessment should expose a structured operator workbench contract: %+v", decoded.OperatorWorkbench)
@@ -4968,6 +4972,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assessment",
 		"Assessment Readout",
 		"Operator Workbench",
+		"Action Checklist",
+		"open_evidence",
+		"Open the cited evidence and confirm the graph path before changing controls.",
+		"add_or_verify_control_evidence",
+		"Add Or Verify Control Evidence",
+		"rerun_case",
+		"compare_proof_state",
 		"1. Current Case",
 		"2. Evidence To Open",
 		"3. Add Or Verify Proof",
@@ -5125,6 +5136,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if strings.Contains(rendered, `data-command="1 additional items in JSON"`) {
 		t.Fatalf("assessment dashboard should not render summary text as a copyable command:\n%s", rendered)
+	}
+	if strings.Contains(rendered, `/proof-patches/surfaces/.ariadne/egress-policy.json">proof-patches/surfaces/.ariadne/egress-policy.json</a>`) {
+		t.Fatalf("assessment dashboard should render generated proof artifacts as copyable paths, not target-relative file links:\n%s", rendered)
 	}
 	proofLoopBlock := boundedBlock(t, rendered, "<h3>Proof Loop</h3>", "<h2>Ranked Closure Plan</h2>")
 	for _, want := range []string{
@@ -6469,9 +6483,11 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
 	assertRequiredKeys(t, assessWorkflowStep, "id", "title", "summary", "current", "evidence_refs", "starting_controls", "proof_surfaces", "commands", "success_criteria")
 	assessOperatorWorkbench := schemaMap(t, assessSchema, "$defs", "assess_operator_workbench")
-	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "evidence_to_open", "graph_path", "proof", "verify", "done_criteria", "change_readout", "limitations")
+	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "evidence_to_open", "graph_path", "proof", "verify", "actions", "done_criteria", "change_readout", "limitations")
 	assessWorkbenchProof := schemaMap(t, assessSchema, "$defs", "assess_workbench_proof")
 	assertRequiredKeys(t, assessWorkbenchProof, "controls", "surfaces", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands")
+	assessWorkbenchAction := schemaMap(t, assessSchema, "$defs", "assess_workbench_action")
+	assertRequiredKeys(t, assessWorkbenchAction, "step", "id", "title", "status", "instruction", "evidence_refs", "files", "commands", "controls", "done_criteria", "limitations")
 	assessCaseLifecycle := schemaMap(t, assessSchema, "$defs", "assess_case_lifecycle")
 	assertRequiredKeys(t, assessCaseLifecycle, "available", "summary", "steps", "readout", "limitations")
 	assessCaseLifecycleStep := schemaMap(t, assessSchema, "$defs", "assess_case_lifecycle_step")
@@ -7470,6 +7486,31 @@ func hasSignalNoiseItem(items []model.AssessSignalNoiseItem, id string, disposit
 		return false
 	}
 	return true
+}
+
+func hasWorkbenchAction(items []model.AssessWorkbenchAction, id string, status string, fileFragment string, controlFragment string, commandFragment string, doneFragment string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		if status != "" && item.Status != status {
+			return false
+		}
+		if fileFragment != "" && !containsString(item.Files, fileFragment) && !containsEvidenceReferenceSource(item.EvidenceReferences, fileFragment) {
+			return false
+		}
+		if controlFragment != "" && !containsString(item.Controls, controlFragment) {
+			return false
+		}
+		if commandFragment != "" && !containsString(item.Commands, commandFragment) {
+			return false
+		}
+		if doneFragment != "" && !containsString(item.DoneCriteria, doneFragment) {
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 func hasCaseLifecycleStep(items []model.AssessCaseLifecycleStep, id string, status string, evidenceSourceFragment string, controlFragment string, commandFragment string, artifactFragment string) bool {

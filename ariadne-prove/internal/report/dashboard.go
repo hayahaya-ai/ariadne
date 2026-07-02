@@ -605,6 +605,9 @@ tr:last-child td { border-bottom: 0; }
 .changed { color: #fff; background: var(--info); }
 .added { color: #fff; background: var(--accent); }
 .removed { color: #374151; background: #eef2f7; }
+.current { color: #fff; background: var(--accent); }
+.pending { color: #1f2937; background: #f6d471; }
+.completed { color: #fff; background: var(--low); }
 .p0, .p1 { color: #fff; background: var(--accent); }
 .p2, .p3, .p4 { color: #1f2937; background: #dbeafe; }
 .list {
@@ -855,6 +858,7 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(workbench.EvidenceToOpen)))},
 		{"State", firstNonEmpty(workbench.Case.State, "open")},
 	})
+	renderAssessWorkbenchActionChecklistDashboard(w, r.TargetPath, workbench.Actions)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>1. Current Case</h3>`)
@@ -902,6 +906,74 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessWorkbenchActionChecklistDashboard(w io.Writer, root string, actions []model.AssessWorkbenchAction) {
+	if len(actions) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Action Checklist</h3>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, `<thead><tr><th>Step</th><th>Status</th><th>Action</th><th>Open / Evidence</th><th>Commands</th><th>Done When</th></tr></thead><tbody>`)
+	for _, action := range actions {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>%d</strong><div class="mono">%s</div></td>`, action.Step, esc(action.ID))
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div></td>`, cssClass(action.Status), esc(readableToken(action.Status)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div>%s</div>%s</td>`, esc(action.Title), esc(action.Instruction), assessWorkbenchActionControlsHTML(action))
+		fmt.Fprintf(w, `<td>%s</td>`, assessWorkbenchActionEvidenceHTML(root, action))
+		fmt.Fprintf(w, `<td>%s</td>`, renderCommandList(action.Commands))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(action.DoneCriteria, 4)), assessWorkbenchActionLimitationsHTML(action))
+		fmt.Fprintln(w, `</tr>`)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+}
+
+func assessWorkbenchActionControlsHTML(action model.AssessWorkbenchAction) string {
+	if len(action.Controls) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Controls</div>` + renderSmallList(limitStrings(action.Controls, 4))
+}
+
+func assessWorkbenchActionEvidenceHTML(root string, action model.AssessWorkbenchAction) string {
+	var parts []string
+	if len(action.EvidenceReferences) > 0 {
+		parts = append(parts, `<div class="subtle">Evidence refs</div>`+renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, action.EvidenceReferences, 4)))
+	}
+	if len(action.Files) > 0 {
+		parts = append(parts, `<div class="subtle">Files</div>`+renderDashboardActionFileList(root, limitStrings(action.Files, 5)))
+	}
+	if len(parts) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	return strings.Join(parts, "")
+}
+
+func renderDashboardActionFileList(root string, items []string) string {
+	if len(items) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if isGeneratedProofArtifactPath(item) {
+			out = append(out, dashboardCopyablePathLineHTML("Generated file", item))
+			continue
+		}
+		out = append(out, dashboardFileRefHTML(root, item))
+	}
+	return renderDashboardHTMLList(out)
+}
+
+func isGeneratedProofArtifactPath(value string) bool {
+	value = filepath.ToSlash(strings.TrimSpace(value))
+	return strings.HasPrefix(value, "proof-patches/")
+}
+
+func assessWorkbenchActionLimitationsHTML(action model.AssessWorkbenchAction) string {
+	if len(action.Limitations) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Limits</div>` + renderSmallList(limitStrings(action.Limitations, 3))
 }
 
 func assessWorkbenchProofHTMLLines(root string, proof model.AssessWorkbenchProof) []string {
@@ -969,7 +1041,7 @@ func renderAssessLifecycleCommandArtifactHTML(root string, step model.AssessCase
 		parts = append(parts, `<h3>Commands</h3>`+renderCommandList(limitStrings(step.Commands, 4)))
 	}
 	if len(step.Artifacts) > 0 {
-		parts = append(parts, `<h3>Artifacts</h3>`+renderDashboardPathList(root, limitStrings(step.Artifacts, 5)))
+		parts = append(parts, `<h3>Artifacts</h3>`+renderDashboardActionFileList(root, limitStrings(step.Artifacts, 5)))
 	}
 	if len(step.ProofSurfaces) > 0 {
 		parts = append(parts, `<h3>Surfaces</h3>`+renderDashboardPathList(root, limitStrings(step.ProofSurfaces, 5)))

@@ -463,6 +463,7 @@ type AssessOperatorWorkbench struct {
 	GraphPath      []string                    `json:"graph_path"`
 	Proof          AssessWorkbenchProof        `json:"proof"`
 	Verify         AssessWorkbenchVerification `json:"verify"`
+	Actions        []AssessWorkbenchAction     `json:"actions"`
 	DoneCriteria   []string                    `json:"done_criteria"`
 	ChangeReadout  []string                    `json:"change_readout"`
 	Limitations    []string                    `json:"limitations"`
@@ -499,6 +500,20 @@ type AssessWorkbenchProof struct {
 
 type AssessWorkbenchVerification struct {
 	Commands []string `json:"commands"`
+}
+
+type AssessWorkbenchAction struct {
+	Step               int                 `json:"step"`
+	ID                 string              `json:"id"`
+	Title              string              `json:"title"`
+	Status             string              `json:"status"`
+	Instruction        string              `json:"instruction"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	Files              []string            `json:"files"`
+	Commands           []string            `json:"commands"`
+	Controls           []string            `json:"controls"`
+	DoneCriteria       []string            `json:"done_criteria"`
+	Limitations        []string            `json:"limitations"`
 }
 
 type AssessCaseLifecycle struct {
