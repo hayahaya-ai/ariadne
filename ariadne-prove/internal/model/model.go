@@ -318,6 +318,7 @@ type AssessWorkflowStep struct {
 	ID                 string              `json:"id"`
 	Title              string              `json:"title"`
 	Summary            string              `json:"summary"`
+	Current            bool                `json:"current"`
 	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
 	StartingControls   []string            `json:"starting_controls"`
 	ProofSurfaces      []string            `json:"proof_surfaces"`

@@ -718,7 +718,11 @@ func renderAssessWorkflowDashboard(w io.Writer, workflow []model.AssessWorkflowS
 	fmt.Fprintln(w, "<thead><tr><th>Step</th><th>Fact Source</th><th>Proof Or Command</th><th>Done When</th></tr></thead><tbody>")
 	for i, step := range workflow {
 		fmt.Fprintln(w, "<tr>")
-		fmt.Fprintf(w, `<td><strong>%d. %s</strong><div class="subtle">%s</div></td>`, i+1, esc(step.Title), esc(step.Summary))
+		current := ""
+		if step.Current {
+			current = ` <span class="pill info">CURRENT</span>`
+		}
+		fmt.Fprintf(w, `<td><strong>%d. %s</strong>%s<div class="subtle">%s</div></td>`, i+1, esc(step.Title), current, esc(step.Summary))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(assessWorkflowFactSourceLines(step)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(assessWorkflowProofCommandLines(step)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(step.SuccessCriteria, 3)))

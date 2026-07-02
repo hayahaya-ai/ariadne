@@ -1543,6 +1543,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 			ID:                 "inspect_evidence",
 			Title:              "Inspect Evidence",
 			Summary:            "Review the source-backed facts that caused Ariadne to prioritize this case.",
+			Current:            false,
 			EvidenceReferences: append([]model.EvidenceReference{}, action.EvidenceReferences...),
 			StartingControls:   []string{},
 			ProofSurfaces:      []string{},
@@ -1553,6 +1554,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 			ID:                 "add_or_verify_proof",
 			Title:              "Add Or Verify Proof",
 			Summary:            firstNonEmpty(action.NextStep, "Add or verify parser-recognized evidence for the starting controls."),
+			Current:            true,
 			EvidenceReferences: []model.EvidenceReference{},
 			StartingControls:   append([]string{}, action.StartingControls...),
 			ProofSurfaces:      append([]string{}, action.ProofSurfaces...),
@@ -1563,6 +1565,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 			ID:                 "rerun_case",
 			Title:              "Rerun Case",
 			Summary:            "Rerun the focused case after evidence changes so Ariadne can recompute facts and graph paths.",
+			Current:            false,
 			EvidenceReferences: []model.EvidenceReference{},
 			StartingControls:   []string{},
 			ProofSurfaces:      []string{},
@@ -1573,6 +1576,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 			ID:                 "compare_before_after",
 			Title:              "Compare Before And After",
 			Summary:            "Save before and after proof artifacts, then compare them to prove the case state changed.",
+			Current:            false,
 			EvidenceReferences: []model.EvidenceReference{},
 			StartingControls:   []string{},
 			ProofSurfaces:      []string{},
@@ -1902,9 +1906,16 @@ func renderAssessFirstActionWorkflow(w io.Writer, workflow []model.AssessWorkflo
 	if len(workflow) == 0 {
 		return
 	}
+	if current, ok := currentAssessWorkflowStep(workflow); ok {
+		fmt.Fprintf(w, "  - Current workflow step: %s - %s\n", current.Title, current.Summary)
+	}
 	fmt.Fprintf(w, "  - Workflow:\n")
 	for i, step := range workflow {
-		fmt.Fprintf(w, "    %d. %s: %s\n", i+1, step.Title, step.Summary)
+		marker := ""
+		if step.Current {
+			marker = " [current]"
+		}
+		fmt.Fprintf(w, "    %d. %s%s: %s\n", i+1, step.Title, marker, step.Summary)
 		if len(step.EvidenceReferences) > 0 {
 			fmt.Fprintf(w, "       Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(step.EvidenceReferences, 2), "; "))
 		}
@@ -1918,6 +1929,15 @@ func renderAssessFirstActionWorkflow(w io.Writer, workflow []model.AssessWorkflo
 			fmt.Fprintf(w, "       Done when: %s\n", strings.Join(limitStrings(step.SuccessCriteria, 2), "; "))
 		}
 	}
+}
+
+func currentAssessWorkflowStep(workflow []model.AssessWorkflowStep) (model.AssessWorkflowStep, bool) {
+	for _, step := range workflow {
+		if step.Current {
+			return step, true
+		}
+	}
+	return model.AssessWorkflowStep{}, false
 }
 
 func renderAssessTopCaseProofPacket(w io.Writer, plan *model.ProofPlanReport) {
