@@ -4314,6 +4314,17 @@ func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
 		!strings.Contains(decoded.ClosurePlan[0].WhatItCloses, "no proof patch is needed") {
 		t.Fatalf("focused closed assessment should present closure evidence rather than a proof patch: %+v", decoded.ClosurePlan)
 	}
+	if !containsExactString(decoded.FirstAction.ProofSurfaces, ".ariadne/input-policy.json") ||
+		containsExactString(decoded.FirstAction.ProofSurfaces, ".ariadne/agent-policy.json") ||
+		!containsExactString(decoded.TopCases[0].ProofSurfaces, ".ariadne/input-policy.json") ||
+		containsExactString(decoded.TopCases[0].ProofSurfaces, ".ariadne/agent-policy.json") {
+		t.Fatalf("focused closed assessment should expose observed evidence surfaces, not generic proof surfaces: action=%+v top=%+v", decoded.FirstAction.ProofSurfaces, decoded.TopCases[0].ProofSurfaces)
+	}
+	if decoded.FirstAction.Workflow[0].ID != "inspect_evidence" ||
+		!containsExactString(decoded.FirstAction.Workflow[0].ProofSurfaces, ".ariadne/input-policy.json") ||
+		containsExactString(decoded.FirstAction.Workflow[0].ProofSurfaces, ".ariadne/agent-policy.json") {
+		t.Fatalf("focused closed workflow should point at observed evidence surfaces: %+v", decoded.FirstAction.Workflow)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderAssessFocused(&htmlOut, inventory, r, "html", "breaking", report.AssessFocus{CaseFilter: "case:input-trust-boundary"}); err != nil {
@@ -4322,6 +4333,15 @@ func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
 	htmlRendered := htmlOut.String()
 	for _, want := range []string{
 		"controlled",
+		"Evidence state:",
+		"Closed Case Evidence",
+		"Evidence Packet",
+		"Evidence surface",
+		"Observed Hard Barriers",
+		"Evidence Surfaces",
+		"Closed Case Workbench",
+		"Control Evidence",
+		"Evidence / proof",
 		"Input Trust Boundary is closed because Ariadne observed hard-barrier evidence.",
 		".ariadne/input-policy.json",
 		"No proof patch is needed for this case.",
@@ -4329,6 +4349,16 @@ func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
 	} {
 		if !strings.Contains(htmlRendered, want) {
 			t.Fatalf("focused closed assessment dashboard missing %q:\n%s", want, htmlRendered)
+		}
+	}
+	for _, unwanted := range []string{
+		"<h2>First Action</h2>",
+		"Current Action Packet",
+		"Start with the highest-priority break path",
+		"Control Proof Recipe",
+	} {
+		if strings.Contains(htmlRendered, unwanted) {
+			t.Fatalf("focused closed assessment dashboard should not use open-case wording %q:\n%s", unwanted, htmlRendered)
 		}
 	}
 }

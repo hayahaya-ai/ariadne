@@ -2908,17 +2908,51 @@ func assessClosurePlanProofSurface(item model.ControlOperatorCase, patch *model.
 }
 
 func firstControlEvidenceReferenceSource(refs []model.EvidenceReference) string {
+	if source := firstString(evidenceReferenceSources(refs, true)); source != "" {
+		return source
+	}
+	return firstString(evidenceReferenceSources(refs, false))
+}
+
+func assessActionEvidenceSurfaces(action model.AssessFirstAction) []string {
+	surfaces := evidenceReferenceSources(action.EvidenceReferences, true)
+	if len(surfaces) == 0 {
+		surfaces = evidenceReferenceSources(action.EvidenceReferences, false)
+	}
+	if len(surfaces) == 0 {
+		surfaces = append(surfaces, action.ProofSurfaces...)
+	}
+	return uniqueStrings(surfaces)
+}
+
+func evidenceReferenceSources(refs []model.EvidenceReference, controlsOnly bool) []string {
+	var out []string
 	for _, ref := range refs {
-		if strings.EqualFold(strings.TrimSpace(ref.Kind), "control") && strings.TrimSpace(ref.Source) != "" {
-			return ref.Source
+		source := strings.TrimSpace(ref.Source)
+		if source == "" {
+			continue
+		}
+		if controlsOnly && !strings.EqualFold(strings.TrimSpace(ref.Kind), "control") {
+			continue
+		}
+		out = append(out, source)
+	}
+	return uniqueStrings(out)
+}
+
+func evidenceReferenceSourcesForControl(refs []model.EvidenceReference, control string) []string {
+	control = strings.TrimSpace(control)
+	var out []string
+	for _, ref := range refs {
+		source := strings.TrimSpace(ref.Source)
+		if source == "" || control == "" {
+			continue
+		}
+		if ref.ID == control || strings.Contains(ref.ID, control) || strings.Contains(ref.Summary, strings.TrimPrefix(control, "control:")) {
+			out = append(out, source)
 		}
 	}
-	for _, ref := range refs {
-		if strings.TrimSpace(ref.Source) != "" {
-			return ref.Source
-		}
-	}
-	return ""
+	return uniqueStrings(out)
 }
 
 func assessClosurePlanCompareCommand(commands []string) string {
@@ -3009,6 +3043,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 		return []model.AssessWorkflowStep{}
 	}
 	if assessFirstActionClosed(action) {
+		proofSurfaces := assessActionEvidenceSurfaces(action)
 		return []model.AssessWorkflowStep{
 			{
 				ID:                 "inspect_evidence",
@@ -3017,7 +3052,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 				Current:            true,
 				EvidenceReferences: append([]model.EvidenceReference{}, action.EvidenceReferences...),
 				StartingControls:   append([]string{}, action.StartingControls...),
-				ProofSurfaces:      append([]string{}, action.ProofSurfaces...),
+				ProofSurfaces:      append([]string{}, proofSurfaces...),
 				Commands:           []string{},
 				SuccessCriteria:    []string{},
 			},
@@ -3028,7 +3063,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 				Current:            false,
 				EvidenceReferences: []model.EvidenceReference{},
 				StartingControls:   append([]string{}, action.StartingControls...),
-				ProofSurfaces:      append([]string{}, action.ProofSurfaces...),
+				ProofSurfaces:      append([]string{}, proofSurfaces...),
 				Commands:           []string{},
 				SuccessCriteria:    []string{},
 			},
@@ -4786,6 +4821,14 @@ func buildFocusedClosedOperatorCase(familyID string, targets []focusedClosedCase
 	targetList := mapKeysSorted(targetSet)
 	flawList := mapKeysSorted(flawSet)
 	observedControls = uniqueSortedStrings(observedControls)
+	evidenceRefs = dedupeEvidenceReferences(evidenceRefs)
+	observedProofSurfaces := evidenceReferenceSources(evidenceRefs, true)
+	if len(observedProofSurfaces) == 0 {
+		observedProofSurfaces = evidenceReferenceSources(evidenceRefs, false)
+	}
+	if len(observedProofSurfaces) == 0 {
+		observedProofSurfaces = uniqueSortedStrings(proofSurfaces)
+	}
 	return model.ControlOperatorCase{
 		ID:                 caseID,
 		Title:              firstNonEmpty(title, familyID),
@@ -4801,10 +4844,10 @@ func buildFocusedClosedOperatorCase(familyID string, targets []focusedClosedCase
 		ControlCount:       0,
 		Targets:            targetList,
 		Flaws:              flawList,
-		EvidenceReferences: dedupeEvidenceReferences(evidenceRefs),
+		EvidenceReferences: evidenceRefs,
 		StartingControls:   observedControls,
 		StartingTaskIDs:    []string{},
-		ProofSurfaces:      uniqueSortedStrings(proofSurfaces),
+		ProofSurfaces:      observedProofSurfaces,
 		EvidenceExamples:   []model.ControlEvidenceExample{},
 		ProofPatches:       []model.ControlProofPatch{},
 		RerunCommands:      focusedClosedCaseCommands(ctx, caseID),

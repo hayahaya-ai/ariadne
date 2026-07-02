@@ -749,17 +749,32 @@ func renderDashboardHeaderWithSubtitle(w io.Writer, title string, subtitle strin
 }
 
 func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
+	closed := assessFirstActionClosed(r.FirstAction)
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head"><div><h2>Assessment Readout</h2><div class="subtle">Single entry point: discovered surfaces, exposure posture, architecture breaks, and closure cases.</div></div></div>`)
-	renderMetricRow(w, []kv{
-		{"Architecture breaks", fmt.Sprintf("%d breaking / %d matching", r.Summary.BreakingArchitectureFlaws, r.Summary.ArchitectureFlaws)},
-		{"Operator cases", fmt.Sprintf("%d", r.Summary.OperatorCases)},
-		{"Missing hard barriers", fmt.Sprintf("%d", r.Summary.MissingHardBarrierControls)},
-		{"Exposure paths", fmt.Sprintf("%d exposed / %d total", r.Summary.Exposed, r.Summary.ExposurePaths)},
-		{"Top case", firstNonEmpty(r.Summary.TopCaseID, "none")},
-	})
+	if closed {
+		renderMetricRow(w, []kv{
+			{"Focused status", statusLabel(firstNonEmpty(r.Triage.Status, "controlled"))},
+			{"Focused case", firstNonEmpty(r.Summary.TopCaseID, "none")},
+			{"Missing barriers", fmt.Sprintf("%d", len(r.Triage.MissingHardBarriers))},
+			{"Present barriers", fmt.Sprintf("%d", len(r.Triage.PresentHardBarriers))},
+			{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(r.Triage.EvidenceReferences)))},
+		})
+	} else {
+		renderMetricRow(w, []kv{
+			{"Architecture breaks", fmt.Sprintf("%d breaking / %d matching", r.Summary.BreakingArchitectureFlaws, r.Summary.ArchitectureFlaws)},
+			{"Operator cases", fmt.Sprintf("%d", r.Summary.OperatorCases)},
+			{"Missing hard barriers", fmt.Sprintf("%d", r.Summary.MissingHardBarrierControls)},
+			{"Exposure paths", fmt.Sprintf("%d exposed / %d total", r.Summary.Exposed, r.Summary.ExposurePaths)},
+			{"Top case", firstNonEmpty(r.Summary.TopCaseID, "none")},
+		})
+	}
 	if r.Summary.TopCaseNextStep != "" {
-		fmt.Fprintf(w, `<div><strong>Start here:</strong> %s <span class="subtle">(%s)</span></div>`, esc(r.Summary.TopCaseNextStep), esc(r.Summary.TopCaseTitle))
+		label := "Start here"
+		if closed {
+			label = "Evidence state"
+		}
+		fmt.Fprintf(w, `<div><strong>%s:</strong> %s <span class="subtle">(%s)</span></div>`, esc(label), esc(r.Summary.TopCaseNextStep), esc(r.Summary.TopCaseTitle))
 	}
 	if r.CaseFilter != "" || r.ControlFilter != "" {
 		fmt.Fprintf(w, `<div><strong>Focus:</strong> %s</div>`, esc(assessFocusSummary(r)))
@@ -784,9 +799,13 @@ func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTr
 	}
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head"><div><h2>Signal Triage</h2><div class="subtle">Fact-first separation of real risk, expected agent capability, missing controls, partial controls, and evidence gaps.</div></div></div>`)
+	startLabel := "Start here"
+	if triage.Status == "controlled" && triage.StartHere != "" && len(triage.MissingHardBarriers) == 0 {
+		startLabel = "Focused case"
+	}
 	renderMetricRow(w, []kv{
 		{"Status", statusLabel(firstNonEmpty(triage.Status, "unknown"))},
-		{"Start here", firstNonEmpty(triage.StartHere, "none")},
+		{startLabel, firstNonEmpty(triage.StartHere, "none")},
 		{"Hard signals", fmt.Sprintf("%d", len(triage.HardRiskSignals))},
 		{"Signal details", fmt.Sprintf("%d", len(triage.SignalDetails))},
 		{"Missing barriers", fmt.Sprintf("%d", len(triage.MissingHardBarriers))},
@@ -898,14 +917,21 @@ func renderAssessFirstActionDashboard(w io.Writer, root string, action model.Ass
 	if !action.Available {
 		return
 	}
+	closed := assessFirstActionClosed(action)
+	heading := "First Action"
+	subtitle := "The highest-ranked operator action from deterministic case-board evidence."
+	if closed {
+		heading = "Closed Case Evidence"
+		subtitle = "Deterministic evidence that the focused case is already controlled."
+	}
 	fmt.Fprintln(w, `<section class="panel">`)
-	fmt.Fprintln(w, `<div class="section-head"><div><h2>First Action</h2><div class="subtle">The highest-ranked operator action from deterministic case-board evidence.</div></div></div>`)
+	fmt.Fprintf(w, `<div class="section-head"><div><h2>%s</h2><div class="subtle">%s</div></div></div>`, esc(heading), esc(subtitle))
 	renderMetricRow(w, []kv{
 		{"Case", action.CaseID},
 		{"Severity", strings.ToUpper(action.Severity)},
 		{"State", firstNonEmpty(action.State, "open")},
 		{"Evidence refs", fmt.Sprintf("%d", len(action.EvidenceReferences))},
-		{"Proof surfaces", fmt.Sprintf("%d", len(action.ProofSurfaces))},
+		{assessActionSurfaceMetricLabel(action), fmt.Sprintf("%d", len(assessActionDashboardSurfaces(action)))},
 	})
 	fmt.Fprintf(w, `<h3>%s</h3>`, esc(action.Title))
 	if action.WhyFirst != "" {
@@ -924,11 +950,12 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 	if !current.Available {
 		return
 	}
+	closed := assessFirstActionClosed(action)
 	evidenceRefs := current.EvidenceReferences
 	if len(evidenceRefs) == 0 {
 		evidenceRefs = action.EvidenceReferences
 	}
-	proofSurfaces := action.ProofSurfaces
+	proofSurfaces := assessActionDashboardSurfaces(action)
 	if current.Surface != "" && !contains(proofSurfaces, current.Surface) {
 		proofSurfaces = append([]string{current.Surface}, proofSurfaces...)
 	}
@@ -945,11 +972,15 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 		successCriteria = action.SuccessCriteria
 	}
 
-	fmt.Fprintln(w, `<h3>Current Action Packet</h3>`)
+	if closed {
+		fmt.Fprintln(w, `<h3>Evidence Packet</h3>`)
+	} else {
+		fmt.Fprintln(w, `<h3>Current Action Packet</h3>`)
+	}
 	renderMetricRow(w, []kv{
 		{"Step", firstNonEmpty(current.WorkflowStepTitle, "not recorded")},
 		{"Control", firstNonEmpty(current.Control, "not recorded")},
-		{"Proof surface", firstNonEmpty(current.Surface, "not recorded")},
+		{assessActionSurfaceSingularLabel(action), firstNonEmpty(current.Surface, "not recorded")},
 		{"Proof patch", assessProofPatchMetric(current)},
 		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(evidenceRefs)))},
 	})
@@ -959,13 +990,13 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentActionHTMLLines(root, current)))
 	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
 	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, evidenceRefs, 6)))
-	fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
+	fmt.Fprintf(w, `<h3>%s</h3>`, esc(assessActionControlsHeading(action)))
 	fmt.Fprintln(w, renderSmallList(limitStrings(action.StartingControls, 6)))
-	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
+	fmt.Fprintf(w, `<h3>%s</h3>`, esc(assessActionSurfacesHeading(action)))
 	fmt.Fprintln(w, renderDashboardPathList(root, limitStrings(proofSurfaces, 6)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
-	fmt.Fprintln(w, `<h3>Proof To Add Or Verify</h3>`)
+	fmt.Fprintf(w, `<h3>%s</h3>`, esc(assessActionProofHeading(action)))
 	fmt.Fprintln(w, `<div class="subtle">Proof Patch</div>`)
 	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentProofHTMLLines(root, current)))
 	fmt.Fprintln(w, `<h3>Accepted Evidence</h3>`)
@@ -1000,6 +1031,48 @@ func assessCurrentActionHTMLLines(root string, action model.AssessCurrentAction)
 		out = append(out, "Instruction: "+esc(action.Instruction))
 	}
 	return out
+}
+
+func assessActionSurfaceMetricLabel(action model.AssessFirstAction) string {
+	if assessFirstActionClosed(action) {
+		return "Evidence surfaces"
+	}
+	return "Proof surfaces"
+}
+
+func assessActionSurfaceSingularLabel(action model.AssessFirstAction) string {
+	if assessFirstActionClosed(action) {
+		return "Evidence surface"
+	}
+	return "Proof surface"
+}
+
+func assessActionControlsHeading(action model.AssessFirstAction) string {
+	if assessFirstActionClosed(action) {
+		return "Observed Hard Barriers"
+	}
+	return "Controls To Start With"
+}
+
+func assessActionSurfacesHeading(action model.AssessFirstAction) string {
+	if assessFirstActionClosed(action) {
+		return "Evidence Surfaces"
+	}
+	return "Proof Surfaces"
+}
+
+func assessActionProofHeading(action model.AssessFirstAction) string {
+	if assessFirstActionClosed(action) {
+		return "Proof State"
+	}
+	return "Proof To Add Or Verify"
+}
+
+func assessActionDashboardSurfaces(action model.AssessFirstAction) []string {
+	if assessFirstActionClosed(action) {
+		return assessActionEvidenceSurfaces(action)
+	}
+	return append([]string{}, action.ProofSurfaces...)
 }
 
 func assessProofPatchMetric(action model.AssessCurrentAction) string {
@@ -1214,8 +1287,15 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	}
 	item := r.TopCases[0]
 	proofPlan := r.TopCaseProofPlan
+	closed := controlOperatorCaseIsClosed(item)
+	heading := "Active Case Workbench"
+	subtitle := "Start with the highest-priority break path, then prove the hard barrier that closes it."
+	if closed {
+		heading = "Closed Case Workbench"
+		subtitle = "Inspect the deterministic evidence that keeps this focused case closed."
+	}
 	fmt.Fprintln(w, `<section class="panel">`)
-	fmt.Fprintln(w, `<div class="section-head"><div><h2>Active Case Workbench</h2><div class="subtle">Start with the highest-priority break path, then prove the hard barrier that closes it.</div></div></div>`)
+	fmt.Fprintf(w, `<div class="section-head"><div><h2>%s</h2><div class="subtle">%s</div></div></div>`, esc(heading), esc(subtitle))
 	renderMetricRow(w, []kv{
 		{"Case", fmt.Sprintf("#%d %s", item.Rank, item.ID)},
 		{"Severity", strings.ToUpper(item.Severity)},
@@ -1242,12 +1322,24 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	renderAssessEvidenceReferenceTable(w, r.TargetPath, item.EvidenceReferences, 6)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
-	fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
+	if closed {
+		fmt.Fprintln(w, `<h3>Observed Hard Barriers</h3>`)
+	} else {
+		fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
+	}
 	fmt.Fprintln(w, renderSmallList(limitStrings(item.StartingControls, 6)))
-	fmt.Fprintln(w, `<h3>Control Proof Recipe</h3>`)
+	if closed {
+		fmt.Fprintln(w, `<h3>Control Evidence</h3>`)
+	} else {
+		fmt.Fprintln(w, `<h3>Control Proof Recipe</h3>`)
+	}
 	renderAssessControlProofRecipeTable(w, r.TargetPath, item)
-	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
-	fmt.Fprintln(w, renderDashboardPathList(r.TargetPath, limitStrings(item.ProofSurfaces, 8)))
+	if closed {
+		fmt.Fprintln(w, `<h3>Evidence Surfaces</h3>`)
+	} else {
+		fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
+	}
+	fmt.Fprintln(w, renderDashboardPathList(r.TargetPath, limitStrings(assessOperatorCaseDashboardSurfaces(item), 8)))
 	if proofPlan != nil {
 		fmt.Fprintln(w, `<h3>Top Case Proof Packet</h3>`)
 		fmt.Fprintln(w, renderSmallList([]string{
@@ -1305,23 +1397,64 @@ func renderAssessControlProofRecipeTable(w io.Writer, root string, item model.Co
 		fmt.Fprintln(w, `<div class="empty">No starting controls were returned for this case.</div>`)
 		return
 	}
+	closed := controlOperatorCaseIsClosed(item)
 	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
-	fmt.Fprintln(w, "<thead><tr><th>Control</th><th>Add or verify at</th><th>Accepted evidence</th><th>Proof patch</th></tr></thead><tbody>")
+	if closed {
+		fmt.Fprintln(w, "<thead><tr><th>Control</th><th>Observed at</th><th>Evidence</th><th>Proof patch</th></tr></thead><tbody>")
+	} else {
+		fmt.Fprintln(w, "<thead><tr><th>Control</th><th>Add or verify at</th><th>Accepted evidence</th><th>Proof patch</th></tr></thead><tbody>")
+	}
 	for _, control := range limitStrings(item.StartingControls, 6) {
 		examples := controlExamplesForControl(item.EvidenceExamples, control)
 		patches := controlPatchesForControl(item.ProofPatches, control)
 		surfaces := proofSurfacesForControl(item.ProofSurfaces, examples)
+		refs := evidenceReferencesForControl(item.EvidenceReferences, control)
+		if closed {
+			surfaces = evidenceReferenceSourcesForControl(item.EvidenceReferences, control)
+			if len(surfaces) == 0 {
+				surfaces = assessOperatorCaseDashboardSurfaces(item)
+			}
+		}
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(control))
 		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(root, limitStrings(surfaces, 4)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, examples, 2)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(controlProofPatchHTMLLines(root, patches, 2)))
+		if closed {
+			fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, refs, 2)))
+			fmt.Fprintf(w, `<td><span class="subtle">none</span></td>`)
+		} else {
+			fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, examples, 2)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(controlProofPatchHTMLLines(root, patches, 2)))
+		}
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(item.StartingControls) > 6 {
 		fmt.Fprintf(w, `<tr><td colspan="4"><span class="subtle">%d more starting control(s) in JSON output.</span></td></tr>`, len(item.StartingControls)-6)
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
+func assessOperatorCaseDashboardSurfaces(item model.ControlOperatorCase) []string {
+	if controlOperatorCaseIsClosed(item) {
+		surfaces := evidenceReferenceSources(item.EvidenceReferences, true)
+		if len(surfaces) > 0 {
+			return surfaces
+		}
+	}
+	return append([]string{}, item.ProofSurfaces...)
+}
+
+func evidenceReferencesForControl(refs []model.EvidenceReference, control string) []model.EvidenceReference {
+	control = strings.TrimSpace(control)
+	var out []model.EvidenceReference
+	for _, ref := range refs {
+		if control == "" {
+			continue
+		}
+		if ref.ID == control || strings.Contains(ref.ID, control) || strings.Contains(ref.Summary, strings.TrimPrefix(control, "control:")) {
+			out = append(out, ref)
+		}
+	}
+	return dedupeEvidenceReferences(out)
 }
 
 func controlExamplesForControl(examples []model.ControlEvidenceExample, control string) []model.ControlEvidenceExample {
@@ -2324,7 +2457,7 @@ func renderProofPatchPayloads(patches []model.ControlProofPatch, limit int) stri
 func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model.ControlOperatorCase) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
-	fmt.Fprintln(w, `<div><h2>Operator Cases</h2><div class="subtle">A smaller action layer that connects architecture breakage, evidence references, proof surfaces, proof patches, rerun criteria, and compare-loop commands.</div></div>`)
+	fmt.Fprintln(w, `<div><h2>Operator Cases</h2><div class="subtle">A smaller action layer that connects architecture breakage, evidence references, evidence or proof surfaces, proof patches, rerun criteria, and compare-loop commands.</div></div>`)
 	fmt.Fprintln(w, "</div>")
 	if len(cases) == 0 {
 		fmt.Fprintln(w, `<div class="empty">No operator cases were returned for this status filter.</div>`)
@@ -2332,12 +2465,20 @@ func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model
 		return
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Case</th><th>State / next step</th><th>Why it exists</th><th>Evidence references</th><th>Start with</th><th>Prove at / example</th><th>Rerun / done when</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Case</th><th>State / next step</th><th>Why it exists</th><th>Evidence references</th><th>Start with</th><th>Evidence / proof</th><th>Rerun / done when</th></tr></thead><tbody>")
 	limit := len(cases)
 	if limit > 10 {
 		limit = 10
 	}
 	for _, item := range cases[:limit] {
+		surfaceHeading := "Proof surfaces"
+		exampleHeading := "Evidence examples"
+		surfaces := item.ProofSurfaces
+		if controlOperatorCaseIsClosed(item) {
+			surfaceHeading = "Evidence surfaces"
+			exampleHeading = "Observed evidence"
+			surfaces = assessOperatorCaseDashboardSurfaces(item)
+		}
 		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("case", item.ID)))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%d control(s), %d flaw(s), %d target(s)</div></td>`, esc(controlOperatorCaseDisplayTitle(item)), esc(item.ID), item.ControlCount, item.FlawCount, item.TargetCount)
@@ -2345,7 +2486,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(item.Question), esc(item.Finding))
 		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderOperatorCaseStartCell(item))
-		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Proof patches</h3>%s<h3>Evidence examples</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.ProofSurfaces, 6)), renderDashboardHTMLList(controlProofPatchHTMLLines(root, item.ProofPatches, 2)), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, item.EvidenceExamples, 2)))
+		fmt.Fprintf(w, `<td><h3>%s</h3>%s<h3>Proof patches</h3>%s<h3>%s</h3>%s</td>`, esc(surfaceHeading), renderDashboardPathList(root, limitStrings(surfaces, 6)), renderDashboardHTMLList(controlProofPatchHTMLLines(root, item.ProofPatches, 2)), esc(exampleHeading), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, item.EvidenceExamples, 2)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderCommandList(limitStrings(item.RerunCommands, 2)), renderCommandList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
