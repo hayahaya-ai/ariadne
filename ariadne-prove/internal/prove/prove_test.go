@@ -3930,6 +3930,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !strings.Contains(firstActionBlock, "Compare loop: ariadne proofs --path") ||
 		!strings.Contains(firstActionBlock, "ariadne compare --before before-proof.json --after after-proof.json") ||
 		!strings.Contains(firstActionBlock, "1. Inspect Evidence:") ||
+		!strings.Contains(firstActionBlock, "2. Add Or Verify Proof [current]:") ||
+		!strings.Contains(firstActionBlock, "Command: ariadne proofs --path") ||
+		!strings.Contains(firstActionBlock, "--patch-dir proof-patches") ||
 		!strings.Contains(firstActionBlock, "4. Compare Before And After:") {
 		t.Fatalf("first action should include the compare loop commands:\n%s", firstActionBlock)
 	}
@@ -4065,6 +4068,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.FirstAction.Workflow[0].EvidenceReferences) == 0 ||
 		len(decoded.FirstAction.Workflow[1].StartingControls) == 0 ||
 		len(decoded.FirstAction.Workflow[1].ProofSurfaces) == 0 ||
+		!containsString(decoded.FirstAction.Workflow[1].Commands, "--patch-dir proof-patches") ||
 		len(decoded.FirstAction.Workflow[2].Commands) == 0 ||
 		len(decoded.FirstAction.Workflow[3].Commands) == 0 {
 		t.Fatalf("first action workflow should preserve evidence, proof, rerun, and compare steps: %+v", decoded.FirstAction.Workflow)
@@ -4315,6 +4319,7 @@ func TestAssessCommandsHonorCommandEnvironment(t *testing.T) {
 		decoded.Triage.ProofLoop,
 		decoded.FirstAction.RerunCommands,
 		decoded.FirstAction.CompareCommands,
+		decoded.FirstAction.Workflow[1].Commands,
 		decoded.TopCaseProofPlan.RerunCommands,
 		decoded.TopCaseProofPlan.CompareCommands,
 	} {

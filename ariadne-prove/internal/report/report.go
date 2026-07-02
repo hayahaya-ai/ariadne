@@ -3093,6 +3093,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 	if !action.Available {
 		return []model.AssessWorkflowStep{}
 	}
+	addProofCommands := nonNilStrings(nonEmptyStrings(action.PatchExportCommand))
 	if assessFirstActionClosed(action) {
 		proofSurfaces := assessActionEvidenceSurfaces(action)
 		return []model.AssessWorkflowStep{
@@ -3162,7 +3163,7 @@ func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.Asse
 			EvidenceReferences: []model.EvidenceReference{},
 			StartingControls:   append([]string{}, action.StartingControls...),
 			ProofSurfaces:      append([]string{}, action.ProofSurfaces...),
-			Commands:           []string{},
+			Commands:           addProofCommands,
 			SuccessCriteria:    []string{},
 		},
 		{
