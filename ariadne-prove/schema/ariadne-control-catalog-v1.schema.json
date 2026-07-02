@@ -105,6 +105,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/control_proof_patch" }
         },
+        "patch_export_command": { "type": "string" },
         "rerun_commands": { "type": "array", "items": { "type": "string" } },
         "compare_commands": { "type": "array", "items": { "type": "string" } },
         "success_criteria": { "type": "array", "items": { "type": "string" } },

@@ -635,6 +635,7 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 		catalog.VerificationTasks = []model.ControlVerificationTask{}
 	}
 	attachOperatorCaseCompareCommands(&catalog)
+	attachOperatorCasePatchExportCommands(&catalog)
 	return catalog
 }
 
@@ -884,6 +885,30 @@ func attachOperatorCaseCompareCommands(catalog *model.ControlCatalogReport) {
 	}
 	for i := range catalog.OperatorCases {
 		catalog.OperatorCases[i].CompareCommands = operatorCaseCompareCommands(*catalog, catalog.OperatorCases[i].ID)
+	}
+}
+
+func operatorCasePatchExportCommand(catalog model.ControlCatalogReport, item model.ControlOperatorCase) string {
+	if len(item.ProofPatches) == 0 {
+		return ""
+	}
+	switch catalog.RunKind {
+	case "case_board_scan", "control_catalog_scan":
+		return ""
+	}
+	caseID := strings.TrimSpace(item.ID)
+	if caseID == "" {
+		return ""
+	}
+	return proofPlanCommand(catalog, caseID) + " --patch-dir proof-patches"
+}
+
+func attachOperatorCasePatchExportCommands(catalog *model.ControlCatalogReport) {
+	if catalog == nil {
+		return
+	}
+	for i := range catalog.OperatorCases {
+		catalog.OperatorCases[i].PatchExportCommand = operatorCasePatchExportCommand(*catalog, catalog.OperatorCases[i])
 	}
 }
 
@@ -1661,6 +1686,7 @@ func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.Control
 		catalog.VerificationTasks = []model.ControlVerificationTask{}
 	}
 	attachOperatorCaseCompareCommands(&catalog)
+	attachOperatorCasePatchExportCommands(&catalog)
 	return catalog
 }
 
@@ -5583,6 +5609,8 @@ func renderProofPlanAction(w io.Writer, r model.ProofPlanReport) error {
 		}
 	}
 
+	renderProofPlanActionClosureBundle(w, r)
+
 	if r.PatchExportCommand != "" && hasPatch {
 		fmt.Fprintf(w, "\nExport suggested files:\n  - %s\n", r.PatchExportCommand)
 	}
@@ -5632,6 +5660,25 @@ func renderProofPlanAction(w io.Writer, r model.ProofPlanReport) error {
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func renderProofPlanActionClosureBundle(w io.Writer, r model.ProofPlanReport) {
+	if len(r.ProofPatches) <= 1 {
+		return
+	}
+	controls := proofPatchControls(r.ProofPatches)
+	files := proofPlanClosureBundleFiles(r.ProofPatches, r.PatchExportCommand)
+	if len(controls) == 0 && len(files) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nClosure bundle:\n")
+	if len(controls) > 0 {
+		fmt.Fprintf(w, "  - Controls: %s\n", strings.Join(firstStrings(controls, 6), "; "))
+	}
+	if len(files) > 0 {
+		fmt.Fprintf(w, "  - Files: %s\n", strings.Join(firstStrings(files, 4), "; "))
+	}
+	fmt.Fprintf(w, "  - Rule: Rerun must show every bundle control is no longer a missing hard barrier for this case.\n")
 }
 
 func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {
@@ -5901,6 +5948,7 @@ func rewriteControlCatalogAsCaseBoard(catalog *model.ControlCatalogReport) {
 	for i := range catalog.OperatorCases {
 		catalog.OperatorCases[i].RerunCommands = caseBoardRerunCommands(catalog.OperatorCases[i].RerunCommands)
 		catalog.OperatorCases[i].ProofPatches = proofPatchesWithRerunCommands(catalog.OperatorCases[i].ProofPatches, caseBoardRerunCommands)
+		catalog.OperatorCases[i].PatchExportCommand = operatorCasePatchExportCommand(*catalog, catalog.OperatorCases[i])
 		catalog.OperatorCases[i].CompareCommands = operatorCaseCompareCommands(*catalog, catalog.OperatorCases[i].ID)
 		catalog.OperatorCases[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.OperatorCases[i].SuccessCriteria)
 	}
@@ -6730,6 +6778,9 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		}
 		if len(item.ProofPatches) > 0 {
 			fmt.Fprintf(w, "      Proof patches: %s\n", strings.Join(controlProofPatchLines(item.ProofPatches, 2), "; "))
+		}
+		if item.PatchExportCommand != "" {
+			fmt.Fprintf(w, "      Export proof files: %s\n", item.PatchExportCommand)
 		}
 		if len(item.RerunCommands) > 0 {
 			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(item.RerunCommands, 2), "; "))

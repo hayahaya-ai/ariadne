@@ -659,6 +659,7 @@ type ControlOperatorCase struct {
 	ProofSurfaces      []string                 `json:"proof_surfaces"`
 	EvidenceExamples   []ControlEvidenceExample `json:"evidence_examples"`
 	ProofPatches       []ControlProofPatch      `json:"proof_patches"`
+	PatchExportCommand string                   `json:"patch_export_command,omitempty"`
 	RerunCommands      []string                 `json:"rerun_commands"`
 	CompareCommands    []string                 `json:"compare_commands"`
 	SuccessCriteria    []string                 `json:"success_criteria"`

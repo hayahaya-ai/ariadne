@@ -3216,6 +3216,8 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Start with:",
 		"Prove at:",
 		"Proof patches:",
+		"Export proof files:",
+		"--patch-dir proof-patches",
 		"Rerun:",
 		"ariadne cases --path",
 		"Compare loop:",
@@ -3273,6 +3275,9 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 	if !operatorCaseHasCompare(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
 		t.Fatalf("case board should include focused compare loop commands: %+v", decoded.OperatorCases)
 	}
+	if !operatorCaseHasPatchExport(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
+		t.Fatalf("case board should include focused proof patch export command: %+v", decoded.OperatorCases)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderCases(&htmlOut, r, "html", "breaking", ""); err != nil {
@@ -3321,6 +3326,8 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"control:input-isolation",
 		".ariadne/input-policy.json",
 		"add_or_update_declared_evidence",
+		"Export proof files:",
+		"--patch-dir proof-patches",
 		"Priority:",
 		"State: open",
 		"Next step:",
@@ -3363,6 +3370,9 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 	}
 	if !operatorCaseHasCompare(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
 		t.Fatalf("focused case board should include focused compare loop commands: %+v", decoded.OperatorCases)
+	}
+	if !operatorCaseHasPatchExport(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
+		t.Fatalf("focused case board should include focused proof patch export command: %+v", decoded.OperatorCases)
 	}
 	if !controlCatalogHasOnlyControls(decoded.Controls, "control:input-isolation", "control:trusted-source-policy") {
 		t.Fatalf("focused case board controls were not scoped to input trust: %+v", decoded.Controls)
@@ -3609,6 +3619,10 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"Proof surface: .ariadne/input-policy.json",
 		"input_isolation=true",
 		"instruction_isolation=true",
+		"Closure bundle:",
+		"Controls: control:input-isolation; control:trusted-source-policy",
+		"Files: proof-patches/surfaces/.ariadne/input-policy.json",
+		"Rule: Rerun must show every bundle control is no longer a missing hard barrier for this case.",
 		"Export suggested files:",
 		"--patch-dir proof-patches",
 		"Rerun:",
@@ -5976,6 +5990,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
 	controlOperatorCase := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_case")
 	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "limitations")
+	assertSchemaProperty(t, controlOperatorCase, "patch_export_command")
 	controlBreakPathWorkstream := schemaMap(t, controlCatalogSchema, "$defs", "control_break_path_workstream")
 	assertRequiredKeys(t, controlBreakPathWorkstream, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations")
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
@@ -6880,6 +6895,18 @@ func operatorCaseHasCompare(items []model.ControlOperatorCase, id string, fragme
 			containsString(item.CompareCommands, "--out after-proof.json") &&
 			containsString(item.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") &&
 			containsString(item.CompareCommands, fragment)
+	}
+	return false
+}
+
+func operatorCaseHasPatchExport(items []model.ControlOperatorCase, id string, fragment string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		return strings.Contains(item.PatchExportCommand, "ariadne proofs --path") &&
+			strings.Contains(item.PatchExportCommand, "--patch-dir proof-patches") &&
+			strings.Contains(item.PatchExportCommand, fragment)
 	}
 	return false
 }
