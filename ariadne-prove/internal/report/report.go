@@ -1376,16 +1376,16 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 			fmt.Fprintf(w, "    After reason: %s\n", item.AfterStateReason)
 		}
 		if len(item.BeforeControls) > 0 {
-			fmt.Fprintf(w, "    Before controls: %s\n", strings.Join(item.BeforeControls, "; "))
+			fmt.Fprintf(w, "    %s: %s\n", caseCompareControlsLabel("before", item.BeforeState), strings.Join(item.BeforeControls, "; "))
 		}
 		if len(item.AfterControls) > 0 {
-			fmt.Fprintf(w, "    After controls: %s\n", strings.Join(item.AfterControls, "; "))
+			fmt.Fprintf(w, "    %s: %s\n", caseCompareControlsLabel("after", item.AfterState), strings.Join(item.AfterControls, "; "))
 		}
 		if len(item.AddedControls) > 0 {
-			fmt.Fprintf(w, "    Added controls: %s\n", strings.Join(item.AddedControls, "; "))
+			fmt.Fprintf(w, "    New control IDs after rerun: %s\n", strings.Join(item.AddedControls, "; "))
 		}
 		if len(item.RemovedControls) > 0 {
-			fmt.Fprintf(w, "    Removed controls: %s\n", strings.Join(item.RemovedControls, "; "))
+			fmt.Fprintf(w, "    Removed control IDs after rerun: %s\n", strings.Join(item.RemovedControls, "; "))
 		}
 		fmt.Fprintf(w, "    Proof patches: %d -> %d; evidence refs: %d -> %d\n", item.BeforeProofPatches, item.AfterProofPatches, item.BeforeEvidenceRefs, item.AfterEvidenceRefs)
 		if len(item.AfterEvidence) > 0 {
@@ -1415,6 +1415,36 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func caseCompareControlsLabel(position string, state string) string {
+	state = strings.ToLower(strings.TrimSpace(state))
+	switch strings.ToLower(strings.TrimSpace(position)) {
+	case "before":
+		switch state {
+		case "open":
+			return "Missing controls before"
+		case "closed":
+			return "Observed controls before"
+		case "absent":
+			return "Controls before"
+		default:
+			return "Controls before"
+		}
+	case "after":
+		switch state {
+		case "open":
+			return "Still missing controls after"
+		case "closed":
+			return "Observed controls after"
+		case "absent":
+			return "Controls after"
+		default:
+			return "Controls after"
+		}
+	default:
+		return "Controls"
+	}
 }
 
 func buildCaseCompareDecision(summary model.CaseCompareSummary, outcome model.CaseCompareOutcome, cases []model.CaseCompareResult) model.CaseCompareDecision {

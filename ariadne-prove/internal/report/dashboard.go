@@ -2285,7 +2285,14 @@ func renderCaseCompareCasesDashboard(w io.Writer, cases []model.CaseCompareResul
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Disposition), esc(strings.ToUpper(strings.ReplaceAll(item.Disposition, "_", " "))))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(firstNonEmpty(item.Title, item.ID)), esc(item.ID), esc(strings.ToUpper(item.Severity)))
 		fmt.Fprintf(w, `<td><h3>Before</h3><div>%s</div><div class="subtle">%s</div><h3>After</h3><div>%s</div><div class="subtle">%s</div></td>`, esc(item.BeforeState), esc(item.BeforeStateReason), esc(item.AfterState), esc(item.AfterStateReason))
-		fmt.Fprintf(w, `<td><h3>Before</h3>%s<h3>After</h3>%s<h3>Added</h3>%s<h3>Removed</h3>%s</td>`, renderSmallList(item.BeforeControls), renderSmallList(item.AfterControls), renderSmallList(item.AddedControls), renderSmallList(item.RemovedControls))
+		fmt.Fprintf(w, `<td><h3>%s</h3>%s<h3>%s</h3>%s<h3>New Control IDs</h3>%s<h3>Removed Control IDs</h3>%s</td>`,
+			esc(caseCompareControlsLabel("before", item.BeforeState)),
+			renderSmallList(item.BeforeControls),
+			esc(caseCompareControlsLabel("after", item.AfterState)),
+			renderSmallList(item.AfterControls),
+			renderSmallList(item.AddedControls),
+			renderSmallList(item.RemovedControls),
+		)
 		fmt.Fprintf(w, `<td><h3>Proof patches</h3><div>%d -> %d</div><h3>Evidence refs</h3><div>%d -> %d</div><h3>After evidence</h3>%s<h3>Added evidence</h3>%s<h3>Removed evidence</h3>%s</td>`,
 			item.BeforeProofPatches,
 			item.AfterProofPatches,
