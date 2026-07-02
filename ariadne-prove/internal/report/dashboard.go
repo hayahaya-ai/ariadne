@@ -81,6 +81,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
+	renderAssessCaseNavigationDashboard(w, r.TopCases)
 	renderAssessActiveCaseDashboard(w, r)
 	renderControlOperatorCasesDashboard(w, r.TopCases)
 	renderAssessArchitectureDashboard(w, r)
@@ -391,6 +392,40 @@ tr:last-child td { border-bottom: 0; }
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
+.nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.case-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  color: var(--text);
+  text-decoration: none;
+}
+.case-chip:hover, .inline-link:hover {
+  border-color: var(--accent);
+}
+.inline-link {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.compact-table {
+  min-width: 520px;
+}
+tr:target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .empty {
   color: var(--muted);
   border: 1px dashed var(--line);
@@ -437,6 +472,27 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</section>`)
 }
 
+func renderAssessCaseNavigationDashboard(w io.Writer, cases []model.ControlOperatorCase) {
+	if len(cases) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Case Navigation</h2><div class="subtle">Jump from the assessment summary to the actionable case row.</div></div></div>`)
+	fmt.Fprintln(w, `<div class="nav-row">`)
+	for _, item := range cases {
+		fmt.Fprintf(w, `<a class="case-chip" href="#%s"><span class="pill %s">%s</span><strong>#%d %s</strong><span class="subtle">%s</span></a>`,
+			esc(dashboardAnchorID("case", item.ID)),
+			cssClass(item.Severity),
+			esc(strings.ToUpper(item.Severity)),
+			item.Rank,
+			esc(item.Title),
+			esc(item.ID),
+		)
+	}
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
 func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	if len(r.TopCases) == 0 {
 		fmt.Fprintln(w, `<section class="panel">`)
@@ -460,6 +516,7 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	if item.Finding != "" {
 		fmt.Fprintf(w, `<p>%s</p>`, esc(item.Finding))
 	}
+	fmt.Fprintf(w, `<p><a class="inline-link" href="#%s">Jump To Case</a></p>`, esc(dashboardAnchorID("case", item.ID)))
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Current State</h3>`)
@@ -470,15 +527,15 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `<h3>Next Step</h3>`)
 	fmt.Fprintf(w, `<div>%s</div>`, esc(item.NextStep))
 	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
-	fmt.Fprintln(w, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 6)))
+	renderAssessEvidenceReferenceTable(w, item.EvidenceReferences, 6)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(item.StartingControls, 6)))
+	fmt.Fprintln(w, `<h3>Control Proof Recipe</h3>`)
+	renderAssessControlProofRecipeTable(w, item)
 	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(item.ProofSurfaces, 8)))
-	fmt.Fprintln(w, `<h3>Accepted Evidence Examples</h3>`)
-	fmt.Fprintln(w, renderSmallList(controlEvidenceExampleLines(item.EvidenceExamples, 3)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div class="two-col">`)
@@ -492,6 +549,79 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessEvidenceReferenceTable(w io.Writer, refs []model.EvidenceReference, limit int) {
+	refs = dedupeEvidenceReferences(refs)
+	if len(refs) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No evidence references were returned for this case.</div>`)
+		return
+	}
+	if limit <= 0 || limit > len(refs) {
+		limit = len(refs)
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, "<thead><tr><th>Source</th><th>Kind</th><th>Fact</th></tr></thead><tbody>")
+	for i, ref := range refs[:limit] {
+		source := firstNonEmpty(ref.Source, ref.ID, ref.Kind)
+		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("evidence", fmt.Sprintf("%d-%s-%s", i+1, ref.ID, source))))
+		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(source))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(ref.Kind))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(ref.Summary))
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(refs) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="3"><span class="subtle">%d more evidence reference(s) in JSON output.</span></td></tr>`, len(refs)-limit)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
+func renderAssessControlProofRecipeTable(w io.Writer, item model.ControlOperatorCase) {
+	if len(item.StartingControls) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No starting controls were returned for this case.</div>`)
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, "<thead><tr><th>Control</th><th>Add or verify at</th><th>Accepted evidence</th></tr></thead><tbody>")
+	for _, control := range limitStrings(item.StartingControls, 6) {
+		examples := controlExamplesForControl(item.EvidenceExamples, control)
+		surfaces := proofSurfacesForControl(item.ProofSurfaces, examples)
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(control))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(surfaces, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(controlEvidenceExampleLines(examples, 2), 2)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(item.StartingControls) > 6 {
+		fmt.Fprintf(w, `<tr><td colspan="3"><span class="subtle">%d more starting control(s) in JSON output.</span></td></tr>`, len(item.StartingControls)-6)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
+func controlExamplesForControl(examples []model.ControlEvidenceExample, control string) []model.ControlEvidenceExample {
+	var matched []model.ControlEvidenceExample
+	for _, example := range examples {
+		if strings.Contains(example.Summary, control) || strings.Contains(example.Example, control) {
+			matched = append(matched, example)
+		}
+	}
+	if matched != nil {
+		return matched
+	}
+	return []model.ControlEvidenceExample{}
+}
+
+func proofSurfacesForControl(all []string, examples []model.ControlEvidenceExample) []string {
+	var surfaces []string
+	for _, example := range examples {
+		if example.Surface != "" && !contains(surfaces, example.Surface) {
+			surfaces = append(surfaces, example.Surface)
+		}
+	}
+	if len(surfaces) > 0 {
+		return surfaces
+	}
+	return limitStrings(all, 4)
 }
 
 func renderAssessInventoryDashboard(w io.Writer, inventory model.AssessInventory) {
@@ -589,6 +719,31 @@ func assessCaseCommands(commands []string, item model.ControlOperatorCase) []str
 		return []string{}
 	}
 	return out
+}
+
+func dashboardAnchorID(prefix, value string) string {
+	var b strings.Builder
+	seed := strings.ToLower(strings.TrimSpace(value))
+	if seed == "" {
+		seed = "item"
+	}
+	for _, r := range seed {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			if b.Len() > 0 {
+				b.WriteByte('-')
+			}
+		}
+	}
+	id := strings.Trim(b.String(), "-")
+	if id == "" {
+		id = "item"
+	}
+	return prefix + "-" + id
 }
 
 func renderIssueDashboard(w io.Writer, interpretation model.Interpretation, graph model.Graph, evidence []model.Evidence, redaction model.RedactionInfo) {
@@ -903,7 +1058,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 		limit = 10
 	}
 	for _, item := range cases[:limit] {
-		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("case", item.ID)))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
 		fmt.Fprintf(w, `<td><strong>#%d %s</strong><div class="mono">%s</div><div class="subtle">%d control(s), %d flaw(s), %d target(s)</div></td>`, item.Rank, esc(item.Title), esc(item.ID), item.ControlCount, item.FlawCount, item.TargetCount)
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><h3>Priority</h3><div>%s</div><h3>Next step</h3><div>%s</div></td>`, esc(firstNonEmpty(item.State, "open")), esc(item.StateReason), esc(item.PriorityReason), esc(item.NextStep))
