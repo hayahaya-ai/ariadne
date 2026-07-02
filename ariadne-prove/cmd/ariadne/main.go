@@ -229,8 +229,7 @@ func runProofs(args []string) {
 		if err != nil {
 			fatal(err)
 		}
-		fmt.Fprintf(os.Stderr, "Exported %d proof patch(es) to %s\n", exported.PatchCount, exported.Directory)
-		fmt.Fprintf(os.Stderr, "Manifest: %s\n", exported.ManifestPath)
+		renderProofPatchExportSummary(os.Stderr, exported)
 	}
 	writer, closeFn, err := outputWriter(*outPath)
 	if err != nil {
@@ -240,6 +239,45 @@ func runProofs(args []string) {
 	if err := report.RenderProofs(writer, r, *format, *status, *caseID); err != nil {
 		fatal(err)
 	}
+}
+
+func renderProofPatchExportSummary(w io.Writer, exported report.ProofPatchExportResult) {
+	fmt.Fprintf(w, "Exported %d proof patch(es) to %s\n", exported.PatchCount, exported.Directory)
+	if exported.ManifestPath != "" {
+		fmt.Fprintf(w, "Manifest: %s\n", exported.ManifestPath)
+	}
+	if exported.ReadmePath != "" {
+		fmt.Fprintf(w, "README: %s\n", exported.ReadmePath)
+	}
+	if len(exported.FileDetails) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Generated proof files:\n")
+	for _, file := range exported.FileDetails {
+		generatedPath := file.GeneratedPath
+		if generatedPath == "" {
+			generatedPath = filepath.Join(exported.Directory, file.Path)
+		}
+		destination := file.DestinationPath
+		if destination == "" {
+			destination = file.SuggestedDestination
+		}
+		if destination != "" {
+			fmt.Fprintf(w, "  - %s -> %s\n", generatedPath, destination)
+		} else {
+			fmt.Fprintf(w, "  - %s\n", generatedPath)
+		}
+		if file.Surface != "" {
+			fmt.Fprintf(w, "    Surface: %s (%s)\n", file.Surface, file.Format)
+		}
+		if len(file.Controls) > 0 {
+			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(file.Controls, ", "))
+		}
+		if file.ApplyCommand != "" {
+			fmt.Fprintf(w, "    Review/apply: %s\n", file.ApplyCommand)
+		}
+	}
+	fmt.Fprintf(w, "Review generated proof evidence before applying it; export does not prove live enforcement.\n")
 }
 
 func runControls(args []string) {

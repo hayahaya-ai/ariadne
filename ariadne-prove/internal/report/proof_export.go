@@ -17,7 +17,20 @@ type ProofPatchExportResult struct {
 	ManifestPath string
 	ReadmePath   string
 	Files        []string
+	FileDetails  []ProofPatchExportFileResult
 	PatchCount   int
+}
+
+type ProofPatchExportFileResult struct {
+	Path                 string
+	GeneratedPath        string
+	Surface              string
+	SuggestedDestination string
+	DestinationPath      string
+	ApplyCommand         string
+	Format               string
+	Controls             []string
+	PatchCount           int
 }
 
 type proofPatchExportManifest struct {
@@ -104,6 +117,17 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 		result.Files = append(result.Files, absPath)
 		destinationPath := proofPatchSuggestedDestinationPath(plan.TargetPath, group.Surface)
 		applyCommand := proofPatchApplyCommand(dir, relPath, destinationPath)
+		result.FileDetails = append(result.FileDetails, ProofPatchExportFileResult{
+			Path:                 relPath,
+			GeneratedPath:        absPath,
+			Surface:              group.Surface,
+			SuggestedDestination: group.Surface,
+			DestinationPath:      destinationPath,
+			ApplyCommand:         applyCommand,
+			Format:               group.Format,
+			Controls:             append([]string{}, group.Controls...),
+			PatchCount:           len(group.Patches),
+		})
 		manifest.Files = append(manifest.Files, proofPatchExportManifestFile{
 			Path:                 relPath,
 			Surface:              group.Surface,

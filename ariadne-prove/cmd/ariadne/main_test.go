@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/report"
 )
 
 func TestResolveDefaultStoryRootFindsRepoSubdir(t *testing.T) {
@@ -70,6 +73,44 @@ func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 	} {
 		if !strings.Contains(action, want) {
 			t.Fatalf("proof action output missing %q:\n%s", want, action)
+		}
+	}
+}
+
+func TestRenderProofPatchExportSummaryShowsApplyStep(t *testing.T) {
+	var out bytes.Buffer
+	renderProofPatchExportSummary(&out, report.ProofPatchExportResult{
+		Directory:    "/tmp/proof-patches",
+		ManifestPath: "/tmp/proof-patches/manifest.json",
+		ReadmePath:   "/tmp/proof-patches/README.md",
+		PatchCount:   2,
+		FileDetails: []report.ProofPatchExportFileResult{
+			{
+				Path:            filepath.Join("surfaces", ".ariadne", "input-policy.json"),
+				GeneratedPath:   "/tmp/proof-patches/surfaces/.ariadne/input-policy.json",
+				Surface:         ".ariadne/input-policy.json",
+				DestinationPath: "/repo/.ariadne/input-policy.json",
+				ApplyCommand:    "cd /tmp/proof-patches && mkdir -p /repo/.ariadne && cp surfaces/.ariadne/input-policy.json /repo/.ariadne/input-policy.json",
+				Format:          "json_merge_object",
+				Controls:        []string{"control:input-isolation", "control:trusted-source-policy"},
+				PatchCount:      2,
+			},
+		},
+	})
+	rendered := out.String()
+	for _, want := range []string{
+		"Exported 2 proof patch(es) to /tmp/proof-patches",
+		"Manifest: /tmp/proof-patches/manifest.json",
+		"README: /tmp/proof-patches/README.md",
+		"Generated proof files:",
+		"/tmp/proof-patches/surfaces/.ariadne/input-policy.json -> /repo/.ariadne/input-policy.json",
+		"Surface: .ariadne/input-policy.json (json_merge_object)",
+		"Controls: control:input-isolation, control:trusted-source-policy",
+		"Review/apply: cd /tmp/proof-patches",
+		"Review generated proof evidence before applying it",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("proof export summary missing %q:\n%s", want, rendered)
 		}
 	}
 }

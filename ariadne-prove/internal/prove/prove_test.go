@@ -3563,6 +3563,14 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if exported.PatchCount != 2 || len(exported.Files) != 1 {
 		t.Fatalf("proof export should group two patches into one suggested surface file: %+v", exported)
 	}
+	if len(exported.FileDetails) != 1 ||
+		exported.FileDetails[0].GeneratedPath == "" ||
+		exported.FileDetails[0].DestinationPath == "" ||
+		exported.FileDetails[0].ApplyCommand == "" ||
+		!containsString(exported.FileDetails[0].Controls, "control:input-isolation") ||
+		!strings.Contains(exported.FileDetails[0].ApplyCommand, "cp surfaces/.ariadne/input-policy.json") {
+		t.Fatalf("proof export should expose terminal-actionable file details: %+v", exported.FileDetails)
+	}
 	for _, path := range []string{exported.ManifestPath, exported.ReadmePath, filepath.Join(exportDir, "surfaces", ".ariadne", "input-policy.json")} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("proof export missing %s: %v", path, err)
