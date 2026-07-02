@@ -189,6 +189,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
 	renderAssessDecisionDashboard(w, r.TargetPath, r.Decision)
+	renderAssessSignalQualityDashboard(w, r.TargetPath, r.SignalQuality)
 	renderAssessTriageDashboard(w, r.TargetPath, r.Triage)
 	renderAssessClosurePlanDashboard(w, r.TargetPath, r.ClosurePlan)
 	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction, r.ControlState)
@@ -961,6 +962,49 @@ func assessFocusSummary(r model.AssessReport) string {
 		parts = append(parts, "control="+r.ControlFilter)
 	}
 	return strings.Join(parts, "; ")
+}
+
+func renderAssessSignalQualityDashboard(w io.Writer, root string, quality model.AssessSignalQuality) {
+	if quality.Status == "" && quality.Summary == "" {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Signal Quality</h2><div class="subtle">Why this is actionable signal instead of ordinary agent capability.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Status", statusLabel(firstNonEmpty(quality.Status, "unknown"))},
+		{"Actionable facts", fmt.Sprintf("%d", len(quality.ActionableBecause))},
+		{"Expected capabilities", fmt.Sprintf("%d", len(quality.ExpectedCapabilities))},
+		{"Noise filters", fmt.Sprintf("%d", len(quality.NoiseFilters))},
+		{"Close/downgrade paths", fmt.Sprintf("%d", len(quality.ControlBreakpoints))},
+	})
+	if quality.Summary != "" {
+		fmt.Fprintf(w, `<p><strong>Readout:</strong> %s</p>`, esc(quality.Summary))
+	}
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Actionable Because</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(quality.ActionableBecause, 5)))
+	fmt.Fprintln(w, `<h3>Expected Capability</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(quality.ExpectedCapabilities, 4)))
+	fmt.Fprintln(w, `<h3>Noise Filters</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(quality.NoiseFilters, 4)))
+	fmt.Fprintln(w, `<h3>Decision Rules</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(quality.DecisionRules, 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Close Or Downgrade By</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(quality.ControlBreakpoints, 5)))
+	fmt.Fprintln(w, `<h3>Graph Edges</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(quality.GraphEdges, 5)))
+	fmt.Fprintln(w, `<h3>Evidence</h3>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, quality.EvidenceReferences, 5)))
+	fmt.Fprintln(w, `<h3>Evidence Gaps</h3>`)
+	fmt.Fprintln(w, renderEvidenceGapActionList(limitStrings(quality.EvidenceGaps, 5)))
+	fmt.Fprintln(w, `<h3>Limits</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(quality.Limitations, 3)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
 }
 
 func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTriage) {

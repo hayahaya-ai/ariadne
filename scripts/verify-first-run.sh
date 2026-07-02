@@ -66,6 +66,10 @@ expect_contains "$assess_summary" "Start here: Egress And Output Boundary (case:
 expect_contains "$assess_summary" "What was inspected:"
 expect_contains "$assess_summary" "Risk basis:"
 expect_contains "$assess_summary" "Normal capability:"
+expect_contains "$assess_summary" "Signal quality:"
+expect_contains "$assess_summary" "Actionable because:"
+expect_contains "$assess_summary" "Noise filter:"
+expect_contains "$assess_summary" "Decision rule: Capability alone is not exposure."
 expect_contains "$assess_summary" "Evidence:"
 expect_contains "$assess_summary" "Evidence files: .claude/settings.json; .codex/config.toml; .env"
 expect_contains "$assess_summary" "Modeled/internal evidence: zt:control-strength"
@@ -109,6 +113,12 @@ expect_contains "$assess_txt" "After proof:"
 expect_contains "$assess_txt" "--out after-proof.json"
 expect_contains "$assess_txt" "Decision limit:"
 expect_contains "$assess_txt" "Decision is derived from deterministic inventory"
+expect_contains "$assess_txt" "Signal quality:"
+expect_contains "$assess_txt" "Actionable because:"
+expect_contains "$assess_txt" "Expected capability:"
+expect_contains "$assess_txt" "Noise filter:"
+expect_contains "$assess_txt" "Close/downgrade by:"
+expect_contains "$assess_txt" "Decision rule: Capability alone is not exposure."
 expect_contains "$assess_txt" "Signal triage:"
 expect_contains "$assess_txt" "Normal capability:"
 expect_contains "$assess_txt" "Missing hard barrier:"
@@ -140,6 +150,11 @@ expect_contains "$assess_txt" "case-compare.html"
 
 expect_contains "$assess_json" '"run_kind": "assess"'
 expect_contains "$assess_json" '"decision"'
+expect_contains "$assess_json" '"signal_quality"'
+expect_contains "$assess_json" '"actionable_because"'
+expect_contains "$assess_json" '"noise_filters"'
+expect_contains "$assess_json" '"control_breakpoints"'
+expect_contains "$assess_json" '"Capability alone is not exposure."'
 expect_contains "$assess_json" '"inspection_summary"'
 expect_contains "$assess_json" '"risk_reasons"'
 expect_contains "$assess_json" '"evidence_refs"'
@@ -190,6 +205,11 @@ expect_contains "$assess_html" "Partial Or Friction Controls"
 expect_contains "$assess_html" "Unknown Evidence"
 expect_contains "$assess_html" "Evidence Gap Actions"
 expect_contains "$assess_html" "Decision Limits"
+expect_contains "$assess_html" "Signal Quality"
+expect_contains "$assess_html" "Actionable Because"
+expect_contains "$assess_html" "Noise Filters"
+expect_contains "$assess_html" "Close Or Downgrade By"
+expect_contains "$assess_html" "Capability alone is not exposure"
 expect_contains "$assess_html" "Signal Triage"
 expect_contains "$assess_html" "Control State"
 expect_contains "$assess_html" "State Summary"
@@ -264,10 +284,12 @@ expect_contains "$self_bundle/README.md" "dashboard.html"
 expect_contains "$self_bundle/README.md" "proof-action.txt"
 expect_contains "$self_bundle/README.md" "case:identity-credentials"
 expect_contains "$self_bundle/assessment.json" '"run_kind": "assess"'
+expect_contains "$self_bundle/assessment.json" '"signal_quality"'
 expect_contains "$self_bundle/assessment.json" '"top_case_id": "case:identity-credentials"'
 expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
+expect_contains "$self_bundle/dashboard.html" "Signal Quality"
 expect_contains "$self_bundle/proof-action.txt" "Ariadne Proof Action"
 expect_contains "$self_bundle/proof-action.txt" "case:identity-credentials"
 expect_contains "$self_bundle/proof-plan.json" '"run_kind": "proof_plan"'
@@ -289,6 +311,9 @@ expect_contains "$endpoint_action" "After proof:"
 expect_contains "$endpoint_action" "--out after-proof.json"
 expect_contains "$endpoint_action" "Decision limit:"
 expect_contains "$endpoint_action" "Decision is derived from deterministic inventory"
+expect_contains "$endpoint_action" "Signal quality:"
+expect_contains "$endpoint_action" "Noise filter:"
+expect_contains "$endpoint_action" "Capability alone is not exposure."
 expect_contains "$endpoint_action" "Signal triage:"
 expect_contains "$endpoint_action" "Normal capability:"
 expect_contains "$endpoint_action" "Missing hard barrier:"
@@ -320,6 +345,8 @@ expect_contains "$endpoint_action" "case-compare.html"
 
 expect_contains "$endpoint_json" '"mode": "endpoint"'
 expect_contains "$endpoint_json" '"decision"'
+expect_contains "$endpoint_json" '"signal_quality"'
+expect_contains "$endpoint_json" '"noise_filters"'
 expect_contains "$endpoint_json" '"inspection_summary"'
 expect_contains "$endpoint_json" '"risk_reasons"'
 expect_contains "$endpoint_json" '"evidence_refs"'
@@ -358,6 +385,8 @@ expect_contains "$endpoint_html" "Partial Or Friction Controls"
 expect_contains "$endpoint_html" "Unknown Evidence"
 expect_contains "$endpoint_html" "Evidence Gap Actions"
 expect_contains "$endpoint_html" "Decision Limits"
+expect_contains "$endpoint_html" "Signal Quality"
+expect_contains "$endpoint_html" "Noise Filters"
 expect_contains "$endpoint_html" "Signal Triage"
 expect_contains "$endpoint_html" "Control State"
 expect_contains "$endpoint_html" "State Summary"

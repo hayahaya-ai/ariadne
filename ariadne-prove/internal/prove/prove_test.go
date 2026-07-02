@@ -4151,6 +4151,12 @@ func TestAssessSummaryIsCompactFirstRunReadout(t *testing.T) {
 		"What was inspected:",
 		"Risk basis:",
 		"Normal capability:",
+		"Signal quality:",
+		"Actionable because:",
+		"Expected capability:",
+		"Noise filter:",
+		"Close/downgrade by:",
+		"Capability alone is not exposure",
 		"Evidence:",
 		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
 		"Modeled/internal evidence: zt:control-strength",
@@ -4222,6 +4228,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Question: Where is Zero Trust agent architecture breaking",
 		"Readout:",
 		"Signal triage:",
+		"Signal quality:",
+		"Actionable because:",
+		"Expected capability:",
+		"Noise filter:",
+		"Close/downgrade by:",
+		"Decision rule:",
+		"Capability alone is not exposure",
 		"Status: action required",
 		"Hard signal:",
 		"Risk boundary:",
@@ -4326,6 +4339,17 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.Triage.ProofLoop) == 0 {
 		t.Fatalf("assessment should include fact-first signal triage: %+v", decoded.Triage)
 	}
+	if decoded.SignalQuality.Status != "action_required" ||
+		!strings.Contains(decoded.SignalQuality.Summary, "Actionable signal") ||
+		!containsString(decoded.SignalQuality.ActionableBecause, "Top case is Egress And Output Boundary") ||
+		!containsString(decoded.SignalQuality.ExpectedCapabilities, "runtime presence is expected") ||
+		!containsString(decoded.SignalQuality.NoiseFilters, "expected agent capability until correlated") ||
+		!containsString(decoded.SignalQuality.ControlBreakpoints, "control:egress-destination-allowlist") ||
+		!containsString(decoded.SignalQuality.GraphEdges, "authority:broad-local|reaches|boundary:external-destination") ||
+		!containsString(decoded.SignalQuality.DecisionRules, "Capability alone is not exposure") ||
+		len(decoded.SignalQuality.EvidenceReferences) == 0 {
+		t.Fatalf("assessment should include deterministic signal-quality separation: %+v", decoded.SignalQuality)
+	}
 	if decoded.Decision.Status != "action_required" ||
 		decoded.Decision.StartHere != "case:egress-output-boundary" ||
 		decoded.Decision.TopCaseID != "case:egress-output-boundary" ||
@@ -4400,6 +4424,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"evidence_gap_actions":null`,
 		`"control_state":null`,
 		`"decision":null`,
+		`"signal_quality":null`,
+		`"actionable_because":null`,
+		`"noise_filters":null`,
+		`"control_breakpoints":null`,
 		`"risk_reasons":null`,
 		`"path_summary":null`,
 		`"graph_edges":null`,
@@ -4603,6 +4631,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Decision limit:",
 		"Decision is derived from deterministic inventory",
 		"Signal triage:",
+		"Signal quality:",
+		"Actionable because:",
+		"Expected capability:",
+		"Noise filter:",
+		"Close/downgrade by:",
+		"Decision rule: Capability alone is not exposure.",
 		"Signal details:",
 		"signal:top-operator-case",
 		"signal:normal-agent-capability",
@@ -4691,6 +4725,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Proof Surface",
 		"Commands",
 		"Decision Limits",
+		"Signal Quality",
+		"Actionable Because",
+		"Expected Capability",
+		"Noise Filters",
+		"Close Or Downgrade By",
+		"Decision Rules",
+		"Capability alone is not exposure",
 		"Signal Triage",
 		"Signal Details",
 		"Graph / evidence / controls",
@@ -6074,6 +6115,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"summary",
 		"decision",
 		"triage",
+		"signal_quality",
 		"inventory",
 		"exposure",
 		"closure_evidence",
@@ -6112,6 +6154,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "evidence_gap_actions", "signal_details", "evidence_refs", "next_action", "proof_loop")
 	assessSignal := schemaMap(t, assessSchema, "$defs", "assess_signal")
 	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "risk_boundary", "graph_edges", "evidence_refs", "related_controls", "limitations")
+	assessSignalQuality := schemaMap(t, assessSchema, "$defs", "assess_signal_quality")
+	assertRequiredKeys(t, assessSignalQuality, "status", "summary", "actionable_because", "expected_capabilities", "noise_filters", "control_breakpoints", "evidence_gaps", "graph_edges", "evidence_refs", "decision_rules", "limitations")
 	assessClosurePlanItem := schemaMap(t, assessSchema, "$defs", "assess_closure_plan_item")
 	assertRequiredKeys(t, assessClosurePlanItem, "rank", "control", "case_id", "case_title", "severity", "state", "why_this_control", "what_it_closes", "affected_flaws", "affected_targets", "evidence_refs", "proof_surface", "rerun_command", "compare_command", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessClosurePlanItem, "proof_patch")

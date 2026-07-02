@@ -14,6 +14,7 @@
     "summary",
     "decision",
     "triage",
+    "signal_quality",
     "inventory",
     "exposure",
     "closure_evidence",
@@ -44,6 +45,7 @@
     "summary": { "$ref": "#/$defs/assess_summary" },
     "decision": { "$ref": "#/$defs/assess_decision" },
     "triage": { "$ref": "#/$defs/assess_triage" },
+    "signal_quality": { "$ref": "#/$defs/assess_signal_quality" },
     "inventory": { "$ref": "#/$defs/assess_inventory" },
     "exposure": { "$ref": "#/$defs/assess_exposure" },
     "closure_evidence": { "$ref": "#/$defs/assess_closure_evidence" },
@@ -349,6 +351,62 @@
           "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
         },
         "related_controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_signal_quality": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "actionable_because",
+        "expected_capabilities",
+        "noise_filters",
+        "control_breakpoints",
+        "evidence_gaps",
+        "graph_edges",
+        "evidence_refs",
+        "decision_rules",
+        "limitations"
+      ],
+      "properties": {
+        "status": { "type": "string", "enum": ["action_required", "needs_evidence", "controlled", "no_supported_signal", "unknown"] },
+        "summary": { "type": "string" },
+        "actionable_because": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expected_capabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "noise_filters": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "control_breakpoints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence_gaps": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "graph_edges": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "decision_rules": {
           "type": "array",
           "items": { "type": "string" }
         },

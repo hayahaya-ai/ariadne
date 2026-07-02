@@ -324,6 +324,7 @@ type AssessReport struct {
 	Summary          AssessSummary           `json:"summary"`
 	Decision         AssessDecision          `json:"decision"`
 	Triage           AssessTriage            `json:"triage"`
+	SignalQuality    AssessSignalQuality     `json:"signal_quality"`
 	ControlState     AssessControlState      `json:"control_state"`
 	Inventory        AssessInventory         `json:"inventory"`
 	Exposure         AssessExposure          `json:"exposure"`
@@ -538,6 +539,20 @@ type AssessSignal struct {
 	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
 	RelatedControls    []string            `json:"related_controls"`
 	Limitations        []string            `json:"limitations"`
+}
+
+type AssessSignalQuality struct {
+	Status               string              `json:"status"`
+	Summary              string              `json:"summary"`
+	ActionableBecause    []string            `json:"actionable_because"`
+	ExpectedCapabilities []string            `json:"expected_capabilities"`
+	NoiseFilters         []string            `json:"noise_filters"`
+	ControlBreakpoints   []string            `json:"control_breakpoints"`
+	EvidenceGaps         []string            `json:"evidence_gaps"`
+	GraphEdges           []string            `json:"graph_edges"`
+	EvidenceReferences   []EvidenceReference `json:"evidence_refs"`
+	DecisionRules        []string            `json:"decision_rules"`
+	Limitations          []string            `json:"limitations"`
 }
 
 type AssessInventory struct {

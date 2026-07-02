@@ -197,6 +197,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"Ariadne Summary",
 		"Mode: endpoint",
 		"Identity And Credentials",
+		"Signal quality:",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("self summary missing %q:\n%s", want, summary)
@@ -221,6 +222,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	for _, want := range []string{
 		`"run_kind": "assess"`,
 		`"mode": "endpoint"`,
+		`"signal_quality"`,
+		`"noise_filters"`,
 		`"top_case_id": "case:identity-credentials"`,
 		`"first_action"`,
 	} {
@@ -244,6 +247,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	dashboard := readTestFile(t, filepath.Join(bundleDir, "dashboard.html"))
 	for _, want := range []string{
 		"Ariadne Assessment",
+		"Signal Quality",
 		"Operator Cases",
 		"Export proof files",
 	} {

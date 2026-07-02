@@ -326,6 +326,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
 	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
 	controlState := buildAssessControlState(firstAction, triage)
+	signalQuality := buildAssessSignalQuality(summary, inventorySummary, triage, controlState, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, r.TargetPath)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
@@ -342,6 +343,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		Summary:          summary,
 		Decision:         decision,
 		Triage:           triage,
+		SignalQuality:    signalQuality,
 		ControlState:     controlState,
 		Inventory:        inventorySummary,
 		Exposure:         exposure,
@@ -415,6 +417,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
 	triage.EvidenceGapActions = assessScanEvidenceGapActions(r.TargetsFile, r.Mode, r.Agent, triage)
 	controlState := buildAssessControlState(firstAction, triage)
+	signalQuality := buildAssessSignalQuality(summary, inventorySummary, triage, controlState, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, "")
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
@@ -432,6 +435,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		Summary:          summary,
 		Decision:         decision,
 		Triage:           triage,
+		SignalQuality:    signalQuality,
 		ControlState:     controlState,
 		Inventory:        inventorySummary,
 		Exposure:         exposure,
@@ -1970,6 +1974,8 @@ func renderAssessSummary(w io.Writer, r model.AssessReport) error {
 		fmt.Fprintf(w, "  - Normal capability: %s\n", line)
 	}
 
+	renderAssessSummarySignalQuality(w, r.SignalQuality)
+
 	fmt.Fprintf(w, "\nEvidence:\n")
 	renderAssessEvidenceSources(w, r.Decision.EvidenceSources, 8)
 	for _, ref := range firstEvidenceReferences(r.Decision.EvidenceReferences, 4) {
@@ -2003,6 +2009,34 @@ func renderAssessSummaryBucketLines(w io.Writer, label string, values []string, 
 	}
 	for _, value := range firstStrings(values, limit) {
 		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
+}
+
+func renderAssessSummarySignalQuality(w io.Writer, quality model.AssessSignalQuality) {
+	if quality.Status == "" && quality.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "\nSignal quality:\n")
+	if quality.Summary != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", quality.Summary)
+	}
+	for _, value := range firstStrings(quality.ActionableBecause, 3) {
+		fmt.Fprintf(w, "  - Actionable because: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.ExpectedCapabilities, 2) {
+		fmt.Fprintf(w, "  - Expected capability: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.NoiseFilters, 2) {
+		fmt.Fprintf(w, "  - Noise filter: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.ControlBreakpoints, 3) {
+		fmt.Fprintf(w, "  - Close/downgrade by: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.EvidenceGaps, 2) {
+		fmt.Fprintf(w, "  - Evidence gap: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.DecisionRules, 1) {
+		fmt.Fprintf(w, "  - Decision rule: %s\n", value)
 	}
 }
 
@@ -2136,6 +2170,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 
 	renderAssessDecision(w, r.Decision)
 	renderAssessInventorySummary(w, r.Inventory, 4)
+	renderAssessSignalQuality(w, r.SignalQuality)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
 	renderAssessClosurePlan(w, r.ClosurePlan, 3)
@@ -2931,6 +2966,96 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 	state.GraphEdges = uniqueStrings(state.GraphEdges)
 	state.Limitations = uniqueStrings(state.Limitations)
 	return state
+}
+
+func buildAssessSignalQuality(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction) model.AssessSignalQuality {
+	closedAction := assessFirstActionClosed(action)
+	quality := model.AssessSignalQuality{
+		Status:               firstNonEmpty(triage.Status, "unknown"),
+		ActionableBecause:    []string{},
+		ExpectedCapabilities: []string{},
+		NoiseFilters:         []string{},
+		ControlBreakpoints:   []string{},
+		EvidenceGaps:         []string{},
+		GraphEdges:           []string{},
+		EvidenceReferences:   []model.EvidenceReference{},
+		DecisionRules: []string{
+			"Capability alone is not exposure.",
+			"Action required needs graph evidence connecting influence, authority, boundary reachability, and a missing hard barrier.",
+			"Protected or controlled needs observed hard-barrier evidence that breaks the modeled path.",
+			"Unknown evidence remains unknown; Ariadne does not count it as safe.",
+		},
+		Limitations: []string{
+			"Signal quality is derived from deterministic inventory, graph, case, and control evidence; it is not an independent live enforcement test.",
+		},
+	}
+	switch {
+	case closedAction:
+		quality.Summary = "Controlled signal: Ariadne observed hard-barrier evidence for the focused path."
+	case action.Available && len(state.MissingHardBarriers) > 0:
+		quality.Summary = "Actionable signal: expected agent capability is connected to a sensitive boundary and missing hard-barrier evidence."
+	case action.Available:
+		quality.Summary = "Focused signal: Ariadne found a case to inspect, but the current control state should be reviewed before treating it as open risk."
+	case len(triage.UnknownEvidence) > 0:
+		quality.Summary = "Evidence-gap signal: Ariadne lacks enough deterministic evidence to classify every path."
+	default:
+		quality.Summary = "No open graph-supported action matched the current filter."
+	}
+	if action.Available {
+		quality.ActionableBecause = append(quality.ActionableBecause, fmt.Sprintf("Top case is %s (%s).", firstNonEmpty(action.Title, action.CaseID), action.CaseID))
+	}
+	if !closedAction {
+		quality.ActionableBecause = append(quality.ActionableBecause, firstStrings(triage.HardRiskSignals, 3)...)
+	}
+	if len(state.GraphEdges) > 0 {
+		quality.ActionableBecause = append(quality.ActionableBecause, fmt.Sprintf("Graph path has %d supporting edge(s) for the focused case.", len(state.GraphEdges)))
+		quality.GraphEdges = append(quality.GraphEdges, state.GraphEdges...)
+	} else {
+		quality.GraphEdges = append(quality.GraphEdges, assessControlStateGraphEdges(triage.SignalDetails)...)
+	}
+	if len(state.MissingHardBarriers) > 0 {
+		quality.ActionableBecause = append(quality.ActionableBecause, "Missing hard barriers: "+strings.Join(limitStrings(state.MissingHardBarriers, 5), "; "))
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Prove hard-barrier controls: "+strings.Join(limitStrings(state.MissingHardBarriers, 5), "; "))
+	}
+	if len(state.PresentHardBarriers) > 0 {
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Observed hard barriers: "+strings.Join(limitStrings(state.PresentHardBarriers, 5), "; "))
+	}
+	if len(state.PartialOrFrictionControls) > 0 {
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Partial or friction controls observed but not counted as closure: "+strings.Join(limitStrings(state.PartialOrFrictionControls, 4), "; "))
+	}
+	if action.CurrentAction.Surface != "" {
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Primary proof surface: "+action.CurrentAction.Surface)
+	} else if state.CurrentProofSurface != "" {
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Primary proof surface: "+state.CurrentProofSurface)
+	}
+	quality.ExpectedCapabilities = append(quality.ExpectedCapabilities, triage.NormalCapabilities...)
+	if len(quality.ExpectedCapabilities) == 0 && inventory.Runtimes+inventory.Authorities+inventory.Tools+inventory.TrustInputs > 0 {
+		quality.ExpectedCapabilities = append(quality.ExpectedCapabilities, fmt.Sprintf("Observed %d runtime, %d authority, %d tool, and %d trust-input surface(s); this is not a finding by itself.", inventory.Runtimes, inventory.Authorities, inventory.Tools, inventory.TrustInputs))
+	}
+	quality.NoiseFilters = append(quality.NoiseFilters,
+		"Runtime, tool, authority, and trust-input surfaces are expected agent capability until correlated into a supported path.",
+		"A config file or instruction file is evidence, not a finding, unless the graph shows reachable authority and boundary impact.",
+		"Partial or friction-only controls reduce context but do not close an open path without hard-barrier evidence.",
+	)
+	quality.EvidenceGaps = append(quality.EvidenceGaps, triage.UnknownEvidence...)
+	quality.EvidenceGaps = append(quality.EvidenceGaps, triage.EvidenceGapActions...)
+	quality.EvidenceReferences = append(quality.EvidenceReferences, triage.EvidenceReferences...)
+	if len(quality.EvidenceReferences) == 0 {
+		quality.EvidenceReferences = append(quality.EvidenceReferences, action.EvidenceReferences...)
+	}
+	quality.ActionableBecause = nonNilStrings(uniqueStrings(quality.ActionableBecause))
+	quality.ExpectedCapabilities = nonNilStrings(uniqueStrings(quality.ExpectedCapabilities))
+	quality.NoiseFilters = nonNilStrings(uniqueStrings(quality.NoiseFilters))
+	quality.ControlBreakpoints = nonNilStrings(uniqueStrings(quality.ControlBreakpoints))
+	quality.EvidenceGaps = nonNilStrings(uniqueStrings(quality.EvidenceGaps))
+	quality.GraphEdges = nonNilStrings(uniqueStrings(quality.GraphEdges))
+	quality.EvidenceReferences = nonNilEvidenceReferences(dedupeEvidenceReferences(quality.EvidenceReferences))
+	quality.DecisionRules = nonNilStrings(uniqueStrings(quality.DecisionRules))
+	quality.Limitations = nonNilStrings(uniqueStrings(quality.Limitations))
+	if len(quality.ActionableBecause) == 0 && summary.OperatorCases == 0 {
+		quality.ActionableBecause = append(quality.ActionableBecause, "No open operator case was produced for the current filter.")
+	}
+	return quality
 }
 
 func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction, targetPath string) model.AssessDecision {
@@ -4396,6 +4521,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintln(w)
 
 	renderAssessDecision(w, r.Decision)
+	renderAssessSignalQuality(w, r.SignalQuality)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
 	renderAssessClosurePlan(w, r.ClosurePlan, 5)
@@ -4525,6 +4651,31 @@ func renderAssessDecisionBucketLines(w io.Writer, label string, values []string,
 		return
 	}
 	renderAssessDecisionLines(w, label, values, limit)
+}
+
+func renderAssessSignalQuality(w io.Writer, quality model.AssessSignalQuality) {
+	if quality.Status == "" && quality.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "Signal quality:\n")
+	if quality.Status != "" {
+		fmt.Fprintf(w, "  - Status: %s\n", readableToken(quality.Status))
+	}
+	if quality.Summary != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", quality.Summary)
+	}
+	renderAssessTriageLines(w, "Actionable because", quality.ActionableBecause, 8)
+	renderAssessTriageLines(w, "Expected capability", quality.ExpectedCapabilities, 4)
+	renderAssessTriageLines(w, "Noise filter", quality.NoiseFilters, 4)
+	renderAssessTriageLines(w, "Close/downgrade by", quality.ControlBreakpoints, 5)
+	renderAssessTriageLines(w, "Evidence gap", quality.EvidenceGaps, 4)
+	renderAssessTriageLines(w, "Graph", quality.GraphEdges, 5)
+	if len(quality.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(quality.EvidenceReferences, 3), "; "))
+	}
+	renderAssessTriageLines(w, "Decision rule", quality.DecisionRules, 4)
+	renderAssessTriageLines(w, "Limit", quality.Limitations, 2)
+	fmt.Fprintln(w)
 }
 
 func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
