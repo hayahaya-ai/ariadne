@@ -119,7 +119,8 @@
         "proof_patches",
         "rerun_commands",
         "compare_commands",
-        "success_criteria"
+        "success_criteria",
+        "workflow"
       ],
       "properties": {
         "available": { "type": "boolean" },
@@ -154,6 +155,48 @@
           "items": { "type": "string" }
         },
         "compare_commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "success_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "workflow": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_workflow_step" }
+        }
+      }
+    },
+    "assess_workflow_step": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "summary",
+        "evidence_refs",
+        "starting_controls",
+        "proof_surfaces",
+        "commands",
+        "success_criteria"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "starting_controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "proof_surfaces": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "commands": {
           "type": "array",
           "items": { "type": "string" }
         },

@@ -1477,6 +1477,7 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 		RerunCommands:      []string{},
 		CompareCommands:    []string{},
 		SuccessCriteria:    []string{},
+		Workflow:           []model.AssessWorkflowStep{},
 	}
 	if len(cases) == 0 {
 		return action
@@ -1529,7 +1530,56 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 	if action.SuccessCriteria == nil {
 		action.SuccessCriteria = []string{}
 	}
+	action.Workflow = buildAssessFirstActionWorkflow(action)
 	return action
+}
+
+func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.AssessWorkflowStep {
+	if !action.Available {
+		return []model.AssessWorkflowStep{}
+	}
+	return []model.AssessWorkflowStep{
+		{
+			ID:                 "inspect_evidence",
+			Title:              "Inspect Evidence",
+			Summary:            "Review the source-backed facts that caused Ariadne to prioritize this case.",
+			EvidenceReferences: append([]model.EvidenceReference{}, action.EvidenceReferences...),
+			StartingControls:   []string{},
+			ProofSurfaces:      []string{},
+			Commands:           []string{},
+			SuccessCriteria:    []string{},
+		},
+		{
+			ID:                 "add_or_verify_proof",
+			Title:              "Add Or Verify Proof",
+			Summary:            firstNonEmpty(action.NextStep, "Add or verify parser-recognized evidence for the starting controls."),
+			EvidenceReferences: []model.EvidenceReference{},
+			StartingControls:   append([]string{}, action.StartingControls...),
+			ProofSurfaces:      append([]string{}, action.ProofSurfaces...),
+			Commands:           []string{},
+			SuccessCriteria:    []string{},
+		},
+		{
+			ID:                 "rerun_case",
+			Title:              "Rerun Case",
+			Summary:            "Rerun the focused case after evidence changes so Ariadne can recompute facts and graph paths.",
+			EvidenceReferences: []model.EvidenceReference{},
+			StartingControls:   []string{},
+			ProofSurfaces:      []string{},
+			Commands:           append([]string{}, action.RerunCommands...),
+			SuccessCriteria:    []string{},
+		},
+		{
+			ID:                 "compare_before_after",
+			Title:              "Compare Before And After",
+			Summary:            "Save before and after proof artifacts, then compare them to prove the case state changed.",
+			EvidenceReferences: []model.EvidenceReference{},
+			StartingControls:   []string{},
+			ProofSurfaces:      []string{},
+			Commands:           append([]string{}, action.CompareCommands...),
+			SuccessCriteria:    append([]string{}, action.SuccessCriteria...),
+		},
+	}
 }
 
 func topControlOperatorCases(cases []model.ControlOperatorCase, limit int) []model.ControlOperatorCase {
@@ -1826,6 +1876,7 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 	if action.NextStep != "" {
 		fmt.Fprintf(w, "  - Next step: %s\n", action.NextStep)
 	}
+	renderAssessFirstActionWorkflow(w, action.Workflow)
 	if len(action.EvidenceReferences) > 0 {
 		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLinesBySource(action.EvidenceReferences, 3), "; "))
 	}
@@ -1845,6 +1896,28 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 		fmt.Fprintf(w, "  - Compare loop: %s\n", strings.Join(limitStrings(action.CompareCommands, 3), "; "))
 	}
 	fmt.Fprintln(w)
+}
+
+func renderAssessFirstActionWorkflow(w io.Writer, workflow []model.AssessWorkflowStep) {
+	if len(workflow) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  - Workflow:\n")
+	for i, step := range workflow {
+		fmt.Fprintf(w, "    %d. %s: %s\n", i+1, step.Title, step.Summary)
+		if len(step.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "       Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(step.EvidenceReferences, 2), "; "))
+		}
+		if len(step.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "       Prove at: %s\n", strings.Join(limitStrings(step.ProofSurfaces, 3), "; "))
+		}
+		if len(step.Commands) > 0 {
+			fmt.Fprintf(w, "       Command: %s\n", strings.Join(limitStrings(step.Commands, 3), "; "))
+		}
+		if len(step.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "       Done when: %s\n", strings.Join(limitStrings(step.SuccessCriteria, 2), "; "))
+		}
+	}
 }
 
 func renderAssessTopCaseProofPacket(w io.Writer, plan *model.ProofPlanReport) {

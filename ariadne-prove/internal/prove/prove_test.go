@@ -3516,6 +3516,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Readout:",
 		"First action:",
 		"Why first:",
+		"Workflow:",
+		"Inspect Evidence:",
+		"Add Or Verify Proof:",
 		"Accepted evidence:",
 		"Proof patch:",
 		"What was inspected:",
@@ -3544,7 +3547,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	firstActionBlock := out[firstActionStart:firstActionEnd]
 	if !strings.Contains(firstActionBlock, "Compare loop: ariadne proofs --path") ||
-		!strings.Contains(firstActionBlock, "ariadne compare --before before-proof.json --after after-proof.json") {
+		!strings.Contains(firstActionBlock, "ariadne compare --before before-proof.json --after after-proof.json") ||
+		!strings.Contains(firstActionBlock, "1. Inspect Evidence:") ||
+		!strings.Contains(firstActionBlock, "4. Compare Before And After:") {
 		t.Fatalf("first action should include the compare loop commands:\n%s", firstActionBlock)
 	}
 
@@ -3577,8 +3582,20 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.FirstAction.ProofPatches) == 0 ||
 		len(decoded.FirstAction.RerunCommands) == 0 ||
 		len(decoded.FirstAction.CompareCommands) == 0 ||
-		len(decoded.FirstAction.SuccessCriteria) == 0 {
+		len(decoded.FirstAction.SuccessCriteria) == 0 ||
+		len(decoded.FirstAction.Workflow) != 4 {
 		t.Fatalf("assessment should include a fact-backed first action: %+v", decoded.FirstAction)
+	}
+	if decoded.FirstAction.Workflow[0].ID != "inspect_evidence" ||
+		decoded.FirstAction.Workflow[1].ID != "add_or_verify_proof" ||
+		decoded.FirstAction.Workflow[2].ID != "rerun_case" ||
+		decoded.FirstAction.Workflow[3].ID != "compare_before_after" ||
+		len(decoded.FirstAction.Workflow[0].EvidenceReferences) == 0 ||
+		len(decoded.FirstAction.Workflow[1].StartingControls) == 0 ||
+		len(decoded.FirstAction.Workflow[1].ProofSurfaces) == 0 ||
+		len(decoded.FirstAction.Workflow[2].Commands) == 0 ||
+		len(decoded.FirstAction.Workflow[3].Commands) == 0 {
+		t.Fatalf("first action workflow should preserve evidence, proof, rerun, and compare steps: %+v", decoded.FirstAction.Workflow)
 	}
 	if decoded.TopCaseProofPlan == nil ||
 		decoded.TopCaseProofPlan.CaseFilter != decoded.TopCases[0].ID ||
@@ -3605,6 +3622,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assessment",
 		"Assessment Readout",
 		"First Action",
+		"Action Workflow",
+		"Inspect Evidence",
+		"Compare Before And After",
 		"Accepted Evidence",
 		"Proof Patch",
 		"Case Navigation",
@@ -4337,7 +4357,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
-	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria")
+	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "workflow")
+	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
+	assertRequiredKeys(t, assessWorkflowStep, "id", "title", "summary", "evidence_refs", "starting_controls", "proof_surfaces", "commands", "success_criteria")
 	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")
 	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes", "surface_map")
 	surfaceMap := schemaMap(t, assessSchema, "$defs", "surface_map")

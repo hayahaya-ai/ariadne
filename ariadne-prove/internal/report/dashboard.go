@@ -683,6 +683,7 @@ func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstActio
 	if action.NextStep != "" {
 		fmt.Fprintf(w, `<p><strong>Next step:</strong> %s</p>`, esc(action.NextStep))
 	}
+	renderAssessWorkflowDashboard(w, action.Workflow)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
@@ -706,6 +707,59 @@ func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstActio
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessWorkflowDashboard(w io.Writer, workflow []model.AssessWorkflowStep) {
+	if len(workflow) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<h3>Action Workflow</h3>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Step</th><th>Fact Source</th><th>Proof Or Command</th><th>Done When</th></tr></thead><tbody>")
+	for i, step := range workflow {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%d. %s</strong><div class="subtle">%s</div></td>`, i+1, esc(step.Title), esc(step.Summary))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(assessWorkflowFactSourceLines(step)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(assessWorkflowProofCommandLines(step)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(step.SuccessCriteria, 3)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
+func assessWorkflowFactSourceLines(step model.AssessWorkflowStep) []string {
+	var out []string
+	out = append(out, evidenceReferenceLinesBySource(step.EvidenceReferences, 3)...)
+	out = append(out, labeledLimitedLines("Control", step.StartingControls, 4)...)
+	out = append(out, labeledLimitedLines("Surface", step.ProofSurfaces, 4)...)
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func labeledLimitedLines(label string, values []string, limit int) []string {
+	limited := limitStrings(values, limit)
+	out := make([]string, 0, len(limited))
+	for _, value := range limited {
+		if strings.Contains(value, "additional item") {
+			out = append(out, label+"s: "+value)
+			continue
+		}
+		out = append(out, label+": "+value)
+	}
+	return out
+}
+
+func assessWorkflowProofCommandLines(step model.AssessWorkflowStep) []string {
+	var out []string
+	for _, command := range limitStrings(step.Commands, 3) {
+		out = append(out, command)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func renderAssessClosureEvidenceDashboard(w io.Writer, closure model.AssessClosureEvidence) {

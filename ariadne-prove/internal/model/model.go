@@ -311,6 +311,18 @@ type AssessFirstAction struct {
 	RerunCommands      []string                 `json:"rerun_commands"`
 	CompareCommands    []string                 `json:"compare_commands"`
 	SuccessCriteria    []string                 `json:"success_criteria"`
+	Workflow           []AssessWorkflowStep     `json:"workflow"`
+}
+
+type AssessWorkflowStep struct {
+	ID                 string              `json:"id"`
+	Title              string              `json:"title"`
+	Summary            string              `json:"summary"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	StartingControls   []string            `json:"starting_controls"`
+	ProofSurfaces      []string            `json:"proof_surfaces"`
+	Commands           []string            `json:"commands"`
+	SuccessCriteria    []string            `json:"success_criteria"`
 }
 
 type AssessSummary struct {
