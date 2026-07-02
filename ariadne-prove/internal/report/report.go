@@ -2359,33 +2359,11 @@ func renderAssessSourceActionBoardTerminal(w io.Writer, actions []model.AssessSo
 }
 
 func sourceActionsForTerminal(actions []model.AssessSourceAction, limit int) []model.AssessSourceAction {
-	if limit <= 0 || len(actions) <= limit {
-		return append([]model.AssessSourceAction{}, actions...)
+	ranked := rankAssessSourceActions(actions)
+	if limit <= 0 || len(ranked) <= limit {
+		return ranked
 	}
-	var evidence []model.AssessSourceAction
-	var proofs []model.AssessSourceAction
-	for _, action := range actions {
-		if action.Role == "proof_surface" {
-			proofs = append(proofs, action)
-		} else {
-			evidence = append(evidence, action)
-		}
-	}
-	if len(proofs) == 0 {
-		return append([]model.AssessSourceAction{}, actions[:limit]...)
-	}
-	if len(proofs) >= limit {
-		return append([]model.AssessSourceAction{}, proofs[:limit]...)
-	}
-	out := make([]model.AssessSourceAction, 0, limit)
-	evidenceLimit := limit - len(proofs)
-	if len(evidence) > evidenceLimit {
-		out = append(out, evidence[:evidenceLimit]...)
-	} else {
-		out = append(out, evidence...)
-	}
-	out = append(out, proofs...)
-	return out
+	return append([]model.AssessSourceAction{}, ranked[:limit]...)
 }
 
 func usefulSourceActionLineLabels(values []string) []string {

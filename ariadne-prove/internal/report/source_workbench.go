@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
@@ -182,7 +183,44 @@ func buildAssessSourceActionBoard(root string, rows []model.AssessSourceRefRow, 
 	if len(actions) == 0 {
 		return []model.AssessSourceAction{}
 	}
-	return actions
+	return rankAssessSourceActions(actions)
+}
+
+func rankAssessSourceActions(actions []model.AssessSourceAction) []model.AssessSourceAction {
+	out := append([]model.AssessSourceAction{}, actions...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := sourceActionPriority(out[i])
+		right := sourceActionPriority(out[j])
+		return left < right
+	})
+	return out
+}
+
+func sourceActionPriority(action model.AssessSourceAction) int {
+	kind := strings.ToLower(strings.TrimSpace(action.ActionKind))
+	role := strings.ToLower(strings.TrimSpace(action.Role))
+	score := 50
+	switch {
+	case role == "proof_surface" || kind == "add_or_verify_control":
+		score = 0
+	case kind == "verify_control":
+		score = 5
+	case kind == "confirm_boundary":
+		score = 10
+	case kind == "inspect_risk_source":
+		score = 20
+	case kind == "inspect_evidence":
+		score = 30
+	case kind == "reference_fact":
+		score = 40
+	}
+	if action.MetadataOnly {
+		score += 70
+	}
+	if !action.LocalFile {
+		score += 5
+	}
+	return score
 }
 
 func sourceActionKey(source, localPath string) string {

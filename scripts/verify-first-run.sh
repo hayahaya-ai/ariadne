@@ -29,6 +29,51 @@ expect_not_contains() {
   fi
 }
 
+expect_before() {
+  local file="$1"
+  local first="$2"
+  local second="$3"
+  local first_line
+  local second_line
+  first_line="$(grep -nF -- "$first" "$file" | head -n 1 | cut -d: -f1 || true)"
+  second_line="$(grep -nF -- "$second" "$file" | head -n 1 | cut -d: -f1 || true)"
+  if [ -z "$first_line" ] || [ -z "$second_line" ] || [ "$first_line" -ge "$second_line" ]; then
+    echo "expected text order in $file:" >&2
+    echo "  first:  $first" >&2
+    echo "  second: $second" >&2
+    echo "artifacts left in: $workdir" >&2
+    exit 1
+  fi
+}
+
+expect_block_not_contains() {
+  local file="$1"
+  local start="$2"
+  local end="$3"
+  local needle="$4"
+  local block="$workdir/block-check.txt"
+  awk -v start="$start" -v end="$end" '
+    index($0, start) { in_block = 1 }
+    in_block { print }
+    in_block && index($0, end) { exit }
+  ' "$file" > "$block"
+  if [ ! -s "$block" ]; then
+    echo "missing bounded block in $file:" >&2
+    echo "  start: $start" >&2
+    echo "  end:   $end" >&2
+    echo "artifacts left in: $workdir" >&2
+    exit 1
+  fi
+  if grep -Fq -- "$needle" "$block"; then
+    echo "unexpected text in bounded block from $file:" >&2
+    echo "  start:  $start" >&2
+    echo "  end:    $end" >&2
+    echo "  needle: $needle" >&2
+    echo "artifacts left in: $workdir" >&2
+    exit 1
+  fi
+}
+
 echo "Ariadne first-run verification"
 echo "  bin: $bin"
 echo "  fixture: $fixture"
@@ -717,6 +762,7 @@ expect_contains "$endpoint_action" ".roo/cache"
 expect_contains "$endpoint_action" ".gemini/settings.json"
 expect_contains "$endpoint_action" "Proof loop:"
 expect_contains "$endpoint_action" "case-compare.html"
+expect_block_not_contains "$endpoint_action" "Source action board:" "Accepted evidence:" ".claude/paste-cache"
 
 expect_contains "$endpoint_json" '"mode": "endpoint"'
 expect_contains "$endpoint_json" '"decision"'
@@ -783,6 +829,7 @@ expect_contains "$endpoint_html" "Create Workspace"
 expect_contains "$endpoint_html" "Source Reference Workbench"
 expect_contains "$endpoint_html" "Source Action Board"
 expect_contains "$endpoint_html" "add_or_verify_control"
+expect_before "$endpoint_html" ".ariadne/identity-policy.json" ".claude/paste-cache"
 expect_contains "$endpoint_html" "Exact files and lines to open first"
 expect_contains "$endpoint_html" "Inspect command"
 expect_contains "$endpoint_html" "sed -n"

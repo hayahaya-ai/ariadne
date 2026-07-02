@@ -3215,6 +3215,11 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		decoded.Decision.EvidenceGapActions == nil {
 		t.Fatalf("endpoint decision should expose control-state buckets: %+v", decoded.Decision)
 	}
+	proofActionIndex := indexSourceAction(decoded.SourceReferences.ActionBoard, ".ariadne/identity-policy.json")
+	metadataActionIndex := indexSourceAction(decoded.SourceReferences.ActionBoard, ".claude/paste-cache")
+	if proofActionIndex < 0 || metadataActionIndex < 0 || proofActionIndex > metadataActionIndex {
+		t.Fatalf("source action board should rank proof/control work before metadata-only private context: proof=%d metadata=%d actions=%+v", proofActionIndex, metadataActionIndex, decoded.SourceReferences.ActionBoard)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
@@ -4994,6 +4999,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!hasSourceAction(decoded.SourceReferences.ActionBoard, ".env", "evidence", "confirm_boundary", "sensitive boundary path exists", "") ||
 		!hasSourceAction(decoded.SourceReferences.ActionBoard, ".ariadne/egress-policy.json", "proof_surface", "add_or_verify_control", "test -f", "control:egress-destination-allowlist") {
 		t.Fatalf("assessment JSON should expose a file-grouped source action board: %+v", decoded.SourceReferences.ActionBoard)
+	}
+	proofActionIndex := indexSourceAction(decoded.SourceReferences.ActionBoard, ".ariadne/egress-policy.json")
+	metadataActionIndex := indexSourceAction(decoded.SourceReferences.ActionBoard, ".claude/paste-cache")
+	if metadataActionIndex >= 0 && (proofActionIndex < 0 || proofActionIndex > metadataActionIndex) {
+		t.Fatalf("source action board should rank proof/control work before metadata-only private context: proof=%d metadata=%d actions=%+v", proofActionIndex, metadataActionIndex, decoded.SourceReferences.ActionBoard)
 	}
 	if hasSourceAction(decoded.SourceReferences.ActionBoard, ".env", "evidence", "confirm_boundary", "sed -n", "") {
 		t.Fatalf("sensitive boundary actions should verify path existence without dumping file contents: %+v", decoded.SourceReferences.ActionBoard)
@@ -8141,6 +8151,15 @@ func hasSourceAction(items []model.AssessSourceAction, sourceFragment string, ro
 		return true
 	}
 	return false
+}
+
+func indexSourceAction(items []model.AssessSourceAction, sourceFragment string) int {
+	for i, item := range items {
+		if sourceFragment != "" && strings.Contains(item.Source+" "+item.DisplaySource+" "+item.LocalPath, sourceFragment) {
+			return i
+		}
+	}
+	return -1
 }
 
 func hasCaseLifecycleStep(items []model.AssessCaseLifecycleStep, id string, status string, evidenceSourceFragment string, controlFragment string, commandFragment string, artifactFragment string) bool {
