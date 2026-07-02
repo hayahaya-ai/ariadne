@@ -1601,7 +1601,8 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		limit = len(cases)
 	}
 	for _, item := range cases[:limit] {
-		fmt.Fprintf(w, "    - %s %s (%s): %d control(s), %d flaw(s), %d target(s)\n",
+		fmt.Fprintf(w, "    - #%d %s %s (%s): %d control(s), %d flaw(s), %d target(s)\n",
+			item.Rank,
 			strings.ToUpper(item.Severity),
 			item.Title,
 			item.ID,
@@ -1614,6 +1615,9 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		}
 		if item.State != "" {
 			fmt.Fprintf(w, "      State: %s - %s\n", item.State, item.StateReason)
+		}
+		if item.PriorityReason != "" {
+			fmt.Fprintf(w, "      Priority: %s\n", item.PriorityReason)
 		}
 		if item.Finding != "" {
 			fmt.Fprintf(w, "      Why this case exists: %s\n", item.Finding)
@@ -1693,6 +1697,10 @@ func buildControlOperatorCases(workstreams []model.ControlBreakPathWorkstream, t
 	if out == nil {
 		return []model.ControlOperatorCase{}
 	}
+	for i := range out {
+		out[i].Rank = i + 1
+		out[i].PriorityReason = controlOperatorCasePriorityReason(out[i])
+	}
 	return out
 }
 
@@ -1708,6 +1716,10 @@ func controlOperatorCaseState(workstream model.ControlBreakPathWorkstream) strin
 		return "open"
 	}
 	return "no_missing_hard_barrier"
+}
+
+func controlOperatorCasePriorityReason(item model.ControlOperatorCase) string {
+	return fmt.Sprintf("Ranked #%d by deterministic closure priority: %s severity, %d affected flaw(s), %d affected target(s), and %d missing hard-barrier control(s).", item.Rank, strings.ToUpper(item.Severity), item.FlawCount, item.TargetCount, item.ControlCount)
 }
 
 func controlOperatorCaseStateReason(workstream model.ControlBreakPathWorkstream) string {

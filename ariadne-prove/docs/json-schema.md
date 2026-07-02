@@ -149,7 +149,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `summary`, counting missing hard-barrier controls by severity, affected targets, and affected flaws
 - `controls`, where each missing hard barrier includes the flaws it closes, target coverage, evidence anchors, structured evidence references, proof surfaces, and concrete actions
 - `families`, where related controls are grouped into Zero Trust capability areas such as identity, least agency, egress, observability, response, and governance
-- `operator_cases`, where each architecture break-path workstream becomes an actionable case with state, state reason, next step, evidence references, starting controls, proof surfaces, evidence examples, rerun commands, and success criteria
+- `operator_cases`, where each architecture break-path workstream becomes an actionable case with rank, priority reason, state, state reason, next step, evidence references, starting controls, proof surfaces, evidence examples, rerun commands, and success criteria
 - `workstreams`, where related controls become break-path workstreams with starting tasks, evidence references, proof surfaces, rationale, and success criteria
 - `proof_specs`, where each missing hard barrier maps to the evidence kind, proof surfaces, parser-recognized indicators, notes, and limitations Ariadne uses when looking for deterministic proof
 - `verification_tasks`, where each missing hard barrier becomes an operator task with evidence references, proof surfaces, recognized indicators, evidence examples, rerun commands, success criteria, and limitations
