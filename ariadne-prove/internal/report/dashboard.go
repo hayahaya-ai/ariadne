@@ -820,6 +820,22 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 	fmt.Fprintln(w, renderSmallList(decision.MissingHardBarriers))
 	fmt.Fprintln(w, `<h3>Proof Surface</h3>`)
 	fmt.Fprintln(w, renderDashboardPathList(root, nonEmptyStrings(decision.ProofSurface)))
+	if decision.GeneratedProofPath != "" || decision.DestinationPath != "" || decision.ApplyCommand != "" {
+		fmt.Fprintln(w, `<h3>Review / Apply Generated Proof</h3>`)
+		var applyLines []string
+		if decision.GeneratedProofPath != "" {
+			applyLines = append(applyLines, "Generated file: "+decision.GeneratedProofPath)
+		}
+		if decision.DestinationPath != "" {
+			applyLines = append(applyLines, "Suggested destination: "+decision.DestinationPath)
+		} else if decision.SuggestedDestination != "" {
+			applyLines = append(applyLines, "Suggested destination: "+decision.SuggestedDestination)
+		}
+		fmt.Fprintln(w, renderSmallList(applyLines))
+		if decision.ApplyCommand != "" {
+			fmt.Fprintln(w, renderCommandList([]string{decision.ApplyCommand}))
+		}
+	}
 	fmt.Fprintln(w, `<h3>Commands</h3>`)
 	fmt.Fprintln(w, renderCommandList(nonEmptyStrings(decision.ProofCommand, decision.RerunCommand, decision.CompareCommand)))
 	fmt.Fprintln(w, `<h3>Done When</h3>`)

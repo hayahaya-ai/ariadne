@@ -2506,23 +2506,27 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 
 func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction) model.AssessDecision {
 	decision := model.AssessDecision{
-		Status:              firstNonEmpty(triage.Status, "no_supported_signal"),
-		Headline:            firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
-		StartHere:           triage.StartHere,
-		TopCaseID:           action.CaseID,
-		TopCaseTitle:        action.Title,
-		WhyPrioritized:      action.WhyFirst,
-		RiskReasons:         assessDecisionRiskReasons(triage.HardRiskSignals),
-		NormalCapabilities:  firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
-		EvidenceSources:     firstStrings(uniqueStrings(state.EvidenceSources), 8),
-		PathSummary:         firstStrings(uniqueStrings(state.PathSummary), 6),
-		MissingHardBarriers: firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
-		Instruction:         firstNonEmpty(action.CurrentAction.Instruction, action.NextStep, triage.NextAction),
-		ProofSurface:        firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
-		ProofCommand:        firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand),
-		RerunCommand:        action.CurrentAction.RerunCommand,
-		CompareCommand:      action.CurrentAction.CompareCommand,
-		DoneCriteria:        firstStrings(uniqueStrings(firstNonEmptyStrings(action.CurrentAction.SuccessCriteria, action.SuccessCriteria)), 3),
+		Status:               firstNonEmpty(triage.Status, "no_supported_signal"),
+		Headline:             firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
+		StartHere:            triage.StartHere,
+		TopCaseID:            action.CaseID,
+		TopCaseTitle:         action.Title,
+		WhyPrioritized:       action.WhyFirst,
+		RiskReasons:          assessDecisionRiskReasons(triage.HardRiskSignals),
+		NormalCapabilities:   firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
+		EvidenceSources:      firstStrings(uniqueStrings(state.EvidenceSources), 8),
+		PathSummary:          firstStrings(uniqueStrings(state.PathSummary), 6),
+		MissingHardBarriers:  firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
+		Instruction:          firstNonEmpty(action.CurrentAction.Instruction, action.NextStep, triage.NextAction),
+		ProofSurface:         firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
+		ProofCommand:         firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand),
+		GeneratedProofPath:   action.CurrentAction.GeneratedProofPath,
+		SuggestedDestination: action.CurrentAction.SuggestedDestination,
+		DestinationPath:      action.CurrentAction.DestinationPath,
+		ApplyCommand:         action.CurrentAction.ApplyCommand,
+		RerunCommand:         action.CurrentAction.RerunCommand,
+		CompareCommand:       action.CurrentAction.CompareCommand,
+		DoneCriteria:         firstStrings(uniqueStrings(firstNonEmptyStrings(action.CurrentAction.SuccessCriteria, action.SuccessCriteria)), 3),
 		Limitations: []string{
 			"Decision is derived from deterministic inventory, graph, case, and proof data; inspect detailed sections for complete evidence.",
 		},
@@ -2550,6 +2554,10 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 		decision.TopCaseTitle = summary.TopCaseTitle
 		decision.WhyPrioritized = ""
 		decision.ProofCommand = ""
+		decision.GeneratedProofPath = ""
+		decision.SuggestedDestination = ""
+		decision.DestinationPath = ""
+		decision.ApplyCommand = ""
 		decision.RerunCommand = ""
 		decision.CompareCommand = ""
 	}
@@ -3895,6 +3903,17 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	}
 	if decision.ProofCommand != "" {
 		fmt.Fprintf(w, "  - Proof command: %s\n", decision.ProofCommand)
+	}
+	if decision.GeneratedProofPath != "" {
+		fmt.Fprintf(w, "  - Generated file: %s\n", decision.GeneratedProofPath)
+	}
+	if decision.DestinationPath != "" {
+		fmt.Fprintf(w, "  - Suggested destination: %s\n", decision.DestinationPath)
+	} else if decision.SuggestedDestination != "" {
+		fmt.Fprintf(w, "  - Suggested destination: %s\n", decision.SuggestedDestination)
+	}
+	if decision.ApplyCommand != "" {
+		fmt.Fprintf(w, "  - Review/apply: %s\n", decision.ApplyCommand)
 	}
 	if decision.RerunCommand != "" {
 		fmt.Fprintf(w, "  - Rerun: %s\n", decision.RerunCommand)

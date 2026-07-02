@@ -4075,6 +4075,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.Decision.Instruction == "" ||
 		decoded.Decision.ProofSurface != ".ariadne/egress-policy.json" ||
 		!strings.Contains(decoded.Decision.ProofCommand, "--patch-dir proof-patches") ||
+		decoded.Decision.GeneratedProofPath != "proof-patches/surfaces/.ariadne/egress-policy.json" ||
+		decoded.Decision.SuggestedDestination != ".ariadne/egress-policy.json" ||
+		!strings.HasSuffix(decoded.Decision.DestinationPath, "/.ariadne/egress-policy.json") ||
+		!strings.Contains(decoded.Decision.ApplyCommand, "cp surfaces/.ariadne/egress-policy.json") ||
 		!strings.Contains(decoded.Decision.RerunCommand, "ariadne cases --path") ||
 		!strings.Contains(decoded.Decision.CompareCommand, "ariadne compare --before before-proof.json --after after-proof.json") ||
 		len(decoded.Decision.DoneCriteria) == 0 {
@@ -4280,6 +4284,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
 		"Proof command: ariadne proofs --path",
 		"--patch-dir proof-patches",
+		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
+		"Suggested destination:",
+		"Review/apply: cd proof-patches",
 		"Signal triage:",
 		"Signal details:",
 		"signal:top-operator-case",
@@ -5736,6 +5743,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessDecision := schemaMap(t, assessSchema, "$defs", "assess_decision")
 	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "risk_reasons", "normal_capabilities", "evidence_sources", "path_summary", "missing_hard_barriers", "done_criteria", "limitations")
+	assertSchemaProperty(t, assessDecision, "generated_proof_path")
+	assertSchemaProperty(t, assessDecision, "suggested_destination")
+	assertSchemaProperty(t, assessDecision, "destination_path")
+	assertSchemaProperty(t, assessDecision, "apply_command")
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
 	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "evidence_gap_actions", "signal_details", "evidence_refs", "next_action", "proof_loop")
 	assessSignal := schemaMap(t, assessSchema, "$defs", "assess_signal")
