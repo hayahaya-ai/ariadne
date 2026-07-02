@@ -52,6 +52,14 @@ llm_blind_request="$workdir/llm-request-inventory-blind.json"
 llm_blind_error="$workdir/llm-inventory-blind-ingest.err"
 llm_review_check="$workdir/llm-review-check.txt"
 llm_review_check_json="$workdir/llm-review-check.json"
+llm_review_run="$workdir/llm-review-run.txt"
+llm_review_run_json="$workdir/llm-review-run.json"
+llm_review_run_dir="$workdir/ariadne-review-run"
+llm_review_run_json_dir="$workdir/ariadne-review-run-json"
+llm_reviewer="$workdir/fixture-reviewer.sh"
+
+printf '#!/usr/bin/env bash\ncat >/dev/null\ncat "%s"\n' "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" > "$llm_reviewer"
+chmod +x "$llm_reviewer"
 
 "$bin" assess --path "$fixture" --out "$assess_summary"
 "$bin" assess --path "$fixture" --format table --out "$assess_txt"
@@ -68,6 +76,8 @@ llm_review_check_json="$workdir/llm-review-check.json"
 "$bin" review-packet --path "$fixture" --profile inventory-blind --format json --out "$llm_blind_request"
 "$bin" review-check --packet "$llm_request" --review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --out "$llm_review_check"
 "$bin" review-check --packet "$llm_request" --review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --format json --out "$llm_review_check_json"
+"$bin" review-run --path "$fixture" --command "$llm_reviewer" --dir "$llm_review_run_dir" --out "$llm_review_run"
+"$bin" review-run --path "$fixture" --command "$llm_reviewer" --dir "$llm_review_run_json_dir" --format json --out "$llm_review_run_json"
 if "$bin" prove --path "$fixture" --interpret llm --llm-review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --llm-review-profile inventory-blind --format json --out "$workdir/llm-blind-ingest.json" 2> "$llm_blind_error"; then
   echo "inventory-blind LLM review ingestion unexpectedly succeeded" >&2
   echo "artifacts left in: $workdir" >&2
@@ -165,6 +175,26 @@ expect_contains "$llm_review_check_json" '"accepted": true'
 expect_contains "$llm_review_check_json" '"review_profile": "follow_up"'
 expect_contains "$llm_review_check_json" '"request_digest"'
 expect_contains "$llm_review_check_json" '"interpretation"'
+expect_contains "$llm_review_run" "Ariadne Review Run"
+expect_contains "$llm_review_run" "Accepted: true"
+expect_contains "$llm_review_run" "Packet JSON:"
+expect_contains "$llm_review_run" "Reviewer JSON:"
+expect_contains "$llm_review_run" "Review check summary:"
+expect_contains "$llm_review_run" "LLM-reviewed data egress path"
+expect_contains "$llm_review_run_json" '"run_kind": "llm_review_run"'
+expect_contains "$llm_review_run_json" '"accepted": true'
+expect_contains "$llm_review_run_json" '"review_profile": "follow_up"'
+expect_contains "$llm_review_run_json" '"check"'
+expect_contains "$llm_review_run_json" '"packet_path"'
+for review_run_file in llm-request.json llm-review.json review-check.json review-check.txt; do
+  if [ ! -f "$llm_review_run_dir/$review_run_file" ]; then
+    echo "review-run missing $review_run_file" >&2
+    echo "artifacts left in: $workdir" >&2
+    exit 1
+  fi
+done
+expect_contains "$llm_review_run_dir/review-check.txt" "Ariadne Review Check"
+expect_contains "$llm_review_run_dir/review-check.txt" "Accepted: true"
 
 expect_contains "$assess_txt" "What was inspected:"
 expect_contains "$assess_txt" "Decision:"

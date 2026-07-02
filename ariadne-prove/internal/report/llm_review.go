@@ -138,6 +138,67 @@ func RenderLLMReviewCheckSummary(w io.Writer, check model.LLMReviewCheckReport) 
 	return nil
 }
 
+func RenderLLMReviewRun(w io.Writer, run model.LLMReviewRunReport, format string) error {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "summary", "table":
+		return RenderLLMReviewRunSummary(w, run)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(run)
+	default:
+		return fmt.Errorf("unknown review-run format: %s", format)
+	}
+}
+
+func RenderLLMReviewRunSummary(w io.Writer, run model.LLMReviewRunReport) error {
+	fmt.Fprintln(w, "Ariadne Review Run")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Target: %s\n", run.Target)
+	fmt.Fprintf(w, "Mode: %s\n", run.Mode)
+	fmt.Fprintf(w, "Profile: %s\n", run.ReviewProfile)
+	fmt.Fprintf(w, "Command: %s\n", run.Command)
+	fmt.Fprintf(w, "Accepted: %t\n", run.Accepted)
+	if run.RequestDigest != "" {
+		fmt.Fprintf(w, "Packet digest: %s\n", shortDigest(run.RequestDigest))
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "Artifacts:")
+	fmt.Fprintf(w, "  - Packet JSON: %s\n", run.PacketPath)
+	fmt.Fprintf(w, "  - Reviewer JSON: %s\n", run.ReviewPath)
+	fmt.Fprintf(w, "  - Review check JSON: %s\n", run.CheckJSONPath)
+	fmt.Fprintf(w, "  - Review check summary: %s\n", run.CheckSummaryPath)
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "Validated interpretation:")
+	fmt.Fprintf(w, "  Issues: %d total, %d critical, %d high, %d medium, %d low, %d info\n",
+		run.Check.Interpretation.Summary.Total,
+		run.Check.Interpretation.Summary.Critical,
+		run.Check.Interpretation.Summary.High,
+		run.Check.Interpretation.Summary.Medium,
+		run.Check.Interpretation.Summary.Low,
+		run.Check.Interpretation.Summary.Info,
+	)
+	for _, issue := range run.Check.Interpretation.Issues {
+		fmt.Fprintf(w, "  - %s/%s %s [%s] Exposure: %s\n",
+			strings.ToUpper(string(issue.Priority)),
+			strings.ToUpper(string(issue.Severity)),
+			issue.Title,
+			issue.Disposition,
+			issue.ExposureID,
+		)
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "What Ariadne did:")
+	fmt.Fprintln(w, "  - generated a redacted follow-up review packet")
+	fmt.Fprintln(w, "  - sent only that packet to the reviewer command on stdin")
+	fmt.Fprintln(w, "  - saved the raw reviewer JSON")
+	fmt.Fprintln(w, "  - validated reviewer claims against packet evidence before accepting them")
+	return nil
+}
+
 func reviewPacketIngestibility(profile string) string {
 	if profile == "inventory_blind" {
 		return "no; request-only until mapped back to deterministic evidence"

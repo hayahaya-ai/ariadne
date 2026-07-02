@@ -49,6 +49,8 @@ func main() {
 		runReviewPacket(os.Args[2:])
 	case "review-check":
 		runReviewCheck(os.Args[2:])
+	case "review-run":
+		runReviewRun(os.Args[2:])
 	case "scan":
 		runScan(os.Args[2:])
 	case "dashboard":
@@ -1320,6 +1322,52 @@ func runReviewCheck(args []string) {
 	}
 }
 
+func runReviewRun(args []string) {
+	fs := flag.NewFlagSet("review-run", flag.ExitOnError)
+	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to review")
+	agent := fs.String("agent", "all", agentHelp)
+	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
+	command := fs.String("command", "", "local reviewer command; reads request JSON on stdin and writes ariadne.llm_review/v1 JSON on stdout")
+	profile := fs.String("profile", "follow-up", "review profile: follow-up")
+	dir := fs.String("dir", "ariadne-review", "artifact directory for packet, raw review, and validation output")
+	format := fs.String("format", "summary", "output format: summary, json")
+	outPath := fs.String("out", "", "write command output to file")
+	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
+	llmTimeout := fs.Int("timeout-seconds", 60, "timeout for reviewer command")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	run, err := prove.RunReviewRun(prove.Options{
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		RulesPath:             *rulesPath,
+		LLMCommand:            *command,
+		LLMReviewProfile:      *profile,
+		LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
+		IncludeSensitivePaths: *includeSensitive,
+	}, *dir)
+	if err != nil {
+		fatal(err)
+	}
+	checkWriter, checkClose, err := outputWriter(run.CheckSummaryPath)
+	if err != nil {
+		fatal(err)
+	}
+	if err := report.RenderLLMReviewCheckSummary(checkWriter, run.Check); err != nil {
+		checkClose()
+		fatal(err)
+	}
+	checkClose()
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	if err := report.RenderLLMReviewRun(writer, run, *format); err != nil {
+		fatal(err)
+	}
+}
+
 func runProve(args []string) {
 	fs := flag.NewFlagSet("prove", flag.ExitOnError)
 	storyID := fs.String("story", "", "story id to prove")
@@ -1518,6 +1566,7 @@ Commands:
   inventory      Collect deterministic AI surface facts without classifying exposure
   review-packet  Create a fact-bound review packet for human or LLM inspection
   review-check   Validate a reviewer response against an exact review packet
+  review-run     Run a local reviewer command and validate the response
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
   dashboard      Write a local HTML operator dashboard for one target or a target list
@@ -1566,6 +1615,7 @@ Examples:
   ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
   ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
   ariadne review-check --packet llm-request.json --review llm-review.json
+  ariadne review-run --path . --command ./security-reviewer --dir ariadne-review
   ariadne prove --path .
   ariadne dashboard --path . --out ariadne-dashboard.html
   ariadne dashboard --path . --view exposure --out exposure-dashboard.html

@@ -347,6 +347,66 @@ func TestRunReviewCheckWritesSummaryAndJSON(t *testing.T) {
 	}
 }
 
+func TestRunReviewRunWritesArtifactsSummaryAndJSON(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+	reviewer := writeCLIReviewer(t, root)
+	artifactDir := filepath.Join(root, "ariadne-review")
+	summaryPath := filepath.Join(root, "review-run.txt")
+	jsonPath := filepath.Join(root, "review-run.json")
+
+	runReviewRun([]string{
+		"--path", target,
+		"--command", reviewer,
+		"--dir", artifactDir,
+		"--out", summaryPath,
+	})
+	runReviewRun([]string{
+		"--path", target,
+		"--command", reviewer,
+		"--dir", filepath.Join(root, "ariadne-review-json"),
+		"--format", "json",
+		"--out", jsonPath,
+	})
+
+	summary := readTestFile(t, summaryPath)
+	for _, want := range []string{
+		"Ariadne Review Run",
+		"Accepted: true",
+		"Packet JSON:",
+		"Reviewer JSON:",
+		"Review check summary:",
+		"LLM-reviewed data egress path",
+		"What Ariadne did:",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("review-run summary missing %q:\n%s", want, summary)
+		}
+	}
+	for _, name := range []string{"llm-request.json", "llm-review.json", "review-check.json", "review-check.txt"} {
+		if _, err := os.Stat(filepath.Join(artifactDir, name)); err != nil {
+			t.Fatalf("review-run missing artifact %s: %v", name, err)
+		}
+	}
+	checkSummary := readTestFile(t, filepath.Join(artifactDir, "review-check.txt"))
+	if !strings.Contains(checkSummary, "Ariadne Review Check") || !strings.Contains(checkSummary, "Accepted: true") {
+		t.Fatalf("review-run check summary artifact mismatch:\n%s", checkSummary)
+	}
+
+	blob := readTestFile(t, jsonPath)
+	for _, want := range []string{
+		`"run_kind": "llm_review_run"`,
+		`"accepted": true`,
+		`"review_profile": "follow_up"`,
+		`"check"`,
+		`"packet_path"`,
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("review-run JSON missing %q:\n%s", want, blob)
+		}
+	}
+}
+
 func TestRunSelfDefaultsToEndpointAssessment(t *testing.T) {
 	root := t.TempDir()
 	target, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "messy-ai-surfaces"))
@@ -942,4 +1002,18 @@ func readTestFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(blob)
+}
+
+func writeCLIReviewer(t *testing.T, dir string) string {
+	t.Helper()
+	reviewPath, err := filepath.Abs(filepath.Join("..", "..", "testdata", "llm-review", "combined-risk-review.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := filepath.Join(dir, "fixture-reviewer.sh")
+	script := "#!/bin/sh\ncat >/dev/null\ncat \"" + reviewPath + "\"\n"
+	if err := os.WriteFile(reviewer, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return reviewer
 }

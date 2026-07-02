@@ -2,12 +2,15 @@ package prove
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -332,6 +335,111 @@ func RunReviewCheck(packetPath, reviewPath string) (model.LLMReviewCheckReport, 
 			"Accepted LLM review remains interpretation over deterministic Ariadne facts, not raw evidence.",
 		},
 	}, nil
+}
+
+func RunReviewRun(opts Options, dir string) (model.LLMReviewRunReport, error) {
+	if strings.TrimSpace(opts.LLMCommand) == "" {
+		return model.LLMReviewRunReport{}, fmt.Errorf("review-run requires --command <reviewer>")
+	}
+	if strings.TrimSpace(opts.LLMReviewProfile) == "" {
+		opts.LLMReviewProfile = "follow-up"
+	}
+	if dir == "" {
+		dir = "ariadne-review"
+	}
+	artifactDir, err := filepath.Abs(dir)
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	request, payload, _, err := RunReviewPacket(opts)
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	if request.ReviewProfile != "follow_up" {
+		return model.LLMReviewRunReport{}, fmt.Errorf("review-run requires a follow-up packet; %s packets are request-only until mapped back to Ariadne exposure evidence", request.ReviewProfile)
+	}
+	packetPath := filepath.Join(artifactDir, "llm-request.json")
+	reviewPath := filepath.Join(artifactDir, "llm-review.json")
+	checkJSONPath := filepath.Join(artifactDir, "review-check.json")
+	checkSummaryPath := filepath.Join(artifactDir, "review-check.txt")
+	if err := os.WriteFile(packetPath, append(payload, '\n'), 0o644); err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	reviewData, err := runReviewCommandRaw(payload, opts.LLMCommand, opts.LLMTimeout)
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	reviewData = bytes.TrimSpace(reviewData)
+	if err := os.WriteFile(reviewPath, append(reviewData, '\n'), 0o644); err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	check, err := RunReviewCheck(packetPath, reviewPath)
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	checkData, err := json.MarshalIndent(check, "", "  ")
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	if err := os.WriteFile(checkJSONPath, append(checkData, '\n'), 0o644); err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	return model.LLMReviewRunReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            randomID(),
+		GeneratedAt:      time.Now().UTC(),
+		RunKind:          "llm_review_run",
+		Target:           request.Target,
+		Mode:             request.Mode,
+		ReviewProfile:    request.ReviewProfile,
+		Command:          opts.LLMCommand,
+		ArtifactDir:      artifactDir,
+		PacketPath:       packetPath,
+		ReviewPath:       reviewPath,
+		CheckJSONPath:    checkJSONPath,
+		CheckSummaryPath: checkSummaryPath,
+		RequestDigest:    check.RequestDigest,
+		Accepted:         check.Accepted,
+		Check:            check,
+		Redaction:        request.Redaction,
+		Limitations: []string{
+			"Review run executes only the supplied local reviewer command; Ariadne does not call remote LLM services by itself.",
+			"The reviewer receives only the redacted Ariadne review packet on stdin.",
+			"Accepted means the reviewer response passed packet-bound validation; it remains interpretation over deterministic facts, not raw evidence.",
+		},
+	}, nil
+}
+
+func runReviewCommandRaw(payload []byte, command string, timeout time.Duration) ([]byte, error) {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("empty review command")
+	}
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	cmd.Stdin = bytes.NewReader(payload)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if len(msg) > 800 {
+			msg = msg[:800]
+		}
+		if msg != "" {
+			return nil, fmt.Errorf("review command failed: %w: %s", err, msg)
+		}
+		return nil, fmt.Errorf("review command failed: %w", err)
+	}
+	return stdout.Bytes(), nil
 }
 
 func RunInventory(opts Options) (model.InventoryReport, error) {

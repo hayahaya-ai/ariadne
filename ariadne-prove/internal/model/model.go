@@ -1494,6 +1494,27 @@ type LLMReviewCheckReport struct {
 	Limitations    []string       `json:"limitations"`
 }
 
+type LLMReviewRunReport struct {
+	SchemaVersion    string               `json:"schema_version"`
+	RunID            string               `json:"run_id"`
+	GeneratedAt      time.Time            `json:"generated_at"`
+	RunKind          string               `json:"run_kind"`
+	Target           string               `json:"target"`
+	Mode             string               `json:"mode"`
+	ReviewProfile    string               `json:"review_profile"`
+	Command          string               `json:"command"`
+	ArtifactDir      string               `json:"artifact_dir"`
+	PacketPath       string               `json:"packet_path"`
+	ReviewPath       string               `json:"review_path"`
+	CheckJSONPath    string               `json:"check_json_path"`
+	CheckSummaryPath string               `json:"check_summary_path"`
+	RequestDigest    string               `json:"request_digest"`
+	Accepted         bool                 `json:"accepted"`
+	Check            LLMReviewCheckReport `json:"check"`
+	Redaction        RedactionInfo        `json:"redaction"`
+	Limitations      []string             `json:"limitations"`
+}
+
 type Severity string
 
 const (

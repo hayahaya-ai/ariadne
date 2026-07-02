@@ -137,6 +137,14 @@ Generate an ingestible follow-up review packet:
 ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
 ```
 
+Run a local reviewer command end to end:
+
+```bash
+ariadne review-run --path . --command ./security-reviewer --dir ariadne-review
+```
+
+`review-run` generates the follow-up packet, sends only that packet to the command on stdin, saves `llm-request.json`, `llm-review.json`, `review-check.json`, and `review-check.txt`, and accepts the result only after the same packet-bound validation used by `review-check`.
+
 Generate a lower-bias inventory-blind packet:
 
 ```bash

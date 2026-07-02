@@ -670,6 +670,38 @@ func TestRunReviewCheckRejectsUnsupportedReviewEvidence(t *testing.T) {
 	}
 }
 
+func TestRunReviewRunCreatesValidatedArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	reviewer := writeFixtureReviewer(t, dir)
+	artifactDir := filepath.Join(dir, "review-run")
+	run, err := RunReviewRun(Options{Path: realPathFixture(t, "combined-risk"), LLMCommand: reviewer, LLMReviewProfile: "follow-up"}, artifactDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !run.Accepted || run.RunKind != "llm_review_run" || run.Check.RunKind != "llm_review_check" {
+		t.Fatalf("review run should be accepted with check report: %+v", run)
+	}
+	for _, path := range []string{run.PacketPath, run.ReviewPath, run.CheckJSONPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected review-run artifact %s: %v", path, err)
+		}
+	}
+	packet := readFile(t, run.PacketPath)
+	if strings.Contains(packet, "REALPATH_FAKE_SECRET_DO_NOT_LEAK") {
+		t.Fatalf("review-run packet leaked fake secret value")
+	}
+	review := readFile(t, run.ReviewPath)
+	if !strings.Contains(review, "LLM-reviewed data egress path") {
+		t.Fatalf("review-run did not save raw reviewer JSON:\n%s", review)
+	}
+	check := readFile(t, run.CheckJSONPath)
+	for _, want := range []string{`"run_kind": "llm_review_check"`, `"accepted": true`, `"request_digest"`} {
+		if !strings.Contains(check, want) {
+			t.Fatalf("review-run check JSON missing %q:\n%s", want, check)
+		}
+	}
+}
+
 func TestDataEgressChainProtectedStoryControlBreaksPath(t *testing.T) {
 	r, err := RunStory(Options{StoryRoot: storyRoot(t), StoryID: "data-egress-chain-protected"})
 	if err != nil {
@@ -7329,6 +7361,29 @@ func mustWriteFile(t *testing.T, path string, data string) {
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func writeFixtureReviewer(t *testing.T, dir string) string {
+	t.Helper()
+	reviewPath, err := filepath.Abs(filepath.Join("..", "..", "testdata", "llm-review", "combined-risk-review.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := filepath.Join(dir, "fixture-reviewer.sh")
+	script := "#!/bin/sh\ncat >/dev/null\ncat \"" + reviewPath + "\"\n"
+	if err := os.WriteFile(reviewer, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return reviewer
 }
 
 func hasGraphNodeType(g model.Graph, nodeType string) bool {
