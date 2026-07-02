@@ -14,6 +14,7 @@
     "summary",
     "decision",
     "triage",
+    "signal_noise",
     "signal_quality",
     "inventory",
     "exposure",
@@ -22,6 +23,8 @@
     "case_board",
     "top_cases",
     "first_action",
+    "operator_workbench",
+    "case_lifecycle",
     "closure_plan",
     "next_commands",
     "redaction",
@@ -46,6 +49,7 @@
     "summary": { "$ref": "#/$defs/assess_summary" },
     "decision": { "$ref": "#/$defs/assess_decision" },
     "triage": { "$ref": "#/$defs/assess_triage" },
+    "signal_noise": { "$ref": "#/$defs/assess_signal_noise" },
     "signal_quality": { "$ref": "#/$defs/assess_signal_quality" },
     "inventory": { "$ref": "#/$defs/assess_inventory" },
     "exposure": { "$ref": "#/$defs/assess_exposure" },
@@ -60,6 +64,8 @@
     },
     "top_case_proof_plan": { "$ref": "ariadne-proof-plan-v1.schema.json" },
     "first_action": { "$ref": "#/$defs/assess_first_action" },
+    "operator_workbench": { "$ref": "#/$defs/assess_operator_workbench" },
+    "case_lifecycle": { "$ref": "#/$defs/assess_case_lifecycle" },
     "closure_plan": {
       "type": "array",
       "items": { "$ref": "#/$defs/assess_closure_plan_item" }
@@ -418,6 +424,93 @@
         }
       }
     },
+    "assess_signal_noise": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "expected_capability",
+        "exposure_transition",
+        "control_evidence",
+        "downgrade_evidence",
+        "evidence_gaps",
+        "decision_rules",
+        "limitations"
+      ],
+      "properties": {
+        "status": { "type": "string" },
+        "summary": { "type": "string" },
+        "expected_capability": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_signal_noise_item" }
+        },
+        "exposure_transition": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_signal_noise_item" }
+        },
+        "control_evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_signal_noise_item" }
+        },
+        "downgrade_evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_signal_noise_item" }
+        },
+        "evidence_gaps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_signal_noise_item" }
+        },
+        "decision_rules": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_signal_noise_item": {
+      "type": "object",
+      "required": [
+        "id",
+        "category",
+        "disposition",
+        "summary",
+        "graph_edges",
+        "evidence_refs",
+        "sources",
+        "controls",
+        "limitations"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "disposition": { "type": "string" },
+        "summary": { "type": "string" },
+        "risk_boundary": { "type": "string" },
+        "graph_edges": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "sources": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
     "assess_current_action": {
       "type": "object",
       "required": [
@@ -458,6 +551,200 @@
         "compare_command": { "type": "string" },
         "patch_export_command": { "type": "string" },
         "success_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_operator_workbench": {
+      "type": "object",
+      "required": [
+        "available",
+        "case",
+        "evidence_to_open",
+        "graph_path",
+        "proof",
+        "verify",
+        "done_criteria",
+        "change_readout",
+        "limitations"
+      ],
+      "properties": {
+        "available": { "type": "boolean" },
+        "mode": { "type": "string" },
+        "case": { "$ref": "#/$defs/assess_workbench_case" },
+        "evidence_to_open": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "graph_path": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "proof": { "$ref": "#/$defs/assess_workbench_proof" },
+        "verify": { "$ref": "#/$defs/assess_workbench_verification" },
+        "done_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "change_readout": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_workbench_case": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "state": { "type": "string" },
+        "why_first": { "type": "string" },
+        "next_step": { "type": "string" },
+        "current_step": { "type": "string" }
+      }
+    },
+    "assess_workbench_proof": {
+      "type": "object",
+      "required": [
+        "controls",
+        "surfaces",
+        "generated_proof_paths",
+        "suggested_destinations",
+        "destination_paths",
+        "apply_commands"
+      ],
+      "properties": {
+        "mode": { "type": "string" },
+        "control": { "type": "string" },
+        "controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "surface": { "type": "string" },
+        "surfaces": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "instruction": { "type": "string" },
+        "proof_patch": {
+          "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_proof_patch"
+        },
+        "evidence_example": {
+          "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_evidence_example"
+        },
+        "generated_proof_path": { "type": "string" },
+        "generated_proof_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "suggested_destination": { "type": "string" },
+        "suggested_destinations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "destination_path": { "type": "string" },
+        "destination_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "apply_command": { "type": "string" },
+        "apply_commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_workbench_verification": {
+      "type": "object",
+      "required": ["commands"],
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_case_lifecycle": {
+      "type": "object",
+      "required": [
+        "available",
+        "summary",
+        "steps",
+        "readout",
+        "limitations"
+      ],
+      "properties": {
+        "available": { "type": "boolean" },
+        "case_id": { "type": "string" },
+        "case_title": { "type": "string" },
+        "case_state": { "type": "string" },
+        "current_step_id": { "type": "string" },
+        "summary": { "type": "string" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_case_lifecycle_step" }
+        },
+        "readout": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_case_lifecycle_step": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "status",
+        "summary",
+        "commands",
+        "artifacts",
+        "evidence_refs",
+        "proof_surfaces",
+        "controls",
+        "success_criteria",
+        "limitations"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": "string" },
+        "summary": { "type": "string" },
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "proof_surfaces": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "success_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
           "type": "array",
           "items": { "type": "string" }
         }

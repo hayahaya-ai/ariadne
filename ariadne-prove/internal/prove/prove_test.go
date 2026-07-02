@@ -4558,6 +4558,25 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.OperatorWorkbench.ChangeReadout, "compare report is the readout") {
 		t.Fatalf("assessment should expose a structured operator workbench contract: %+v", decoded.OperatorWorkbench)
 	}
+	if !decoded.CaseLifecycle.Available ||
+		decoded.CaseLifecycle.CaseID != decoded.FirstAction.CaseID ||
+		decoded.CaseLifecycle.CaseState != "open" ||
+		decoded.CaseLifecycle.CurrentStepID != "open_proof_action" ||
+		!strings.Contains(decoded.CaseLifecycle.Summary, "Focused case is open") ||
+		len(decoded.CaseLifecycle.Steps) != 9 ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "inspect_evidence", "completed", ".claude/settings.json", "control:egress-destination-allowlist", "", "") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "open_proof_action", "current", "", "control:egress-destination-allowlist", "ariadne proofs --path", ".ariadne/egress-policy.json") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "save_baseline", "pending", "", "", "--out before-proof.json", "before-proof.json") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "export_proof", "pending", "", "control:egress-destination-allowlist", "--patch-dir proof-patches", "proof-patches/surfaces/.ariadne/egress-policy.json") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "review_apply", "pending", "", "control:network-restricted", "cp surfaces/.ariadne/output-policy.json", ".ariadne/output-policy.json") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "rerun_case", "pending", "", "", "ariadne cases --path", "") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "save_after", "pending", "", "", "--out after-proof.json", "after-proof.json") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "compare_state", "pending", "", "", "ariadne compare --before before-proof.json --after after-proof.json", "case-compare.html") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "close_or_keep_open", "pending", "", "control:egress-destination-allowlist", "", "") ||
+		!containsString(decoded.CaseLifecycle.Readout, "compare artifact is the lifecycle readout") ||
+		len(decoded.CaseLifecycle.Limitations) == 0 {
+		t.Fatalf("assessment should expose an open-to-close case lifecycle: %+v", decoded.CaseLifecycle)
+	}
 	for _, unwanted := range []string{
 		`"partial_or_friction_controls":null`,
 		`"present_hard_barriers":null`,
@@ -4584,6 +4603,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"operator_workbench":null`,
 		`"evidence_to_open":null`,
 		`"change_readout":null`,
+		`"case_lifecycle":null`,
+		`"steps":null`,
+		`"artifacts":null`,
 	} {
 		if strings.Contains(jsonOut.String(), unwanted) {
 			t.Fatalf("assessment JSON should emit stable empty arrays, not %s:\n%s", unwanted, jsonOut.String())
@@ -4878,6 +4900,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"5. Done Criteria",
 		"Change Readout",
 		"The compare report is the readout for whether the case closed, stayed open, reopened, or changed.",
+		"Case Lifecycle",
+		"Open Proof Action",
+		"Save Baseline Proof",
+		"Review Or Apply Proof",
+		"Compare Proof State",
+		"Close Or Keep Open",
 		"Decision Packet",
 		"Verdict",
 		"Severity",
@@ -6295,6 +6323,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"summary",
 		"decision",
 		"triage",
+		"signal_noise",
 		"signal_quality",
 		"lethal_trifecta",
 		"inventory",
@@ -6303,6 +6332,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"case_board",
 		"top_cases",
 		"first_action",
+		"operator_workbench",
+		"case_lifecycle",
 		"closure_plan",
 		"next_commands",
 		"redaction",
@@ -6337,6 +6368,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "risk_boundary", "graph_edges", "evidence_refs", "related_controls", "limitations")
 	assessSignalQuality := schemaMap(t, assessSchema, "$defs", "assess_signal_quality")
 	assertRequiredKeys(t, assessSignalQuality, "status", "summary", "actionable_because", "expected_capabilities", "noise_filters", "control_breakpoints", "evidence_gaps", "graph_edges", "evidence_refs", "decision_rules", "limitations")
+	assessSignalNoise := schemaMap(t, assessSchema, "$defs", "assess_signal_noise")
+	assertRequiredKeys(t, assessSignalNoise, "status", "summary", "expected_capability", "exposure_transition", "control_evidence", "downgrade_evidence", "evidence_gaps", "decision_rules", "limitations")
+	assessSignalNoiseItem := schemaMap(t, assessSchema, "$defs", "assess_signal_noise_item")
+	assertRequiredKeys(t, assessSignalNoiseItem, "id", "category", "disposition", "summary", "graph_edges", "evidence_refs", "sources", "controls", "limitations")
 	assessLethalTrifecta := schemaMap(t, assessSchema, "$defs", "assess_lethal_trifecta")
 	assertRequiredKeys(t, assessLethalTrifecta, "status", "present", "protected", "complete", "proof_mode", "summary", "ingredients", "graph_edges", "evidence_refs", "controls_break_path", "decision_rules", "limitations")
 	trifectaIngredient := schemaMap(t, assessSchema, "$defs", "trifecta_ingredient")
@@ -6352,6 +6387,14 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, assessCurrentAction, "evidence_example")
 	assessWorkflowStep := schemaMap(t, assessSchema, "$defs", "assess_workflow_step")
 	assertRequiredKeys(t, assessWorkflowStep, "id", "title", "summary", "current", "evidence_refs", "starting_controls", "proof_surfaces", "commands", "success_criteria")
+	assessOperatorWorkbench := schemaMap(t, assessSchema, "$defs", "assess_operator_workbench")
+	assertRequiredKeys(t, assessOperatorWorkbench, "available", "case", "evidence_to_open", "graph_path", "proof", "verify", "done_criteria", "change_readout", "limitations")
+	assessWorkbenchProof := schemaMap(t, assessSchema, "$defs", "assess_workbench_proof")
+	assertRequiredKeys(t, assessWorkbenchProof, "controls", "surfaces", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands")
+	assessCaseLifecycle := schemaMap(t, assessSchema, "$defs", "assess_case_lifecycle")
+	assertRequiredKeys(t, assessCaseLifecycle, "available", "summary", "steps", "readout", "limitations")
+	assessCaseLifecycleStep := schemaMap(t, assessSchema, "$defs", "assess_case_lifecycle_step")
+	assertRequiredKeys(t, assessCaseLifecycleStep, "id", "title", "status", "summary", "commands", "artifacts", "evidence_refs", "proof_surfaces", "controls", "success_criteria", "limitations")
 	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")
 	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes", "surface_map", "fact_highlights")
 	assessFact := schemaMap(t, assessSchema, "$defs", "assess_fact")
@@ -7337,6 +7380,31 @@ func hasSignalNoiseItem(items []model.AssessSignalNoiseItem, id string, disposit
 		return false
 	}
 	return true
+}
+
+func hasCaseLifecycleStep(items []model.AssessCaseLifecycleStep, id string, status string, evidenceSourceFragment string, controlFragment string, commandFragment string, artifactFragment string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		if status != "" && item.Status != status {
+			return false
+		}
+		if evidenceSourceFragment != "" && !containsEvidenceReferenceSource(item.EvidenceReferences, evidenceSourceFragment) {
+			return false
+		}
+		if controlFragment != "" && !containsString(item.Controls, controlFragment) {
+			return false
+		}
+		if commandFragment != "" && !containsString(item.Commands, commandFragment) {
+			return false
+		}
+		if artifactFragment != "" && !containsString(item.Artifacts, artifactFragment) && !containsString(item.ProofSurfaces, artifactFragment) {
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 func renderProofPlanJSON(t *testing.T, r model.Report, caseID string) []byte {

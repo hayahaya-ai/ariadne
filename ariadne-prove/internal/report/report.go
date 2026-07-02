@@ -331,6 +331,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	signalNoise := buildAssessSignalNoise(summary, inventorySummary, triage, controlState, signalQuality, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, r.TargetPath)
 	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
+	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:     model.SchemaVersion,
@@ -359,6 +360,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		TopCaseProofPlan:  topCaseProofPlan,
 		FirstAction:       firstAction,
 		OperatorWorkbench: operatorWorkbench,
+		CaseLifecycle:     caseLifecycle,
 		ClosurePlan:       closurePlan,
 		NextCommands:      nextCommands,
 		Redaction:         r.Redaction,
@@ -428,6 +430,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	signalNoise := buildAssessSignalNoise(summary, inventorySummary, triage, controlState, signalQuality, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, "")
 	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
+	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:     model.SchemaVersion,
@@ -457,6 +460,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		TopCaseProofPlan:  topCaseProofPlan,
 		FirstAction:       firstAction,
 		OperatorWorkbench: operatorWorkbench,
+		CaseLifecycle:     caseLifecycle,
 		ClosurePlan:       closurePlan,
 		NextCommands:      nextCommands,
 		Redaction:         r.Redaction,
@@ -3812,6 +3816,241 @@ func assessOperatorWorkbenchProofLoop(triage model.AssessTriage, action model.As
 		return append([]string{}, triage.ProofLoop...)
 	}
 	return assessTriageProofLoop(action)
+}
+
+func buildAssessCaseLifecycle(action model.AssessFirstAction, state model.AssessControlState) model.AssessCaseLifecycle {
+	lifecycle := model.AssessCaseLifecycle{
+		Available:   action.Available,
+		Steps:       []model.AssessCaseLifecycleStep{},
+		Readout:     []string{},
+		Limitations: []string{"Case lifecycle is derived from deterministic case, proof, rerun, and compare commands; it does not execute the workflow."},
+	}
+	if !action.Available {
+		lifecycle.Summary = "No operator case is available for the current filter."
+		lifecycle.Readout = append(lifecycle.Readout, "No lifecycle can be produced until Ariadne has a focused operator case.")
+		return normalizeAssessCaseLifecycle(lifecycle)
+	}
+	closed := assessFirstActionClosed(action)
+	lifecycle.CaseID = action.CaseID
+	lifecycle.CaseTitle = action.Title
+	lifecycle.CaseState = firstNonEmpty(action.State, "open")
+	if closed {
+		lifecycle.Summary = "Focused case is closed because Ariadne observed hard-barrier evidence."
+		lifecycle.CurrentStepID = "rerun_if_evidence_changes"
+		lifecycle.Steps = buildClosedAssessCaseLifecycleSteps(action, state)
+		lifecycle.Readout = append(lifecycle.Readout,
+			"Observed hard-barrier evidence is the closure proof for this focused case.",
+			"Rerun and compare if the repo, runtime, policy, or proof evidence changes.",
+		)
+	} else {
+		lifecycle.Summary = "Focused case is open until proof evidence is added or verified, the case is rerun, and before/after proof artifacts are compared."
+		lifecycle.CurrentStepID = "open_proof_action"
+		lifecycle.Steps = buildOpenAssessCaseLifecycleSteps(action, state)
+		lifecycle.Readout = append(lifecycle.Readout,
+			"Start with the current proof action, save a baseline proof artifact, add or verify hard-barrier evidence, rerun the case, save an after proof artifact, then compare.",
+			"The compare artifact is the lifecycle readout for whether the case closed, stayed open, reopened, or changed.",
+		)
+	}
+	return normalizeAssessCaseLifecycle(lifecycle)
+}
+
+func buildOpenAssessCaseLifecycleSteps(action model.AssessFirstAction, state model.AssessControlState) []model.AssessCaseLifecycleStep {
+	current := action.CurrentAction
+	var steps []model.AssessCaseLifecycleStep
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:                 "inspect_evidence",
+		Title:              "Inspect Evidence",
+		Status:             "completed",
+		Summary:            "Ariadne collected deterministic evidence for the focused case.",
+		EvidenceReferences: action.EvidenceReferences,
+		ProofSurfaces:      state.EvidenceSources,
+		Controls:           state.MissingHardBarriers,
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "open_proof_action",
+		Title:           "Open Proof Action",
+		Status:          "current",
+		Summary:         "Open the focused proof action to inspect the exact proof task before changing evidence.",
+		Commands:        nonEmptyStrings(assessProofActionCommand(action)),
+		ProofSurfaces:   firstNonEmptyStrings(state.ProofSurfaces, nonEmptyStrings(current.Surface)),
+		Controls:        firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria: []string{"The proof action names the focused case, current control, proof surface, accepted evidence, and compare loop."},
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "save_baseline",
+		Title:     "Save Baseline Proof",
+		Status:    "pending",
+		Summary:   "Save the before-state proof artifact before adding or changing control evidence.",
+		Commands:  firstStrings(action.CompareCommands, 1),
+		Artifacts: nonEmptyStrings(assessLifecycleOutArtifact(firstString(action.CompareCommands), "before-proof.json")),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "export_proof",
+		Title:           "Export Suggested Proof",
+		Status:          "pending",
+		Summary:         "Export parser-recognized proof files for the missing hard-barrier controls.",
+		Commands:        nonEmptyStrings(firstNonEmpty(current.PatchExportCommand, action.PatchExportCommand)),
+		Artifacts:       firstNonEmptyStrings(action.GeneratedProofPaths, nonEmptyStrings(current.GeneratedProofPath)),
+		ProofSurfaces:   firstNonEmptyStrings(action.SuggestedDestinations, nonEmptyStrings(current.SuggestedDestination, current.Surface)),
+		Controls:        firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria: []string{"Generated proof files exist for the focused proof surfaces."},
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "review_apply",
+		Title:           "Review Or Apply Proof",
+		Status:          "pending",
+		Summary:         "Review generated proof files and copy accepted evidence into the suggested destination surfaces.",
+		Commands:        firstNonEmptyStrings(action.ApplyCommands, nonEmptyStrings(current.ApplyCommand)),
+		Artifacts:       firstNonEmptyStrings(action.DestinationPaths, nonEmptyStrings(current.DestinationPath)),
+		ProofSurfaces:   firstNonEmptyStrings(action.SuggestedDestinations, nonEmptyStrings(current.SuggestedDestination, current.Surface)),
+		Controls:        firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria: []string{"Accepted evidence is present at the suggested destination surfaces."},
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "rerun_case",
+		Title:     "Rerun Case",
+		Status:    "pending",
+		Summary:   "Rerun the focused case so Ariadne recomputes deterministic facts, graph paths, and control state.",
+		Commands:  nonEmptyStrings(assessCurrentRerunCommand(action)),
+		Artifacts: []string{},
+	})
+	afterCommand := ""
+	if len(action.CompareCommands) > 1 {
+		afterCommand = action.CompareCommands[1]
+	}
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "save_after",
+		Title:     "Save After Proof",
+		Status:    "pending",
+		Summary:   "Save the after-state proof artifact after rerun.",
+		Commands:  nonEmptyStrings(afterCommand),
+		Artifacts: nonEmptyStrings(assessLifecycleOutArtifact(afterCommand, "after-proof.json")),
+	})
+	compareCommand := ""
+	if len(action.CompareCommands) > 2 {
+		compareCommand = action.CompareCommands[2]
+	}
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "compare_state",
+		Title:     "Compare Proof State",
+		Status:    "pending",
+		Summary:   "Compare before and after proof artifacts to determine whether the case closed, stayed open, reopened, or changed.",
+		Commands:  nonEmptyStrings(compareCommand),
+		Artifacts: nonEmptyStrings(assessLifecycleOutArtifact(compareCommand, "case-compare.html")),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "close_or_keep_open",
+		Title:           "Close Or Keep Open",
+		Status:          "pending",
+		Summary:         "Use the compare readout and rerun case state as the closure decision.",
+		Controls:        firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria: firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria),
+	})
+	return steps
+}
+
+func buildClosedAssessCaseLifecycleSteps(action model.AssessFirstAction, state model.AssessControlState) []model.AssessCaseLifecycleStep {
+	current := action.CurrentAction
+	var steps []model.AssessCaseLifecycleStep
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:                 "inspect_evidence",
+		Title:              "Inspect Evidence",
+		Status:             "completed",
+		Summary:            "Ariadne collected deterministic evidence for the focused case.",
+		EvidenceReferences: action.EvidenceReferences,
+		ProofSurfaces:      state.EvidenceSources,
+		Controls:           firstNonEmptyStrings(state.PresentHardBarriers, nonEmptyStrings(current.Control)),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:                 "observed_hard_barrier",
+		Title:              "Observed Hard Barrier",
+		Status:             "completed",
+		Summary:            "Parser-recognized hard-barrier evidence currently closes the focused path.",
+		EvidenceReferences: action.EvidenceReferences,
+		ProofSurfaces:      firstNonEmptyStrings(assessActionEvidenceSurfaces(action), state.ProofSurfaces),
+		Controls:           firstNonEmptyStrings(state.PresentHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria:    firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:       "rerun_if_evidence_changes",
+		Title:    "Rerun If Evidence Changes",
+		Status:   "current",
+		Summary:  "Rerun the focused case if repo, runtime, policy, or proof evidence changes.",
+		Commands: nonEmptyStrings(assessCurrentRerunCommand(action)),
+		Controls: firstNonEmptyStrings(state.PresentHardBarriers, nonEmptyStrings(current.Control)),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "compare_if_evidence_changes",
+		Title:     "Compare If Evidence Changes",
+		Status:    "pending",
+		Summary:   "Compare before and after proof artifacts if evidence changes and the closure state needs to be proven again.",
+		Commands:  append([]string{}, action.CompareCommands...),
+		Artifacts: nonEmptyStrings("before-proof.json", "after-proof.json", "case-compare.html"),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "keep_closed",
+		Title:           "Keep Closed",
+		Status:          "pending",
+		Summary:         "Keep the parser-recognized hard-barrier evidence in place and rerun when relevant evidence changes.",
+		SuccessCriteria: firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria),
+	})
+	return steps
+}
+
+func normalizeAssessCaseLifecycle(lifecycle model.AssessCaseLifecycle) model.AssessCaseLifecycle {
+	lifecycle.Steps = normalizeAssessCaseLifecycleSteps(lifecycle.Steps)
+	lifecycle.Readout = nonNilStrings(uniqueStrings(lifecycle.Readout))
+	lifecycle.Limitations = nonNilStrings(uniqueStrings(lifecycle.Limitations))
+	if lifecycle.CurrentStepID == "" {
+		for _, step := range lifecycle.Steps {
+			if step.Status == "current" {
+				lifecycle.CurrentStepID = step.ID
+				break
+			}
+		}
+	}
+	return lifecycle
+}
+
+func normalizeAssessCaseLifecycleSteps(steps []model.AssessCaseLifecycleStep) []model.AssessCaseLifecycleStep {
+	out := make([]model.AssessCaseLifecycleStep, 0, len(steps))
+	for _, step := range steps {
+		step.Commands = nonNilStrings(uniqueStrings(step.Commands))
+		step.Artifacts = nonNilStrings(uniqueStrings(step.Artifacts))
+		step.EvidenceReferences = nonNilEvidenceReferences(dedupeEvidenceReferences(step.EvidenceReferences))
+		step.ProofSurfaces = nonNilStrings(uniqueStrings(step.ProofSurfaces))
+		step.Controls = nonNilStrings(uniqueStrings(step.Controls))
+		step.SuccessCriteria = nonNilStrings(uniqueStrings(step.SuccessCriteria))
+		step.Limitations = nonNilStrings(uniqueStrings(step.Limitations))
+		out = append(out, step)
+	}
+	if out == nil {
+		return []model.AssessCaseLifecycleStep{}
+	}
+	return out
+}
+
+func assessLifecycleOutArtifact(command string, fallback string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	idx := strings.LastIndex(command, " --out ")
+	if idx < 0 {
+		return fallback
+	}
+	value := strings.TrimSpace(command[idx+len(" --out "):])
+	if value == "" {
+		return fallback
+	}
+	if space := strings.IndexByte(value, ' '); space >= 0 {
+		value = value[:space]
+	}
+	value = strings.Trim(value, `"'`)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func assessDecisionProofBundle(action model.AssessFirstAction, targetPath string) ([]string, []string, []string, []string) {

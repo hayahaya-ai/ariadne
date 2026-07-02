@@ -338,6 +338,7 @@ type AssessReport struct {
 	TopCaseProofPlan  *ProofPlanReport        `json:"top_case_proof_plan,omitempty"`
 	FirstAction       AssessFirstAction       `json:"first_action"`
 	OperatorWorkbench AssessOperatorWorkbench `json:"operator_workbench"`
+	CaseLifecycle     AssessCaseLifecycle     `json:"case_lifecycle"`
 	ClosurePlan       []AssessClosurePlanItem `json:"closure_plan"`
 	NextCommands      []string                `json:"next_commands"`
 	Redaction         RedactionInfo           `json:"redaction"`
@@ -498,6 +499,32 @@ type AssessWorkbenchProof struct {
 
 type AssessWorkbenchVerification struct {
 	Commands []string `json:"commands"`
+}
+
+type AssessCaseLifecycle struct {
+	Available     bool                      `json:"available"`
+	CaseID        string                    `json:"case_id,omitempty"`
+	CaseTitle     string                    `json:"case_title,omitempty"`
+	CaseState     string                    `json:"case_state,omitempty"`
+	CurrentStepID string                    `json:"current_step_id,omitempty"`
+	Summary       string                    `json:"summary"`
+	Steps         []AssessCaseLifecycleStep `json:"steps"`
+	Readout       []string                  `json:"readout"`
+	Limitations   []string                  `json:"limitations"`
+}
+
+type AssessCaseLifecycleStep struct {
+	ID                 string              `json:"id"`
+	Title              string              `json:"title"`
+	Status             string              `json:"status"`
+	Summary            string              `json:"summary"`
+	Commands           []string            `json:"commands"`
+	Artifacts          []string            `json:"artifacts"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	ProofSurfaces      []string            `json:"proof_surfaces"`
+	Controls           []string            `json:"controls"`
+	SuccessCriteria    []string            `json:"success_criteria"`
+	Limitations        []string            `json:"limitations"`
 }
 
 type AssessClosurePlanItem struct {

@@ -205,6 +205,10 @@ expect_contains "$assess_json" '"first_action"'
 expect_contains "$assess_json" '"operator_workbench"'
 expect_contains "$assess_json" '"evidence_to_open"'
 expect_contains "$assess_json" '"change_readout"'
+expect_contains "$assess_json" '"case_lifecycle"'
+expect_contains "$assess_json" '"current_step_id"'
+expect_contains "$assess_json" '"open_proof_action"'
+expect_contains "$assess_json" '"compare_state"'
 expect_contains "$assess_json" '"generated_proof_paths"'
 expect_contains "$assess_json" '"apply_commands"'
 expect_contains "$assess_json" '"signal_details"'
@@ -222,6 +226,10 @@ expect_contains "$assess_html" "3. Add Or Verify Proof"
 expect_contains "$assess_html" "4. Verify The Change"
 expect_contains "$assess_html" "5. Done Criteria"
 expect_contains "$assess_html" "Change Readout"
+expect_contains "$assess_html" "Case Lifecycle"
+expect_contains "$assess_html" "Open Proof Action"
+expect_contains "$assess_html" "Save Baseline Proof"
+expect_contains "$assess_html" "Compare Proof State"
 expect_contains "$assess_html" "Decision Packet"
 expect_contains "$assess_html" "Inspection Summary"
 expect_contains "$assess_html" "Risk Basis"
@@ -304,6 +312,7 @@ expect_contains "$self_summary" "Identity And Credentials"
 expect_contains "$self_summary" "Next action:"
 expect_contains "$self_html" "Ariadne Assessment"
 expect_contains "$self_html" "Operator Workbench"
+expect_contains "$self_html" "Case Lifecycle"
 expect_contains "$self_html" "Signal / Noise Evidence"
 expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
@@ -328,6 +337,7 @@ expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
 expect_contains "$self_bundle/dashboard.html" "Operator Workbench"
+expect_contains "$self_bundle/dashboard.html" "Case Lifecycle"
 expect_contains "$self_bundle/dashboard.html" "Signal / Noise Evidence"
 expect_contains "$self_bundle/dashboard.html" "Signal Quality"
 expect_contains "$self_bundle/dashboard.html" "Lethal Trifecta"
@@ -424,6 +434,10 @@ expect_contains "$endpoint_json" 'control:network-restricted'
 expect_contains "$endpoint_json" '"operator_workbench"'
 expect_contains "$endpoint_json" '"evidence_to_open"'
 expect_contains "$endpoint_json" '"change_readout"'
+expect_contains "$endpoint_json" '"case_lifecycle"'
+expect_contains "$endpoint_json" '"current_step_id"'
+expect_contains "$endpoint_json" '"open_proof_action"'
+expect_contains "$endpoint_json" '"compare_state"'
 expect_contains "$endpoint_json" '.claude/.mcp.json'
 expect_contains "$endpoint_json" '.vscode/mcp.json'
 expect_contains "$endpoint_json" '.cline/mcp.json'
@@ -438,6 +452,10 @@ expect_contains "$endpoint_html" "3. Add Or Verify Proof"
 expect_contains "$endpoint_html" "4. Verify The Change"
 expect_contains "$endpoint_html" "5. Done Criteria"
 expect_contains "$endpoint_html" "Change Readout"
+expect_contains "$endpoint_html" "Case Lifecycle"
+expect_contains "$endpoint_html" "Open Proof Action"
+expect_contains "$endpoint_html" "Save Baseline Proof"
+expect_contains "$endpoint_html" "Compare Proof State"
 expect_contains "$endpoint_html" "Decision Packet"
 expect_contains "$endpoint_html" "Inspection Summary"
 expect_contains "$endpoint_html" "Risk Basis"

@@ -189,6 +189,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
 	renderAssessOperatorWorkbenchDashboard(w, r)
+	renderAssessCaseLifecycleDashboard(w, r.TargetPath, r.CaseLifecycle)
 	renderAssessDecisionDashboard(w, r.TargetPath, r.Decision)
 	renderAssessSignalQualityDashboard(w, r.TargetPath, r.SignalQuality)
 	renderAssessSignalNoiseDashboard(w, r.TargetPath, r.SignalNoise)
@@ -918,6 +919,83 @@ func assessWorkbenchEvidenceExampleHTMLLines(root string, proof model.AssessWork
 		return []string{"Accepted evidence: " + dashboardControlEvidenceExampleHTML(root, *proof.EvidenceExample)}
 	}
 	return []string{"No accepted evidence example was returned for this action."}
+}
+
+func renderAssessCaseLifecycleDashboard(w io.Writer, root string, lifecycle model.AssessCaseLifecycle) {
+	if !lifecycle.Available && len(lifecycle.Steps) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Case Lifecycle</h2><div class="subtle">Open case to proof, rerun, compare, and closure using deterministic artifacts.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Case", firstNonEmpty(lifecycle.CaseID, "not recorded")},
+		{"State", statusLabel(firstNonEmpty(lifecycle.CaseState, "unknown"))},
+		{"Current step", firstNonEmpty(lifecycle.CurrentStepID, "none")},
+		{"Steps", fmt.Sprintf("%d", len(lifecycle.Steps))},
+	})
+	if lifecycle.Summary != "" {
+		fmt.Fprintf(w, `<p><strong>Readout:</strong> %s</p>`, esc(lifecycle.Summary))
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, `<thead><tr><th>Step</th><th>Status</th><th>What Happens</th><th>Commands / Artifacts</th><th>Evidence / Closure</th></tr></thead><tbody>`)
+	for idx, step := range lifecycle.Steps {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>%d. %s</strong><div class="mono">%s</div></td>`, idx+1, esc(step.Title), esc(step.ID))
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div></td>`, cssClass(step.Status), esc(readableToken(step.Status)))
+		fmt.Fprintf(w, `<td>%s</td>`, esc(step.Summary))
+		fmt.Fprintf(w, `<td>%s</td>`, renderAssessLifecycleCommandArtifactHTML(root, step))
+		fmt.Fprintf(w, `<td>%s</td>`, renderAssessLifecycleEvidenceClosureHTML(root, step))
+		fmt.Fprintln(w, `</tr>`)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Lifecycle Readout</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(lifecycle.Readout, 5)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Limits</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(lifecycle.Limitations, 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessLifecycleCommandArtifactHTML(root string, step model.AssessCaseLifecycleStep) string {
+	var parts []string
+	if len(step.Commands) > 0 {
+		parts = append(parts, `<h3>Commands</h3>`+renderCommandList(limitStrings(step.Commands, 4)))
+	}
+	if len(step.Artifacts) > 0 {
+		parts = append(parts, `<h3>Artifacts</h3>`+renderDashboardPathList(root, limitStrings(step.Artifacts, 5)))
+	}
+	if len(step.ProofSurfaces) > 0 {
+		parts = append(parts, `<h3>Surfaces</h3>`+renderDashboardPathList(root, limitStrings(step.ProofSurfaces, 5)))
+	}
+	if len(parts) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	return strings.Join(parts, "")
+}
+
+func renderAssessLifecycleEvidenceClosureHTML(root string, step model.AssessCaseLifecycleStep) string {
+	var parts []string
+	if len(step.EvidenceReferences) > 0 {
+		parts = append(parts, `<h3>Evidence</h3>`+renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, step.EvidenceReferences, 4)))
+	}
+	if len(step.Controls) > 0 {
+		parts = append(parts, `<h3>Controls</h3>`+renderSmallList(limitStrings(step.Controls, 5)))
+	}
+	if len(step.SuccessCriteria) > 0 {
+		parts = append(parts, `<h3>Done when</h3>`+renderSmallList(limitStrings(step.SuccessCriteria, 4)))
+	}
+	if len(step.Limitations) > 0 {
+		parts = append(parts, `<h3>Limits</h3>`+renderSmallList(limitStrings(step.Limitations, 3)))
+	}
+	if len(parts) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	return strings.Join(parts, "")
 }
 
 func renderAssessDecisionDashboard(w io.Writer, root string, decision model.AssessDecision) {
