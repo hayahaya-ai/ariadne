@@ -195,7 +195,13 @@
         "control": { "type": "string" },
         "surface": { "type": "string" },
         "proof_patch_index": { "type": "integer" },
+        "proof_patch": {
+          "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_proof_patch"
+        },
         "evidence_example_index": { "type": "integer" },
+        "evidence_example": {
+          "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_evidence_example"
+        },
         "rerun_command": { "type": "string" },
         "compare_command": { "type": "string" },
         "success_criteria": {

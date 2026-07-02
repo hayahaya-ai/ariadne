@@ -1334,6 +1334,12 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 }
 
 func assessCurrentEvidenceExampleLine(action model.AssessFirstAction) string {
+	if action.CurrentAction.EvidenceExample != nil {
+		lines := controlEvidenceExampleLines([]model.ControlEvidenceExample{*action.CurrentAction.EvidenceExample}, 1)
+		if len(lines) > 0 {
+			return lines[0]
+		}
+	}
 	index := action.CurrentAction.EvidenceExampleIndex
 	if index < 0 || index >= len(action.EvidenceExamples) {
 		return ""
@@ -1346,6 +1352,12 @@ func assessCurrentEvidenceExampleLine(action model.AssessFirstAction) string {
 }
 
 func assessCurrentProofPatchLine(action model.AssessFirstAction) string {
+	if action.CurrentAction.ProofPatch != nil {
+		lines := controlProofPatchLines([]model.ControlProofPatch{*action.CurrentAction.ProofPatch}, 1)
+		if len(lines) > 0 {
+			return lines[0]
+		}
+	}
 	index := action.CurrentAction.ProofPatchIndex
 	if index < 0 || index >= len(action.ProofPatches) {
 		return ""
@@ -1669,6 +1681,7 @@ func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurren
 	if len(action.ProofPatches) > 0 {
 		patch := action.ProofPatches[0]
 		current.ProofPatchIndex = 0
+		current.ProofPatch = &patch
 		current.Control = patch.Control
 		current.Surface = patch.Surface
 		if current.Instruction == "" {
@@ -1676,9 +1689,11 @@ func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurren
 		}
 	}
 	if len(action.EvidenceExamples) > 0 {
+		example := action.EvidenceExamples[0]
 		current.EvidenceExampleIndex = 0
+		current.EvidenceExample = &example
 		if current.Surface == "" {
-			current.Surface = action.EvidenceExamples[0].Surface
+			current.Surface = example.Surface
 		}
 	}
 	if len(action.RerunCommands) > 0 {
