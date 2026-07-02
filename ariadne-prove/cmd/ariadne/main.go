@@ -47,6 +47,8 @@ func main() {
 		runInventory(os.Args[2:])
 	case "review-packet":
 		runReviewPacket(os.Args[2:])
+	case "review-check":
+		runReviewCheck(os.Args[2:])
 	case "scan":
 		runScan(os.Args[2:])
 	case "dashboard":
@@ -1297,6 +1299,27 @@ func runReviewPacket(args []string) {
 	}
 }
 
+func runReviewCheck(args []string) {
+	fs := flag.NewFlagSet("review-check", flag.ExitOnError)
+	packetPath := fs.String("packet", "", "review packet JSON produced by ariadne review-packet")
+	reviewPath := fs.String("review", "", "review response JSON using ariadne.llm_review/v1")
+	format := fs.String("format", "summary", "output format: summary, json")
+	outPath := fs.String("out", "", "write output to file")
+	fs.Parse(args)
+	check, err := prove.RunReviewCheck(*packetPath, *reviewPath)
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	if err := report.RenderLLMReviewCheck(writer, check, *format); err != nil {
+		fatal(err)
+	}
+}
+
 func runProve(args []string) {
 	fs := flag.NewFlagSet("prove", flag.ExitOnError)
 	storyID := fs.String("story", "", "story id to prove")
@@ -1494,6 +1517,7 @@ Commands:
   closure        Create a local before/change/after/compare closure workspace
   inventory      Collect deterministic AI surface facts without classifying exposure
   review-packet  Create a fact-bound review packet for human or LLM inspection
+  review-check   Validate a reviewer response against an exact review packet
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
   dashboard      Write a local HTML operator dashboard for one target or a target list
@@ -1541,6 +1565,7 @@ Examples:
   ariadne inventory --path . --format mermaid --out graph.mmd
   ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
   ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
+  ariadne review-check --packet llm-request.json --review llm-review.json
   ariadne prove --path .
   ariadne dashboard --path . --out ariadne-dashboard.html
   ariadne dashboard --path . --view exposure --out exposure-dashboard.html

@@ -334,6 +334,20 @@ func loadLLMReview(payload []byte, opts Options) (model.LLMReviewResponse, strin
 	}
 }
 
+func ValidateLLMReview(request model.LLMReviewRequest, reviewData []byte, source, digest string) (model.Interpretation, error) {
+	if request.ReviewProfile != llmReviewProfileFollowUp {
+		return model.Interpretation{}, fmt.Errorf("llm review validation requires a follow-up packet; %s packets are request-only until mapped back to Ariadne exposure evidence", request.ReviewProfile)
+	}
+	resp, err := parseLLMReview(reviewData)
+	if err != nil {
+		return model.Interpretation{}, err
+	}
+	return reviewToInterpretation(Input{
+		Target: request.Target,
+		Mode:   request.Mode,
+	}, request, resp, source, digest)
+}
+
 func parseLLMReview(data []byte) (model.LLMReviewResponse, error) {
 	var resp model.LLMReviewResponse
 	if err := json.Unmarshal(data, &resp); err != nil {

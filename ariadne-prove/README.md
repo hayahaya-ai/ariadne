@@ -123,6 +123,7 @@ Inspect the current repository:
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
 ./bin/ariadne dashboard --path . --view exposure --out exposure-dashboard.html
 ./bin/ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
+./bin/ariadne review-check --packet llm-request.json --review llm-review.json
 ./bin/ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
 ```
 
@@ -188,6 +189,7 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 | `ariadne assess --targets <file>` | Fleet first-run readout across local or mounted targets, with recurring break paths grouped into operator cases. |
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |
 | `ariadne review-packet --path <dir>` | Create a redacted, fact-bound packet for human or LLM review. Use `--profile follow-up --packet-out llm-request.json` for ingestible review over Ariadne exposure IDs, or `--profile inventory-blind --format json --out llm-request.json` for lower-bias hypothesis and collector-gap review. |
+| `ariadne review-check --packet <json> --review <json>` | Validate a reviewer response against the exact follow-up packet Ariadne generated before treating it as accepted interpretation. |
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
 | `ariadne architecture --path <dir>` | Show focused Zero Trust architecture flaws for one target and the case-board commands to investigate them. |
 | `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets and route recurring break paths to fleet cases. |

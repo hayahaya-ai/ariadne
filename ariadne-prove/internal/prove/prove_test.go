@@ -585,6 +585,91 @@ func TestRunReviewPacketBuildsUserFacingPacket(t *testing.T) {
 	}
 }
 
+func TestRunReviewCheckValidatesPacketBoundReview(t *testing.T) {
+	dir := t.TempDir()
+	packetPath := filepath.Join(dir, "llm-request.json")
+	reviewPath := filepath.Join(dir, "llm-review.json")
+	_, payload, _, err := RunReviewPacket(Options{Path: realPathFixture(t, "combined-risk"), LLMReviewProfile: "follow-up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	review := `{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture",
+  "model": "fixture-model",
+  "issues": [
+    {
+      "id": "packet-data-egress",
+      "title": "Packet-validated data egress path",
+      "severity": "critical",
+      "priority": "p0",
+      "disposition": "fix_now",
+      "category": "data-egress",
+      "exposure_id": "data-egress-chain",
+      "exposure_status": "exposed",
+      "rationale": "The review cites packet graph evidence.",
+      "graph_edges": [
+        "trustinput:repo-instruction|influences|runtime:codex",
+        "authority:external-communication|reaches|boundary:external-destination"
+      ],
+      "actions": ["Restrict external communication."],
+      "confidence": "medium"
+    }
+  ]
+}`
+	if err := os.WriteFile(reviewPath, []byte(review), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	check, err := RunReviewCheck(packetPath, reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !check.Accepted || check.RunKind != "llm_review_check" || check.RequestDigest == "" {
+		t.Fatalf("review check should be accepted with digest: %+v", check)
+	}
+	if check.Interpretation.Mode != "llm_review" || check.Interpretation.Summary.Critical != 1 {
+		t.Fatalf("review check interpretation mismatch: %+v", check.Interpretation)
+	}
+}
+
+func TestRunReviewCheckRejectsUnsupportedReviewEvidence(t *testing.T) {
+	dir := t.TempDir()
+	packetPath := filepath.Join(dir, "llm-request.json")
+	reviewPath := filepath.Join(dir, "llm-review.json")
+	_, payload, _, err := RunReviewPacket(Options{Path: realPathFixture(t, "combined-risk"), LLMReviewProfile: "follow-up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	review := `{
+  "schema_version": "ariadne.llm_review/v1",
+  "issues": [
+    {
+      "id": "invented",
+      "title": "Invented edge",
+      "severity": "critical",
+      "priority": "p0",
+      "disposition": "fix_now",
+      "exposure_id": "data-egress-chain",
+      "exposure_status": "exposed",
+      "graph_edges": ["runtime:codex|reaches|boundary:invented"]
+    }
+  ]
+}`
+	if err := os.WriteFile(reviewPath, []byte(review), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = RunReviewCheck(packetPath, reviewPath)
+	if err == nil || !strings.Contains(err.Error(), "unsupported graph edge") {
+		t.Fatalf("expected unsupported graph edge rejection, got %v", err)
+	}
+}
+
 func TestDataEgressChainProtectedStoryControlBreaksPath(t *testing.T) {
 	r, err := RunStory(Options{StoryRoot: storyRoot(t), StoryID: "data-egress-chain-protected"})
 	if err != nil {

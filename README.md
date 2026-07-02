@@ -160,6 +160,7 @@ From `ariadne-prove/`:
 ./bin/ariadne dashboard --targets targets.txt --out fleet-dashboard.html
 ./bin/ariadne prove --path . --rules .ariadne/rules.json
 ./bin/ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
+./bin/ariadne review-check --packet llm-request.json --review llm-review.json
 ./bin/ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
 ./bin/ariadne prove --path . --interpret llm --llm-review llm-review.json
 ./bin/ariadne stories list

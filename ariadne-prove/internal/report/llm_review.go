@@ -1,6 +1,7 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -78,6 +79,62 @@ func RenderLLMReviewRequestSummary(w io.Writer, request model.LLMReviewRequest, 
 		fmt.Fprintln(w, "  - Ingest the review with ariadne prove --interpret llm --llm-review <file>.")
 		fmt.Fprintln(w, "  - Ariadne will reject unsupported exposure IDs, statuses, graph edges, severities, priorities, and dispositions.")
 	}
+	return nil
+}
+
+func RenderLLMReviewCheck(w io.Writer, check model.LLMReviewCheckReport, format string) error {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "summary", "table":
+		return RenderLLMReviewCheckSummary(w, check)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(check)
+	default:
+		return fmt.Errorf("unknown review-check format: %s", format)
+	}
+}
+
+func RenderLLMReviewCheckSummary(w io.Writer, check model.LLMReviewCheckReport) error {
+	fmt.Fprintln(w, "Ariadne Review Check")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Target: %s\n", check.Target)
+	fmt.Fprintf(w, "Mode: %s\n", check.Mode)
+	fmt.Fprintf(w, "Profile: %s\n", check.ReviewProfile)
+	fmt.Fprintf(w, "Packet: %s\n", check.PacketSource)
+	fmt.Fprintf(w, "Review: %s\n", check.ReviewSource)
+	if check.RequestDigest != "" {
+		fmt.Fprintf(w, "Packet digest: %s\n", shortDigest(check.RequestDigest))
+	}
+	fmt.Fprintf(w, "Accepted: %t\n", check.Accepted)
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "Validated interpretation:")
+	fmt.Fprintf(w, "  Issues: %d total, %d critical, %d high, %d medium, %d low, %d info\n",
+		check.Interpretation.Summary.Total,
+		check.Interpretation.Summary.Critical,
+		check.Interpretation.Summary.High,
+		check.Interpretation.Summary.Medium,
+		check.Interpretation.Summary.Low,
+		check.Interpretation.Summary.Info,
+	)
+	for _, issue := range check.Interpretation.Issues {
+		fmt.Fprintf(w, "  - %s/%s %s [%s] Exposure: %s\n",
+			strings.ToUpper(string(issue.Priority)),
+			strings.ToUpper(string(issue.Severity)),
+			issue.Title,
+			issue.Disposition,
+			issue.ExposureID,
+		)
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "What Ariadne verified:")
+	fmt.Fprintln(w, "  - every issue cited a packet exposure_id")
+	fmt.Fprintln(w, "  - exposure_status matched the packet")
+	fmt.Fprintln(w, "  - graph_edges were copied from the packet graph")
+	fmt.Fprintln(w, "  - severity, priority, and disposition used allowed values")
+	fmt.Fprintln(w, "  - unsupported reviewer claims were rejected before this report was produced")
 	return nil
 }
 

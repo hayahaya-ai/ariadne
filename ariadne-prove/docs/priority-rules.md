@@ -145,12 +145,15 @@ ariadne review-packet --path . --profile inventory-blind --format json --out llm
 
 Inventory-blind packets omit Ariadne's exposure paths and deterministic issue ranking. They are for exploratory review and collector-gap discovery; Ariadne does not ingest them as findings until the hypothesis is mapped back to deterministic exposure evidence.
 
-Have an LLM reviewer produce JSON with schema version `ariadne.llm_review/v1`, then ingest it:
+Have an LLM reviewer produce JSON with schema version `ariadne.llm_review/v1`, then validate it against the exact packet before ingesting it:
 
 ```bash
+ariadne review-check --packet llm-request.json --review llm-review.json
 ariadne prove --path . --interpret llm --llm-review llm-review.json
 ariadne dashboard --path . --interpret llm --llm-review llm-review.json --out ariadne-dashboard.html
 ```
+
+`review-check` accepts only packet-bound claims: supported exposure IDs, matching statuses, graph edges present in the packet, and allowed severity, priority, and disposition values. Unsupported reviewer claims fail before they become Ariadne interpretation.
 
 You can also plug in a local reviewer command. Ariadne writes the review packet to stdin and expects review JSON on stdout:
 

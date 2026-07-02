@@ -3,6 +3,7 @@ package prove
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -282,6 +283,55 @@ func RunReviewPacket(opts Options) (model.LLMReviewRequest, []byte, string, erro
 		Redaction:      redaction,
 		RunLimitations: limitations,
 	})
+}
+
+func RunReviewCheck(packetPath, reviewPath string) (model.LLMReviewCheckReport, error) {
+	packetPath = strings.TrimSpace(packetPath)
+	reviewPath = strings.TrimSpace(reviewPath)
+	if packetPath == "" {
+		return model.LLMReviewCheckReport{}, fmt.Errorf("review-check requires --packet <llm-request.json>")
+	}
+	if reviewPath == "" {
+		return model.LLMReviewCheckReport{}, fmt.Errorf("review-check requires --review <llm-review.json>")
+	}
+	packetData, err := os.ReadFile(packetPath)
+	if err != nil {
+		return model.LLMReviewCheckReport{}, err
+	}
+	reviewData, err := os.ReadFile(reviewPath)
+	if err != nil {
+		return model.LLMReviewCheckReport{}, err
+	}
+	var request model.LLMReviewRequest
+	if err := json.Unmarshal(packetData, &request); err != nil {
+		return model.LLMReviewCheckReport{}, err
+	}
+	digest := sha256.Sum256(packetData)
+	digestString := hex.EncodeToString(digest[:])
+	interpretation, err := interpret.ValidateLLMReview(request, reviewData, "file:"+reviewPath, digestString)
+	if err != nil {
+		return model.LLMReviewCheckReport{}, err
+	}
+	return model.LLMReviewCheckReport{
+		SchemaVersion:  model.SchemaVersion,
+		RunID:          randomID(),
+		GeneratedAt:    time.Now().UTC(),
+		RunKind:        "llm_review_check",
+		Target:         request.Target,
+		Mode:           request.Mode,
+		ReviewProfile:  request.ReviewProfile,
+		PacketSource:   packetPath,
+		ReviewSource:   reviewPath,
+		RequestDigest:  digestString,
+		Accepted:       true,
+		Interpretation: interpretation,
+		Redaction:      request.Redaction,
+		Limitations: []string{
+			"Review check validates a reviewer response against the exact packet file supplied.",
+			"Accepted means the review cites supported packet exposure IDs, statuses, graph edges, severities, priorities, and dispositions.",
+			"Accepted LLM review remains interpretation over deterministic Ariadne facts, not raw evidence.",
+		},
+	}, nil
 }
 
 func RunInventory(opts Options) (model.InventoryReport, error) {

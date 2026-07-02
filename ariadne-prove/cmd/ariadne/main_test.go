@@ -292,6 +292,61 @@ func TestRunReviewPacketWritesSummaryAndPacket(t *testing.T) {
 	}
 }
 
+func TestRunReviewCheckWritesSummaryAndJSON(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+	packetPath := filepath.Join(root, "llm-request.json")
+	checkSummaryPath := filepath.Join(root, "review-check.txt")
+	checkJSONPath := filepath.Join(root, "review-check.json")
+	reviewPath := filepath.Join("..", "..", "testdata", "llm-review", "combined-risk-review.json")
+
+	runReviewPacket([]string{
+		"--path", target,
+		"--profile", "follow-up",
+		"--format", "json",
+		"--out", packetPath,
+	})
+	runReviewCheck([]string{
+		"--packet", packetPath,
+		"--review", reviewPath,
+		"--out", checkSummaryPath,
+	})
+	runReviewCheck([]string{
+		"--packet", packetPath,
+		"--review", reviewPath,
+		"--format", "json",
+		"--out", checkJSONPath,
+	})
+
+	summary := readTestFile(t, checkSummaryPath)
+	for _, want := range []string{
+		"Ariadne Review Check",
+		"Accepted: true",
+		"Packet:",
+		"Review:",
+		"LLM-reviewed data egress path",
+		"data-egress-chain",
+		"What Ariadne verified:",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("review-check summary missing %q:\n%s", want, summary)
+		}
+	}
+
+	blob := readTestFile(t, checkJSONPath)
+	for _, want := range []string{
+		`"run_kind": "llm_review_check"`,
+		`"accepted": true`,
+		`"review_profile": "follow_up"`,
+		`"request_digest"`,
+		`"interpretation"`,
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("review-check JSON missing %q:\n%s", want, blob)
+		}
+	}
+}
+
 func TestRunSelfDefaultsToEndpointAssessment(t *testing.T) {
 	root := t.TempDir()
 	target, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "messy-ai-surfaces"))

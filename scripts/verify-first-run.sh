@@ -50,6 +50,8 @@ llm_request="$workdir/llm-request.json"
 llm_request_summary="$workdir/llm-request-summary.txt"
 llm_blind_request="$workdir/llm-request-inventory-blind.json"
 llm_blind_error="$workdir/llm-inventory-blind-ingest.err"
+llm_review_check="$workdir/llm-review-check.txt"
+llm_review_check_json="$workdir/llm-review-check.json"
 
 "$bin" assess --path "$fixture" --out "$assess_summary"
 "$bin" assess --path "$fixture" --format table --out "$assess_txt"
@@ -64,6 +66,8 @@ llm_blind_error="$workdir/llm-inventory-blind-ingest.err"
 "$bin" closure --path "$fixture" --case case:egress-output-boundary --dir "$closure_dir"
 "$bin" review-packet --path "$fixture" --profile follow-up --packet-out "$llm_request" --out "$llm_request_summary"
 "$bin" review-packet --path "$fixture" --profile inventory-blind --format json --out "$llm_blind_request"
+"$bin" review-check --packet "$llm_request" --review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --out "$llm_review_check"
+"$bin" review-check --packet "$llm_request" --review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --format json --out "$llm_review_check_json"
 if "$bin" prove --path "$fixture" --interpret llm --llm-review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --llm-review-profile inventory-blind --format json --out "$workdir/llm-blind-ingest.json" 2> "$llm_blind_error"; then
   echo "inventory-blind LLM review ingestion unexpectedly succeeded" >&2
   echo "artifacts left in: $workdir" >&2
@@ -151,6 +155,16 @@ expect_contains "$llm_blind_request" '"exposure_ids": []'
 expect_contains "$llm_blind_request" '"fact_ids"'
 expect_contains "$llm_blind_request" '"Final Ariadne findings, accepted issue priorities, or exposure classifications."'
 expect_contains "$llm_blind_error" "request-only"
+expect_contains "$llm_review_check" "Ariadne Review Check"
+expect_contains "$llm_review_check" "Accepted: true"
+expect_contains "$llm_review_check" "What Ariadne verified:"
+expect_contains "$llm_review_check" "LLM-reviewed data egress path"
+expect_contains "$llm_review_check" "data-egress-chain"
+expect_contains "$llm_review_check_json" '"run_kind": "llm_review_check"'
+expect_contains "$llm_review_check_json" '"accepted": true'
+expect_contains "$llm_review_check_json" '"review_profile": "follow_up"'
+expect_contains "$llm_review_check_json" '"request_digest"'
+expect_contains "$llm_review_check_json" '"interpretation"'
 
 expect_contains "$assess_txt" "What was inspected:"
 expect_contains "$assess_txt" "Decision:"

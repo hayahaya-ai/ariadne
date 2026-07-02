@@ -1477,6 +1477,23 @@ type ScanReport struct {
 	Limitations    []string           `json:"limitations"`
 }
 
+type LLMReviewCheckReport struct {
+	SchemaVersion  string         `json:"schema_version"`
+	RunID          string         `json:"run_id"`
+	GeneratedAt    time.Time      `json:"generated_at"`
+	RunKind        string         `json:"run_kind"`
+	Target         string         `json:"target"`
+	Mode           string         `json:"mode"`
+	ReviewProfile  string         `json:"review_profile"`
+	PacketSource   string         `json:"packet_source"`
+	ReviewSource   string         `json:"review_source"`
+	RequestDigest  string         `json:"request_digest"`
+	Accepted       bool           `json:"accepted"`
+	Interpretation Interpretation `json:"interpretation"`
+	Redaction      RedactionInfo  `json:"redaction"`
+	Limitations    []string       `json:"limitations"`
+}
+
 type Severity string
 
 const (

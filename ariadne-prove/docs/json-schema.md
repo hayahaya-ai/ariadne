@@ -212,8 +212,11 @@ When a focused case has been closed by deterministic hard-barrier evidence, `ari
 
 - request packet: `ariadne.llm_review_request/v1`
 - review response: `ariadne.llm_review/v1`
+- review-check report: `run_kind: "llm_review_check"`
 
 The request packet contains only Ariadne's redacted collection facts, graph evidence, redaction metadata, limitations, a reviewer task list, a citation catalog, and a review contract. In the default `follow-up` profile it also includes exposure paths and deterministic interpretation; the response is accepted only when every issue cites an existing exposure and supported graph edges. In the `inventory-blind` profile, Ariadne omits exposure paths and deterministic issue ranking so a reviewer can look for hypotheses or collector gaps with less anchoring. Inventory-blind reviewer output is request-only until a hypothesis is mapped back to deterministic exposure evidence.
+
+`ariadne review-check --packet <json> --review <json> --format json` emits a report with the packet source, review source, packet SHA-256 digest, `accepted`, validated interpretation, redaction metadata, and limitations. `accepted: true` means the reviewer response was bounded to the exact follow-up packet; it remains interpretation over deterministic facts, not new raw evidence.
 
 ## Graph Export Formats
 
