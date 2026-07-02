@@ -2686,6 +2686,9 @@ func assessNormalCapabilityLines(inventory model.AssessInventory) []string {
 
 func assessTriageProofLoop(action model.AssessFirstAction) []string {
 	var out []string
+	if command := assessProofActionCommand(action); command != "" {
+		out = append(out, "Open focused proof action: "+command)
+	}
 	if action.CurrentAction.PatchExportCommand != "" {
 		out = append(out, "Export suggested proof files: "+action.CurrentAction.PatchExportCommand)
 	} else if action.PatchExportCommand != "" {
@@ -2701,6 +2704,30 @@ func assessTriageProofLoop(action model.AssessFirstAction) []string {
 		return []string{}
 	}
 	return out
+}
+
+func assessProofActionCommand(action model.AssessFirstAction) string {
+	if action.CurrentAction.PatchExportCommand != "" {
+		return proofActionCommandFromPatchExport(action.CurrentAction.PatchExportCommand)
+	}
+	if action.PatchExportCommand != "" {
+		return proofActionCommandFromPatchExport(action.PatchExportCommand)
+	}
+	return ""
+}
+
+func proofActionCommandFromPatchExport(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	if strings.Contains(command, " --format action") {
+		return command
+	}
+	if idx := strings.Index(command, " --patch-dir "); idx >= 0 {
+		return strings.TrimSpace(command[:idx]) + " --format action"
+	}
+	return command + " --format action"
 }
 
 func zeroTrustSummaryFromArchitectureScan(summary model.ArchitectureScanSummary) model.ZeroTrustSummary {
@@ -3169,7 +3196,7 @@ func assessPathCommands(path, mode, agent, statusFilter string, cases []model.Co
 	commands := []string{base}
 	if len(cases) > 0 {
 		commands = append(commands, fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
-		commands = append(commands, fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s --case %s --format action", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 	}
 	commands = append(commands,
 		fmt.Sprintf("ariadne controls --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
@@ -3184,7 +3211,7 @@ func assessScanCommands(targetsFile, mode, agent, statusFilter string, cases []m
 	commands := []string{base}
 	if len(cases) > 0 {
 		commands = append(commands, fmt.Sprintf("ariadne cases --targets %s --mode %s --agent %s --status %s --case %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
-		commands = append(commands, fmt.Sprintf("ariadne proofs --targets %s --mode %s --agent %s --status %s --case %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("ariadne proofs --targets %s --mode %s --agent %s --status %s --case %s --format action", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
 	}
 	commands = append(commands,
 		fmt.Sprintf("ariadne controls --targets %s --mode %s --agent %s --status %s", targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),

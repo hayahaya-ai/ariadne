@@ -3960,6 +3960,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !containsString(decoded.NextCommands, "ariadne proofs --path") {
 		t.Fatalf("assessment should include focused proof plan command: %+v", decoded.NextCommands)
 	}
+	if !containsString(decoded.NextCommands, "--format action") {
+		t.Fatalf("assessment should route the focused proof command to action output: %+v", decoded.NextCommands)
+	}
+	if !containsString(decoded.Triage.ProofLoop, "Open focused proof action: ariadne proofs --path") ||
+		!containsString(decoded.Triage.ProofLoop, "--format action") {
+		t.Fatalf("assessment proof loop should start with the focused proof action command: %+v", decoded.Triage.ProofLoop)
+	}
 
 	var actionOut bytes.Buffer
 	if err := report.RenderAssess(&actionOut, inventory, r, "action", "breaking"); err != nil {
@@ -3994,6 +4001,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		".claude/settings.json",
 		"Accepted evidence:",
 		"Proof patch:",
+		"Proof loop: Open focused proof action:",
+		"--format action",
 		"Export suggested files:",
 		"--patch-dir proof-patches",
 		"Rerun:",
@@ -4088,6 +4097,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Architecture Break Paths",
 		"Next Commands",
 		"ariadne proofs --path",
+		"--format action",
 		`class="command-list"`,
 		`class="copy-command" data-copy-command`,
 		`>Copy</button>`,
@@ -4568,6 +4578,9 @@ func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	}
 	if !containsString(decoded.NextCommands, "ariadne proofs --targets "+targetFile) {
 		t.Fatalf("fleet assessment should include focused fleet proof plan command: %+v", decoded.NextCommands)
+	}
+	if !containsString(decoded.NextCommands, "--format action") {
+		t.Fatalf("fleet assessment should route the focused proof command to action output: %+v", decoded.NextCommands)
 	}
 	if containsString(decoded.NextCommands, "<targets-file>") {
 		t.Fatalf("fleet assessment next commands should not contain placeholder targets file: %+v", decoded.NextCommands)
