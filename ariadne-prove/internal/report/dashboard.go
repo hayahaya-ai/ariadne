@@ -694,51 +694,78 @@ func renderAssessFirstActionDashboard(w io.Writer, root string, action model.Ass
 	if action.NextStep != "" {
 		fmt.Fprintf(w, `<p><strong>Next step:</strong> %s</p>`, esc(action.NextStep))
 	}
-	renderAssessCurrentActionDashboard(w, root, action.CurrentAction)
-	renderAssessWorkflowDashboard(w, action.Workflow)
-	fmt.Fprintln(w, `<div class="two-col">`)
-	fmt.Fprintln(w, `<div>`)
-	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
-	renderAssessEvidenceReferenceTable(w, action.EvidenceReferences, 5)
-	fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(action.StartingControls, 5)))
-	fmt.Fprintln(w, `</div>`)
-	fmt.Fprintln(w, `<div>`)
-	fmt.Fprintln(w, `<h3>Prove At</h3>`)
-	fmt.Fprintln(w, renderDashboardPathList(root, limitStrings(action.ProofSurfaces, 6)))
-	fmt.Fprintln(w, `<h3>Accepted Evidence</h3>`)
-	fmt.Fprintln(w, renderSmallList(controlEvidenceExampleLines(action.EvidenceExamples, 2)))
-	fmt.Fprintln(w, `<h3>Proof Patch</h3>`)
-	fmt.Fprintln(w, renderSmallList(controlProofPatchLines(action.ProofPatches, 2)))
-	fmt.Fprintln(w, `<h3>Rerun</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(action.RerunCommands, 3)))
-	if len(action.CompareCommands) > 0 {
-		fmt.Fprintln(w, `<h3>Compare Loop</h3>`)
-		fmt.Fprintln(w, renderSmallList(limitStrings(action.CompareCommands, 3)))
-	}
-	fmt.Fprintln(w, `</div>`)
-	fmt.Fprintln(w, `</div>`)
+	renderAssessCurrentActionPacketDashboard(w, root, action)
+	renderAssessWorkflowDashboard(w, root, action.Workflow)
 	fmt.Fprintln(w, `</section>`)
 }
 
-func renderAssessCurrentActionDashboard(w io.Writer, root string, action model.AssessCurrentAction) {
-	if !action.Available {
+func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action model.AssessFirstAction) {
+	current := action.CurrentAction
+	if !current.Available {
 		return
 	}
+	evidenceRefs := current.EvidenceReferences
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = action.EvidenceReferences
+	}
+	proofSurfaces := action.ProofSurfaces
+	if current.Surface != "" && !contains(proofSurfaces, current.Surface) {
+		proofSurfaces = append([]string{current.Surface}, proofSurfaces...)
+	}
+	rerunCommands := nonEmptyStrings(current.RerunCommand)
+	if len(rerunCommands) == 0 {
+		rerunCommands = action.RerunCommands
+	}
+	compareCommands := action.CompareCommands
+	if len(compareCommands) == 0 && current.CompareCommand != "" {
+		compareCommands = []string{current.CompareCommand}
+	}
+	successCriteria := current.SuccessCriteria
+	if len(successCriteria) == 0 {
+		successCriteria = action.SuccessCriteria
+	}
+
+	fmt.Fprintln(w, `<h3>Current Action Packet</h3>`)
+	renderMetricRow(w, []kv{
+		{"Step", firstNonEmpty(current.WorkflowStepTitle, "not recorded")},
+		{"Control", firstNonEmpty(current.Control, "not recorded")},
+		{"Proof surface", firstNonEmpty(current.Surface, "not recorded")},
+		{"Proof patch", assessProofPatchMetric(current)},
+		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(evidenceRefs)))},
+	})
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Current Action</h3>`)
-	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentActionHTMLLines(root, action)))
+	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentActionHTMLLines(root, current)))
+	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, evidenceRefs, 6)))
+	fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(action.StartingControls, 6)))
+	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
+	fmt.Fprintln(w, renderDashboardPathList(root, limitStrings(proofSurfaces, 6)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
-	fmt.Fprintln(w, `<h3>After Proof</h3>`)
-	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(action.PatchExportCommand, action.RerunCommand, action.CompareCommand)))
+	fmt.Fprintln(w, `<h3>Proof To Add Or Verify</h3>`)
+	fmt.Fprintln(w, `<div class="subtle">Proof Patch</div>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentProofHTMLLines(root, current)))
+	fmt.Fprintln(w, `<h3>Accepted Evidence</h3>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentEvidenceExampleHTMLLines(root, current, action.EvidenceExamples)))
+	if current.PatchExportCommand != "" {
+		fmt.Fprintln(w, `<h3>Export Suggested Files</h3>`)
+		fmt.Fprintln(w, renderSmallList([]string{"Export suggested files: " + current.PatchExportCommand}))
+	}
+	fmt.Fprintln(w, `<h3>Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(rerunCommands, 3)))
+	fmt.Fprintln(w, `<h3>Compare Loop</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(compareCommands, 3)))
+	fmt.Fprintln(w, `<h3>Done When</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(successCriteria, 4)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 }
 
 func assessCurrentActionHTMLLines(root string, action model.AssessCurrentAction) []string {
-	var out []string
+	out := []string{}
 	if action.WorkflowStepTitle != "" {
 		out = append(out, "Step: "+esc(action.WorkflowStepTitle))
 	}
@@ -748,33 +775,46 @@ func assessCurrentActionHTMLLines(root string, action model.AssessCurrentAction)
 	if action.Surface != "" {
 		out = append(out, "Surface: "+dashboardFileRefHTML(root, action.Surface))
 	}
-	for _, ref := range dashboardEvidenceReferencesBySource(action.EvidenceReferences, 4) {
-		out = append(out, "Evidence: "+dashboardEvidenceReferenceHTML(root, ref))
-	}
-	if action.ProofPatchIndex >= 0 {
-		if action.ProofPatch != nil {
-			out = append(out, "Proof patch: "+dashboardControlProofPatchHTML(root, *action.ProofPatch))
-		} else {
-			out = append(out, fmt.Sprintf("Proof patch: #%d", action.ProofPatchIndex+1))
-		}
-	}
-	if action.EvidenceExampleIndex >= 0 {
-		if action.EvidenceExample != nil {
-			out = append(out, "Accepted evidence: "+dashboardControlEvidenceExampleHTML(root, *action.EvidenceExample))
-		} else {
-			out = append(out, fmt.Sprintf("Accepted evidence: #%d", action.EvidenceExampleIndex+1))
-		}
-	}
 	if action.Instruction != "" {
 		out = append(out, "Instruction: "+esc(action.Instruction))
 	}
-	if action.PatchExportCommand != "" {
-		out = append(out, "Export suggested files: "+esc(action.PatchExportCommand))
-	}
-	if out == nil {
-		return []string{}
-	}
 	return out
+}
+
+func assessProofPatchMetric(action model.AssessCurrentAction) string {
+	if action.ProofPatchIndex < 0 {
+		return "none"
+	}
+	return fmt.Sprintf("#%d", action.ProofPatchIndex+1)
+}
+
+func assessCurrentProofHTMLLines(root string, action model.AssessCurrentAction) []string {
+	if action.ProofPatch != nil {
+		lines := []string{"Proof patch: " + dashboardControlProofPatchHTML(root, *action.ProofPatch)}
+		lines = append(lines, proofPlanCurrentPatchHTMLLines(root, *action.ProofPatch, true, false)...)
+		return lines
+	}
+	if action.ProofPatchIndex >= 0 {
+		return []string{fmt.Sprintf("Proof patch: #%d", action.ProofPatchIndex+1)}
+	}
+	return []string{"No parser-recognized proof patch was returned for this action."}
+}
+
+func assessCurrentEvidenceExampleHTMLLines(root string, action model.AssessCurrentAction, examples []model.ControlEvidenceExample) []string {
+	if action.EvidenceExample != nil {
+		return []string{"Accepted evidence: " + dashboardControlEvidenceExampleHTML(root, *action.EvidenceExample)}
+	}
+	if action.EvidenceExampleIndex >= 0 {
+		return []string{fmt.Sprintf("Accepted evidence: #%d", action.EvidenceExampleIndex+1)}
+	}
+	lines := make([]string, 0, len(examples))
+	for _, example := range examples {
+		lines = append(lines, "Accepted evidence: "+dashboardControlEvidenceExampleHTML(root, example))
+	}
+	if lines == nil {
+		return []string{"No accepted evidence example was returned for this action."}
+	}
+	return limitStrings(lines, 2)
 }
 
 func nonEmptyStrings(values ...string) []string {
@@ -792,7 +832,7 @@ func nonEmptyStrings(values ...string) []string {
 	return out
 }
 
-func renderAssessWorkflowDashboard(w io.Writer, workflow []model.AssessWorkflowStep) {
+func renderAssessWorkflowDashboard(w io.Writer, root string, workflow []model.AssessWorkflowStep) {
 	if len(workflow) == 0 {
 		return
 	}
@@ -806,7 +846,7 @@ func renderAssessWorkflowDashboard(w io.Writer, workflow []model.AssessWorkflowS
 			current = ` <span class="pill info">CURRENT</span>`
 		}
 		fmt.Fprintf(w, `<td><strong>%d. %s</strong>%s<div class="subtle">%s</div></td>`, i+1, esc(step.Title), current, esc(step.Summary))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(assessWorkflowFactSourceLines(step)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(assessWorkflowFactSourceHTMLLines(root, step)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(assessWorkflowProofCommandLines(step)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(step.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
@@ -814,13 +854,26 @@ func renderAssessWorkflowDashboard(w io.Writer, workflow []model.AssessWorkflowS
 	fmt.Fprintln(w, "</tbody></table></div>")
 }
 
-func assessWorkflowFactSourceLines(step model.AssessWorkflowStep) []string {
+func assessWorkflowFactSourceHTMLLines(root string, step model.AssessWorkflowStep) []string {
 	var out []string
-	out = append(out, evidenceReferenceLinesBySource(step.EvidenceReferences, 3)...)
+	out = append(out, proofPlanEvidenceReferenceHTMLLines(root, step.EvidenceReferences, 3)...)
 	out = append(out, labeledLimitedLines("Control", step.StartingControls, 4)...)
-	out = append(out, labeledLimitedLines("Surface", step.ProofSurfaces, 4)...)
+	out = append(out, labeledLimitedHTMLLines(root, "Surface", step.ProofSurfaces, 4)...)
 	if out == nil {
 		return []string{}
+	}
+	return out
+}
+
+func labeledLimitedHTMLLines(root string, label string, values []string, limit int) []string {
+	limited := limitStrings(values, limit)
+	out := make([]string, 0, len(limited))
+	for _, value := range limited {
+		if strings.Contains(value, "additional item") {
+			out = append(out, label+"s: "+esc(value))
+			continue
+		}
+		out = append(out, label+": "+dashboardFileRefHTML(root, value))
 	}
 	return out
 }
