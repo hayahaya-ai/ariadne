@@ -178,11 +178,12 @@ This catalog is derived from the architecture closure plan. It does not create a
 - `proof_patches`, the parser-recognized evidence patches to add or verify
 - `evidence_refs`, the file or graph evidence that caused the proof request
 - `rerun_commands` and `success_criteria`, so automation can close the loop after evidence is added
+- `compare_commands`, with the exact before-proof, after-proof, and compare commands for the rerun loop
 - `limitations`, including the distinction between declared evidence and observed runtime enforcement
 
 This proof plan is read-only. It narrows the action packet for an operator or dashboard, but it does not write policy files and does not claim that declared evidence proves live enforcement.
 
-`ariadne proofs --format html` renders the same focused proof plan as an operator dashboard: summary metrics, an evidence workbench, selected cases, proof patches, evidence references, rerun commands, success criteria, and limitations.
+`ariadne proofs --format html` renders the same focused proof plan as an operator dashboard: summary metrics, an evidence workbench, selected cases, proof patches, evidence references, rerun commands, compare-loop commands, success criteria, and limitations.
 
 When a focused case has been closed by deterministic hard-barrier evidence, `ariadne cases --case <id>` and `ariadne proofs --case <id>` return the selected case with `state: "closed"`, observed hard barriers in `starting_controls`, evidence references, and no proof patches instead of treating the missing case as an error.
 

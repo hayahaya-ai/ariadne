@@ -16,6 +16,7 @@
     "proof_patches",
     "evidence_refs",
     "rerun_commands",
+    "compare_commands",
     "success_criteria",
     "redaction",
     "limitations"
@@ -44,6 +45,7 @@
       "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
     },
     "rerun_commands": { "type": "array", "items": { "type": "string" } },
+    "compare_commands": { "type": "array", "items": { "type": "string" } },
     "success_criteria": { "type": "array", "items": { "type": "string" } },
     "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
     "limitations": { "type": "array", "items": { "type": "string" } }

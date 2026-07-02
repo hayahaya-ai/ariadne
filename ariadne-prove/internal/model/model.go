@@ -173,6 +173,7 @@ type ProofPlanReport struct {
 	ProofPatches       []ControlProofPatch   `json:"proof_patches"`
 	EvidenceReferences []EvidenceReference   `json:"evidence_refs"`
 	RerunCommands      []string              `json:"rerun_commands"`
+	CompareCommands    []string              `json:"compare_commands"`
 	SuccessCriteria    []string              `json:"success_criteria"`
 	Redaction          RedactionInfo         `json:"redaction"`
 	Limitations        []string              `json:"limitations"`

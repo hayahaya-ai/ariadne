@@ -252,6 +252,7 @@ func renderProofPlanDashboard(w io.Writer, r model.ProofPlanReport) error {
 	renderProofPlanPatchesDashboard(w, r.ProofPatches)
 	renderProofPlanEvidenceDashboard(w, r.EvidenceReferences)
 	renderProofPlanCommandsDashboard(w, r)
+	renderProofPlanCompareDashboard(w, r)
 	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
 	fmt.Fprintln(w, "</body>")
@@ -1372,6 +1373,15 @@ func renderProofPlanCommandsDashboard(w io.Writer, r model.ProofPlanReport) {
 	fmt.Fprintln(w, renderSmallList(limitStrings(r.SuccessCriteria, 6)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderProofPlanCompareDashboard(w io.Writer, r model.ProofPlanReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Compare Loop</h2><div class="subtle">Save a before proof plan, rerun after adding evidence, then compare both artifacts.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	fmt.Fprintln(w, renderSmallList(limitStrings(r.CompareCommands, 6)))
 	fmt.Fprintln(w, "</section>")
 }
 

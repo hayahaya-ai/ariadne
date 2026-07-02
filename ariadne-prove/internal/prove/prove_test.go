@@ -3102,6 +3102,10 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"trusted_instruction_sources=true",
 		"ariadne cases --path",
 		"--case case:input-trust-boundary",
+		"Compare loop:",
+		"before-proof.json",
+		"after-proof.json",
+		"ariadne compare --before before-proof.json --after after-proof.json",
 		"Proof plans are deterministic evidence plans",
 	} {
 		if !strings.Contains(out, want) {
@@ -3126,6 +3130,12 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if !proofPlanPatchHasFocusedRerun(decoded.ProofPatches, "control:input-isolation", ".ariadne/input-policy.json", "--case case:input-trust-boundary") {
 		t.Fatalf("proof plan patch should carry focused rerun command: %+v", decoded.ProofPatches)
 	}
+	if len(decoded.CompareCommands) != 3 ||
+		!containsString(decoded.CompareCommands, "--out before-proof.json") ||
+		!containsString(decoded.CompareCommands, "--out after-proof.json") ||
+		!containsString(decoded.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") {
+		t.Fatalf("proof plan should carry before/after compare loop commands: %+v", decoded.CompareCommands)
+	}
 	if !containsString(decoded.Limitations, "deterministic evidence") {
 		t.Fatalf("proof plan should keep declared-evidence limitation: %+v", decoded.Limitations)
 	}
@@ -3149,6 +3159,10 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"Proof Patches",
 		"Evidence References",
 		"Rerun Commands",
+		"Compare Loop",
+		"before-proof.json",
+		"after-proof.json",
+		"case-compare.html",
 		"case:input-trust-boundary",
 		".ariadne/input-policy.json",
 		"input_isolation=true",
@@ -3203,6 +3217,12 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 	if len(decoded.EvidenceReferences) == 0 {
 		t.Fatalf("closed proof plan should keep evidence references: %+v", decoded)
 	}
+	if len(decoded.CompareCommands) != 3 ||
+		!containsString(decoded.CompareCommands, "--out before-proof.json") ||
+		!containsString(decoded.CompareCommands, "--out after-proof.json") ||
+		!containsString(decoded.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") {
+		t.Fatalf("closed proof plan should carry compare loop commands: %+v", decoded.CompareCommands)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderProofs(&htmlOut, r, "html", "breaking", "input-trust-boundary"); err != nil {
@@ -3215,6 +3235,8 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 		"closed",
 		"Observed hard barriers",
 		"No proof patch is needed",
+		"Compare Loop",
+		"case-compare.html",
 		"hard_barriers_observed",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -4002,6 +4024,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"proof_patches",
 		"evidence_refs",
 		"rerun_commands",
+		"compare_commands",
 		"success_criteria",
 		"redaction",
 		"limitations",

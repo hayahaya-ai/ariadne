@@ -353,6 +353,7 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 	evidenceRefs = dedupeEvidenceReferences(evidenceRefs)
 	rerunCommands = uniqueStrings(rerunCommands)
 	successCriteria = uniqueStrings(successCriteria)
+	compareCommands := proofPlanCompareCommands(catalog)
 	cases := append([]model.ControlOperatorCase{}, catalog.OperatorCases...)
 	if cases == nil {
 		cases = []model.ControlOperatorCase{}
@@ -368,6 +369,9 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 	}
 	if successCriteria == nil {
 		successCriteria = []string{}
+	}
+	if compareCommands == nil {
+		compareCommands = []string{}
 	}
 	limitations := uniqueSortedStrings(append([]string{
 		"Proof plans are deterministic evidence plans; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.",
@@ -392,9 +396,41 @@ func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanRep
 		ProofPatches:       patches,
 		EvidenceReferences: evidenceRefs,
 		RerunCommands:      rerunCommands,
+		CompareCommands:    compareCommands,
 		SuccessCriteria:    successCriteria,
 		Redaction:          catalog.Redaction,
 		Limitations:        limitations,
+	}
+}
+
+func proofPlanCompareCommands(catalog model.ControlCatalogReport) []string {
+	before := "before-proof.json"
+	after := "after-proof.json"
+	caseID := strings.TrimSpace(catalog.CaseFilter)
+	if caseID == "" && len(catalog.OperatorCases) == 1 {
+		caseID = catalog.OperatorCases[0].ID
+	}
+	proofCommand := func(out string) string {
+		mode := firstNonEmpty(catalog.Mode, "repo")
+		agent := firstNonEmpty(catalog.Agent, "all")
+		status := firstNonEmpty(catalog.StatusFilter, "breaking")
+		var command string
+		switch catalog.RunKind {
+		case "case_board_scan", "control_catalog_scan":
+			command = fmt.Sprintf("ariadne proofs --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+		default:
+			path := firstNonEmpty(catalog.TargetPath, "<target-path>")
+			command = fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+		}
+		if caseID != "" {
+			command += " --case " + shellQuoteCommandArg(caseID)
+		}
+		return command + " --format json --out " + shellQuoteCommandArg(out)
+	}
+	return []string{
+		proofCommand(before),
+		proofCommand(after),
+		fmt.Sprintf("ariadne compare --before %s --after %s --format html --out case-compare.html", shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
 	}
 }
 
@@ -2025,29 +2061,35 @@ func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {
 	if len(r.ProofPatches) == 0 {
 		fmt.Fprintf(w, "Proof patches:\n")
 		fmt.Fprintf(w, "  - no proof patches matched this filter\n\n")
-		return nil
+	} else {
+		fmt.Fprintf(w, "Proof patches:\n")
+		for _, patch := range limitProofPlanPatches(r.ProofPatches, 12) {
+			fmt.Fprintf(w, "  - %s -> %s (%s)\n", patch.Control, patch.Surface, patch.Operation)
+			if len(patch.Fields) > 0 {
+				fmt.Fprintf(w, "    Fields: %s\n", strings.Join(controlProofPatchFieldLines(patch.Fields), "; "))
+			}
+			if patch.Example != "" {
+				fmt.Fprintf(w, "    Example: %s\n", compactExample(patch.Example))
+			}
+			if len(patch.RerunCommands) > 0 {
+				fmt.Fprintf(w, "    Rerun: %s\n", strings.Join(limitStrings(patch.RerunCommands, 2), "; "))
+			}
+			if len(patch.SuccessCriteria) > 0 {
+				fmt.Fprintf(w, "    Done when: %s\n", strings.Join(limitStrings(patch.SuccessCriteria, 2), "; "))
+			}
+			if len(patch.Limitations) > 0 {
+				fmt.Fprintf(w, "    Limitation: %s\n", patch.Limitations[0])
+			}
+		}
+		if len(r.ProofPatches) > 12 {
+			fmt.Fprintf(w, "  - %d more proof patch(es) in JSON output\n", len(r.ProofPatches)-12)
+		}
 	}
-	fmt.Fprintf(w, "Proof patches:\n")
-	for _, patch := range limitProofPlanPatches(r.ProofPatches, 12) {
-		fmt.Fprintf(w, "  - %s -> %s (%s)\n", patch.Control, patch.Surface, patch.Operation)
-		if len(patch.Fields) > 0 {
-			fmt.Fprintf(w, "    Fields: %s\n", strings.Join(controlProofPatchFieldLines(patch.Fields), "; "))
+	if len(r.CompareCommands) > 0 {
+		fmt.Fprintf(w, "\nCompare loop:\n")
+		for _, command := range limitStrings(r.CompareCommands, 3) {
+			fmt.Fprintf(w, "  - %s\n", command)
 		}
-		if patch.Example != "" {
-			fmt.Fprintf(w, "    Example: %s\n", compactExample(patch.Example))
-		}
-		if len(patch.RerunCommands) > 0 {
-			fmt.Fprintf(w, "    Rerun: %s\n", strings.Join(limitStrings(patch.RerunCommands, 2), "; "))
-		}
-		if len(patch.SuccessCriteria) > 0 {
-			fmt.Fprintf(w, "    Done when: %s\n", strings.Join(limitStrings(patch.SuccessCriteria, 2), "; "))
-		}
-		if len(patch.Limitations) > 0 {
-			fmt.Fprintf(w, "    Limitation: %s\n", patch.Limitations[0])
-		}
-	}
-	if len(r.ProofPatches) > 12 {
-		fmt.Fprintf(w, "  - %d more proof patch(es) in JSON output\n", len(r.ProofPatches)-12)
 	}
 	if len(r.Limitations) > 0 {
 		fmt.Fprintf(w, "\nLimitations:\n")
