@@ -186,6 +186,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
+	renderAssessFirstActionDashboard(w, r.FirstAction)
 	renderAssessClosureEvidenceDashboard(w, r.ClosureEvidence)
 	renderAssessCaseNavigationDashboard(w, r.TopCases)
 	renderAssessActiveCaseDashboard(w, r)
@@ -658,6 +659,47 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	if r.Summary.TopCaseNextStep != "" {
 		fmt.Fprintf(w, `<div><strong>Start here:</strong> %s <span class="subtle">(%s)</span></div>`, esc(r.Summary.TopCaseNextStep), esc(r.Summary.TopCaseTitle))
 	}
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstAction) {
+	if !action.Available {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>First Action</h2><div class="subtle">The highest-ranked operator action from deterministic case-board evidence.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Case", action.CaseID},
+		{"Severity", strings.ToUpper(action.Severity)},
+		{"State", firstNonEmpty(action.State, "open")},
+		{"Evidence refs", fmt.Sprintf("%d", len(action.EvidenceReferences))},
+		{"Proof surfaces", fmt.Sprintf("%d", len(action.ProofSurfaces))},
+	})
+	fmt.Fprintf(w, `<h3>%s</h3>`, esc(action.Title))
+	if action.WhyFirst != "" {
+		fmt.Fprintf(w, `<p>%s</p>`, esc(action.WhyFirst))
+	}
+	if action.NextStep != "" {
+		fmt.Fprintf(w, `<p><strong>Next step:</strong> %s</p>`, esc(action.NextStep))
+	}
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
+	renderAssessEvidenceReferenceTable(w, action.EvidenceReferences, 5)
+	fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(action.StartingControls, 5)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Prove At</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(action.ProofSurfaces, 6)))
+	fmt.Fprintln(w, `<h3>Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(action.RerunCommands, 3)))
+	if len(action.CompareCommands) > 0 {
+		fmt.Fprintln(w, `<h3>Compare Loop</h3>`)
+		fmt.Fprintln(w, renderSmallList(limitStrings(action.CompareCommands, 3)))
+	}
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
 }
 

@@ -3498,6 +3498,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assess",
 		"Question: Where is Zero Trust agent architecture breaking",
 		"Readout:",
+		"First action:",
+		"Why first:",
 		"What was inspected:",
 		"Architecture break paths:",
 		"Operator cases:",
@@ -3538,6 +3540,15 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if decoded.Summary.OperatorCases == 0 || len(decoded.TopCases) == 0 || decoded.TopCases[0].Rank != 1 || decoded.TopCases[0].NextStep == "" {
 		t.Fatalf("assessment should include ranked top cases: summary=%+v cases=%+v", decoded.Summary, decoded.TopCases)
 	}
+	if !decoded.FirstAction.Available ||
+		decoded.FirstAction.CaseID != decoded.TopCases[0].ID ||
+		decoded.FirstAction.NextStep == "" ||
+		len(decoded.FirstAction.EvidenceReferences) == 0 ||
+		len(decoded.FirstAction.ProofSurfaces) == 0 ||
+		len(decoded.FirstAction.RerunCommands) == 0 ||
+		len(decoded.FirstAction.SuccessCriteria) == 0 {
+		t.Fatalf("assessment should include a fact-backed first action: %+v", decoded.FirstAction)
+	}
 	if decoded.TopCaseProofPlan == nil ||
 		decoded.TopCaseProofPlan.CaseFilter != decoded.TopCases[0].ID ||
 		decoded.TopCaseProofPlan.Summary.ProofPatches == 0 ||
@@ -3562,6 +3573,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assessment",
 		"Assessment Readout",
+		"First Action",
 		"Case Navigation",
 		"Active Case Workbench",
 		"href=\"#case-case-egress-output-boundary\"",
@@ -4276,6 +4288,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"closure_evidence",
 		"case_board",
 		"top_cases",
+		"first_action",
 		"next_commands",
 		"redaction",
 		"limitations",
@@ -4285,6 +4298,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, assessSchema, "top_case_proof_plan")
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
+	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
+	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "rerun_commands", "compare_commands", "success_criteria")
 	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")
 	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes", "surface_map")
 	surfaceMap := schemaMap(t, assessSchema, "$defs", "surface_map")

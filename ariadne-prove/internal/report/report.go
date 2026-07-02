@@ -57,6 +57,9 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	closureEvidence := buildAssessClosureEvidence(exposures, []assessClosureTarget{{TargetID: "target", Flaws: r.ZeroTrust.ArchitectureFlaws}})
 	inventorySummary := buildAssessInventory(inventory)
 	summary := buildAssessSummary(inventorySummary, exposure, architecture.Summary, caseBoard.Summary, caseBoard.OperatorCases)
+	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
+	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
+	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
 		RunID:            r.RunID,
@@ -72,9 +75,10 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		ClosureEvidence:  closureEvidence,
 		Architecture:     &architecture,
 		CaseBoard:        caseBoard,
-		TopCases:         topControlOperatorCases(caseBoard.OperatorCases, 5),
-		TopCaseProofPlan: buildTopCaseProofPlan(caseBoard),
-		NextCommands:     assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases),
+		TopCases:         topCases,
+		TopCaseProofPlan: topCaseProofPlan,
+		FirstAction:      buildAssessFirstAction(topCases, topCaseProofPlan),
+		NextCommands:     nextCommands,
 		Redaction:        r.Redaction,
 		Warnings:         uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
 		Limitations:      uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
@@ -111,6 +115,9 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 	for _, target := range r.Targets {
 		targets = append(targets, target.Target)
 	}
+	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
+	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
+	nextCommands := assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
 		RunID:            r.RunID,
@@ -126,9 +133,10 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 		ClosureEvidence:  buildAssessClosureEvidence(exposures, closureTargets),
 		ArchitectureScan: &architecture,
 		CaseBoard:        caseBoard,
-		TopCases:         topControlOperatorCases(caseBoard.OperatorCases, 5),
-		TopCaseProofPlan: buildTopCaseProofPlan(caseBoard),
-		NextCommands:     assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases),
+		TopCases:         topCases,
+		TopCaseProofPlan: topCaseProofPlan,
+		FirstAction:      buildAssessFirstAction(topCases, topCaseProofPlan),
+		NextCommands:     nextCommands,
 		Redaction:        r.Redaction,
 		Warnings:         append([]string{}, r.Warnings...),
 		Limitations:      append([]string{}, r.Limitations...),
@@ -1336,6 +1344,62 @@ func buildTopCaseProofPlan(catalog model.ControlCatalogReport) *model.ProofPlanR
 	return &plan
 }
 
+func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.ProofPlanReport) model.AssessFirstAction {
+	action := model.AssessFirstAction{
+		Available:          false,
+		EvidenceReferences: []model.EvidenceReference{},
+		StartingControls:   []string{},
+		ProofSurfaces:      []string{},
+		RerunCommands:      []string{},
+		CompareCommands:    []string{},
+		SuccessCriteria:    []string{},
+	}
+	if len(cases) == 0 {
+		return action
+	}
+	item := cases[0]
+	action.Available = true
+	action.CaseID = item.ID
+	action.Title = item.Title
+	action.Severity = item.Severity
+	action.State = item.State
+	action.WhyFirst = item.PriorityReason
+	action.NextStep = item.NextStep
+	action.EvidenceReferences = append([]model.EvidenceReference{}, item.EvidenceReferences...)
+	action.StartingControls = append([]string{}, item.StartingControls...)
+	action.ProofSurfaces = append([]string{}, item.ProofSurfaces...)
+	action.RerunCommands = append([]string{}, item.RerunCommands...)
+	action.CompareCommands = append([]string{}, item.CompareCommands...)
+	action.SuccessCriteria = append([]string{}, item.SuccessCriteria...)
+	if proofPlan != nil {
+		if len(action.RerunCommands) == 0 {
+			action.RerunCommands = append([]string{}, proofPlan.RerunCommands...)
+		}
+		if len(action.CompareCommands) == 0 {
+			action.CompareCommands = append([]string{}, proofPlan.CompareCommands...)
+		}
+	}
+	if action.EvidenceReferences == nil {
+		action.EvidenceReferences = []model.EvidenceReference{}
+	}
+	if action.StartingControls == nil {
+		action.StartingControls = []string{}
+	}
+	if action.ProofSurfaces == nil {
+		action.ProofSurfaces = []string{}
+	}
+	if action.RerunCommands == nil {
+		action.RerunCommands = []string{}
+	}
+	if action.CompareCommands == nil {
+		action.CompareCommands = []string{}
+	}
+	if action.SuccessCriteria == nil {
+		action.SuccessCriteria = []string{}
+	}
+	return action
+}
+
 func topControlOperatorCases(cases []model.ControlOperatorCase, limit int) []model.ControlOperatorCase {
 	if limit <= 0 || limit > len(cases) {
 		limit = len(cases)
@@ -1578,6 +1642,8 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	}
 	fmt.Fprintln(w)
 
+	renderAssessFirstAction(w, r.FirstAction)
+
 	if r.Inventory.Surfaces > 0 || r.Inventory.Facts > 0 || r.Inventory.GraphNodes > 0 {
 		fmt.Fprintf(w, "What was inspected:\n")
 		fmt.Fprintf(w, "  - AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)\n", r.Inventory.Surfaces, r.Inventory.Facts, r.Inventory.GraphNodes, r.Inventory.GraphEdges)
@@ -1614,6 +1680,30 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 		}
 	}
 	return nil
+}
+
+func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
+	if !action.Available {
+		return
+	}
+	fmt.Fprintf(w, "First action:\n")
+	fmt.Fprintf(w, "  - Case: %s (%s)\n", action.Title, action.CaseID)
+	if action.WhyFirst != "" {
+		fmt.Fprintf(w, "  - Why first: %s\n", action.WhyFirst)
+	}
+	if action.NextStep != "" {
+		fmt.Fprintf(w, "  - Next step: %s\n", action.NextStep)
+	}
+	if len(action.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLinesBySource(action.EvidenceReferences, 3), "; "))
+	}
+	if len(action.ProofSurfaces) > 0 {
+		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(action.ProofSurfaces, 4), "; "))
+	}
+	if len(action.RerunCommands) > 0 {
+		fmt.Fprintf(w, "  - Rerun: %s\n", action.RerunCommands[0])
+	}
+	fmt.Fprintln(w)
 }
 
 func renderAssessTopCaseProofPacket(w io.Writer, plan *model.ProofPlanReport) {
@@ -5286,6 +5376,37 @@ func evidenceReferenceLines(values []model.EvidenceReference, limit int) []strin
 	}
 	if len(values) > limit {
 		lines = append(lines, fmt.Sprintf("%d more evidence reference(s) in JSON", len(values)-limit))
+	}
+	return lines
+}
+
+func evidenceReferenceLinesBySource(values []model.EvidenceReference, limit int) []string {
+	values = dedupeEvidenceReferences(values)
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]bool{}
+	compact := make([]model.EvidenceReference, 0, len(values))
+	for _, value := range values {
+		key := value.Source
+		if key == "" {
+			key = value.ID
+		}
+		if key == "" {
+			key = value.Kind
+		}
+		if value.Target != "" {
+			key = value.Target + "|" + key
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		compact = append(compact, value)
+	}
+	lines := evidenceReferenceLines(compact, limit)
+	if len(values) > len(compact) && limit > 0 && len(compact) > limit {
+		lines[len(lines)-1] = fmt.Sprintf("%d more evidence source(s) in JSON", len(compact)-limit)
 	}
 	return lines
 }
