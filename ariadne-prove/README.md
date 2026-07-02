@@ -130,6 +130,16 @@ Emit JSON:
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json
 ```
 
+Run the focused proof loop for one case:
+
+```bash
+./bin/ariadne proofs --path . --case case:input-trust-boundary --format json --out before-proof.json
+./bin/ariadne proofs --path . --case case:input-trust-boundary --patch-dir proof-patches
+# Review the suggested files under proof-patches/surfaces/, add or verify real control evidence, then rerun:
+./bin/ariadne proofs --path . --case case:input-trust-boundary --format json --out after-proof.json
+./bin/ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html
+```
+
 Export the graph for review or visualization:
 
 ```bash

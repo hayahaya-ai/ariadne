@@ -53,3 +53,98 @@ func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 		t.Fatalf("exported patch file missing input isolation evidence:\n%s", blob)
 	}
 }
+
+func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
+	root := t.TempDir()
+	beforePath := filepath.Join(root, "before-proof.json")
+	afterPath := filepath.Join(root, "after-proof.json")
+	tablePath := filepath.Join(root, "case-compare.txt")
+	jsonPath := filepath.Join(root, "case-compare.json")
+	htmlPath := filepath.Join(root, "case-compare.html")
+	runProofs([]string{
+		"--path", filepath.Join("..", "..", "testdata", "realpath", "combined-risk"),
+		"--case", "case:input-trust-boundary",
+		"--format", "json",
+		"--out", beforePath,
+	})
+	runProofs([]string{
+		"--path", filepath.Join("..", "..", "testdata", "realpath", "input-controls"),
+		"--case", "case:input-trust-boundary",
+		"--format", "json",
+		"--out", afterPath,
+	})
+	runCompare([]string{
+		"--before", beforePath,
+		"--after", afterPath,
+		"--out", tablePath,
+	})
+	runCompare([]string{
+		"--before", beforePath,
+		"--after", afterPath,
+		"--format", "json",
+		"--out", jsonPath,
+	})
+	runCompare([]string{
+		"--before", beforePath,
+		"--after", afterPath,
+		"--format", "html",
+		"--out", htmlPath,
+	})
+	table := readTestFile(t, tablePath)
+	for _, want := range []string{
+		"Ariadne case compare:",
+		"1 case(s) compared: 0 open after rerun, 1 closed after rerun",
+		"Next action: No open case remains",
+		"CLOSED Input Trust Boundary",
+		"open -> closed",
+		"After controls: control:input-isolation; control:trusted-source-policy",
+		"Proof patches: 2 -> 0",
+		"Added evidence:",
+		".ariadne/input-policy.json",
+		"After compare loop:",
+		"case-compare.html",
+	} {
+		if !strings.Contains(table, want) {
+			t.Fatalf("compare table missing %q:\n%s", want, table)
+		}
+	}
+	blob := readTestFile(t, jsonPath)
+	for _, want := range []string{
+		`"disposition": "closed"`,
+		`"before_state": "open"`,
+		`"after_state": "closed"`,
+		`"control:input-isolation"`,
+		`".ariadne/input-policy.json"`,
+		`"added_evidence_refs"`,
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("compare JSON missing %q:\n%s", want, blob)
+		}
+	}
+	html := readTestFile(t, htmlPath)
+	for _, want := range []string{
+		"Ariadne Case Compare",
+		"CLOSED",
+		"Input Trust Boundary",
+		"open",
+		"closed",
+		".ariadne/input-policy.json",
+		"case-compare.html",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("compare HTML missing %q:\n%s", want, html)
+		}
+	}
+	if strings.Contains(html, "STAYED OPEN Input Trust Boundary") {
+		t.Fatalf("compare HTML should show input trust as closed, not stayed open:\n%s", html)
+	}
+}
+
+func readTestFile(t *testing.T, path string) string {
+	t.Helper()
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(blob)
+}
