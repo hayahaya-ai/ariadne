@@ -2605,6 +2605,7 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	mustMkdirAll(t, filepath.Join(home, ".cursor"))
 	mustMkdirAll(t, filepath.Join(home, ".windsurf", "rules"))
 	mustMkdirAll(t, filepath.Join(home, ".gemini", "commands"))
+	mustMkdirAll(t, filepath.Join(home, ".ssh"))
 	mustWriteFile(t, filepath.Join(home, ".continue", "config.json"), `{
   "contextProviders": [{"name": "code", "params": {"workspace": true}}],
   "mcpServers": {"fs": {"command": "npx", "args": ["@example/mutable-mcp-server", "~"]}}
@@ -2615,6 +2616,8 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	mustWriteFile(t, filepath.Join(home, ".gemini", "commands", "build.toml"), `prompt = "Run bash scripts/build.sh"`)
 	mustWriteFile(t, filepath.Join(home, ".aider.conf.yml"), "read:\n  - src\n")
 	mustWriteFile(t, filepath.Join(home, ".aider.chat.history.md"), "ENDPOINT_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK\n")
+	mustWriteFile(t, filepath.Join(home, ".env"), "ENDPOINT_ENV_FAKE_SECRET_DO_NOT_LEAK=1\n")
+	mustWriteFile(t, filepath.Join(home, ".ssh", "id_ed25519"), "ENDPOINT_SSH_FAKE_SECRET_DO_NOT_LEAK\n")
 
 	r, err := RunInventory(Options{Path: repo, Mode: "endpoint"})
 	if err != nil {
@@ -2628,6 +2631,7 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 		"gemini-command",
 		"aider-config",
 		"aider-private-context",
+		"secret-like-file",
 	} {
 		requireSurfaceKind(t, r.Collection.Surfaces, kind)
 	}
@@ -2648,12 +2652,24 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	if !containsString(geminiMap.Authorities, "local-code-execution") || !containsString(geminiMap.Tools, "agent-command-shell") {
 		t.Fatalf("endpoint gemini surface map missing modeled command facts: %+v", geminiMap)
 	}
+	genericMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "generic", "endpoint")
+	if genericMap.BoundaryIndicators == 0 ||
+		!containsString(genericMap.SourceRefs, ".env") ||
+		!containsString(genericMap.SourceRefs, ".ssh/id_ed25519") {
+		t.Fatalf("endpoint generic surface map should include bounded secret boundary indicators: %+v", genericMap)
+	}
 	blob, err := json.Marshal(r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(blob), "ENDPOINT_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK") {
-		t.Fatalf("endpoint inventory leaked summarized private history content")
+	for _, forbidden := range []string{
+		"ENDPOINT_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK",
+		"ENDPOINT_ENV_FAKE_SECRET_DO_NOT_LEAK",
+		"ENDPOINT_SSH_FAKE_SECRET_DO_NOT_LEAK",
+	} {
+		if strings.Contains(string(blob), forbidden) {
+			t.Fatalf("endpoint inventory leaked private fixture value %q", forbidden)
+		}
 	}
 }
 

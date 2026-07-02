@@ -45,6 +45,9 @@ func Discover(opts Options) ([]model.Surface, []string) {
 		found, fileWarnings := discoverEndpointFiles(opts)
 		surfaces = append(surfaces, found...)
 		warnings = append(warnings, fileWarnings...)
+		found, boundaryWarnings := discoverEndpointBoundaryIndicators(opts)
+		surfaces = append(surfaces, found...)
+		warnings = append(warnings, boundaryWarnings...)
 	}
 	sort.Slice(surfaces, func(i, j int) bool {
 		if surfaces[i].Source == surfaces[j].Source {
@@ -225,6 +228,79 @@ func discoverEndpointFiles(opts Options) ([]model.Surface, []string) {
 		warnings = append(warnings, fileWarnings...)
 	}
 	return surfaces, warnings
+}
+
+func discoverEndpointBoundaryIndicators(opts Options) ([]model.Surface, []string) {
+	if opts.HomePath == "" {
+		return nil, nil
+	}
+	var surfaces []model.Surface
+	var warnings []string
+	entries, err := os.ReadDir(opts.HomePath)
+	if err != nil {
+		return nil, []string{"could not inspect endpoint boundary indicators in " + safeRel(opts, opts.HomePath) + ": " + err.Error()}
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !secretLike(name) {
+			continue
+		}
+		path := filepath.Join(opts.HomePath, name)
+		found, fileWarnings := discoverEndpointBoundaryFile(path, name, opts)
+		surfaces = append(surfaces, found...)
+		warnings = append(warnings, fileWarnings...)
+	}
+	for _, dir := range []string{".ssh"} {
+		root := filepath.Join(opts.HomePath, filepath.FromSlash(dir))
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			matchPath := dir + "/" + entry.Name()
+			if !secretLike(matchPath) {
+				continue
+			}
+			path := filepath.Join(root, entry.Name())
+			found, fileWarnings := discoverEndpointBoundaryFile(path, matchPath, opts)
+			surfaces = append(surfaces, found...)
+			warnings = append(warnings, fileWarnings...)
+		}
+	}
+	for _, candidate := range endpointNestedBoundaryCandidates() {
+		path := filepath.Join(opts.HomePath, filepath.FromSlash(candidate))
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		found, fileWarnings := discoverFile(path, candidate, "endpoint", info.Size(), opts)
+		surfaces = append(surfaces, found...)
+		warnings = append(warnings, fileWarnings...)
+	}
+	return surfaces, warnings
+}
+
+func discoverEndpointBoundaryFile(path string, matchPath string, opts Options) ([]model.Surface, []string) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return nil, nil
+	}
+	return discoverFile(path, matchPath, "endpoint", info.Size(), opts)
+}
+
+func endpointNestedBoundaryCandidates() []string {
+	return []string{
+		".aws/credentials",
+		".config/gcloud/application_default_credentials.json",
+		".docker/config.json",
+		".kube/config",
+	}
 }
 
 func endpointFileCandidates() []string {
@@ -519,19 +595,7 @@ func anyOf(matchers ...func(string) bool) func(string) bool {
 }
 
 func secretLike(path string) bool {
-	base := strings.ToLower(filepath.Base(path))
-	return base == ".env" ||
-		strings.HasPrefix(base, ".env.") ||
-		base == "secrets.env" ||
-		strings.HasSuffix(base, ".pem") ||
-		strings.HasSuffix(base, ".key") ||
-		base == ".npmrc" ||
-		base == ".netrc" ||
-		base == "id_rsa" ||
-		base == "id_ed25519"
-}
-
-func credentialLikeName(path string) bool {
+	normalized := strings.ToLower(filepath.ToSlash(path))
 	base := strings.ToLower(filepath.Base(path))
 	return base == ".env" ||
 		strings.HasPrefix(base, ".env.") ||
@@ -542,7 +606,18 @@ func credentialLikeName(path string) bool {
 		base == ".netrc" ||
 		base == "id_rsa" ||
 		base == "id_ed25519" ||
-		strings.Contains(base, "credential") ||
+		normalized == ".aws/credentials" ||
+		normalized == ".config/gcloud/application_default_credentials.json" ||
+		normalized == ".docker/config.json" ||
+		normalized == ".kube/config"
+}
+
+func credentialLikeName(path string) bool {
+	if secretLike(path) {
+		return true
+	}
+	base := strings.ToLower(filepath.Base(path))
+	return strings.Contains(base, "credential") ||
 		strings.Contains(base, "api_key") ||
 		strings.Contains(base, "api-key") ||
 		strings.Contains(base, "secret") ||
