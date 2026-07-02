@@ -226,6 +226,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	for _, name := range []string{
 		"assessment.txt",
 		"assessment.json",
+		"runbook.txt",
+		"runbook.json",
 		"operator-packet.txt",
 		"operator-packet.json",
 		"dashboard.html",
@@ -261,6 +263,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Self-Assessment Bundle",
 		"assessment.txt",
+		"runbook.txt",
+		"runbook.json",
 		"operator-packet.txt",
 		"operator-packet.json",
 		"dashboard.html",
@@ -307,6 +311,38 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	} {
 		if !strings.Contains(assessmentJSON, want) {
 			t.Fatalf("self bundle assessment JSON missing %q:\n%s", want, assessmentJSON)
+		}
+	}
+
+	runbook := readTestFile(t, filepath.Join(bundleDir, "runbook.txt"))
+	for _, want := range []string{
+		"Ariadne Operator Runbook",
+		"case:identity-credentials",
+		"Open first:",
+		"Do next:",
+		"Save Baseline Proof",
+		"Add Or Verify Proof",
+		"Commands:",
+		"Closure workflow:",
+	} {
+		if !strings.Contains(runbook, want) {
+			t.Fatalf("self bundle runbook missing %q:\n%s", want, runbook)
+		}
+	}
+
+	runbookJSON := readTestFile(t, filepath.Join(bundleDir, "runbook.json"))
+	for _, want := range []string{
+		`"available": true`,
+		`"case:identity-credentials"`,
+		`"current_step"`,
+		`"next_step"`,
+		`"open_first"`,
+		`"closure_workflow"`,
+		`"save_baseline_proof"`,
+		`"add_or_verify_proof"`,
+	} {
+		if !strings.Contains(runbookJSON, want) {
+			t.Fatalf("self bundle runbook JSON missing %q:\n%s", want, runbookJSON)
 		}
 	}
 
@@ -418,6 +454,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"limitations"`,
 		`"name": "README.md"`,
 		`"name": "manifest.json"`,
+		`"name": "runbook.txt"`,
+		`"name": "runbook.json"`,
 		`"name": "operator-packet.txt"`,
 		`"name": "operator-packet.json"`,
 		`"name": "proof-action.txt"`,

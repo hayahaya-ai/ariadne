@@ -360,7 +360,7 @@ expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
 
-for bundle_file in assessment.txt assessment.json operator-packet.txt operator-packet.json dashboard.html inventory.json cases.txt cases.json proof-action.txt proof-plan.json README.md manifest.json; do
+for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json dashboard.html inventory.json cases.txt cases.json proof-action.txt proof-plan.json README.md manifest.json; do
   if [ ! -f "$self_bundle/$bundle_file" ]; then
     echo "missing self bundle file: $self_bundle/$bundle_file" >&2
     echo "artifacts left in: $workdir" >&2
@@ -371,6 +371,8 @@ expect_contains "$self_bundle/README.md" "Ariadne Self-Assessment Bundle"
 expect_contains "$self_bundle/README.md" "What This Bundle Answers"
 expect_contains "$self_bundle/README.md" "Suggested Review Order"
 expect_contains "$self_bundle/README.md" "Proof Loop Commands"
+expect_contains "$self_bundle/README.md" "runbook.txt"
+expect_contains "$self_bundle/README.md" "runbook.json"
 expect_contains "$self_bundle/README.md" "operator-packet.txt"
 expect_contains "$self_bundle/README.md" "operator-packet.json"
 expect_contains "$self_bundle/README.md" "dashboard.html"
@@ -395,6 +397,19 @@ expect_contains "$self_bundle/assessment.json" '"source_reference_workbench"'
 expect_contains "$self_bundle/assessment.json" '"inspect_command"'
 expect_contains "$self_bundle/assessment.json" '"metadata_only"'
 expect_contains "$self_bundle/assessment.json" '"top_case_id": "case:identity-credentials"'
+expect_contains "$self_bundle/runbook.txt" "Ariadne Operator Runbook"
+expect_contains "$self_bundle/runbook.txt" "case:identity-credentials"
+expect_contains "$self_bundle/runbook.txt" "Open first:"
+expect_contains "$self_bundle/runbook.txt" "Do next:"
+expect_contains "$self_bundle/runbook.txt" "Save Baseline Proof"
+expect_contains "$self_bundle/runbook.txt" "Add Or Verify Proof"
+expect_contains "$self_bundle/runbook.txt" "Closure workflow:"
+expect_contains "$self_bundle/runbook.json" '"available": true'
+expect_contains "$self_bundle/runbook.json" '"case:identity-credentials"'
+expect_contains "$self_bundle/runbook.json" '"current_step"'
+expect_contains "$self_bundle/runbook.json" '"next_step"'
+expect_contains "$self_bundle/runbook.json" '"open_first"'
+expect_contains "$self_bundle/runbook.json" '"closure_workflow"'
 expect_contains "$self_bundle/operator-packet.txt" "Ariadne Operator Packet"
 expect_contains "$self_bundle/operator-packet.txt" "case:identity-credentials"
 expect_contains "$self_bundle/operator-packet.txt" "Evidence to open:"
@@ -434,6 +449,8 @@ expect_contains "$self_bundle/proof-plan.json" '"run_kind": "proof_plan"'
 expect_contains "$self_bundle/proof-plan.json" '"case_filter": "case:identity-credentials"'
 expect_contains "$self_bundle/manifest.json" '"name": "README.md"'
 expect_contains "$self_bundle/manifest.json" '"name": "manifest.json"'
+expect_contains "$self_bundle/manifest.json" '"name": "runbook.txt"'
+expect_contains "$self_bundle/manifest.json" '"name": "runbook.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.json"'
 expect_contains "$self_bundle/manifest.json" '"size_bytes"'

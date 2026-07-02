@@ -145,7 +145,7 @@ func runSelf(args []string) {
 	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
 	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
-	bundleDir := fs.String("bundle-dir", "", "write a first-run evidence bundle with summary, operator packet, dashboard, inventory, cases, and proof plan")
+	bundleDir := fs.String("bundle-dir", "", "write a first-run evidence bundle with summary, runbook, operator packet, dashboard, inventory, cases, and proof plan")
 	fs.Parse(args)
 	targetPath := strings.TrimSpace(*path)
 	if targetPath == "" {
@@ -246,6 +246,8 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		Files: []selfAssessmentBundleFile{
 			{Name: "assessment.txt", Path: filepath.Join(absDir, "assessment.txt"), Description: "Compact human readout with the decision, evidence, first action, and rerun commands."},
 			{Name: "assessment.json", Path: filepath.Join(absDir, "assessment.json"), Description: "Structured assessment contract for automation and UI consumers."},
+			{Name: "runbook.txt", Path: filepath.Join(absDir, "runbook.txt"), Description: "Action-first operator runbook with open-first evidence, current step, next step, commands, and closure workflow."},
+			{Name: "runbook.json", Path: filepath.Join(absDir, "runbook.json"), Description: "Structured operator runbook for workflow systems and managed UI clients."},
 			{Name: "operator-packet.txt", Path: filepath.Join(absDir, "operator-packet.txt"), Description: "Small ticket-style handoff with source refs, graph path, controls, proof checkpoint, commands, and done criteria."},
 			{Name: "operator-packet.json", Path: filepath.Join(absDir, "operator-packet.json"), Description: "Structured operator packet for ticketing, workflow systems, and automation."},
 			{Name: "dashboard.html", Path: filepath.Join(absDir, "dashboard.html"), Description: "Local operator dashboard with the same assessment evidence."},
@@ -277,6 +279,18 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	}
 	if err := add("assessment.json", true, func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "json", status, focus)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("runbook.txt", true, func(w io.Writer) error {
+		return renderSelfAssessmentRunbook(w, assess.OperatorWorkbench.Runbook)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("runbook.json", true, func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(assess.OperatorWorkbench.Runbook)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -376,6 +390,7 @@ func selfAssessmentBundleCaseID(assess model.AssessReport, focus report.AssessFo
 func selfAssessmentBundleReviewOrder() []string {
 	return []string{
 		"Read `assessment.txt` for the executive readout, decision, signal/noise boundary, and first action.",
+		"Use `runbook.txt` as the action-first operator workflow: open-first evidence, current step, commands, artifacts, and closure workflow. Use `runbook.json` for UI clients and workflow automation.",
 		"Use `operator-packet.txt` as the compact ticket or handoff: source refs, graph path, controls, proof checkpoint, commands, and done criteria. Use `operator-packet.json` for automation.",
 		"Open `dashboard.html` for the operator dashboard with evidence links, proof bundle rows, lifecycle, and case queue.",
 		"Use `proof-action.txt` to inspect the exact proof evidence Ariadne expects for the focused case.",
@@ -402,6 +417,107 @@ func selfAssessmentBundleProofLoop(targetPath string, mode string, agent string,
 		base + " --patch-dir proof-patches",
 		base + " --format json --out after-proof.json",
 		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
+	}
+}
+
+func renderSelfAssessmentRunbook(w io.Writer, runbook model.AssessOperatorRunbook) error {
+	fmt.Fprintf(w, "Ariadne Operator Runbook\n")
+	if !runbook.Available {
+		fmt.Fprintf(w, "No operator runbook is available for the current assessment filter.\n")
+		return nil
+	}
+	fmt.Fprintf(w, "Case: %s", selfBundleFirstNonEmpty(runbook.Case.ID, "not recorded"))
+	if runbook.Case.Title != "" {
+		fmt.Fprintf(w, " (%s)", runbook.Case.Title)
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "State: %s\n", selfBundleFirstNonEmpty(runbook.Case.State, "unknown"))
+	if runbook.CurrentControl != "" {
+		fmt.Fprintf(w, "Control: %s\n", runbook.CurrentControl)
+	}
+	if runbook.ProofSurface != "" {
+		fmt.Fprintf(w, "Proof surface: %s\n", runbook.ProofSurface)
+	}
+	fmt.Fprintf(w, "\nOpen first:\n")
+	if len(runbook.OpenFirst) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, ref := range runbook.OpenFirst {
+			fmt.Fprintf(w, "  - %s\n", selfAssessmentRunbookEvidenceLine(ref))
+		}
+	}
+	fmt.Fprintf(w, "\nWhy this case:\n")
+	renderSelfAssessmentStringList(w, runbook.WhyThisCase)
+	fmt.Fprintf(w, "\nDo next:\n")
+	renderSelfAssessmentStepLine(w, runbook.CurrentStep)
+	if runbook.NextStep.ID != "" {
+		renderSelfAssessmentStepLine(w, runbook.NextStep)
+	}
+	fmt.Fprintf(w, "\nFiles:\n")
+	renderSelfAssessmentStringList(w, runbook.Files)
+	fmt.Fprintf(w, "\nArtifacts:\n")
+	renderSelfAssessmentStringList(w, runbook.Artifacts)
+	fmt.Fprintf(w, "\nCommands:\n")
+	renderSelfAssessmentStringList(w, runbook.Commands)
+	fmt.Fprintf(w, "\nDone when:\n")
+	renderSelfAssessmentStringList(w, runbook.DoneCriteria)
+	fmt.Fprintf(w, "\nClosure workflow:\n")
+	if len(runbook.ClosureWorkflow) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, step := range runbook.ClosureWorkflow {
+			renderSelfAssessmentStepLine(w, step)
+		}
+	}
+	if len(runbook.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimits:\n")
+		renderSelfAssessmentStringList(w, runbook.Limitations)
+	}
+	return nil
+}
+
+func selfAssessmentRunbookEvidenceLine(ref model.EvidenceReference) string {
+	source := selfBundleFirstNonEmpty(ref.Source, ref.ID, ref.Kind, "not recorded")
+	if ref.LineStart > 0 && ref.LineEnd > ref.LineStart {
+		source = fmt.Sprintf("%s:%d-%d", source, ref.LineStart, ref.LineEnd)
+	} else if ref.LineStart > 0 {
+		source = fmt.Sprintf("%s:%d", source, ref.LineStart)
+	}
+	fact := selfBundleFirstNonEmpty(ref.Summary, ref.Kind)
+	if fact == "" {
+		return source
+	}
+	return fmt.Sprintf("%s - %s", source, fact)
+}
+
+func renderSelfAssessmentStepLine(w io.Writer, step model.AssessClosureLoopStep) {
+	if step.ID == "" {
+		return
+	}
+	label := selfBundleFirstNonEmpty(step.Title, step.ID)
+	status := selfBundleFirstNonEmpty(step.Status, "unknown")
+	if step.Step > 0 {
+		fmt.Fprintf(w, "  - %d. %s [%s]", step.Step, label, status)
+	} else {
+		fmt.Fprintf(w, "  - %s [%s]", label, status)
+	}
+	if step.Summary != "" {
+		fmt.Fprintf(w, ": %s", step.Summary)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderSelfAssessmentStringList(w io.Writer, items []string) {
+	if len(items) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+		return
+	}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		fmt.Fprintf(w, "  - %s\n", item)
 	}
 }
 
@@ -496,6 +612,8 @@ func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleR
 		fmt.Fprintf(w, "Top case: %s\n", result.TopCaseID)
 	}
 	fmt.Fprintf(w, "Open first: %s\n", filepath.Join(result.Directory, "assessment.txt"))
+	fmt.Fprintf(w, "Runbook: %s\n", filepath.Join(result.Directory, "runbook.txt"))
+	fmt.Fprintf(w, "Runbook JSON: %s\n", filepath.Join(result.Directory, "runbook.json"))
 	fmt.Fprintf(w, "Operator packet: %s\n", filepath.Join(result.Directory, "operator-packet.txt"))
 	fmt.Fprintf(w, "Operator packet JSON: %s\n", filepath.Join(result.Directory, "operator-packet.json"))
 	fmt.Fprintf(w, "Dashboard: %s\n", filepath.Join(result.Directory, "dashboard.html"))
