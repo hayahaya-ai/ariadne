@@ -198,7 +198,7 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 
 Useful flags:
 
-- `--agent all|claude|codex|cursor|windsurf|continue|aider|gemini|opencode`
+- `--agent all|claude|codex|cursor|windsurf|continue|aider|gemini|opencode|github-actions`
 - `--mode repo|endpoint`
 - `--format table|json|dot|mermaid`
 - `--out <file>`
@@ -218,6 +218,7 @@ Current deterministic discovery covers:
 - runtime config under `.claude/**`, `.codex/**`, `.cursor/**`, `.windsurf/**`, `.continue/**`, `.gemini/**`, `.opencode/**`, `.vscode/**`, and supported Aider config files
 - `CLAUDE.md`, `AGENTS.md`, and nested agent instruction files
 - Cursor, Windsurf, Continue, Gemini, GitHub Copilot, Cline, and Roo instruction or rule files
+- GitHub Actions workflows under `.github/workflows/*.yml` and `.github/workflows/*.yaml` as managed/CI agent execution surfaces
 - MCP configuration, including VS Code `.vscode/mcp.json`, Cline `.cline/mcp.json`, and Roo `.roo/mcp.json`
 - plugin, skill, extension, and config surfaces
 - command files and command-like workflow surfaces

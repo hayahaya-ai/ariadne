@@ -2524,6 +2524,7 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	requireSurfaceKind(t, r.Collection.Surfaces, "vscode-mcp-config")
 	requireSurfaceKind(t, r.Collection.Surfaces, "copilot-instructions")
 	requireSurfaceKind(t, r.Collection.Surfaces, "copilot-path-instructions")
+	requireSurfaceKind(t, r.Collection.Surfaces, "github-actions-workflow")
 	requireSurfaceKind(t, r.Collection.Surfaces, "cline-rules")
 	requireSurfaceKind(t, r.Collection.Surfaces, "cline-mcp-config")
 	requireSurfaceKind(t, r.Collection.Surfaces, "cline-ignore")
@@ -2568,6 +2569,19 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	if !r.Graph.HasEdge("runtime:copilot|can_call|tool:mcp-package-launch") ||
 		!r.Graph.HasEdge("control:tool-sandbox-execution|restricts|tool:mcp-package-launch") {
 		t.Fatalf("graph should connect Copilot MCP launch and sandbox control: %+v", r.Graph.Edges)
+	}
+	actionsMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "github-actions", "repo")
+	if !containsString(actionsMap.SourceRefs, ".github/workflows/ai-review.yml") ||
+		!containsString(actionsMap.Tools, "managed-agent-workflow") ||
+		!containsString(actionsMap.Authorities, "local-code-execution") ||
+		!containsString(actionsMap.Authorities, "external-communication") ||
+		!containsString(actionsMap.Controls, "approval-required") {
+		t.Fatalf("github actions surface map should retain workflow source refs, tools, authority, and controls: %+v", actionsMap)
+	}
+	if !r.Graph.HasEdge("runtime:github-actions|can_call|tool:managed-agent-workflow") ||
+		!r.Graph.HasEdge("tool:managed-agent-workflow|grants|authority:local-code-execution") ||
+		!r.Graph.HasEdge("control:approval-required|requires_approval|tool:managed-agent-workflow") {
+		t.Fatalf("graph should connect managed workflow launch, authority, and approval control: %+v", r.Graph.Edges)
 	}
 	clineMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "cline", "repo")
 	if clineMap.Summarized == 0 ||
@@ -2632,6 +2646,8 @@ func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 		"MESSY_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK",
 		"CLINE_PRIVATE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK",
 		"ROO_PRIVATE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK",
+		"OPENAI_API_KEY",
+		"example.invalid/agent-audit",
 	} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("inventory leaked private fixture value %q", forbidden)

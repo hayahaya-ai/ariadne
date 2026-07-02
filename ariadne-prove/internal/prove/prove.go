@@ -262,7 +262,7 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 		Limitations: []string{
 			"Inventory mode collects deterministic local facts only; it does not classify exposure.",
 			"Private histories, paste caches, transcripts, and file history are summarized by metadata only.",
-			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, MCP, and generic repo instruction surfaces are supported in this milestone.",
+			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, GitHub Actions, MCP, and generic repo instruction surfaces are supported in this milestone.",
 		},
 	}, nil
 }
@@ -812,6 +812,9 @@ func BuildGraph(c model.Collection) model.Graph {
 		if tool.ID == "tool:agent-command-shell" {
 			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:local-code-execution", EvidenceID: "evidence:" + tool.ID})
 		}
+		if tool.ID == "tool:managed-agent-workflow" {
+			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:local-code-execution", EvidenceID: "evidence:" + tool.ID})
+		}
 		if tool.ID == "tool:agent-delegation" {
 			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:delegated-agent-authority", EvidenceID: "evidence:" + tool.ID})
 		}
@@ -1093,6 +1096,7 @@ func controlRequiresApprovalTool(controlID, toolID string) bool {
 	case "tool:mcp-package-launch",
 		"tool:agent-command-shell",
 		"tool:agent-delegation",
+		"tool:managed-agent-workflow",
 		"tool:agent-plugin-surface":
 		return true
 	default:

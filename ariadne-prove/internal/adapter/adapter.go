@@ -153,6 +153,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectPluginSurface(c, s)
 	case "claude-remote-settings", "claude-policy-limits":
 		collectManagedControlSurface(c, s)
+	case "github-actions-workflow":
+		collectGitHubActionsWorkflow(c, s)
 	}
 	_ = opts
 }
@@ -497,6 +499,94 @@ func collectMCPPolicy(c *model.Collection, s model.Surface) {
 	}
 	collectToolIntegrityControls(c, "", s.Source, text)
 	collectResourceControls(c, "", s.Source, text)
+}
+
+func collectGitHubActionsWorkflow(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	source := s.Source
+	runtime := "github-actions"
+	c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{
+		ID:      "runtime:" + runtime,
+		Kind:    runtime,
+		Source:  source,
+		Scope:   s.Scope,
+		Summary: "GitHub Actions workflow evidence was found.",
+	})
+	configID := "config:" + runtime + "-" + s.Scope
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", "GitHub Actions workflow source was collected."))
+	text := strings.ToLower(string(data))
+	if workflowAgentLike(text) {
+		c.Tools = appendUniqueTool(c.Tools, model.Tool{
+			ID:      "tool:managed-agent-workflow",
+			Kind:    "managed-agent-workflow",
+			Runtime: runtime,
+			Source:  source,
+			Risky:   workflowHasWritePermission(text) || containsExternalCommunication(text),
+			Summary: "Workflow appears to invoke AI or agent-like automation from CI-managed configuration.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:managed-agent-workflow", "tool", source, "declared", "Managed workflow agent invocation indicators were collected without running the workflow."))
+	}
+	if workflowExecutesCode(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:local-code-execution",
+			Kind:    "local-code-execution",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitHub Actions workflow can execute commands or actions on a workflow runner.",
+		})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:developer-execution-boundary",
+			Kind:     "developer-execution-boundary",
+			Abstract: true,
+			Summary:  "Local or CI runner execution context reachable from agent/tool automation.",
+		})
+	}
+	if workflowReadsRepo(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:file-read",
+			Kind:    "file-read",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitHub Actions workflow can read checked-out repository files or workflow workspace context.",
+		})
+	}
+	if workflowHasWritePermission(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
+			ID:      "authority:broad-local",
+			Kind:    "broad-local",
+			Runtime: runtime,
+			Source:  source,
+			Summary: "GitHub Actions workflow declares write-capable permissions or broad workflow token posture.",
+		})
+	}
+	if containsExternalCommunication(text) || strings.Contains(text, "uses:") {
+		addExternalCommunication(c, runtime, source, "GitHub Actions workflow can call external actions, package registries, APIs, or web endpoints.")
+	}
+	if workflowScopedPermissions(text) {
+		addControl(c, "control:scoped-permissions", "scoped-permissions", runtime, source, "GitHub Actions workflow declares scoped or read-only permissions.")
+	}
+	if workflowPinnedActions(text) {
+		addControl(c, "control:signed-tool-artifacts", "signed-tool-artifacts", runtime, source, "GitHub Actions workflow pins at least one action by version, digest, or immutable-looking reference.")
+	}
+	if strings.Contains(text, "environment:") {
+		addControl(c, "control:approval-required", "approval-required", runtime, source, "GitHub Actions workflow declares an environment gate that can require deployment approval.")
+	}
+	collectResourceControls(c, runtime, source, text)
+	collectGovernanceControls(c, runtime, source, text)
+	collectObservabilityControls(c, runtime, source, text)
+	if inlineCredentialConfigured(text) {
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:credential-material",
+			Kind:     "credential-material",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Workflow contains inline credential field indicators; values are not emitted.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values."))
+	}
 }
 
 func collectNetworkPolicy(c *model.Collection, s model.Surface) {
@@ -1137,19 +1227,27 @@ func collectObservabilityPolicy(c *model.Collection, s model.Surface) {
 		return
 	}
 	text := strings.ToLower(string(data))
+	collectObservabilityControls(c, "", s.Source, text)
+	collectResponseControls(c, "", s.Source, text)
+}
+
+func collectObservabilityControls(c *model.Collection, runtime, source, text string) {
+	prefix := "Observability policy"
+	if runtime != "" {
+		prefix = runtime + " observability evidence"
+	}
 	if auditLoggingConfigured(text) {
-		addControl(c, "control:audit-logging", "audit-logging", "", s.Source, "Observability policy declares tool-call, approval, telemetry, or audit logging.")
+		addControl(c, "control:audit-logging", "audit-logging", runtime, source, prefix+" declares tool-call, approval, telemetry, or audit logging.")
 	}
 	if traceabilityConfigured(text) {
-		addControl(c, "control:request-traceability", "request-traceability", "", s.Source, "Observability policy declares request, trace, correlation, or provenance IDs.")
+		addControl(c, "control:request-traceability", "request-traceability", runtime, source, prefix+" declares request, trace, correlation, or provenance IDs.")
 	}
 	if telemetryExportConfigured(text) {
-		addControl(c, "control:telemetry-export", "telemetry-export", "", s.Source, "Observability policy declares telemetry export for agent audit correlation.")
+		addControl(c, "control:telemetry-export", "telemetry-export", runtime, source, prefix+" declares telemetry export for agent audit correlation.")
 	}
 	if immutableAuditConfigured(text) {
-		addControl(c, "control:immutable-audit-log", "immutable-audit-log", "", s.Source, "Observability policy declares append-only or immutable audit log storage.")
+		addControl(c, "control:immutable-audit-log", "immutable-audit-log", runtime, source, prefix+" declares append-only or immutable audit log storage.")
 	}
-	collectResponseControls(c, "", s.Source, text)
 }
 
 func collectTelemetryConfig(c *model.Collection, s model.Surface) {
@@ -1379,6 +1477,8 @@ func displayRuntime(runtime string) string {
 		return "OpenCode"
 	case "copilot":
 		return "GitHub Copilot"
+	case "github-actions":
+		return "GitHub Actions"
 	case "cline":
 		return "Cline"
 	case "roo":
@@ -1499,6 +1599,59 @@ func mcpConfigured(text string) bool {
 
 func containsExternalCommunication(text string) bool {
 	return containsAny(text, []string{"curl ", "wget ", "http://", "https://", "webhook", "webfetch", "websearch", "post ", "upload", "send to"})
+}
+
+func workflowAgentLike(text string) bool {
+	return containsAny(text, []string{
+		"claude",
+		"anthropic",
+		"codex",
+		"openai",
+		"copilot",
+		"gemini",
+		"aider",
+		"cursor-agent",
+		"continue",
+		"llm",
+		"ai review",
+		"ai-review",
+		"agent",
+	})
+}
+
+func workflowExecutesCode(text string) bool {
+	return strings.Contains(text, "\nrun:") ||
+		strings.Contains(text, "\n  run:") ||
+		strings.Contains(text, "\n    run:") ||
+		strings.Contains(text, "uses:")
+}
+
+func workflowReadsRepo(text string) bool {
+	return strings.Contains(text, "actions/checkout") ||
+		strings.Contains(text, "checkout@") ||
+		strings.Contains(text, "github.workspace") ||
+		strings.Contains(text, "${{ github.workspace }}")
+}
+
+func workflowHasWritePermission(text string) bool {
+	return strings.Contains(text, "write-all") ||
+		strings.Contains(text, "contents: write") ||
+		strings.Contains(text, "pull-requests: write") ||
+		strings.Contains(text, "issues: write") ||
+		strings.Contains(text, "id-token: write") ||
+		strings.Contains(text, "packages: write")
+}
+
+func workflowScopedPermissions(text string) bool {
+	return strings.Contains(text, "permissions: read-all") ||
+		strings.Contains(text, "contents: read") ||
+		strings.Contains(text, "pull-requests: read") ||
+		strings.Contains(text, "issues: read")
+}
+
+func workflowPinnedActions(text string) bool {
+	return looksPinned(text) ||
+		regexp.MustCompile(`(?m)uses:\s*[^@\s]+@[0-9a-f]{12,}`).MatchString(text)
 }
 
 type observabilitySignals struct {

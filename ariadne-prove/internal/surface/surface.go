@@ -110,6 +110,8 @@ func Registry() []Rule {
 		{Runtime: "copilot", Scope: "repo", Category: "trust-input", Kind: "copilot-instructions", HandlingMode: "parse", Summary: "GitHub Copilot repository instructions can influence Copilot and agent behavior.", Matches: exact(".github/copilot-instructions.md")},
 		{Runtime: "copilot", Scope: "repo", Category: "trust-input", Kind: "copilot-path-instructions", HandlingMode: "parse", Summary: "GitHub Copilot path-specific instructions can influence Copilot and agent behavior for matching files.", Matches: prefixSuffix(".github/instructions/", ".instructions.md")},
 
+		{Runtime: "github-actions", Scope: "repo", Category: "managed-agent-workflow", Kind: "github-actions-workflow", HandlingMode: "parse", Summary: "GitHub Actions workflow can run managed or CI-hosted agent automation from repository-controlled configuration.", Matches: anyOf(prefixSuffix(".github/workflows/", ".yml"), prefixSuffix(".github/workflows/", ".yaml"))},
+
 		{Runtime: "cline", Scope: "repo", Category: "trust-input", Kind: "cline-rules", HandlingMode: "parse", Summary: "Cline rules can influence Cline agent behavior.", Matches: anyOf(prefixSuffix(".clinerules/", ".md"), prefixSuffix(".clinerules/", ".txt"), prefixSuffix("Documents/Cline/Rules/", ".md"), prefixSuffix("Documents/Cline/Rules/", ".txt"))},
 		{Runtime: "cline", Scope: "repo", Category: "mcp-tool-config", Kind: "cline-mcp-config", HandlingMode: "parse", Summary: "Cline MCP config declares model-callable tools.", Matches: exact(".cline/mcp.json")},
 		{Runtime: "cline", Scope: "repo", Category: "policy", Kind: "cline-ignore", HandlingMode: "parse", Summary: "Cline ignore policy can constrain files available to the agent.", Matches: exact(".clineignore")},
@@ -559,6 +561,9 @@ func summarizePath(path string) (int, int64, int) {
 
 func runtimeAllowed(selected, runtime string) bool {
 	if selected == "" || selected == "all" || runtime == "generic" || runtime == "mcp" {
+		return true
+	}
+	if runtime == "github-actions" {
 		return true
 	}
 	return selected == runtime

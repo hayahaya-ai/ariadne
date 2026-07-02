@@ -16,7 +16,7 @@ import (
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/storylab"
 )
 
-const agentHelp = "agent runtime to inspect: all, claude, codex, cursor, windsurf, continue, aider, gemini, opencode"
+const agentHelp = "agent runtime to inspect: all, claude, codex, cursor, windsurf, continue, aider, gemini, opencode, github-actions"
 
 func main() {
 	if len(os.Args) < 2 {
