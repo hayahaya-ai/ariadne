@@ -355,10 +355,11 @@ func renderProofPlanDashboard(w io.Writer, r model.ProofPlanReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderProofPlanSummaryDashboard(w, r)
+	renderProofPlanCurrentActionDashboard(w, r)
 	renderProofPlanWorkbenchDashboard(w, r)
 	renderControlOperatorCasesDashboard(w, r.Cases)
-	renderProofPlanPatchesDashboard(w, r.ProofPatches)
-	renderProofPlanEvidenceDashboard(w, r.EvidenceReferences)
+	renderProofPlanPatchesDashboard(w, r.TargetPath, r.ProofPatches)
+	renderProofPlanEvidenceDashboard(w, r.TargetPath, r.EvidenceReferences)
 	renderProofPlanCommandsDashboard(w, r)
 	renderProofPlanCompareDashboard(w, r)
 	renderRunNotes(w, nil, r.Limitations)
@@ -1677,7 +1678,7 @@ func renderProofPlanWorkbenchDashboard(w io.Writer, r model.ProofPlanReport) {
 		}
 		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("workbench", item.ID)))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><h3>%s</h3><div class="mono">%s</div><div class="subtle">%s</div><h3>Next step</h3><div>%s</div></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)), esc(item.Title), esc(item.ID), esc(item.StateReason), esc(item.NextStep))
-		fmt.Fprintf(w, `<td><h3>Evidence references</h3>%s<h3>Proof surfaces</h3>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 5)), renderSmallList(limitStrings(item.ProofSurfaces, 6)))
+		fmt.Fprintf(w, `<td><h3>Evidence references</h3>%s<h3>Proof surfaces</h3>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(r.TargetPath, item.EvidenceReferences, 5)), renderDashboardPathList(r.TargetPath, limitStrings(item.ProofSurfaces, 6)))
 		fmt.Fprintf(w, `<td><h3>%s</h3>%s<h3>Evidence payload</h3>%s</td>`, esc(controlLabel), renderSmallList(limitStrings(item.StartingControls, 5)), renderProofPatchPayloads(item.ProofPatches, 3))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limits</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 4)), renderSmallList(limitStrings(item.Limitations, 2)))
 		fmt.Fprintln(w, "</tr>")
@@ -1687,6 +1688,147 @@ func renderProofPlanWorkbenchDashboard(w io.Writer, r model.ProofPlanReport) {
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderProofPlanCurrentActionDashboard(w io.Writer, r model.ProofPlanReport) {
+	if len(r.Cases) == 0 && len(r.ProofPatches) == 0 && len(r.EvidenceReferences) == 0 {
+		return
+	}
+	item, hasCase := firstProofPlanCase(r)
+	patch, hasPatch := firstProofPlanPatch(r)
+	refs := r.EvidenceReferences
+	if hasCase && len(item.EvidenceReferences) > 0 {
+		refs = item.EvidenceReferences
+	}
+	proofSurfaces := proofPatchSurfaceLines(r.ProofPatches)
+	if hasCase && len(item.ProofSurfaces) > 0 {
+		proofSurfaces = item.ProofSurfaces
+	}
+	rerunCommands := r.RerunCommands
+	if hasCase && len(item.RerunCommands) > 0 {
+		rerunCommands = item.RerunCommands
+	}
+	successCriteria := r.SuccessCriteria
+	if hasCase && len(item.SuccessCriteria) > 0 {
+		successCriteria = item.SuccessCriteria
+	}
+
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Current Action Packet</h2><div class="subtle">The focused proof loop, rendered from structured proof-plan facts.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	renderMetricRow(w, []kv{
+		{"Case", firstNonEmpty(proofPlanActionCaseID(item, hasCase), r.CaseFilter, "none")},
+		{"State", firstNonEmpty(proofPlanActionState(item, hasCase), proofPlanState(r))},
+		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(refs)))},
+		{"Proof patches", fmt.Sprintf("%d", len(r.ProofPatches))},
+		{"Proof surfaces", fmt.Sprintf("%d", len(proofSurfaces))},
+	})
+	if hasCase {
+		fmt.Fprintf(w, `<h3>%s</h3>`, esc(controlOperatorCaseDisplayTitle(item)))
+		if item.Question != "" {
+			fmt.Fprintf(w, `<div class="subtle">%s</div>`, esc(item.Question))
+		}
+		if item.StateReason != "" {
+			fmt.Fprintf(w, `<p><strong>Current state:</strong> %s</p>`, esc(item.StateReason))
+		}
+		if item.NextStep != "" {
+			fmt.Fprintf(w, `<p><strong>Next step:</strong> %s</p>`, esc(item.NextStep))
+		}
+	}
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(r.TargetPath, refs, 6)))
+	if hasCase {
+		fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
+		fmt.Fprintln(w, renderSmallList(limitStrings(item.StartingControls, 6)))
+	}
+	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
+	fmt.Fprintln(w, renderDashboardPathList(r.TargetPath, limitStrings(proofSurfaces, 6)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Proof To Add Or Verify</h3>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanCurrentPatchHTMLLines(r.TargetPath, patch, hasPatch, hasCase && controlOperatorCaseIsClosed(item))))
+	if r.PatchExportCommand != "" {
+		fmt.Fprintln(w, `<h3>Export Suggested Files</h3>`)
+		fmt.Fprintln(w, renderSmallList([]string{r.PatchExportCommand}))
+	}
+	fmt.Fprintln(w, `<h3>Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(rerunCommands, 3)))
+	fmt.Fprintln(w, `<h3>Compare Loop</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(r.CompareCommands, 3)))
+	fmt.Fprintln(w, `<h3>Done When</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(successCriteria, 4)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, "</section>")
+}
+
+func firstProofPlanCase(r model.ProofPlanReport) (model.ControlOperatorCase, bool) {
+	if len(r.Cases) == 0 {
+		return model.ControlOperatorCase{}, false
+	}
+	return r.Cases[0], true
+}
+
+func firstProofPlanPatch(r model.ProofPlanReport) (model.ControlProofPatch, bool) {
+	if len(r.ProofPatches) == 0 {
+		return model.ControlProofPatch{}, false
+	}
+	return r.ProofPatches[0], true
+}
+
+func proofPlanActionCaseID(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.ID
+}
+
+func proofPlanActionState(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return firstNonEmpty(item.State, "open")
+}
+
+func proofPlanEvidenceReferenceHTMLLines(root string, refs []model.EvidenceReference, limit int) []string {
+	limited := dashboardEvidenceReferencesBySource(refs, limit)
+	out := make([]string, 0, len(limited))
+	for _, ref := range limited {
+		out = append(out, dashboardEvidenceReferenceHTML(root, ref))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func proofPlanCurrentPatchHTMLLines(root string, patch model.ControlProofPatch, ok bool, closed bool) []string {
+	if !ok {
+		if closed {
+			return []string{"No proof patch is needed because Ariadne already observes the hard barrier for this case."}
+		}
+		return []string{"No parser-recognized proof patch was returned for this filter."}
+	}
+	out := []string{
+		"Control: " + esc(firstNonEmpty(patch.Control, "not recorded")),
+		"Surface: " + dashboardFileRefHTML(root, patch.Surface),
+	}
+	if patch.Operation != "" {
+		out = append(out, "Operation: "+esc(patch.Operation))
+	}
+	if patch.Format != "" {
+		out = append(out, "Format: "+esc(patch.Format))
+	}
+	for _, field := range limitStrings(controlProofPatchFieldLines(patch.Fields), 4) {
+		out = append(out, "Field: "+esc(field))
+	}
+	if patch.Example != "" {
+		out = append(out, "Example: "+esc(compactExample(patch.Example)))
+	}
+	return out
 }
 
 func renderCaseBoardEvidenceModelDashboard(w io.Writer) {
@@ -1712,7 +1854,7 @@ func renderCaseBoardEvidenceModelDashboard(w io.Writer) {
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderProofPlanPatchesDashboard(w io.Writer, patches []model.ControlProofPatch) {
+func renderProofPlanPatchesDashboard(w io.Writer, root string, patches []model.ControlProofPatch) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Proof Patches</h2><div class="subtle">Parser-recognized evidence Ariadne can verify on the next run. These are not enforcement claims.</div></div>`)
@@ -1731,7 +1873,7 @@ func renderProofPlanPatchesDashboard(w io.Writer, patches []model.ControlProofPa
 	for _, patch := range patches[:limit] {
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div></td>`, esc(patch.Control), esc(patch.Operation))
-		fmt.Fprintf(w, `<td><span class="mono">%s</span><div class="subtle">%s</div></td>`, esc(patch.Surface), esc(patch.Format))
+		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, dashboardFileRefHTML(root, patch.Surface), esc(patch.Format))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(controlProofPatchFieldLines(patch.Fields)))
 		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(compactExample(patch.Example)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limit</h3>%s</td>`, renderSmallList(limitStrings(patch.RerunCommands, 2)), renderSmallList(limitStrings(patch.SuccessCriteria, 3)), renderSmallList(limitStrings(patch.Limitations, 1)))
@@ -1744,7 +1886,7 @@ func renderProofPlanPatchesDashboard(w io.Writer, patches []model.ControlProofPa
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderProofPlanEvidenceDashboard(w io.Writer, refs []model.EvidenceReference) {
+func renderProofPlanEvidenceDashboard(w io.Writer, root string, refs []model.EvidenceReference) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Evidence References</h2><div class="subtle">Source facts that caused this proof request.</div></div>`)
@@ -1755,7 +1897,7 @@ func renderProofPlanEvidenceDashboard(w io.Writer, refs []model.EvidenceReferenc
 		fmt.Fprintln(w, "</section>")
 		return
 	}
-	fmt.Fprintln(w, renderSmallList(evidenceReferenceLines(refs, 12)))
+	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, refs, 12)))
 	fmt.Fprintln(w, "</section>")
 }
 
@@ -3044,6 +3186,9 @@ func dashboardLooksLikeLocalPath(value string) bool {
 		return true
 	}
 	if strings.HasPrefix(value, ".") && value != "." && value != ".." {
+		return true
+	}
+	if filepath.Base(value) == value && strings.Contains(value, ".") {
 		return true
 	}
 	return strings.Contains(value, "/")
