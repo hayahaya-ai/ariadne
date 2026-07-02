@@ -1691,7 +1691,11 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	}
 	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
 	renderAssessFocusLine(w, r)
-	fmt.Fprintf(w, "Open cases: %d; missing hard barriers: %d; exposed paths: %d\n\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
+	caseLabel := "Open cases"
+	if assessFirstActionClosed(r.FirstAction) {
+		caseLabel = "Focused cases"
+	}
+	fmt.Fprintf(w, "%s: %d; missing hard barriers: %d; exposed paths: %d\n\n", caseLabel, r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
 
 	renderAssessInventorySummary(w, r.Inventory, 4)
 	renderAssessTriage(w, r.Triage)
@@ -2321,6 +2325,7 @@ func buildAssessSummary(inventory model.AssessInventory, exposure model.AssessEx
 }
 
 func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, flaws []model.ZeroTrustArchitecture) model.AssessTriage {
+	closedAction := assessFirstActionClosed(action)
 	triage := model.AssessTriage{
 		Status:                    assessTriageStatus(summary, exposure, action),
 		HardRiskSignals:           []string{},
@@ -2335,41 +2340,52 @@ func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInvent
 	}
 	if action.Available {
 		triage.StartHere = action.CaseID
-		triage.Headline = fmt.Sprintf("Start with %s because Ariadne ranked it as the first open operator case.", firstNonEmpty(action.Title, action.CaseID))
+		if closedAction {
+			triage.Headline = fmt.Sprintf("%s is closed because Ariadne observed hard-barrier evidence.", firstNonEmpty(action.Title, action.CaseID))
+		} else {
+			triage.Headline = fmt.Sprintf("Start with %s because Ariadne ranked it as the first open operator case.", firstNonEmpty(action.Title, action.CaseID))
+		}
 		triage.NextAction = action.NextStep
 		triage.EvidenceReferences = dedupeEvidenceReferences(action.EvidenceReferences)
-		if action.WhyFirst != "" {
-			triage.HardRiskSignals = append(triage.HardRiskSignals, action.WhyFirst)
+		if closedAction {
+			triage.PresentHardBarriers = append(triage.PresentHardBarriers, action.StartingControls...)
+		} else {
+			if action.WhyFirst != "" {
+				triage.HardRiskSignals = append(triage.HardRiskSignals, action.WhyFirst)
+			}
+			if len(action.EvidenceReferences) > 0 {
+				triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d evidence reference(s) support the top case.", len(dedupeEvidenceReferences(action.EvidenceReferences))))
+			}
+			triage.MissingHardBarriers = append(triage.MissingHardBarriers, action.StartingControls...)
 		}
-		if len(action.EvidenceReferences) > 0 {
-			triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d evidence reference(s) support the top case.", len(dedupeEvidenceReferences(action.EvidenceReferences))))
-		}
-		triage.MissingHardBarriers = append(triage.MissingHardBarriers, action.StartingControls...)
 		triage.ProofLoop = assessTriageProofLoop(action)
 	} else {
 		triage.Headline = "No open operator case matched this filter."
 		triage.NextAction = "Review controlled, unknown, or not-observed results if the question is evidence coverage rather than active break paths."
 	}
-	if summary.BreakingArchitectureFlaws > 0 {
+	if !closedAction && summary.BreakingArchitectureFlaws > 0 {
 		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d breaking architecture flaw(s) remain after deterministic graph correlation.", summary.BreakingArchitectureFlaws))
 	}
-	if exposure.Exposed > 0 {
+	if !closedAction && exposure.Exposed > 0 {
 		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d exposed path(s) reach a sensitive boundary without a breaking control.", exposure.Exposed))
 	}
-	if summary.MissingHardBarrierControls > 0 {
+	if !closedAction && summary.MissingHardBarrierControls > 0 {
 		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d missing hard-barrier control(s) are keeping cases open.", summary.MissingHardBarrierControls))
 	}
 	triage.NormalCapabilities = assessNormalCapabilityLines(inventory)
-	triage.MissingHardBarriers = uniqueStrings(append(triage.MissingHardBarriers, closure.RemainingMissingHardBarriers...))
+	if !closedAction {
+		triage.MissingHardBarriers = append(triage.MissingHardBarriers, closure.RemainingMissingHardBarriers...)
+	}
+	triage.MissingHardBarriers = uniqueStrings(triage.MissingHardBarriers)
 	triage.PartialOrFrictionControls = uniqueStrings(closure.PartialOrFrictionControls)
-	triage.PresentHardBarriers = uniqueStrings(closure.HardBarriersObserved)
-	if summary.UnknownArchitectureFlaws > 0 {
+	triage.PresentHardBarriers = uniqueStrings(append(triage.PresentHardBarriers, closure.HardBarriersObserved...))
+	if !closedAction && summary.UnknownArchitectureFlaws > 0 {
 		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d architecture flaw(s) need more deterministic evidence before Ariadne can classify them.", summary.UnknownArchitectureFlaws))
 	}
-	if exposure.Inconclusive > 0 {
+	if !closedAction && exposure.Inconclusive > 0 {
 		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d exposure path(s) are inconclusive because authority, boundary, or control evidence is incomplete.", exposure.Inconclusive))
 	}
-	if summary.NotObservedArchitectureFlaws > 0 {
+	if !closedAction && summary.NotObservedArchitectureFlaws > 0 {
 		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d architecture area(s) were not observed in collected surfaces.", summary.NotObservedArchitectureFlaws))
 	}
 	triage.HardRiskSignals = uniqueStrings(triage.HardRiskSignals)
@@ -2388,20 +2404,34 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 	var signals []model.AssessSignal
 	actionEvidence := dedupeEvidenceReferences(action.EvidenceReferences)
 	actionGraphEdges := assessGraphEdgesForCase(action, flaws, exposure.TopPaths)
+	closedAction := assessFirstActionClosed(action)
+	if closedAction && len(actionGraphEdges) == 0 {
+		actionGraphEdges = assessClosurePathGraphEdges(closure.ControlledPaths)
+	}
 	if action.Available {
+		category := "risk"
+		disposition := "action_required"
+		summaryText := fmt.Sprintf("%s (%s) is the highest-ranked open operator case.", firstNonEmpty(action.Title, action.CaseID), action.CaseID)
+		whyItMatters := firstNonEmpty(action.WhyFirst, "The ranked case board correlated influence, authority, boundary reachability, and missing hard barriers.")
+		if closedAction {
+			category = "present_control"
+			disposition = "breaks_path"
+			summaryText = fmt.Sprintf("%s (%s) is closed with observed hard-barrier evidence.", firstNonEmpty(action.Title, action.CaseID), action.CaseID)
+			whyItMatters = firstNonEmpty(action.WhyFirst, "Ariadne observed deterministic control evidence for this focused case, so the case is not part of the missing-hard-barrier queue.")
+		}
 		signals = append(signals, model.AssessSignal{
 			ID:                 "signal:top-operator-case",
-			Category:           "risk",
-			Disposition:        "action_required",
-			Summary:            fmt.Sprintf("%s (%s) is the highest-ranked open operator case.", firstNonEmpty(action.Title, action.CaseID), action.CaseID),
-			WhyItMatters:       firstNonEmpty(action.WhyFirst, "The ranked case board correlated influence, authority, boundary reachability, and missing hard barriers."),
+			Category:           category,
+			Disposition:        disposition,
+			Summary:            summaryText,
+			WhyItMatters:       whyItMatters,
 			GraphEdges:         actionGraphEdges,
 			EvidenceReferences: actionEvidence,
 			RelatedControls:    uniqueStrings(action.StartingControls),
 			Limitations:        []string{},
 		})
 	}
-	if summary.BreakingArchitectureFlaws > 0 {
+	if !closedAction && summary.BreakingArchitectureFlaws > 0 {
 		signals = append(signals, model.AssessSignal{
 			ID:                 "signal:breaking-architecture-paths",
 			Category:           "risk",
@@ -2414,7 +2444,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Limitations:        []string{},
 		})
 	}
-	if exposure.Exposed > 0 {
+	if !closedAction && exposure.Exposed > 0 {
 		signals = append(signals, model.AssessSignal{
 			ID:                 "signal:exposed-boundary-paths",
 			Category:           "risk",
@@ -2438,7 +2468,7 @@ func buildAssessSignalDetails(summary model.AssessSummary, inventory model.Asses
 			Limitations:  []string{"Normal capability counts come from inventory summaries; inspect inventory JSON for the full surface map."},
 		})
 	}
-	if len(triage.MissingHardBarriers) > 0 {
+	if !closedAction && len(triage.MissingHardBarriers) > 0 {
 		signals = append(signals, model.AssessSignal{
 			ID:                 "signal:missing-hard-barriers",
 			Category:           "missing_control",
@@ -2581,6 +2611,9 @@ func nonNilAssessSignals(items []model.AssessSignal) []model.AssessSignal {
 }
 
 func assessTriageStatus(summary model.AssessSummary, exposure model.AssessExposure, action model.AssessFirstAction) string {
+	if assessFirstActionClosed(action) {
+		return "controlled"
+	}
 	if action.Available || summary.MissingHardBarrierControls > 0 || summary.BreakingArchitectureFlaws > 0 || exposure.Exposed > 0 {
 		return "action_required"
 	}
@@ -2591,6 +2624,14 @@ func assessTriageStatus(summary model.AssessSummary, exposure model.AssessExposu
 		return "controlled"
 	}
 	return "no_supported_signal"
+}
+
+func assessFirstActionClosed(action model.AssessFirstAction) bool {
+	if !action.Available {
+		return false
+	}
+	state := strings.ToLower(strings.TrimSpace(action.State))
+	return state == "closed" || state == "controlled" || state == "no_missing_hard_barrier"
 }
 
 func assessTriageHeadline(status string) string {
@@ -2806,10 +2847,7 @@ func buildAssessClosurePlan(cases []model.ControlOperatorCase, limit int) []mode
 		}
 		seen[key] = true
 		patch := assessClosurePlanProofPatch(control, item.ProofPatches)
-		proofSurface := firstString(item.ProofSurfaces)
-		if patch != nil && patch.Surface != "" {
-			proofSurface = patch.Surface
-		}
+		proofSurface := assessClosurePlanProofSurface(item, patch)
 		planItem := model.AssessClosurePlanItem{
 			Rank:               len(out) + 1,
 			Control:            control,
@@ -2857,6 +2895,32 @@ func assessClosurePlanProofPatch(control string, patches []model.ControlProofPat
 	return &item
 }
 
+func assessClosurePlanProofSurface(item model.ControlOperatorCase, patch *model.ControlProofPatch) string {
+	if patch != nil && patch.Surface != "" {
+		return patch.Surface
+	}
+	if controlOperatorCaseIsClosed(item) {
+		if source := firstControlEvidenceReferenceSource(item.EvidenceReferences); source != "" {
+			return source
+		}
+	}
+	return firstString(item.ProofSurfaces)
+}
+
+func firstControlEvidenceReferenceSource(refs []model.EvidenceReference) string {
+	for _, ref := range refs {
+		if strings.EqualFold(strings.TrimSpace(ref.Kind), "control") && strings.TrimSpace(ref.Source) != "" {
+			return ref.Source
+		}
+	}
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.Source) != "" {
+			return ref.Source
+		}
+	}
+	return ""
+}
+
 func assessClosurePlanCompareCommand(commands []string) string {
 	if len(commands) == 0 {
 		return ""
@@ -2865,6 +2929,9 @@ func assessClosurePlanCompareCommand(commands []string) string {
 }
 
 func assessClosurePlanWhy(item model.ControlOperatorCase, control string) string {
+	if controlOperatorCaseIsClosed(item) {
+		return fmt.Sprintf("%s is already closed for this focused view. Keep %s evidence in place and rerun if the repo, runtime, or policy evidence changes.", firstNonEmpty(item.Title, item.ID), control)
+	}
 	reason := item.PriorityReason
 	if reason == "" {
 		reason = fmt.Sprintf("%s is the highest ranked available case for this closure row.", firstNonEmpty(item.Title, item.ID))
@@ -2874,6 +2941,9 @@ func assessClosurePlanWhy(item model.ControlOperatorCase, control string) string
 
 func assessClosurePlanCloses(item model.ControlOperatorCase) string {
 	title := firstNonEmpty(item.Title, item.ID)
+	if controlOperatorCaseIsClosed(item) {
+		return fmt.Sprintf("%s has observed hard-barrier evidence across %d affected architecture flaw(s) and %d target(s); no proof patch is needed while that evidence remains present.", title, item.FlawCount, item.TargetCount)
+	}
 	return fmt.Sprintf("%s covers %d affected architecture flaw(s) across %d target(s); the case is closed only when rerun evidence removes the missing hard barrier.", title, item.FlawCount, item.TargetCount)
 }
 
@@ -2902,6 +2972,10 @@ func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurren
 	current.Instruction = firstNonEmpty(action.NextStep, step.Summary)
 	current.EvidenceReferences = append([]model.EvidenceReference{}, action.EvidenceReferences...)
 	current.SuccessCriteria = append([]string{}, action.SuccessCriteria...)
+	if assessFirstActionClosed(action) {
+		current.Control = firstString(action.StartingControls)
+		current.Surface = firstControlEvidenceReferenceSource(action.EvidenceReferences)
+	}
 	if len(action.ProofPatches) > 0 {
 		patch := action.ProofPatches[0]
 		current.ProofPatchIndex = 0
@@ -2933,6 +3007,54 @@ func buildAssessCurrentAction(action model.AssessFirstAction) model.AssessCurren
 func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.AssessWorkflowStep {
 	if !action.Available {
 		return []model.AssessWorkflowStep{}
+	}
+	if assessFirstActionClosed(action) {
+		return []model.AssessWorkflowStep{
+			{
+				ID:                 "inspect_evidence",
+				Title:              "Inspect Evidence",
+				Summary:            "Review the deterministic hard-barrier evidence that closed this focused case.",
+				Current:            true,
+				EvidenceReferences: append([]model.EvidenceReference{}, action.EvidenceReferences...),
+				StartingControls:   append([]string{}, action.StartingControls...),
+				ProofSurfaces:      append([]string{}, action.ProofSurfaces...),
+				Commands:           []string{},
+				SuccessCriteria:    []string{},
+			},
+			{
+				ID:                 "add_or_verify_proof",
+				Title:              "Add Or Verify Proof",
+				Summary:            firstNonEmpty(action.NextStep, "No proof patch is needed for this focused case while observed hard-barrier evidence remains present."),
+				Current:            false,
+				EvidenceReferences: []model.EvidenceReference{},
+				StartingControls:   append([]string{}, action.StartingControls...),
+				ProofSurfaces:      append([]string{}, action.ProofSurfaces...),
+				Commands:           []string{},
+				SuccessCriteria:    []string{},
+			},
+			{
+				ID:                 "rerun_case",
+				Title:              "Rerun Case",
+				Summary:            "Rerun the focused case if evidence changes so Ariadne can confirm it remains closed.",
+				Current:            false,
+				EvidenceReferences: []model.EvidenceReference{},
+				StartingControls:   []string{},
+				ProofSurfaces:      []string{},
+				Commands:           append([]string{}, action.RerunCommands...),
+				SuccessCriteria:    []string{},
+			},
+			{
+				ID:                 "compare_before_after",
+				Title:              "Compare Before And After",
+				Summary:            "Compare proof artifacts if controls or evidence change to prove the case stayed closed.",
+				Current:            false,
+				EvidenceReferences: []model.EvidenceReference{},
+				StartingControls:   []string{},
+				ProofSurfaces:      []string{},
+				Commands:           append([]string{}, action.CompareCommands...),
+				SuccessCriteria:    append([]string{}, action.SuccessCriteria...),
+			},
+		}
 	}
 	return []model.AssessWorkflowStep{
 		{

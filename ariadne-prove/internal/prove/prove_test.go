@@ -4230,6 +4230,109 @@ func TestAssessReportSupportsFocusedCaseAndControl(t *testing.T) {
 	}
 }
 
+func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
+	path := realPathFixture(t, "input-controls")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var actionOut bytes.Buffer
+	if err := report.RenderAssessFocused(&actionOut, inventory, r, "action", "breaking", report.AssessFocus{CaseFilter: "case:input-trust-boundary"}); err != nil {
+		t.Fatal(err)
+	}
+	actionRendered := actionOut.String()
+	for _, want := range []string{
+		"Focused cases: 1; missing hard barriers: 0; exposed paths: 0",
+		"Status: controlled",
+		"Readout: Input Trust Boundary is closed because Ariadne observed hard-barrier evidence.",
+		"signal:top-operator-case [present control/breaks path]",
+		"Present hard barrier: control:input-isolation",
+		"Present hard barrier: control:trusted-source-policy",
+		"Prove at: .ariadne/input-policy.json",
+		"Step: Inspect Evidence",
+		"Control: control:input-isolation",
+		"Proof surface: .ariadne/input-policy.json",
+		"No proof patch is needed for this case.",
+	} {
+		if !strings.Contains(actionRendered, want) {
+			t.Fatalf("focused closed assessment action output missing %q:\n%s", want, actionRendered)
+		}
+	}
+	for _, unwanted := range []string{
+		"Status: action required",
+		"highest-ranked open operator case",
+		"signal:missing-hard-barriers",
+		"Missing hard barrier: control:input-isolation",
+		"Missing hard barrier: control:trusted-source-policy",
+		"Prove at: .ariadne/agent-policy.json",
+	} {
+		if strings.Contains(actionRendered, unwanted) {
+			t.Fatalf("focused closed assessment action output should not include %q:\n%s", unwanted, actionRendered)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderAssessFocused(&jsonOut, inventory, r, "json", "breaking", report.AssessFocus{CaseFilter: "case:input-trust-boundary"}); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.CaseFilter != "case:input-trust-boundary" || decoded.Triage.Status != "controlled" || decoded.FirstAction.State != "closed" {
+		t.Fatalf("focused closed assessment should keep controlled state: case=%q triage=%+v action=%+v", decoded.CaseFilter, decoded.Triage, decoded.FirstAction)
+	}
+	if len(decoded.Triage.MissingHardBarriers) != 0 ||
+		!containsExactString(decoded.Triage.PresentHardBarriers, "control:input-isolation") ||
+		!containsExactString(decoded.Triage.PresentHardBarriers, "control:trusted-source-policy") {
+		t.Fatalf("focused closed assessment should move controls from missing to present: %+v", decoded.Triage)
+	}
+	if !hasAssessSignal(decoded.Triage.SignalDetails, "present_control", "breaks_path", "case:input-trust-boundary") ||
+		hasAssessSignal(decoded.Triage.SignalDetails, "missing_control", "missing_hard_barrier", "hard-barrier control") {
+		t.Fatalf("focused closed assessment should use present-control signals only for the focused case: %+v", decoded.Triage.SignalDetails)
+	}
+	if !assessSignalHasGraph(decoded.Triage.SignalDetails, "signal:top-operator-case") {
+		t.Fatalf("focused closed top signal should retain graph evidence: %+v", decoded.Triage.SignalDetails)
+	}
+	if !decoded.FirstAction.CurrentAction.Available ||
+		decoded.FirstAction.CurrentAction.WorkflowStepID != "inspect_evidence" ||
+		decoded.FirstAction.CurrentAction.Control != "control:input-isolation" ||
+		decoded.FirstAction.CurrentAction.Surface != ".ariadne/input-policy.json" ||
+		decoded.FirstAction.CurrentAction.ProofPatch != nil ||
+		decoded.FirstAction.CurrentAction.ProofPatchIndex != -1 {
+		t.Fatalf("focused closed assessment current action should inspect existing evidence with no patch: %+v", decoded.FirstAction.CurrentAction)
+	}
+	if len(decoded.ClosurePlan) != 1 ||
+		decoded.ClosurePlan[0].State != "closed" ||
+		decoded.ClosurePlan[0].ProofSurface != ".ariadne/input-policy.json" ||
+		decoded.ClosurePlan[0].ProofPatch != nil ||
+		!strings.Contains(decoded.ClosurePlan[0].WhatItCloses, "no proof patch is needed") {
+		t.Fatalf("focused closed assessment should present closure evidence rather than a proof patch: %+v", decoded.ClosurePlan)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderAssessFocused(&htmlOut, inventory, r, "html", "breaking", report.AssessFocus{CaseFilter: "case:input-trust-boundary"}); err != nil {
+		t.Fatal(err)
+	}
+	htmlRendered := htmlOut.String()
+	for _, want := range []string{
+		"controlled",
+		"Input Trust Boundary is closed because Ariadne observed hard-barrier evidence.",
+		".ariadne/input-policy.json",
+		"No proof patch is needed for this case.",
+		"Inspect Evidence",
+	} {
+		if !strings.Contains(htmlRendered, want) {
+			t.Fatalf("focused closed assessment dashboard missing %q:\n%s", want, htmlRendered)
+		}
+	}
+}
+
 func TestAssessScanAggregatesFleetCases(t *testing.T) {
 	targetFile := realPathFixture(t, "targets.txt")
 	scan, err := RunScan(Options{TargetsFile: targetFile})
