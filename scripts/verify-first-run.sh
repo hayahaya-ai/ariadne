@@ -38,6 +38,8 @@ echo "  artifacts: $workdir"
 assess_txt="$workdir/assess.txt"
 assess_summary="$workdir/assess-summary.txt"
 assess_json="$workdir/assess.json"
+assess_runbook="$workdir/assess-runbook.txt"
+assess_runbook_json="$workdir/assess-runbook.json"
 assess_html="$workdir/assess.html"
 dashboard_html="$workdir/dashboard.html"
 exposure_dashboard_html="$workdir/exposure-dashboard.html"
@@ -47,6 +49,8 @@ proofs_action="$workdir/proofs-action.txt"
 "$bin" assess --path "$fixture" --out "$assess_summary"
 "$bin" assess --path "$fixture" --format table --out "$assess_txt"
 "$bin" assess --path "$fixture" --format json --out "$assess_json"
+"$bin" assess --path "$fixture" --format runbook --out "$assess_runbook"
+"$bin" assess --path "$fixture" --format runbook-json --out "$assess_runbook_json"
 "$bin" assess --path "$fixture" --format html --out "$assess_html"
 "$bin" dashboard --path "$fixture" --out "$dashboard_html"
 "$bin" dashboard --path "$fixture" --view exposure --out "$exposure_dashboard_html"
@@ -233,6 +237,25 @@ expect_contains "$assess_json" '"apply_commands"'
 expect_contains "$assess_json" '"signal_details"'
 expect_contains "$assess_json" '"normal_capability"'
 expect_contains "$assess_json" '"missing_hard_barrier"'
+
+expect_contains "$assess_runbook" "Ariadne Operator Runbook"
+expect_contains "$assess_runbook" "case:egress-output-boundary"
+expect_contains "$assess_runbook" "Open first:"
+expect_contains "$assess_runbook" "Do next:"
+expect_contains "$assess_runbook" "Save Baseline Proof"
+expect_contains "$assess_runbook" "Add Or Verify Proof"
+expect_contains "$assess_runbook" "Commands:"
+expect_contains "$assess_runbook" "Closure workflow:"
+expect_contains "$assess_runbook_json" '"run_kind": "operator_runbook"'
+expect_contains "$assess_runbook_json" '"source_run_kind": "assess"'
+expect_contains "$assess_runbook_json" '"operator_runbook"'
+expect_contains "$assess_runbook_json" '"case:egress-output-boundary"'
+expect_contains "$assess_runbook_json" '"current_step"'
+expect_contains "$assess_runbook_json" '"next_step"'
+expect_contains "$assess_runbook_json" '"open_first"'
+expect_contains "$assess_runbook_json" '"closure_workflow"'
+expect_contains "$assess_runbook_json" '"save_baseline_proof"'
+expect_contains "$assess_runbook_json" '"add_or_verify_proof"'
 expect_contains "$assess_json" '"proof_loop"'
 expect_contains "$assess_json" '.claude/settings.json'
 expect_contains "$assess_json" '.codex/config.toml'
@@ -404,6 +427,8 @@ expect_contains "$self_bundle/runbook.txt" "Do next:"
 expect_contains "$self_bundle/runbook.txt" "Save Baseline Proof"
 expect_contains "$self_bundle/runbook.txt" "Add Or Verify Proof"
 expect_contains "$self_bundle/runbook.txt" "Closure workflow:"
+expect_contains "$self_bundle/runbook.json" '"run_kind": "operator_runbook"'
+expect_contains "$self_bundle/runbook.json" '"operator_runbook"'
 expect_contains "$self_bundle/runbook.json" '"available": true'
 expect_contains "$self_bundle/runbook.json" '"case:identity-credentials"'
 expect_contains "$self_bundle/runbook.json" '"current_step"'

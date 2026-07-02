@@ -6726,6 +6726,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, operatorPacketSchema, "schema_version", "run_id", "generated_at", "run_kind", "source_run_kind", "mode", "agent", "status_filter", "operator_packet", "redaction", "limitations")
 	assertSchemaProperty(t, operatorPacketSchema, "target_path")
 	assertSchemaProperty(t, operatorPacketSchema, "targets_file")
+	operatorRunbookSchema := loadSchema(t, "ariadne-operator-runbook-v1.schema.json")
+	assertRequiredKeys(t, operatorRunbookSchema, "schema_version", "run_id", "generated_at", "run_kind", "source_run_kind", "mode", "agent", "status_filter", "operator_runbook", "redaction", "limitations")
+	assertSchemaProperty(t, operatorRunbookSchema, "target_path")
+	assertSchemaProperty(t, operatorRunbookSchema, "targets_file")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
@@ -6760,6 +6764,7 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 	}
 	assertJSONHasSchemaRequiredFields(t, "ariadne-assess-v1.schema.json", assessment)
 	assertJSONHasSchemaRequiredFields(t, "ariadne-operator-packet-v1.schema.json", report.BuildAssessOperatorPacketReport(assessment))
+	assertJSONHasSchemaRequiredFields(t, "ariadne-operator-runbook-v1.schema.json", report.BuildAssessOperatorRunbookReport(assessment))
 
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
@@ -6777,6 +6782,7 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertJSONHasSchemaRequiredFields(t, "ariadne-assess-v1.schema.json", assessmentScan)
+	assertJSONHasSchemaRequiredFields(t, "ariadne-operator-runbook-v1.schema.json", report.BuildAssessOperatorRunbookReport(assessmentScan))
 }
 
 func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {

@@ -1950,6 +1950,12 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(BuildAssessOperatorPacketReport(r))
+	case "runbook", "operator-runbook":
+		return RenderAssessRunbook(w, r.OperatorWorkbench.Runbook)
+	case "runbook-json", "operator-runbook-json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(BuildAssessOperatorRunbookReport(r))
 	case "action":
 		return renderAssessAction(w, r)
 	case "json":
@@ -1960,6 +1966,28 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		return renderAssessDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown assess format: %s", format)
+	}
+}
+
+func BuildAssessOperatorRunbookReport(r model.AssessReport) model.AssessOperatorRunbookReport {
+	return model.AssessOperatorRunbookReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         r.RunID,
+		GeneratedAt:   r.GeneratedAt,
+		RunKind:       "operator_runbook",
+		SourceRunKind: r.RunKind,
+		TargetPath:    r.TargetPath,
+		TargetsFile:   r.TargetsFile,
+		Targets:       r.Targets,
+		Mode:          r.Mode,
+		Agent:         r.Agent,
+		StatusFilter:  r.StatusFilter,
+		CaseFilter:    r.CaseFilter,
+		ControlFilter: r.ControlFilter,
+		Runbook:       r.OperatorWorkbench.Runbook,
+		Redaction:     r.Redaction,
+		Warnings:      r.Warnings,
+		Limitations:   nonNilStrings(uniqueSortedStrings(append(append([]string{}, r.OperatorWorkbench.Runbook.Limitations...), r.Limitations...))),
 	}
 }
 
@@ -1982,6 +2010,108 @@ func BuildAssessOperatorPacketReport(r model.AssessReport) model.AssessOperatorP
 		Redaction:     r.Redaction,
 		Warnings:      r.Warnings,
 		Limitations:   nonNilStrings(uniqueSortedStrings(append(append([]string{}, r.OperatorPacket.Limitations...), r.Limitations...))),
+	}
+}
+
+func RenderAssessRunbook(w io.Writer, runbook model.AssessOperatorRunbook) error {
+	fmt.Fprintf(w, "Ariadne Operator Runbook\n")
+	if !runbook.Available {
+		fmt.Fprintf(w, "No operator runbook is available for the current assessment filter.\n")
+		return nil
+	}
+	fmt.Fprintf(w, "Case: %s", firstNonEmpty(runbook.Case.ID, "not recorded"))
+	if runbook.Case.Title != "" {
+		fmt.Fprintf(w, " (%s)", runbook.Case.Title)
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "State: %s\n", firstNonEmpty(runbook.Case.State, "unknown"))
+	if runbook.CurrentControl != "" {
+		fmt.Fprintf(w, "Control: %s\n", runbook.CurrentControl)
+	}
+	if runbook.ProofSurface != "" {
+		fmt.Fprintf(w, "Proof surface: %s\n", runbook.ProofSurface)
+	}
+	fmt.Fprintf(w, "\nOpen first:\n")
+	if len(runbook.OpenFirst) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, ref := range runbook.OpenFirst {
+			fmt.Fprintf(w, "  - %s\n", assessRunbookEvidenceLine(ref))
+		}
+	}
+	fmt.Fprintf(w, "\nWhy this case:\n")
+	renderAssessRunbookStringList(w, runbook.WhyThisCase)
+	fmt.Fprintf(w, "\nDo next:\n")
+	renderAssessRunbookStepLine(w, runbook.CurrentStep)
+	if runbook.NextStep.ID != "" {
+		renderAssessRunbookStepLine(w, runbook.NextStep)
+	}
+	fmt.Fprintf(w, "\nFiles:\n")
+	renderAssessRunbookStringList(w, runbook.Files)
+	fmt.Fprintf(w, "\nArtifacts:\n")
+	renderAssessRunbookStringList(w, runbook.Artifacts)
+	fmt.Fprintf(w, "\nCommands:\n")
+	renderAssessRunbookStringList(w, runbook.Commands)
+	fmt.Fprintf(w, "\nDone when:\n")
+	renderAssessRunbookStringList(w, runbook.DoneCriteria)
+	fmt.Fprintf(w, "\nClosure workflow:\n")
+	if len(runbook.ClosureWorkflow) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, step := range runbook.ClosureWorkflow {
+			renderAssessRunbookStepLine(w, step)
+		}
+	}
+	if len(runbook.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimits:\n")
+		renderAssessRunbookStringList(w, runbook.Limitations)
+	}
+	return nil
+}
+
+func assessRunbookEvidenceLine(ref model.EvidenceReference) string {
+	source := firstNonEmpty(ref.Source, ref.ID, ref.Kind, "not recorded")
+	if ref.LineStart > 0 && ref.LineEnd > ref.LineStart {
+		source = fmt.Sprintf("%s:%d-%d", source, ref.LineStart, ref.LineEnd)
+	} else if ref.LineStart > 0 {
+		source = fmt.Sprintf("%s:%d", source, ref.LineStart)
+	}
+	fact := firstNonEmpty(ref.Summary, ref.Kind)
+	if fact == "" {
+		return source
+	}
+	return fmt.Sprintf("%s - %s", source, fact)
+}
+
+func renderAssessRunbookStepLine(w io.Writer, step model.AssessClosureLoopStep) {
+	if step.ID == "" {
+		return
+	}
+	label := firstNonEmpty(step.Title, step.ID)
+	status := firstNonEmpty(step.Status, "unknown")
+	if step.Step > 0 {
+		fmt.Fprintf(w, "  - %d. %s [%s]", step.Step, label, status)
+	} else {
+		fmt.Fprintf(w, "  - %s [%s]", label, status)
+	}
+	if step.Summary != "" {
+		fmt.Fprintf(w, ": %s", step.Summary)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessRunbookStringList(w io.Writer, items []string) {
+	printed := false
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		printed = true
+		fmt.Fprintf(w, "  - %s\n", item)
+	}
+	if !printed {
+		fmt.Fprintf(w, "  - none\n")
 	}
 }
 

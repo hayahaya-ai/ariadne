@@ -67,7 +67,7 @@ func runAssess(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:input-isolation")
-	format := fs.String("format", "summary", "output format: summary, operator, operator-json, table, action, json, html")
+	format := fs.String("format", "summary", "output format: summary, runbook, runbook-json, operator, operator-json, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -136,7 +136,7 @@ func runSelf(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:identity-credentials")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:credential-isolation")
-	format := fs.String("format", "summary", "output format: summary, operator, operator-json, table, action, json, html")
+	format := fs.String("format", "summary", "output format: summary, runbook, runbook-json, operator, operator-json, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -283,14 +283,14 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		return selfAssessmentBundleResult{}, err
 	}
 	if err := add("runbook.txt", true, func(w io.Writer) error {
-		return renderSelfAssessmentRunbook(w, assess.OperatorWorkbench.Runbook)
+		return report.RenderAssessRunbook(w, assess.OperatorWorkbench.Runbook)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
 	if err := add("runbook.json", true, func(w io.Writer) error {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		return enc.Encode(assess.OperatorWorkbench.Runbook)
+		return enc.Encode(report.BuildAssessOperatorRunbookReport(assess))
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -417,107 +417,6 @@ func selfAssessmentBundleProofLoop(targetPath string, mode string, agent string,
 		base + " --patch-dir proof-patches",
 		base + " --format json --out after-proof.json",
 		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
-	}
-}
-
-func renderSelfAssessmentRunbook(w io.Writer, runbook model.AssessOperatorRunbook) error {
-	fmt.Fprintf(w, "Ariadne Operator Runbook\n")
-	if !runbook.Available {
-		fmt.Fprintf(w, "No operator runbook is available for the current assessment filter.\n")
-		return nil
-	}
-	fmt.Fprintf(w, "Case: %s", selfBundleFirstNonEmpty(runbook.Case.ID, "not recorded"))
-	if runbook.Case.Title != "" {
-		fmt.Fprintf(w, " (%s)", runbook.Case.Title)
-	}
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "State: %s\n", selfBundleFirstNonEmpty(runbook.Case.State, "unknown"))
-	if runbook.CurrentControl != "" {
-		fmt.Fprintf(w, "Control: %s\n", runbook.CurrentControl)
-	}
-	if runbook.ProofSurface != "" {
-		fmt.Fprintf(w, "Proof surface: %s\n", runbook.ProofSurface)
-	}
-	fmt.Fprintf(w, "\nOpen first:\n")
-	if len(runbook.OpenFirst) == 0 {
-		fmt.Fprintf(w, "  - none\n")
-	} else {
-		for _, ref := range runbook.OpenFirst {
-			fmt.Fprintf(w, "  - %s\n", selfAssessmentRunbookEvidenceLine(ref))
-		}
-	}
-	fmt.Fprintf(w, "\nWhy this case:\n")
-	renderSelfAssessmentStringList(w, runbook.WhyThisCase)
-	fmt.Fprintf(w, "\nDo next:\n")
-	renderSelfAssessmentStepLine(w, runbook.CurrentStep)
-	if runbook.NextStep.ID != "" {
-		renderSelfAssessmentStepLine(w, runbook.NextStep)
-	}
-	fmt.Fprintf(w, "\nFiles:\n")
-	renderSelfAssessmentStringList(w, runbook.Files)
-	fmt.Fprintf(w, "\nArtifacts:\n")
-	renderSelfAssessmentStringList(w, runbook.Artifacts)
-	fmt.Fprintf(w, "\nCommands:\n")
-	renderSelfAssessmentStringList(w, runbook.Commands)
-	fmt.Fprintf(w, "\nDone when:\n")
-	renderSelfAssessmentStringList(w, runbook.DoneCriteria)
-	fmt.Fprintf(w, "\nClosure workflow:\n")
-	if len(runbook.ClosureWorkflow) == 0 {
-		fmt.Fprintf(w, "  - none\n")
-	} else {
-		for _, step := range runbook.ClosureWorkflow {
-			renderSelfAssessmentStepLine(w, step)
-		}
-	}
-	if len(runbook.Limitations) > 0 {
-		fmt.Fprintf(w, "\nLimits:\n")
-		renderSelfAssessmentStringList(w, runbook.Limitations)
-	}
-	return nil
-}
-
-func selfAssessmentRunbookEvidenceLine(ref model.EvidenceReference) string {
-	source := selfBundleFirstNonEmpty(ref.Source, ref.ID, ref.Kind, "not recorded")
-	if ref.LineStart > 0 && ref.LineEnd > ref.LineStart {
-		source = fmt.Sprintf("%s:%d-%d", source, ref.LineStart, ref.LineEnd)
-	} else if ref.LineStart > 0 {
-		source = fmt.Sprintf("%s:%d", source, ref.LineStart)
-	}
-	fact := selfBundleFirstNonEmpty(ref.Summary, ref.Kind)
-	if fact == "" {
-		return source
-	}
-	return fmt.Sprintf("%s - %s", source, fact)
-}
-
-func renderSelfAssessmentStepLine(w io.Writer, step model.AssessClosureLoopStep) {
-	if step.ID == "" {
-		return
-	}
-	label := selfBundleFirstNonEmpty(step.Title, step.ID)
-	status := selfBundleFirstNonEmpty(step.Status, "unknown")
-	if step.Step > 0 {
-		fmt.Fprintf(w, "  - %d. %s [%s]", step.Step, label, status)
-	} else {
-		fmt.Fprintf(w, "  - %s [%s]", label, status)
-	}
-	if step.Summary != "" {
-		fmt.Fprintf(w, ": %s", step.Summary)
-	}
-	fmt.Fprintln(w)
-}
-
-func renderSelfAssessmentStringList(w io.Writer, items []string) {
-	if len(items) == 0 {
-		fmt.Fprintf(w, "  - none\n")
-		return
-	}
-	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		fmt.Fprintf(w, "  - %s\n", item)
 	}
 }
 
@@ -1187,6 +1086,8 @@ Examples:
   ariadne assess --path .
   ariadne assess --path . --format operator
   ariadne assess --path . --format operator-json --out operator-packet.json
+  ariadne assess --path . --format runbook
+  ariadne assess --path . --format runbook-json --out operator-runbook.json
   ariadne assess --path . --format table
   ariadne assess --path . --format action
   ariadne assess --path . --format html --out ariadne-assessment.html

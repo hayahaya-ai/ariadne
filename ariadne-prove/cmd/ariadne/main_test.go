@@ -34,6 +34,8 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	summaryPath := filepath.Join(root, "assess-summary.txt")
 	operatorPath := filepath.Join(root, "assess-operator.txt")
 	operatorJSONPath := filepath.Join(root, "assess-operator.json")
+	runbookPath := filepath.Join(root, "assess-runbook.txt")
+	runbookJSONPath := filepath.Join(root, "assess-runbook.json")
 	tablePath := filepath.Join(root, "assess-table.txt")
 	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
 
@@ -50,6 +52,16 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 		"--path", target,
 		"--format", "operator-json",
 		"--out", operatorJSONPath,
+	})
+	runAssess([]string{
+		"--path", target,
+		"--format", "runbook",
+		"--out", runbookPath,
+	})
+	runAssess([]string{
+		"--path", target,
+		"--format", "runbook-json",
+		"--out", runbookJSONPath,
 	})
 	runAssess([]string{
 		"--path", target,
@@ -99,6 +111,40 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	} {
 		if !strings.Contains(operatorJSON, want) {
 			t.Fatalf("operator-json assess output missing %q:\n%s", want, operatorJSON)
+		}
+	}
+
+	runbook := readTestFile(t, runbookPath)
+	for _, want := range []string{
+		"Ariadne Operator Runbook",
+		"case:egress-output-boundary",
+		"Open first:",
+		"Do next:",
+		"Save Baseline Proof",
+		"Add Or Verify Proof",
+		"Commands:",
+		"Closure workflow:",
+	} {
+		if !strings.Contains(runbook, want) {
+			t.Fatalf("runbook assess output missing %q:\n%s", want, runbook)
+		}
+	}
+
+	runbookJSON := readTestFile(t, runbookJSONPath)
+	for _, want := range []string{
+		`"run_kind": "operator_runbook"`,
+		`"source_run_kind": "assess"`,
+		`"operator_runbook"`,
+		`"case:egress-output-boundary"`,
+		`"current_step"`,
+		`"next_step"`,
+		`"open_first"`,
+		`"closure_workflow"`,
+		`"save_baseline_proof"`,
+		`"add_or_verify_proof"`,
+	} {
+		if !strings.Contains(runbookJSON, want) {
+			t.Fatalf("runbook-json assess output missing %q:\n%s", want, runbookJSON)
 		}
 	}
 
@@ -332,6 +378,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 
 	runbookJSON := readTestFile(t, filepath.Join(bundleDir, "runbook.json"))
 	for _, want := range []string{
+		`"run_kind": "operator_runbook"`,
+		`"operator_runbook"`,
 		`"available": true`,
 		`"case:identity-credentials"`,
 		`"current_step"`,

@@ -391,6 +391,26 @@ type AssessOperatorPacketReport struct {
 	Limitations   []string             `json:"limitations"`
 }
 
+type AssessOperatorRunbookReport struct {
+	SchemaVersion string                `json:"schema_version"`
+	RunID         string                `json:"run_id"`
+	GeneratedAt   time.Time             `json:"generated_at"`
+	RunKind       string                `json:"run_kind"`
+	SourceRunKind string                `json:"source_run_kind"`
+	TargetPath    string                `json:"target_path,omitempty"`
+	TargetsFile   string                `json:"targets_file,omitempty"`
+	Targets       []ScanTarget          `json:"targets,omitempty"`
+	Mode          string                `json:"mode"`
+	Agent         string                `json:"agent"`
+	StatusFilter  string                `json:"status_filter"`
+	CaseFilter    string                `json:"case_filter,omitempty"`
+	ControlFilter string                `json:"control_filter,omitempty"`
+	Runbook       AssessOperatorRunbook `json:"operator_runbook"`
+	Redaction     RedactionInfo         `json:"redaction"`
+	Warnings      []string              `json:"warnings,omitempty"`
+	Limitations   []string              `json:"limitations"`
+}
+
 type AssessDecision struct {
 	Status                    string              `json:"status"`
 	Headline                  string              `json:"headline"`
