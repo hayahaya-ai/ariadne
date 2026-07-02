@@ -4104,11 +4104,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decoded.Decision.Instruction == "" ||
 		decoded.Decision.ProofSurface != ".ariadne/egress-policy.json" ||
 		!strings.Contains(decoded.Decision.ProofCommand, "--patch-dir proof-patches") ||
+		!strings.Contains(decoded.Decision.BeforeProofCommand, "--out before-proof.json") ||
 		decoded.Decision.GeneratedProofPath != "proof-patches/surfaces/.ariadne/egress-policy.json" ||
 		decoded.Decision.SuggestedDestination != ".ariadne/egress-policy.json" ||
 		!strings.HasSuffix(decoded.Decision.DestinationPath, "/.ariadne/egress-policy.json") ||
 		!strings.Contains(decoded.Decision.ApplyCommand, "cp surfaces/.ariadne/egress-policy.json") ||
 		!strings.Contains(decoded.Decision.RerunCommand, "ariadne cases --path") ||
+		!strings.Contains(decoded.Decision.AfterProofCommand, "--out after-proof.json") ||
 		!strings.Contains(decoded.Decision.CompareCommand, "ariadne compare --before before-proof.json --after after-proof.json") ||
 		len(decoded.Decision.DoneCriteria) == 0 {
 		t.Fatalf("assessment should include a compact fact-backed decision packet: %+v", decoded.Decision)
@@ -4313,11 +4315,15 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
 		"Evidence fact:",
 		"Claude Code settings declare broad local authority",
+		"Before proof: ariadne proofs --path",
+		"--out before-proof.json",
 		"Proof command: ariadne proofs --path",
 		"--patch-dir proof-patches",
 		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
 		"Suggested destination:",
 		"Review/apply: cd proof-patches",
+		"After proof: ariadne proofs --path",
+		"--out after-proof.json",
 		"Signal triage:",
 		"Signal details:",
 		"signal:top-operator-case",
@@ -5775,6 +5781,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessDecision := schemaMap(t, assessSchema, "$defs", "assess_decision")
 	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "risk_reasons", "normal_capabilities", "evidence_sources", "evidence_refs", "path_summary", "missing_hard_barriers", "present_hard_barriers", "partial_or_friction_controls", "unknown_evidence", "evidence_gap_actions", "done_criteria", "limitations")
+	assertSchemaProperty(t, assessDecision, "before_proof_command")
+	assertSchemaProperty(t, assessDecision, "after_proof_command")
 	assertSchemaProperty(t, assessDecision, "generated_proof_path")
 	assertSchemaProperty(t, assessDecision, "suggested_destination")
 	assertSchemaProperty(t, assessDecision, "destination_path")

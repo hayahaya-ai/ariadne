@@ -2554,6 +2554,12 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 	if decision.RerunCommand == "" && len(action.RerunCommands) > 0 {
 		decision.RerunCommand = action.RerunCommands[0]
 	}
+	if len(action.CompareCommands) > 0 {
+		decision.BeforeProofCommand = action.CompareCommands[0]
+	}
+	if len(action.CompareCommands) > 1 {
+		decision.AfterProofCommand = action.CompareCommands[1]
+	}
 	if decision.CompareCommand == "" && len(action.CompareCommands) > 0 {
 		decision.CompareCommand = action.CompareCommands[len(action.CompareCommands)-1]
 	}
@@ -2567,6 +2573,8 @@ func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage,
 		decision.DestinationPath = ""
 		decision.ApplyCommand = ""
 		decision.RerunCommand = ""
+		decision.BeforeProofCommand = ""
+		decision.AfterProofCommand = ""
 		decision.CompareCommand = ""
 	}
 	decision.RiskReasons = nonNilStrings(decision.RiskReasons)
@@ -3934,6 +3942,9 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	if decision.ProofSurface != "" {
 		fmt.Fprintf(w, "  - Prove at: %s\n", decision.ProofSurface)
 	}
+	if decision.BeforeProofCommand != "" {
+		fmt.Fprintf(w, "  - Before proof: %s\n", decision.BeforeProofCommand)
+	}
 	if decision.ProofCommand != "" {
 		fmt.Fprintf(w, "  - Proof command: %s\n", decision.ProofCommand)
 	}
@@ -3950,6 +3961,9 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	}
 	if decision.RerunCommand != "" {
 		fmt.Fprintf(w, "  - Rerun: %s\n", decision.RerunCommand)
+	}
+	if decision.AfterProofCommand != "" {
+		fmt.Fprintf(w, "  - After proof: %s\n", decision.AfterProofCommand)
 	}
 	if decision.CompareCommand != "" {
 		fmt.Fprintf(w, "  - Compare: %s\n", decision.CompareCommand)

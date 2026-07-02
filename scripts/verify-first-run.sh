@@ -42,7 +42,11 @@ expect_contains "$assess_txt" "Verdict: action required"
 expect_contains "$assess_txt" "Risk basis:"
 expect_contains "$assess_txt" "Evidence fact:"
 expect_contains "$assess_txt" "Claude Code settings declare broad local authority"
+expect_contains "$assess_txt" "Before proof:"
+expect_contains "$assess_txt" "--out before-proof.json"
 expect_contains "$assess_txt" "Proof command:"
+expect_contains "$assess_txt" "After proof:"
+expect_contains "$assess_txt" "--out after-proof.json"
 expect_contains "$assess_txt" "Signal triage:"
 expect_contains "$assess_txt" "Normal capability:"
 expect_contains "$assess_txt" "Missing hard barrier:"
@@ -69,6 +73,8 @@ expect_contains "$assess_json" '"decision"'
 expect_contains "$assess_json" '"risk_reasons"'
 expect_contains "$assess_json" '"evidence_refs"'
 expect_contains "$assess_json" '"proof_command"'
+expect_contains "$assess_json" '"before_proof_command"'
+expect_contains "$assess_json" '"after_proof_command"'
 expect_contains "$assess_json" '"present_hard_barriers"'
 expect_contains "$assess_json" '"partial_or_friction_controls"'
 expect_contains "$assess_json" '"unknown_evidence"'
@@ -140,7 +146,11 @@ expect_contains "$endpoint_action" "Decision:"
 expect_contains "$endpoint_action" "Verdict: action required"
 expect_contains "$endpoint_action" "Risk basis:"
 expect_contains "$endpoint_action" "Evidence fact:"
+expect_contains "$endpoint_action" "Before proof:"
+expect_contains "$endpoint_action" "--out before-proof.json"
 expect_contains "$endpoint_action" "Proof command:"
+expect_contains "$endpoint_action" "After proof:"
+expect_contains "$endpoint_action" "--out after-proof.json"
 expect_contains "$endpoint_action" "Signal triage:"
 expect_contains "$endpoint_action" "Normal capability:"
 expect_contains "$endpoint_action" "Missing hard barrier:"
@@ -173,6 +183,8 @@ expect_contains "$endpoint_json" '"decision"'
 expect_contains "$endpoint_json" '"risk_reasons"'
 expect_contains "$endpoint_json" '"evidence_refs"'
 expect_contains "$endpoint_json" '"proof_command"'
+expect_contains "$endpoint_json" '"before_proof_command"'
+expect_contains "$endpoint_json" '"after_proof_command"'
 expect_contains "$endpoint_json" '"present_hard_barriers"'
 expect_contains "$endpoint_json" '"partial_or_friction_controls"'
 expect_contains "$endpoint_json" '"unknown_evidence"'

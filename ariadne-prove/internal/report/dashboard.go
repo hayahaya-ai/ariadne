@@ -847,7 +847,7 @@ func renderAssessDecisionDashboard(w io.Writer, root string, decision model.Asse
 		}
 	}
 	fmt.Fprintln(w, `<h3>Commands</h3>`)
-	fmt.Fprintln(w, renderCommandList(nonEmptyStrings(decision.ProofCommand, decision.RerunCommand, decision.CompareCommand)))
+	fmt.Fprintln(w, renderCommandList(nonEmptyStrings(decision.BeforeProofCommand, decision.ProofCommand, decision.RerunCommand, decision.AfterProofCommand, decision.CompareCommand)))
 	fmt.Fprintln(w, `<h3>Done When</h3>`)
 	fmt.Fprintln(w, renderSmallList(decision.DoneCriteria))
 	fmt.Fprintln(w, `</div>`)
