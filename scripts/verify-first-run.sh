@@ -72,7 +72,7 @@ expect_contains "$assess_txt" "Review/apply bundle: cd proof-patches"
 expect_contains "$assess_txt" "cp surfaces/.ariadne/output-policy.json"
 expect_contains "$assess_txt" "Save after proof after rerun:"
 expect_contains "$assess_txt" "Evidence sources: .claude/settings.json; .codex/config.toml; .env"
-expect_contains "$assess_txt" "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/output-policy.json; .claude/settings.json; .codex/config.toml"
+expect_contains "$assess_txt" "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/input-policy.json"
 expect_contains "$assess_txt" "Compare loop:"
 expect_contains "$assess_txt" "case-compare.html"
 
@@ -145,7 +145,7 @@ expect_contains "$assess_html" "case-compare.html"
 
 expect_contains "$cases_txt" "Ariadne operator case board:"
 expect_contains "$cases_txt" "Evidence sources: .claude/settings.json; .codex/config.toml; .env"
-expect_contains "$cases_txt" "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/output-policy.json; .claude/settings.json; .codex/config.toml"
+expect_contains "$cases_txt" "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/input-policy.json"
 
 expect_contains "$proofs_action" "Ariadne Proof Action"
 expect_contains "$proofs_action" "Evidence sources:"
@@ -183,20 +183,22 @@ expect_contains "$endpoint_action" "Normal capability:"
 expect_contains "$endpoint_action" "Missing hard barrier:"
 expect_contains "$endpoint_action" "Present hard barrier: control:network-restricted"
 expect_contains "$endpoint_action" "Control state:"
-expect_contains "$endpoint_action" "Current control: control:deny-by-default"
-expect_contains "$endpoint_action" "Current proof surface: .ariadne/agent-policy.json"
-expect_contains "$endpoint_action" "Missing hard-barrier evidence for control:deny-by-default"
+expect_contains "$endpoint_action" "Current control: control:credential-isolation"
+expect_contains "$endpoint_action" "Current proof surface: .ariadne/identity-policy.json"
+expect_contains "$endpoint_action" "Missing hard-barrier evidence for control:credential-isolation"
 expect_contains "$endpoint_action" "Path to fix:"
 expect_contains "$endpoint_action" "Supported graph edge:"
 expect_contains "$endpoint_action" "boundary external destination (reaches)"
 expect_contains "$endpoint_action" "Save baseline proof before changes:"
 expect_contains "$endpoint_action" "Review/apply generated proof bundle:"
-expect_contains "$endpoint_action" "Generated file: proof-patches/surfaces/.ariadne/agent-policy.json"
+expect_contains "$endpoint_action" "Generated file: proof-patches/surfaces/.ariadne/identity-policy.json"
 expect_contains "$endpoint_action" "Review/apply: cd proof-patches"
 expect_contains "$endpoint_action" "Save after proof after rerun:"
-expect_contains "$endpoint_action" "Least Agency And Authority Scope"
+expect_contains "$endpoint_action" "Identity And Credentials"
 expect_contains "$endpoint_action" "Evidence sources:"
-expect_contains "$endpoint_action" ".claude/.mcp.json"
+expect_contains "$endpoint_action" ".aider.chat.history.md"
+expect_contains "$endpoint_action" ".aider.conf.yml"
+expect_contains "$endpoint_action" ".claude/paste-cache"
 expect_contains "$endpoint_action" ".claude/settings.local.json"
 expect_contains "$endpoint_action" ".codex/config.toml"
 expect_contains "$endpoint_action" ".continue/config.json"
@@ -218,15 +220,15 @@ expect_contains "$endpoint_json" '"partial_or_friction_controls"'
 expect_contains "$endpoint_json" '"unknown_evidence"'
 expect_contains "$endpoint_json" '"evidence_gap_actions"'
 expect_contains "$endpoint_json" '"done_criteria"'
-expect_contains "$endpoint_json" '"top_case_id": "case:least-agency-authority"'
+expect_contains "$endpoint_json" '"top_case_id": "case:identity-credentials"'
 expect_contains "$endpoint_json" '"control_state"'
-expect_contains "$endpoint_json" '"current_control": "control:deny-by-default"'
-expect_contains "$endpoint_json" '"current_proof_surface": ".ariadne/agent-policy.json"'
+expect_contains "$endpoint_json" '"current_control": "control:credential-isolation"'
+expect_contains "$endpoint_json" '"current_proof_surface": ".ariadne/identity-policy.json"'
 expect_contains "$endpoint_json" '"path_summary"'
 expect_contains "$endpoint_json" '"graph_edges"'
 expect_contains "$endpoint_json" 'authority:broad-local|reaches|boundary:external-destination'
-expect_contains "$endpoint_json" '"generated_proof_path": "proof-patches/surfaces/.ariadne/agent-policy.json"'
-expect_contains "$endpoint_json" '"suggested_destination": ".ariadne/agent-policy.json"'
+expect_contains "$endpoint_json" '"generated_proof_path": "proof-patches/surfaces/.ariadne/identity-policy.json"'
+expect_contains "$endpoint_json" '"suggested_destination": ".ariadne/identity-policy.json"'
 expect_contains "$endpoint_json" '"destination_path"'
 expect_contains "$endpoint_json" '"apply_command": "cd proof-patches'
 expect_contains "$endpoint_json" '"present_hard_barriers"'
@@ -251,7 +253,7 @@ expect_contains "$endpoint_html" "State Summary"
 expect_contains "$endpoint_html" "Path To Fix"
 expect_contains "$endpoint_html" "Graph Edges"
 expect_contains "$endpoint_html" "Review / Apply Generated Proof"
-expect_contains "$endpoint_html" "Generated file: proof-patches/surfaces/.ariadne/agent-policy.json"
+expect_contains "$endpoint_html" "Generated file: proof-patches/surfaces/.ariadne/identity-policy.json"
 expect_contains "$endpoint_html" "Save baseline proof before changes"
 expect_contains "$endpoint_html" "Save after proof after rerun"
 expect_contains "$endpoint_html" "Proof Loop"
@@ -265,6 +267,46 @@ expect_contains "$endpoint_cases" ".claude/.mcp.json"
 expect_contains "$endpoint_cases" ".codex/config.toml"
 expect_contains "$endpoint_cases" ".gemini/settings.json"
 expect_contains "$endpoint_cases" "Prove at:"
+
+endpoint_loop="$workdir/endpoint-identity-loop"
+cp -R "$endpoint_fixture" "$endpoint_loop"
+
+endpoint_before_json="$workdir/endpoint-before-proof.json"
+endpoint_after_json="$workdir/endpoint-after-proof.json"
+endpoint_after_case="$workdir/endpoint-after-case.txt"
+endpoint_compare_txt="$workdir/endpoint-compare.txt"
+endpoint_inventory_after="$workdir/endpoint-inventory-after.json"
+endpoint_export_dir="$workdir/endpoint-proof-patches"
+endpoint_export_log="$workdir/endpoint-proof-export.log"
+
+"$bin" proofs --path "$endpoint_loop" --mode endpoint --case case:identity-credentials --format json --out "$endpoint_before_json"
+"$bin" proofs --path "$endpoint_loop" --mode endpoint --case case:identity-credentials --patch-dir "$endpoint_export_dir" --format action --out "$workdir/endpoint-proof-export-action.txt" 2> "$endpoint_export_log"
+
+expect_contains "$endpoint_export_log" "Generated proof files:"
+expect_contains "$endpoint_export_log" "identity-policy.json"
+expect_contains "$endpoint_export_log" "control:credential-isolation"
+expect_contains "$endpoint_export_log" "control:cryptographic-identity"
+
+mkdir -p "$endpoint_loop/.ariadne"
+cp "$endpoint_export_dir/surfaces/.ariadne/identity-policy.json" "$endpoint_loop/.ariadne/identity-policy.json"
+
+"$bin" cases --path "$endpoint_loop" --mode endpoint --case case:identity-credentials --out "$endpoint_after_case"
+"$bin" proofs --path "$endpoint_loop" --mode endpoint --case case:identity-credentials --format json --out "$endpoint_after_json"
+"$bin" compare --before "$endpoint_before_json" --after "$endpoint_after_json" --out "$endpoint_compare_txt"
+"$bin" inventory --path "$endpoint_loop" --mode endpoint --format json --out "$endpoint_inventory_after"
+
+expect_contains "$endpoint_after_case" "State: closed"
+expect_contains "$endpoint_after_case" "0 missing hard-barrier controls"
+expect_contains "$endpoint_after_case" ".ariadne/identity-policy.json"
+
+expect_contains "$endpoint_compare_txt" "Verdict: proof succeeded"
+expect_contains "$endpoint_compare_txt" "open -> closed"
+expect_contains "$endpoint_compare_txt" "Proof patches: 5 -> 0"
+expect_contains "$endpoint_compare_txt" ".ariadne/identity-policy.json"
+
+expect_contains "$endpoint_inventory_after" '"control:credential-isolation"'
+expect_contains "$endpoint_inventory_after" '"control:cryptographic-identity"'
+expect_contains "$endpoint_inventory_after" '"control:short-lived-credential"'
 
 loop_target="$workdir/combined-risk"
 cp -R "$fixture" "$loop_target"

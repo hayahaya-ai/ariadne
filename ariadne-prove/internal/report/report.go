@@ -517,7 +517,7 @@ func RenderCases(w io.Writer, r model.Report, format string, statusFilter string
 		} else if ok {
 			catalog = closed
 		} else {
-			return err
+			catalog = buildFocusedAbsentCaseBoard(catalog, caseFilter)
 		}
 	}
 	return renderControlCaseBoard(w, catalog, format)
@@ -535,7 +535,7 @@ func RenderCasesScan(w io.Writer, r model.ScanReport, format string, statusFilte
 		} else if ok {
 			catalog = closed
 		} else {
-			return err
+			catalog = buildFocusedAbsentCaseBoard(catalog, caseFilter)
 		}
 	}
 	return renderControlCaseBoard(w, catalog, format)
@@ -561,7 +561,7 @@ func BuildProofPlanForReport(r model.Report, statusFilter string, caseFilter str
 		} else if ok {
 			catalog = closed
 		} else {
-			return model.ProofPlanReport{}, err
+			catalog = buildFocusedAbsentCaseBoard(catalog, caseFilter)
 		}
 	}
 	return BuildProofPlanReport(catalog), nil
@@ -587,7 +587,7 @@ func BuildProofPlanForScanReport(r model.ScanReport, statusFilter string, caseFi
 		} else if ok {
 			catalog = closed
 		} else {
-			return model.ProofPlanReport{}, err
+			catalog = buildFocusedAbsentCaseBoard(catalog, caseFilter)
 		}
 	}
 	return BuildProofPlanReport(catalog), nil
@@ -1428,6 +1428,8 @@ func buildCaseCompareDecision(summary model.CaseCompareSummary, outcome model.Ca
 		status = "action_required"
 	case summary.Closed > 0:
 		status = "proof_succeeded"
+	case summary.Removed > 0:
+		status = "proof_succeeded"
 	case outcome.AfterClosed > 0:
 		status = "already_controlled"
 	case outcome.AfterAbsent > 0:
@@ -1473,7 +1475,7 @@ func selectCaseCompareDecisionCase(status string, cases []model.CaseCompareResul
 	case "action_required":
 		preferred = []string{"reopened", "stayed_open", "added"}
 	case "proof_succeeded":
-		preferred = []string{"closed"}
+		preferred = []string{"closed", "removed"}
 	case "already_controlled":
 		preferred = []string{"stayed_closed"}
 	case "no_open_cases":
@@ -1497,7 +1499,7 @@ func selectCaseCompareDecisionCase(status string, cases []model.CaseCompareResul
 func caseCompareDecisionHeadline(status string, summary model.CaseCompareSummary, outcome model.CaseCompareOutcome) string {
 	switch status {
 	case "proof_succeeded":
-		return fmt.Sprintf("Proof worked: %d case(s) closed and %d case(s) remain open after rerun.", summary.Closed, outcome.AfterOpen)
+		return fmt.Sprintf("Proof worked: %d case(s) closed, %d removed from the selected queue, and %d case(s) remain open after rerun.", summary.Closed, summary.Removed, outcome.AfterOpen)
 	case "regression":
 		return fmt.Sprintf("Regression: %d case(s) reopened and %d case(s) remain open after rerun.", summary.Reopened, outcome.AfterOpen)
 	case "action_required":
@@ -5715,6 +5717,26 @@ func filterControlCaseBoard(catalog *model.ControlCatalogReport, caseFilter stri
 	return nil
 }
 
+func buildFocusedAbsentCaseBoard(catalog model.ControlCatalogReport, caseFilter string) model.ControlCatalogReport {
+	familyID := normalizeControlOperatorCaseID(caseFilter)
+	caseID := strings.TrimSpace(caseFilter)
+	if familyID != "" {
+		caseID = "case:" + familyID
+	}
+	catalog.CaseFilter = caseID
+	catalog.Summary = model.ControlCatalogSummary{}
+	catalog.Controls = []model.ArchitectureClosure{}
+	catalog.Families = []model.ArchitectureClosureFamily{}
+	catalog.OperatorCases = []model.ControlOperatorCase{}
+	catalog.Workstreams = []model.ControlBreakPathWorkstream{}
+	catalog.ProofSpecs = []model.ControlProofSpec{}
+	catalog.VerificationTasks = []model.ControlVerificationTask{}
+	catalog.Limitations = uniqueStrings(append(catalog.Limitations,
+		"Focused case "+firstNonEmpty(caseID, "unknown")+" is absent from the selected operator case board. Compare this artifact with a before-proof artifact to confirm whether the case was removed or closed.",
+	))
+	return catalog
+}
+
 type focusedClosedCaseTarget struct {
 	TargetID string
 	Flaws    []model.ZeroTrustArchitecture
@@ -7038,6 +7060,8 @@ func preferredControlEvidenceSurfaceOrder(control string) []string {
 		return []string{".ariadne/egress-policy.json", ".ariadne/agent-policy.json"}
 	case strings.Contains(control, "output"):
 		return []string{".ariadne/output-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "deny-secret-read") || strings.Contains(control, "deny-read"):
+		return []string{".ariadne/agent-policy.json", ".claude/settings.json", ".claude/settings.local.json", ".codex/config.toml"}
 	case strings.Contains(control, "resource") || strings.Contains(control, "rate-limit") || strings.Contains(control, "spend") || strings.Contains(control, "loop") || strings.Contains(control, "timeout") || strings.Contains(control, "concurrency") || strings.Contains(control, "circuit-breaker"):
 		return []string{".ariadne/resource-policy.json", ".ariadne/agent-policy.json"}
 	case strings.Contains(control, "governance") || strings.Contains(control, "inventory") || strings.Contains(control, "owner") || strings.Contains(control, "deployment-approval") || strings.Contains(control, "risk-assessment") || strings.Contains(control, "shadow-ai"):
@@ -7289,6 +7313,8 @@ func controlRecognizedIndicators(control string) []string {
 		return []string{"least_agency", "least_privilege", "tool_scope", "permission_scope"}
 	case "control:scoped-permissions":
 		return []string{"scoped_permissions", "permission_scope", "tool_scope", "deny_read", "sandbox_mode:workspace-write", "sandbox_mode:read-only"}
+	case "control:deny-secret-read":
+		return []string{"deny_secret_read", "deny_read", "blocked_secret_paths:.env,.ssh,.aws,*.pem"}
 	case "control:mcp-reviewed-pinned":
 		return []string{"require_pinned_packages", "pinned_packages", "package_digest", "reviewed_mcp_servers", "mcp_review_required"}
 	case "control:tool-allowlist":

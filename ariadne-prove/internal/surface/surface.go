@@ -373,6 +373,7 @@ func roots(opts Options) []struct {
 			{filepath.Join(opts.HomePath, ".aider"), "endpoint", ".aider"},
 			{filepath.Join(opts.HomePath, ".gemini"), "endpoint", ".gemini"},
 			{filepath.Join(opts.HomePath, ".opencode"), "endpoint", ".opencode"},
+			{filepath.Join(opts.HomePath, ".ariadne"), "endpoint", ".ariadne"},
 		}
 	}
 	return []struct {

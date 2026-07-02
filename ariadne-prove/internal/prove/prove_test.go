@@ -2605,6 +2605,7 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	mustMkdirAll(t, filepath.Join(home, ".cursor"))
 	mustMkdirAll(t, filepath.Join(home, ".windsurf", "rules"))
 	mustMkdirAll(t, filepath.Join(home, ".gemini", "commands"))
+	mustMkdirAll(t, filepath.Join(home, ".ariadne"))
 	mustMkdirAll(t, filepath.Join(home, ".ssh"))
 	mustWriteFile(t, filepath.Join(home, ".continue", "config.json"), `{
   "contextProviders": [{"name": "code", "params": {"workspace": true}}],
@@ -2616,6 +2617,7 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	mustWriteFile(t, filepath.Join(home, ".gemini", "commands", "build.toml"), `prompt = "Run bash scripts/build.sh"`)
 	mustWriteFile(t, filepath.Join(home, ".aider.conf.yml"), "read:\n  - src\n")
 	mustWriteFile(t, filepath.Join(home, ".aider.chat.history.md"), "ENDPOINT_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK\n")
+	mustWriteFile(t, filepath.Join(home, ".ariadne", "agent-policy.json"), `{"deny_by_default":true,"default_policy":"deny","scoped_permissions":true,"permission_scope":true}`)
 	mustWriteFile(t, filepath.Join(home, ".env"), "ENDPOINT_ENV_FAKE_SECRET_DO_NOT_LEAK=1\n")
 	mustWriteFile(t, filepath.Join(home, ".ssh", "id_ed25519"), "ENDPOINT_SSH_FAKE_SECRET_DO_NOT_LEAK\n")
 
@@ -2631,9 +2633,18 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 		"gemini-command",
 		"aider-config",
 		"aider-private-context",
+		"agent-policy",
 		"secret-like-file",
 	} {
 		requireSurfaceKind(t, r.Collection.Surfaces, kind)
+	}
+	for _, id := range []string{"control:deny-by-default-permissions", "control:scoped-permissions"} {
+		if !hasControlID(r.Collection.Controls, id) {
+			t.Fatalf("endpoint inventory should collect %s from .ariadne/agent-policy.json: %+v", id, r.Collection.Controls)
+		}
+	}
+	if !hasSurfaceSource(r.Collection.Surfaces, ".ariadne/agent-policy.json") {
+		t.Fatalf("endpoint inventory should discover Ariadne proof policy evidence: %+v", r.Collection.Surfaces)
 	}
 	if !hasSurfaceSource(r.Collection.Surfaces, ".aider.conf.yml") {
 		t.Fatalf("endpoint inventory should emit relative home source for exact file candidate: %+v", r.Collection.Surfaces)
@@ -2743,14 +2754,14 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	actionRendered := actionOut.String()
-	if !strings.Contains(actionRendered, "Case:\n  - Least Agency And Authority Scope") ||
+	if !strings.Contains(actionRendered, "Case:\n  - Identity And Credentials") ||
 		!strings.Contains(actionRendered, "Evidence to inspect:") ||
 		!strings.Contains(actionRendered, "Evidence sources:") {
 		t.Fatalf("endpoint assessment action should include the top case evidence packet:\n%s", actionRendered)
 	}
 	decisionBlock := boundedBlock(t, actionRendered, "Decision:", "What was inspected:")
 	for _, want := range []string{
-		"Missing hard barrier: control:deny-by-default",
+		"Missing hard barrier: control:credential-isolation",
 		"Present hard barrier: control:network-restricted",
 	} {
 		if !strings.Contains(decisionBlock, want) {
@@ -2759,7 +2770,9 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 	}
 	sourceBlock := boundedBlock(t, actionRendered, "Evidence sources:", "Accepted evidence:")
 	for _, want := range []string{
-		".claude/.mcp.json",
+		".aider.chat.history.md",
+		".aider.conf.yml",
+		".claude/paste-cache",
 		".claude/settings.local.json",
 		".codex/config.toml",
 		".continue/config.json",
@@ -2779,7 +2792,7 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if !containsExactString(decoded.Decision.MissingHardBarriers, "control:deny-by-default") ||
+	if !containsExactString(decoded.Decision.MissingHardBarriers, "control:credential-isolation") ||
 		!containsExactString(decoded.Decision.PresentHardBarriers, "control:network-restricted") ||
 		decoded.Decision.PartialOrFrictionControls == nil ||
 		decoded.Decision.UnknownEvidence == nil ||
@@ -3292,7 +3305,7 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 	if decoded.CaseFilter != "case:input-trust-boundary" || len(decoded.OperatorCases) != 1 || decoded.OperatorCases[0].ID != "case:input-trust-boundary" {
 		t.Fatalf("focused case board should return one selected case: %+v", decoded)
 	}
-	if decoded.OperatorCases[0].Rank != 4 || !strings.Contains(decoded.OperatorCases[0].PriorityReason, "deterministic closure priority") {
+	if decoded.OperatorCases[0].Rank != 3 || !strings.Contains(decoded.OperatorCases[0].PriorityReason, "deterministic closure priority") {
 		t.Fatalf("focused case board should preserve original rank and priority reason: %+v", decoded.OperatorCases[0])
 	}
 	if decoded.Summary.Controls != 2 || len(decoded.Controls) != 2 || len(decoded.Workstreams) != 1 {
@@ -3330,8 +3343,8 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 	if strings.Contains(rendered, "case:egress-output-boundary") {
 		t.Fatalf("focused case board dashboard should not include unrelated cases:\n%s", rendered)
 	}
-	if err := report.RenderCases(io.Discard, r, "table", "breaking", "case:not-real"); err == nil {
-		t.Fatalf("expected unknown case filter to return an error")
+	if err := report.RenderCases(io.Discard, r, "table", "breaking", "case:not-real"); err != nil {
+		t.Fatalf("unknown case filter should render an absent focused board, not fail compare workflows: %v", err)
 	}
 }
 
@@ -3537,7 +3550,7 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Proof Action",
 		"Case filter: case:input-trust-boundary",
-		"Proof queue: 1 case(s); 2 proof patch(es); 1 evidence reference(s)",
+		"Proof queue: 1 case(s); 2 proof patch(es); 2 evidence reference(s)",
 		"Input Trust Boundary (case:input-trust-boundary)",
 		"State: open",
 		"Evidence to inspect:",
@@ -3917,6 +3930,33 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		t.Fatalf("compare should preserve after rerun and compare commands: %+v", compare.Cases[0])
 	}
 
+	var absentProof model.ProofPlanReport
+	if err := json.Unmarshal(closedProof, &absentProof); err != nil {
+		t.Fatal(err)
+	}
+	absentProof.CaseFilter = "case:input-trust-boundary"
+	absentProof.Summary = model.ProofPlanSummary{}
+	absentProof.Cases = []model.ControlOperatorCase{}
+	absentProof.ProofPatches = []model.ControlProofPatch{}
+	absentProof.EvidenceReferences = []model.EvidenceReference{}
+	absentProof.RerunCommands = []string{}
+	absentProof.SuccessCriteria = []string{}
+	absentBytes, err := json.Marshal(absentProof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removedCompare, err := report.BuildCaseCompareReport(openProof, absentBytes, "before-open.json", "after-absent.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removedCompare.Summary.Removed != 1 ||
+		removedCompare.Decision.Status != "proof_succeeded" ||
+		removedCompare.Decision.TopCaseDisposition != "removed" ||
+		removedCompare.Decision.BeforeState != "open" ||
+		removedCompare.Decision.AfterState != "absent" {
+		t.Fatalf("compare should treat focused open -> absent as proof success: %+v", removedCompare)
+	}
+
 	var table bytes.Buffer
 	if err := report.RenderCaseCompare(&table, compare, "table"); err != nil {
 		t.Fatal(err)
@@ -4079,7 +4119,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!strings.Contains(firstActionBlock, "--patch-dir proof-patches") ||
 		!strings.Contains(firstActionBlock, "4. Compare Before And After:") ||
 		!strings.Contains(firstActionBlock, "Evidence sources: .claude/settings.json; .codex/config.toml; .env") ||
-		!strings.Contains(firstActionBlock, "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/output-policy.json; .claude/settings.json; .codex/config.toml") {
+		!strings.Contains(firstActionBlock, "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/input-policy.json") {
 		t.Fatalf("first action should include the compare loop commands:\n%s", firstActionBlock)
 	}
 
@@ -6238,6 +6278,15 @@ func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {
 		}
 	}
 	t.Fatalf("missing surface kind %s in %+v", kind, surfaces)
+}
+
+func hasControlID(controls []model.Control, id string) bool {
+	for _, control := range controls {
+		if control.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func requireSurfaceMapRuntime(t *testing.T, items []model.SurfaceMap, runtime string, scope string) model.SurfaceMap {

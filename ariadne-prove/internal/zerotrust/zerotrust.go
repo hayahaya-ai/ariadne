@@ -192,7 +192,7 @@ func architectureControlEvidenceNeeded(checkIDs []string) []string {
 		case "zt:config-integrity-boundary":
 			out = append(out, "control:config-version-control", "control:config-review-required", "control:signed-config", "control:config-deployment-verification", "control:managed-settings-enforced", "control:immutable-agent-runtime")
 		case "zt:control-strength":
-			out = append(out, "deny rules", "allowlists", "isolation controls", "scoped credentials", "capability-removing break controls")
+			out = append(out, "control:deny-secret-read", "control:network-restricted", "control:tool-allowlist", "control:input-isolation")
 		}
 	}
 	return uniqueStrings(out)
@@ -237,7 +237,7 @@ func architectureEvidenceSurfaces(checkIDs []string) []string {
 		case "zt:config-integrity-boundary":
 			out = append(out, ".ariadne/integrity-policy.json", ".ariadne/agent-policy.json", "signed or managed runtime configuration evidence")
 		case "zt:control-strength":
-			out = append(out, "graph restricts edges", "hard policy files", "runtime-enforced controls")
+			out = append(out, ".ariadne/agent-policy.json", ".ariadne/input-policy.json", ".ariadne/egress-policy.json", ".ariadne/tool-policy.json", ".claude/settings.json", ".codex/config.toml", "runtime-enforced controls")
 		}
 	}
 	return uniqueStrings(out)
@@ -3891,11 +3891,19 @@ func controlAliases(control string) []string {
 	case "control:request-traceability":
 		return []string{"control:observed-request-traceability"}
 	case "review and pin MCP servers":
-		return []string{"control:mcp-reviewed-pinned", "allowlists", "capability-removing break controls"}
+		return []string{"control:mcp-reviewed-pinned", "control:tool-allowlist", "allowlists", "capability-removing break controls"}
 	case "deny-read secret-like paths":
-		return []string{"deny rules", "capability-removing break controls"}
+		return []string{"control:deny-secret-read", "deny rules", "capability-removing break controls"}
 	case "isolate or trust-gate untrusted instructions":
-		return []string{"isolation controls", "capability-removing break controls"}
+		return []string{"control:input-isolation", "control:trusted-source-policy", "isolation controls", "capability-removing break controls"}
+	case "restrict external network communication":
+		return []string{"control:network-restricted", "capability-removing break controls"}
+	case "allowlist external destinations":
+		return []string{"control:egress-destination-allowlist", "allowlists", "capability-removing break controls"}
+	case "allowlist webhook destinations":
+		return []string{"control:webhook-allowlist", "allowlists", "capability-removing break controls"}
+	case "scope per-tool network access":
+		return []string{"control:per-tool-network-scope", "scoped permissions", "capability-removing break controls"}
 	default:
 		return nil
 	}

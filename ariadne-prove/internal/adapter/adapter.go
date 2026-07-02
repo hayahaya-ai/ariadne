@@ -789,6 +789,9 @@ func collectAgentPolicy(c *model.Collection, s model.Surface) {
 	if scopedPermissionConfigured(text) {
 		addControl(c, "control:scoped-permissions", "scoped-permissions", "", s.Source, "Agent policy declares scoped filesystem, shell, network, or tool permissions.")
 	}
+	if denySecretReadConfigured(text) {
+		addControl(c, "control:deny-secret-read", "deny-secret-read", "", s.Source, "Agent policy declares deny-read protection for secret-like paths.")
+	}
 	if identityBasedIsolationConfigured(text) {
 		addControl(c, "control:identity-based-isolation", "identity-based-isolation", "", s.Source, "Agent policy declares identity-based isolation or named-caller network boundaries.")
 	}
@@ -2677,6 +2680,13 @@ func looksPinned(text string) bool {
 func declaresSecretDeny(text string) bool {
 	return (strings.Contains(text, "deny_read") || strings.Contains(text, "deny") || strings.Contains(text, "disallow")) &&
 		(strings.Contains(text, ".env") || strings.Contains(text, ".ssh") || strings.Contains(text, ".aws") || strings.Contains(text, "*.pem"))
+}
+
+func denySecretReadConfigured(text string) bool {
+	return strings.Contains(text, "deny_secret_read") ||
+		strings.Contains(text, "deny-secret-read") ||
+		strings.Contains(text, "secret_read:false") ||
+		declaresSecretDeny(text)
 }
 
 func evidence(id, kind, source, grade, summary string) model.Evidence {
