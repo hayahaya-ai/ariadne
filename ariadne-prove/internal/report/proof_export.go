@@ -13,12 +13,15 @@ import (
 )
 
 type ProofPatchExportResult struct {
-	Directory    string
-	ManifestPath string
-	ReadmePath   string
-	Files        []string
-	FileDetails  []ProofPatchExportFileResult
-	PatchCount   int
+	Directory       string
+	ManifestPath    string
+	ReadmePath      string
+	Files           []string
+	FileDetails     []ProofPatchExportFileResult
+	PatchCount      int
+	ClosureControls []string
+	ClosureFiles    []string
+	ClosureRule     string
 }
 
 type ProofPatchExportFileResult struct {
@@ -43,6 +46,9 @@ type proofPatchExportManifest struct {
 	StatusFilter    string                         `json:"status_filter"`
 	CaseFilter      string                         `json:"case_filter"`
 	PatchCount      int                            `json:"patch_count"`
+	ClosureControls []string                       `json:"closure_controls"`
+	ClosureFiles    []string                       `json:"closure_files"`
+	ClosureRule     string                         `json:"closure_rule"`
 	Files           []proofPatchExportManifestFile `json:"files"`
 	RerunCommands   []string                       `json:"rerun_commands"`
 	CompareCommands []string                       `json:"compare_commands"`
@@ -82,9 +88,15 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 		return ProofPatchExportResult{}, err
 	}
 	groups := proofPatchSurfaceExports(plan.ProofPatches)
+	closureControls := proofPatchControls(plan.ProofPatches)
+	closureFiles := proofPatchExportClosureFiles(groups)
+	closureRule := proofPatchExportClosureRule()
 	result := ProofPatchExportResult{
-		Directory:  dir,
-		PatchCount: len(plan.ProofPatches),
+		Directory:       dir,
+		PatchCount:      len(plan.ProofPatches),
+		ClosureControls: append([]string{}, closureControls...),
+		ClosureFiles:    append([]string{}, closureFiles...),
+		ClosureRule:     closureRule,
 	}
 	manifest := proofPatchExportManifest{
 		SchemaVersion:   model.SchemaVersion,
@@ -96,6 +108,9 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 		StatusFilter:    plan.StatusFilter,
 		CaseFilter:      plan.CaseFilter,
 		PatchCount:      len(plan.ProofPatches),
+		ClosureControls: closureControls,
+		ClosureFiles:    closureFiles,
+		ClosureRule:     closureRule,
 		Files:           []proofPatchExportManifestFile{},
 		RerunCommands:   append([]string{}, plan.RerunCommands...),
 		CompareCommands: append([]string{}, plan.CompareCommands...),
@@ -157,6 +172,18 @@ func ExportProofPatchFiles(dir string, plan model.ProofPlanReport) (ProofPatchEx
 	}
 	result.ManifestPath = manifestPath
 	return result, nil
+}
+
+func proofPatchExportClosureRule() string {
+	return "Rerun must show every bundle control is no longer a missing hard barrier for this case."
+}
+
+func proofPatchExportClosureFiles(groups []proofPatchSurfaceExport) []string {
+	var out []string
+	for _, group := range groups {
+		out = append(out, proofPatchExportSurfaceRelPath(group.Surface))
+	}
+	return uniqueStrings(out)
 }
 
 func proofPatchSurfaceExports(patches []model.ControlProofPatch) []proofPatchSurfaceExport {
@@ -265,6 +292,19 @@ func proofPatchExportReadme(plan model.ProofPlanReport, manifest proofPatchExpor
 	fmt.Fprintf(&b, "- Case filter: %s\n", firstNonEmpty(plan.CaseFilter, "all"))
 	fmt.Fprintf(&b, "- Proof patches: %d\n", manifest.PatchCount)
 	fmt.Fprintf(&b, "- Generated files: %d\n\n", len(manifest.Files))
+	if len(manifest.ClosureControls) > 0 || len(manifest.ClosureFiles) > 0 || manifest.ClosureRule != "" {
+		b.WriteString("## Closure Bundle\n\n")
+		if len(manifest.ClosureControls) > 0 {
+			fmt.Fprintf(&b, "- Controls: `%s`\n", strings.Join(manifest.ClosureControls, "`, `"))
+		}
+		if len(manifest.ClosureFiles) > 0 {
+			fmt.Fprintf(&b, "- Generated files: `%s`\n", strings.Join(manifest.ClosureFiles, "`, `"))
+		}
+		if manifest.ClosureRule != "" {
+			fmt.Fprintf(&b, "- Rule: %s\n", manifest.ClosureRule)
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("## Files\n\n")
 	for _, file := range manifest.Files {
 		fmt.Fprintf(&b, "- `%s` for `%s` (%s)\n", file.Path, file.Surface, file.Format)

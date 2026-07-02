@@ -3690,6 +3690,12 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if exported.PatchCount != 2 || len(exported.Files) != 1 {
 		t.Fatalf("proof export should group two patches into one suggested surface file: %+v", exported)
 	}
+	if !containsString(exported.ClosureControls, "control:input-isolation") ||
+		!containsString(exported.ClosureControls, "control:trusted-source-policy") ||
+		!containsString(exported.ClosureFiles, filepath.Join("surfaces", ".ariadne", "input-policy.json")) ||
+		!strings.Contains(exported.ClosureRule, "every bundle control") {
+		t.Fatalf("proof export should expose closure bundle metadata: %+v", exported)
+	}
 	if len(exported.FileDetails) != 1 ||
 		exported.FileDetails[0].GeneratedPath == "" ||
 		exported.FileDetails[0].DestinationPath == "" ||
@@ -3718,6 +3724,11 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"patch_count": 2`,
+		`"closure_controls":`,
+		`"control:trusted-source-policy"`,
+		`"closure_files":`,
+		`"surfaces/.ariadne/input-policy.json"`,
+		`"closure_rule": "Rerun must show every bundle control is no longer a missing hard barrier for this case."`,
 		`"surface": ".ariadne/input-policy.json"`,
 		`"path": "surfaces/.ariadne/input-policy.json"`,
 		`"suggested_destination": ".ariadne/input-policy.json"`,
@@ -3741,7 +3752,7 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Suggested destination:", "Review/apply command:", "cd ", "mkdir -p", "cp surfaces/.ariadne/input-policy.json", "## Workflow", "Save Baseline Proof", "Compare Before And After", ".ariadne/input-policy.json", "ariadne cases --path"} {
+	for _, want := range []string{"## Closure Bundle", "Controls:", "control:trusted-source-policy", "Generated files:", "surfaces/.ariadne/input-policy.json", "Rule: Rerun must show every bundle control is no longer a missing hard barrier for this case.", "Suggested destination:", "Review/apply command:", "cd ", "mkdir -p", "cp surfaces/.ariadne/input-policy.json", "## Workflow", "Save Baseline Proof", "Compare Before And After", ".ariadne/input-policy.json", "ariadne cases --path"} {
 		if !strings.Contains(string(readme), want) {
 			t.Fatalf("export README missing %q:\n%s", want, readme)
 		}

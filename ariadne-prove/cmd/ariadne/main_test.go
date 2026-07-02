@@ -126,10 +126,13 @@ func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 func TestRenderProofPatchExportSummaryShowsApplyStep(t *testing.T) {
 	var out bytes.Buffer
 	renderProofPatchExportSummary(&out, report.ProofPatchExportResult{
-		Directory:    "/tmp/proof-patches",
-		ManifestPath: "/tmp/proof-patches/manifest.json",
-		ReadmePath:   "/tmp/proof-patches/README.md",
-		PatchCount:   2,
+		Directory:       "/tmp/proof-patches",
+		ManifestPath:    "/tmp/proof-patches/manifest.json",
+		ReadmePath:      "/tmp/proof-patches/README.md",
+		PatchCount:      2,
+		ClosureControls: []string{"control:input-isolation", "control:trusted-source-policy"},
+		ClosureFiles:    []string{filepath.Join("surfaces", ".ariadne", "input-policy.json")},
+		ClosureRule:     "Rerun must show every bundle control is no longer a missing hard barrier for this case.",
 		FileDetails: []report.ProofPatchExportFileResult{
 			{
 				Path:            filepath.Join("surfaces", ".ariadne", "input-policy.json"),
@@ -148,6 +151,10 @@ func TestRenderProofPatchExportSummaryShowsApplyStep(t *testing.T) {
 		"Exported 2 proof patch(es) to /tmp/proof-patches",
 		"Manifest: /tmp/proof-patches/manifest.json",
 		"README: /tmp/proof-patches/README.md",
+		"Closure bundle:",
+		"Controls: control:input-isolation, control:trusted-source-policy",
+		"Generated files: surfaces/.ariadne/input-policy.json",
+		"Rule: Rerun must show every bundle control is no longer a missing hard barrier for this case.",
 		"Generated proof files:",
 		"/tmp/proof-patches/surfaces/.ariadne/input-policy.json -> /repo/.ariadne/input-policy.json",
 		"Surface: .ariadne/input-policy.json (json_merge_object)",

@@ -249,6 +249,18 @@ func renderProofPatchExportSummary(w io.Writer, exported report.ProofPatchExport
 	if exported.ReadmePath != "" {
 		fmt.Fprintf(w, "README: %s\n", exported.ReadmePath)
 	}
+	if len(exported.ClosureControls) > 0 || len(exported.ClosureFiles) > 0 || exported.ClosureRule != "" {
+		fmt.Fprintf(w, "Closure bundle:\n")
+		if len(exported.ClosureControls) > 0 {
+			fmt.Fprintf(w, "  Controls: %s\n", strings.Join(exported.ClosureControls, ", "))
+		}
+		if len(exported.ClosureFiles) > 0 {
+			fmt.Fprintf(w, "  Generated files: %s\n", strings.Join(exported.ClosureFiles, ", "))
+		}
+		if exported.ClosureRule != "" {
+			fmt.Fprintf(w, "  Rule: %s\n", exported.ClosureRule)
+		}
+	}
 	if len(exported.FileDetails) == 0 {
 		return
 	}
