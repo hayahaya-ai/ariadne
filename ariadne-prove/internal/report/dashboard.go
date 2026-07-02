@@ -247,6 +247,7 @@ func renderProofPlanDashboard(w io.Writer, r model.ProofPlanReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderProofPlanSummaryDashboard(w, r)
+	renderProofPlanWorkbenchDashboard(w, r)
 	renderControlOperatorCasesDashboard(w, r.Cases)
 	renderProofPlanPatchesDashboard(w, r.ProofPatches)
 	renderProofPlanEvidenceDashboard(w, r.EvidenceReferences)
@@ -427,6 +428,20 @@ tr:last-child td { border-bottom: 0; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
+}
+.code-block {
+  margin: 8px 0 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.patch-stack > div + div {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 .nav-row {
   display: flex;
@@ -1147,6 +1162,37 @@ func renderProofPlanSummaryDashboard(w io.Writer, r model.ProofPlanReport) {
 	fmt.Fprintln(w, "</section>")
 }
 
+func renderProofPlanWorkbenchDashboard(w io.Writer, r model.ProofPlanReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Evidence Workbench</h2><div class="subtle">One loop per selected case: inspect the facts, add or verify parser-recognized evidence, rerun, then confirm the break path is closed.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(r.Cases) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No selected operator cases were returned for this proof plan.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, "<thead><tr><th>Break path</th><th>Inspect facts</th><th>Add / verify evidence</th><th>Rerun gate</th></tr></thead><tbody>")
+	limit := len(r.Cases)
+	if limit > 6 {
+		limit = 6
+	}
+	for _, item := range r.Cases[:limit] {
+		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("workbench", item.ID)))
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><h3>%s</h3><div class="mono">%s</div><div class="subtle">%s</div><h3>Next step</h3><div>%s</div></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)), esc(item.Title), esc(item.ID), esc(item.StateReason), esc(item.NextStep))
+		fmt.Fprintf(w, `<td><h3>Evidence references</h3>%s<h3>Proof surfaces</h3>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 5)), renderSmallList(limitStrings(item.ProofSurfaces, 6)))
+		fmt.Fprintf(w, `<td><h3>Missing hard barriers</h3>%s<h3>Evidence payload</h3>%s</td>`, renderSmallList(limitStrings(item.StartingControls, 5)), renderProofPatchPayloads(item.ProofPatches, 3))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limits</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 4)), renderSmallList(limitStrings(item.Limitations, 2)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	if len(r.Cases) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="4"><span class="subtle">%d more selected case(s) in JSON output.</span></td></tr>`, len(r.Cases)-limit)
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
+	fmt.Fprintln(w, "</section>")
+}
+
 func renderCaseBoardEvidenceModelDashboard(w io.Writer) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
@@ -1231,6 +1277,49 @@ func renderProofPlanCommandsDashboard(w io.Writer, r model.ProofPlanReport) {
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderProofPatchPayloads(patches []model.ControlProofPatch, limit int) string {
+	if len(patches) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	if limit <= 0 || limit > len(patches) {
+		limit = len(patches)
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="patch-stack">`)
+	for _, patch := range patches[:limit] {
+		b.WriteString(`<div>`)
+		b.WriteString(`<strong>`)
+		b.WriteString(esc(firstNonEmpty(patch.Control, "control")))
+		b.WriteString(`</strong>`)
+		if patch.Surface != "" {
+			b.WriteString(` <span class="subtle">at</span> <span class="mono">`)
+			b.WriteString(esc(patch.Surface))
+			b.WriteString(`</span>`)
+		}
+		if patch.Operation != "" {
+			b.WriteString(`<div class="subtle">`)
+			b.WriteString(esc(patch.Operation))
+			if patch.Format != "" {
+				b.WriteString(` / `)
+				b.WriteString(esc(patch.Format))
+			}
+			b.WriteString(`</div>`)
+		}
+		b.WriteString(renderSmallList(controlProofPatchFieldLines(patch.Fields)))
+		if patch.Example != "" {
+			b.WriteString(`<pre class="code-block mono">`)
+			b.WriteString(esc(strings.TrimSpace(patch.Example)))
+			b.WriteString(`</pre>`)
+		}
+		b.WriteString(`</div>`)
+	}
+	if len(patches) > limit {
+		fmt.Fprintf(&b, `<div class="subtle">%d more proof patch(es) in JSON output.</div>`, len(patches)-limit)
+	}
+	b.WriteString(`</div>`)
+	return b.String()
 }
 
 func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOperatorCase) {

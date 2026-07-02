@@ -182,7 +182,7 @@ This catalog is derived from the architecture closure plan. It does not create a
 
 This proof plan is read-only. It narrows the action packet for an operator or dashboard, but it does not write policy files and does not claim that declared evidence proves live enforcement.
 
-`ariadne proofs --format html` renders the same focused proof plan as an operator dashboard: summary metrics, selected cases, proof patches, evidence references, rerun commands, success criteria, and limitations.
+`ariadne proofs --format html` renders the same focused proof plan as an operator dashboard: summary metrics, an evidence workbench, selected cases, proof patches, evidence references, rerun commands, success criteria, and limitations.
 
 `ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, operator cases, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, proof patches, evidence examples, and actions.
 

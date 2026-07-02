@@ -3138,6 +3138,13 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Proof Plan",
 		"Proof Plan",
+		"Evidence Workbench",
+		"Break path",
+		"Inspect facts",
+		"Add / verify evidence",
+		"Rerun gate",
+		"Missing hard barriers",
+		"Evidence payload",
 		"Operator Cases",
 		"Proof Patches",
 		"Evidence References",
