@@ -58,25 +58,26 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	inventorySummary := buildAssessInventory(inventory)
 	summary := buildAssessSummary(inventorySummary, exposure, architecture.Summary, caseBoard.Summary, caseBoard.OperatorCases)
 	return model.AssessReport{
-		SchemaVersion:   model.SchemaVersion,
-		RunID:           r.RunID,
-		GeneratedAt:     r.GeneratedAt,
-		RunKind:         "assess",
-		TargetPath:      r.TargetPath,
-		Mode:            r.Story.Mode,
-		Agent:           r.Story.Runtime,
-		StatusFilter:    architecture.StatusFilter,
-		Summary:         summary,
-		Inventory:       inventorySummary,
-		Exposure:        exposure,
-		ClosureEvidence: closureEvidence,
-		Architecture:    &architecture,
-		CaseBoard:       caseBoard,
-		TopCases:        topControlOperatorCases(caseBoard.OperatorCases, 5),
-		NextCommands:    assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases),
-		Redaction:       r.Redaction,
-		Warnings:        uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
-		Limitations:     uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            r.RunID,
+		GeneratedAt:      r.GeneratedAt,
+		RunKind:          "assess",
+		TargetPath:       r.TargetPath,
+		Mode:             r.Story.Mode,
+		Agent:            r.Story.Runtime,
+		StatusFilter:     architecture.StatusFilter,
+		Summary:          summary,
+		Inventory:        inventorySummary,
+		Exposure:         exposure,
+		ClosureEvidence:  closureEvidence,
+		Architecture:     &architecture,
+		CaseBoard:        caseBoard,
+		TopCases:         topControlOperatorCases(caseBoard.OperatorCases, 5),
+		TopCaseProofPlan: buildTopCaseProofPlan(caseBoard),
+		NextCommands:     assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases),
+		Redaction:        r.Redaction,
+		Warnings:         uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
+		Limitations:      uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
 	}, nil
 }
 
@@ -126,6 +127,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 		ArchitectureScan: &architecture,
 		CaseBoard:        caseBoard,
 		TopCases:         topControlOperatorCases(caseBoard.OperatorCases, 5),
+		TopCaseProofPlan: buildTopCaseProofPlan(caseBoard),
 		NextCommands:     assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases),
 		Redaction:        r.Redaction,
 		Warnings:         append([]string{}, r.Warnings...),
@@ -1218,6 +1220,18 @@ func assessSurfaceCounts(surfaces []model.Surface, keyFn func(model.Surface) str
 	return out
 }
 
+func buildTopCaseProofPlan(catalog model.ControlCatalogReport) *model.ProofPlanReport {
+	if len(catalog.OperatorCases) == 0 {
+		return nil
+	}
+	focused := catalog
+	if err := filterControlCaseBoard(&focused, catalog.OperatorCases[0].ID); err != nil {
+		return nil
+	}
+	plan := BuildProofPlanReport(focused)
+	return &plan
+}
+
 func topControlOperatorCases(cases []model.ControlOperatorCase, limit int) []model.ControlOperatorCase {
 	if limit <= 0 || limit > len(cases) {
 		limit = len(cases)
@@ -1476,6 +1490,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	renderAssessClosureEvidence(w, r.ClosureEvidence)
 	renderAssessArchitectureBreaks(w, r)
 	renderControlOperatorCases(w, r.CaseBoard.OperatorCases, 5)
+	renderAssessTopCaseProofPacket(w, r.TopCaseProofPlan)
 	fmt.Fprintln(w)
 
 	if len(r.NextCommands) > 0 {
@@ -1492,6 +1507,36 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 		}
 	}
 	return nil
+}
+
+func renderAssessTopCaseProofPacket(w io.Writer, plan *model.ProofPlanReport) {
+	if plan == nil {
+		return
+	}
+	fmt.Fprintf(w, "\nTop case proof packet:\n")
+	if plan.CaseFilter != "" {
+		fmt.Fprintf(w, "  - Case: %s\n", plan.CaseFilter)
+	}
+	fmt.Fprintf(w, "  - Evidence references: %d; proof patches: %d\n", plan.Summary.EvidenceReferences, plan.Summary.ProofPatches)
+	if len(plan.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLines(plan.EvidenceReferences, 3), "; "))
+	}
+	if len(plan.ProofPatches) > 0 {
+		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(proofPatchSurfaceLines(plan.ProofPatches), 4), "; "))
+	}
+	if len(plan.CompareCommands) > 0 {
+		fmt.Fprintf(w, "  - Compare loop: %s\n", strings.Join(limitStrings(plan.CompareCommands, 3), "; "))
+	}
+}
+
+func proofPatchSurfaceLines(patches []model.ControlProofPatch) []string {
+	var surfaces []string
+	for _, patch := range patches {
+		if patch.Surface != "" {
+			surfaces = append(surfaces, patch.Surface)
+		}
+	}
+	return uniqueStrings(surfaces)
 }
 
 func renderAssessClosureEvidence(w io.Writer, closure model.AssessClosureEvidence) {

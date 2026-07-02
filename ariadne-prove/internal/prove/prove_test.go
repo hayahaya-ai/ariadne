@@ -3345,6 +3345,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Evidence references:",
 		"Prove at:",
 		".ariadne/egress-policy.json",
+		"Top case proof packet:",
+		"Compare loop:",
+		"before-proof.json",
+		"case-compare.html",
 		"Next commands:",
 		"ariadne cases --path",
 	} {
@@ -3372,6 +3376,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if decoded.Summary.OperatorCases == 0 || len(decoded.TopCases) == 0 || decoded.TopCases[0].Rank != 1 || decoded.TopCases[0].NextStep == "" {
 		t.Fatalf("assessment should include ranked top cases: summary=%+v cases=%+v", decoded.Summary, decoded.TopCases)
+	}
+	if decoded.TopCaseProofPlan == nil ||
+		decoded.TopCaseProofPlan.CaseFilter != decoded.TopCases[0].ID ||
+		decoded.TopCaseProofPlan.Summary.ProofPatches == 0 ||
+		!containsString(decoded.TopCaseProofPlan.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") {
+		t.Fatalf("assessment should embed focused proof plan for top case: top=%+v proof=%+v", decoded.TopCases[0], decoded.TopCaseProofPlan)
 	}
 	if decoded.CaseBoard.RunKind != "case_board" || len(decoded.CaseBoard.OperatorCases) == 0 {
 		t.Fatalf("assessment should include case board contract: %+v", decoded.CaseBoard)
@@ -3401,6 +3411,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Controls To Start With",
 		"Control Proof Recipe",
 		"Proof Surfaces",
+		"Top Case Proof Packet",
+		"Compare Loop",
+		"before-proof.json",
+		"after-proof.json",
+		"case-compare.html",
 		"Accepted evidence",
 		"Done When",
 		"What Was Inspected",
@@ -4068,6 +4083,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	)
 	assertSchemaProperty(t, assessSchema, "architecture")
 	assertSchemaProperty(t, assessSchema, "architecture_scan")
+	assertSchemaProperty(t, assessSchema, "top_case_proof_plan")
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")

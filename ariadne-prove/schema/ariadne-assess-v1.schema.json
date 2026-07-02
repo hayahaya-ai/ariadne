@@ -45,6 +45,7 @@
       "type": "array",
       "items": { "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_operator_case" }
     },
+    "top_case_proof_plan": { "$ref": "ariadne-proof-plan-v1.schema.json" },
     "next_commands": { "type": "array", "items": { "type": "string" } },
     "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
     "warnings": { "type": "array", "items": { "type": "string" } },

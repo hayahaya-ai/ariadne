@@ -252,6 +252,7 @@ type AssessReport struct {
 	ArchitectureScan *ArchitectureScanReport `json:"architecture_scan,omitempty"`
 	CaseBoard        ControlCatalogReport    `json:"case_board"`
 	TopCases         []ControlOperatorCase   `json:"top_cases"`
+	TopCaseProofPlan *ProofPlanReport        `json:"top_case_proof_plan,omitempty"`
 	NextCommands     []string                `json:"next_commands"`
 	Redaction        RedactionInfo           `json:"redaction"`
 	Warnings         []string                `json:"warnings,omitempty"`

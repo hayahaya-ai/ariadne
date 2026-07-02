@@ -642,6 +642,7 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 		return
 	}
 	item := r.TopCases[0]
+	proofPlan := r.TopCaseProofPlan
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head"><div><h2>Active Case Workbench</h2><div class="subtle">Start with the highest-priority break path, then prove the hard barrier that closes it.</div></div></div>`)
 	renderMetricRow(w, []kv{
@@ -676,12 +677,24 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	renderAssessControlProofRecipeTable(w, item)
 	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(item.ProofSurfaces, 8)))
+	if proofPlan != nil {
+		fmt.Fprintln(w, `<h3>Top Case Proof Packet</h3>`)
+		fmt.Fprintln(w, renderSmallList([]string{
+			fmt.Sprintf("case: %s", firstNonEmpty(proofPlan.CaseFilter, item.ID)),
+			fmt.Sprintf("evidence references: %d", proofPlan.Summary.EvidenceReferences),
+			fmt.Sprintf("proof patches: %d", proofPlan.Summary.ProofPatches),
+		}))
+	}
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Rerun</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(assessCaseCommands(r.NextCommands, item), 4)))
+	if proofPlan != nil && len(proofPlan.CompareCommands) > 0 {
+		fmt.Fprintln(w, `<h3>Compare Loop</h3>`)
+		fmt.Fprintln(w, renderSmallList(limitStrings(proofPlan.CompareCommands, 3)))
+	}
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Done When</h3>`)
