@@ -2727,6 +2727,42 @@ func TestEndpointScanUsesMountedTargetHomes(t *testing.T) {
 	}
 }
 
+func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
+	path := realPathFixture(t, "messy-ai-surfaces")
+	inventory, err := RunInventory(Options{Path: path, Mode: "endpoint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path, Mode: "endpoint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var actionOut bytes.Buffer
+	if err := report.RenderAssess(&actionOut, inventory, r, "action", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	actionRendered := actionOut.String()
+	if !strings.Contains(actionRendered, "Case:\n  - Least Agency And Authority Scope") ||
+		!strings.Contains(actionRendered, "Evidence to inspect:") ||
+		!strings.Contains(actionRendered, "Evidence sources:") {
+		t.Fatalf("endpoint assessment action should include the top case evidence packet:\n%s", actionRendered)
+	}
+	sourceBlock := boundedBlock(t, actionRendered, "Evidence sources:", "Accepted evidence:")
+	for _, want := range []string{
+		".claude/.mcp.json",
+		".claude/settings.local.json",
+		".codex/config.toml",
+		".continue/config.json",
+		".cursor/mcp.json",
+		".gemini/settings.json",
+	} {
+		if !strings.Contains(sourceBlock, want) {
+			t.Fatalf("endpoint evidence sources should include %q:\n%s", want, sourceBlock)
+		}
+	}
+}
+
 func TestRunPathMessyAISurfacesProducesExposurePaths(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "messy-ai-surfaces")})
 	if err != nil {
@@ -6044,6 +6080,16 @@ func containsString(values []string, fragment string) bool {
 		}
 	}
 	return false
+}
+
+func boundedBlock(t *testing.T, value string, start string, end string) string {
+	t.Helper()
+	startIdx := strings.Index(value, start)
+	endIdx := strings.Index(value, end)
+	if startIdx < 0 || endIdx < 0 || endIdx <= startIdx {
+		t.Fatalf("missing bounded block %q..%q in:\n%s", start, end, value)
+	}
+	return value[startIdx:endIdx]
 }
 
 func containsAssessFactSource(values []model.AssessFact, source string) bool {

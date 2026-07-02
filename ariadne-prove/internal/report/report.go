@@ -1744,6 +1744,12 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 		for _, line := range evidenceReferenceLinesBySource(action.CurrentAction.EvidenceReferences, 4) {
 			fmt.Fprintf(w, "  - %s\n", line)
 		}
+		if sources := evidenceReferenceSources(action.CurrentAction.EvidenceReferences, false); len(sources) > 0 {
+			fmt.Fprintf(w, "\nEvidence sources:\n")
+			for _, source := range limitStrings(sources, 8) {
+				fmt.Fprintf(w, "  - %s\n", source)
+			}
+		}
 	}
 	if example := assessCurrentEvidenceExampleLine(action); example != "" {
 		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
