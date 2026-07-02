@@ -1955,6 +1955,18 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 			fmt.Fprintf(w, "  - Review/apply: %s\n", action.CurrentAction.ApplyCommand)
 		}
 	}
+	if len(action.GeneratedProofPaths) > 0 || len(action.ApplyCommands) > 0 {
+		fmt.Fprintf(w, "\nReview/apply full proof bundle:\n")
+		for _, path := range action.GeneratedProofPaths {
+			fmt.Fprintf(w, "  - Generated file: %s\n", path)
+		}
+		for _, path := range action.DestinationPaths {
+			fmt.Fprintf(w, "  - Suggested destination: %s\n", path)
+		}
+		for _, command := range action.ApplyCommands {
+			fmt.Fprintf(w, "  - Review/apply: %s\n", command)
+		}
+	}
 	if rerun := assessCurrentRerunCommand(action); rerun != "" {
 		fmt.Fprintf(w, "\nRerun:\n  - %s\n", rerun)
 	}
@@ -3299,7 +3311,11 @@ func assessTriageProofLoop(action model.AssessFirstAction) []string {
 	} else if action.PatchExportCommand != "" {
 		out = append(out, "Export suggested proof files: "+action.PatchExportCommand)
 	}
-	if action.CurrentAction.ApplyCommand != "" {
+	if len(action.ApplyCommands) > 0 {
+		for _, command := range action.ApplyCommands {
+			out = append(out, "Review/apply generated proof bundle: "+command)
+		}
+	} else if action.CurrentAction.ApplyCommand != "" {
 		out = append(out, "Review/apply generated proof file: "+action.CurrentAction.ApplyCommand)
 	}
 	if rerun := assessCurrentRerunCommand(action); rerun != "" {
@@ -3413,20 +3429,24 @@ func buildTopCaseProofPlan(catalog model.ControlCatalogReport) *model.ProofPlanR
 
 func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.ProofPlanReport, targetPath string) model.AssessFirstAction {
 	action := model.AssessFirstAction{
-		Available:          false,
-		EvidenceReferences: []model.EvidenceReference{},
-		StartingControls:   []string{},
-		ProofSurfaces:      []string{},
-		EvidenceExamples:   []model.ControlEvidenceExample{},
-		ProofPatches:       []model.ControlProofPatch{},
-		RerunCommands:      []string{},
-		CompareCommands:    []string{},
-		PatchExportCommand: "",
-		SuccessCriteria:    []string{},
-		Targets:            []string{},
-		Flaws:              []string{},
-		Workflow:           []model.AssessWorkflowStep{},
-		CurrentAction:      emptyAssessCurrentAction(),
+		Available:             false,
+		EvidenceReferences:    []model.EvidenceReference{},
+		StartingControls:      []string{},
+		ProofSurfaces:         []string{},
+		EvidenceExamples:      []model.ControlEvidenceExample{},
+		ProofPatches:          []model.ControlProofPatch{},
+		RerunCommands:         []string{},
+		CompareCommands:       []string{},
+		PatchExportCommand:    "",
+		GeneratedProofPaths:   []string{},
+		SuggestedDestinations: []string{},
+		DestinationPaths:      []string{},
+		ApplyCommands:         []string{},
+		SuccessCriteria:       []string{},
+		Targets:               []string{},
+		Flaws:                 []string{},
+		Workflow:              []model.AssessWorkflowStep{},
+		CurrentAction:         emptyAssessCurrentAction(),
 	}
 	if len(cases) == 0 {
 		return action
@@ -3490,6 +3510,7 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 	}
 	action.Workflow = buildAssessFirstActionWorkflow(action)
 	action.CurrentAction = buildAssessCurrentAction(action, targetPath)
+	action.GeneratedProofPaths, action.SuggestedDestinations, action.DestinationPaths, action.ApplyCommands = assessDecisionProofBundle(action, targetPath)
 	return action
 }
 

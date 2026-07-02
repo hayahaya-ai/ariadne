@@ -200,6 +200,10 @@
         "rerun_commands",
         "compare_commands",
         "patch_export_command",
+        "generated_proof_paths",
+        "suggested_destinations",
+        "destination_paths",
+        "apply_commands",
         "success_criteria",
         "targets",
         "flaws",
@@ -243,6 +247,10 @@
           "items": { "type": "string" }
         },
         "patch_export_command": { "type": "string" },
+        "generated_proof_paths": { "type": "array", "items": { "type": "string" } },
+        "suggested_destinations": { "type": "array", "items": { "type": "string" } },
+        "destination_paths": { "type": "array", "items": { "type": "string" } },
+        "apply_commands": { "type": "array", "items": { "type": "string" } },
         "success_criteria": {
           "type": "array",
           "items": { "type": "string" }

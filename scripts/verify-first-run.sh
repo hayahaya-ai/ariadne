@@ -63,7 +63,7 @@ expect_contains "$assess_txt" "Supported graph edge:"
 expect_contains "$assess_txt" "boundary external destination (reaches)"
 expect_contains "$assess_txt" "First action:"
 expect_contains "$assess_txt" "Save baseline proof before changes:"
-expect_contains "$assess_txt" "Review/apply generated proof file:"
+expect_contains "$assess_txt" "Review/apply generated proof bundle:"
 expect_contains "$assess_txt" "Generated proof file: proof-patches/surfaces/.ariadne/egress-policy.json"
 expect_contains "$assess_txt" "Generated bundle file: proof-patches/surfaces/.ariadne/egress-policy.json"
 expect_contains "$assess_txt" "Generated bundle file: proof-patches/surfaces/.ariadne/output-policy.json"
@@ -108,6 +108,8 @@ expect_contains "$assess_json" '"apply_command": "cd proof-patches'
 expect_contains "$assess_json" '"apply_commands"'
 expect_contains "$assess_json" 'cp surfaces/.ariadne/output-policy.json'
 expect_contains "$assess_json" '"first_action"'
+expect_contains "$assess_json" '"generated_proof_paths"'
+expect_contains "$assess_json" '"apply_commands"'
 expect_contains "$assess_json" '"signal_details"'
 expect_contains "$assess_json" '"normal_capability"'
 expect_contains "$assess_json" '"missing_hard_barrier"'
@@ -188,7 +190,7 @@ expect_contains "$endpoint_action" "Path to fix:"
 expect_contains "$endpoint_action" "Supported graph edge:"
 expect_contains "$endpoint_action" "boundary external destination (reaches)"
 expect_contains "$endpoint_action" "Save baseline proof before changes:"
-expect_contains "$endpoint_action" "Review/apply generated proof file:"
+expect_contains "$endpoint_action" "Review/apply generated proof bundle:"
 expect_contains "$endpoint_action" "Generated file: proof-patches/surfaces/.ariadne/agent-policy.json"
 expect_contains "$endpoint_action" "Review/apply: cd proof-patches"
 expect_contains "$endpoint_action" "Save after proof after rerun:"

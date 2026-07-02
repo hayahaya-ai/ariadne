@@ -4180,6 +4180,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!strings.Contains(decoded.FirstAction.CurrentAction.ApplyCommand, "cp surfaces/.ariadne/egress-policy.json") {
 		t.Fatalf("assessment current action should include review/apply proof details: %+v", decoded.FirstAction.CurrentAction)
 	}
+	if !containsString(decoded.FirstAction.GeneratedProofPaths, "proof-patches/surfaces/.ariadne/egress-policy.json") ||
+		!containsString(decoded.FirstAction.GeneratedProofPaths, "proof-patches/surfaces/.ariadne/output-policy.json") ||
+		!containsString(decoded.FirstAction.ApplyCommands, "cp surfaces/.ariadne/egress-policy.json") ||
+		!containsString(decoded.FirstAction.ApplyCommands, "cp surfaces/.ariadne/output-policy.json") {
+		t.Fatalf("assessment first action should include the full proof bundle: %+v", decoded.FirstAction)
+	}
 	for _, unwanted := range []string{
 		`"partial_or_friction_controls":null`,
 		`"present_hard_barriers":null`,
@@ -4237,11 +4243,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !containsString(decoded.Triage.ProofLoop, "ariadne compare --before before-proof.json --after after-proof.json") {
 		t.Fatalf("triage should preserve the compare proof loop: %+v", decoded.Triage.ProofLoop)
 	}
-	if len(decoded.Triage.ProofLoop) != 7 ||
+	if len(decoded.Triage.ProofLoop) != 8 ||
 		!containsString(decoded.Triage.ProofLoop, "Open focused proof action: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Save baseline proof before changes: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Export suggested proof files: ariadne proofs --path") ||
-		!containsString(decoded.Triage.ProofLoop, "Review/apply generated proof file: cd proof-patches") ||
+		!containsString(decoded.Triage.ProofLoop, "Review/apply generated proof bundle: cd proof-patches") ||
+		!containsString(decoded.Triage.ProofLoop, "cp surfaces/.ariadne/output-policy.json") ||
 		!containsString(decoded.Triage.ProofLoop, "Rerun after evidence changes: ariadne cases --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Save after proof after rerun: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Compare proof state: ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html") {
@@ -4251,7 +4258,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Open focused proof action:",
 		"Save baseline proof before changes:",
 		"Export suggested proof files:",
-		"Review/apply generated proof file:",
+		"Review/apply generated proof bundle:",
 		"Rerun after evidence changes:",
 		"Save after proof after rerun:",
 		"Compare proof state:",
@@ -4419,13 +4426,16 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Proof patch:",
 		"Proof loop: Open focused proof action:",
 		"Proof loop: Save baseline proof before changes:",
-		"Proof loop: Review/apply generated proof file:",
+		"Proof loop: Review/apply generated proof bundle:",
+		"cp surfaces/.ariadne/output-policy.json",
 		"Proof loop: Save after proof after rerun:",
 		"--format action",
 		"Export suggested files:",
 		"--patch-dir proof-patches",
 		"Review/apply generated proof:",
+		"Review/apply full proof bundle:",
 		"Generated file: proof-patches/surfaces/.ariadne/egress-policy.json",
+		"Generated file: proof-patches/surfaces/.ariadne/output-policy.json",
 		"Suggested destination:",
 		"Review/apply: cd proof-patches",
 		"Rerun:",
@@ -4749,7 +4759,8 @@ func TestAssessCommandsHonorCommandEnvironment(t *testing.T) {
 		"Open focused proof action: ./bin/ariadne proofs --path",
 		"Save baseline proof before changes: ./bin/ariadne proofs --path",
 		"Export suggested proof files: ./bin/ariadne proofs --path",
-		"Review/apply generated proof file: cd proof-patches",
+		"Review/apply generated proof bundle: cd proof-patches",
+		"cp surfaces/.ariadne/output-policy.json",
 		"Rerun after evidence changes: ./bin/ariadne cases --path",
 		"Save after proof after rerun: ./bin/ariadne proofs --path",
 		"Compare proof state: ./bin/ariadne compare --before before-proof.json --after after-proof.json",
@@ -5879,7 +5890,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessClosurePlanItem, "rank", "control", "case_id", "case_title", "severity", "state", "why_this_control", "what_it_closes", "affected_flaws", "affected_targets", "evidence_refs", "proof_surface", "rerun_command", "compare_command", "done_criteria", "limitations")
 	assertSchemaProperty(t, assessClosurePlanItem, "proof_patch")
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
-	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "patch_export_command", "success_criteria", "targets", "flaws", "workflow", "current_action")
+	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "patch_export_command", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands", "success_criteria", "targets", "flaws", "workflow", "current_action")
 	assessCurrentAction := schemaMap(t, assessSchema, "$defs", "assess_current_action")
 	assertRequiredKeys(t, assessCurrentAction, "available", "workflow_step_id", "workflow_step_title", "instruction", "control", "surface", "evidence_refs", "proof_patch_index", "evidence_example_index", "rerun_command", "compare_command", "patch_export_command", "success_criteria")
 	assertSchemaProperty(t, assessCurrentAction, "proof_patch")

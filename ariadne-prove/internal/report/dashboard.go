@@ -1214,6 +1214,18 @@ func renderAssessCurrentActionPacketDashboard(w io.Writer, root string, action m
 			fmt.Fprintln(w, renderCommandList([]string{current.ApplyCommand}))
 		}
 	}
+	if len(action.GeneratedProofPaths) > 0 || len(action.ApplyCommands) > 0 {
+		fmt.Fprintln(w, `<h3>Review / Apply Full Proof Bundle</h3>`)
+		var bundleLines []string
+		for _, path := range action.GeneratedProofPaths {
+			bundleLines = append(bundleLines, "Generated file: "+path)
+		}
+		for _, path := range action.DestinationPaths {
+			bundleLines = append(bundleLines, "Suggested destination: "+path)
+		}
+		fmt.Fprintln(w, renderSmallList(bundleLines))
+		fmt.Fprintln(w, renderCommandList(action.ApplyCommands))
+	}
 	fmt.Fprintln(w, `<h3>Rerun</h3>`)
 	fmt.Fprintln(w, renderCommandList(limitStrings(rerunCommands, 3)))
 	fmt.Fprintln(w, `<h3>Compare Loop</h3>`)

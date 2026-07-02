@@ -402,26 +402,30 @@ type AssessControlState struct {
 }
 
 type AssessFirstAction struct {
-	Available          bool                     `json:"available"`
-	CaseID             string                   `json:"case_id,omitempty"`
-	Title              string                   `json:"title,omitempty"`
-	Severity           string                   `json:"severity,omitempty"`
-	State              string                   `json:"state,omitempty"`
-	WhyFirst           string                   `json:"why_first,omitempty"`
-	NextStep           string                   `json:"next_step,omitempty"`
-	Targets            []string                 `json:"targets"`
-	Flaws              []string                 `json:"flaws"`
-	EvidenceReferences []EvidenceReference      `json:"evidence_refs"`
-	StartingControls   []string                 `json:"starting_controls"`
-	ProofSurfaces      []string                 `json:"proof_surfaces"`
-	EvidenceExamples   []ControlEvidenceExample `json:"evidence_examples"`
-	ProofPatches       []ControlProofPatch      `json:"proof_patches"`
-	RerunCommands      []string                 `json:"rerun_commands"`
-	CompareCommands    []string                 `json:"compare_commands"`
-	PatchExportCommand string                   `json:"patch_export_command"`
-	SuccessCriteria    []string                 `json:"success_criteria"`
-	Workflow           []AssessWorkflowStep     `json:"workflow"`
-	CurrentAction      AssessCurrentAction      `json:"current_action"`
+	Available             bool                     `json:"available"`
+	CaseID                string                   `json:"case_id,omitempty"`
+	Title                 string                   `json:"title,omitempty"`
+	Severity              string                   `json:"severity,omitempty"`
+	State                 string                   `json:"state,omitempty"`
+	WhyFirst              string                   `json:"why_first,omitempty"`
+	NextStep              string                   `json:"next_step,omitempty"`
+	Targets               []string                 `json:"targets"`
+	Flaws                 []string                 `json:"flaws"`
+	EvidenceReferences    []EvidenceReference      `json:"evidence_refs"`
+	StartingControls      []string                 `json:"starting_controls"`
+	ProofSurfaces         []string                 `json:"proof_surfaces"`
+	EvidenceExamples      []ControlEvidenceExample `json:"evidence_examples"`
+	ProofPatches          []ControlProofPatch      `json:"proof_patches"`
+	RerunCommands         []string                 `json:"rerun_commands"`
+	CompareCommands       []string                 `json:"compare_commands"`
+	PatchExportCommand    string                   `json:"patch_export_command"`
+	GeneratedProofPaths   []string                 `json:"generated_proof_paths"`
+	SuggestedDestinations []string                 `json:"suggested_destinations"`
+	DestinationPaths      []string                 `json:"destination_paths"`
+	ApplyCommands         []string                 `json:"apply_commands"`
+	SuccessCriteria       []string                 `json:"success_criteria"`
+	Workflow              []AssessWorkflowStep     `json:"workflow"`
+	CurrentAction         AssessCurrentAction      `json:"current_action"`
 }
 
 type AssessCurrentAction struct {
