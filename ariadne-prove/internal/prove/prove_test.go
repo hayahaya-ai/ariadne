@@ -4061,6 +4061,34 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	reportControlTest := schemaMap(t, reportSchema, "$defs", "architecture_control_test")
 	assertRequiredKeys(t, reportControlTest, "question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers")
 
+	inventorySchema := loadSchema(t, "ariadne-inventory-v1.schema.json")
+	assertRequiredKeys(t, inventorySchema,
+		"schema_version",
+		"run_id",
+		"generated_at",
+		"run_kind",
+		"target_path",
+		"mode",
+		"agent",
+		"collection",
+		"surface_map",
+		"graph",
+		"redaction",
+		"limitations",
+	)
+	inventoryCollection := schemaMap(t, inventorySchema, "$defs", "collection")
+	assertRequiredKeys(t, inventoryCollection, "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "evidence")
+	inventorySurface := schemaMap(t, inventorySchema, "$defs", "surface")
+	assertRequiredKeys(t, inventorySurface, "id", "runtime", "scope", "category", "kind", "handling_mode", "source", "summary")
+	inventoryFact := schemaMap(t, inventorySchema, "$defs", "fact")
+	assertRequiredKeys(t, inventoryFact, "id", "type", "evidence_grade", "redaction", "summary")
+	inventoryGraph := schemaMap(t, inventorySchema, "$defs", "graph")
+	assertRequiredKeys(t, inventoryGraph, "nodes", "edges")
+	inventorySurfaceMap := schemaMap(t, inventorySchema, "$defs", "surface_map")
+	assertRequiredKeys(t, inventorySurfaceMap, "runtime", "scope", "surface_count", "parsed", "summarized", "boundary_indicators", "skipped", "source_refs", "categories", "handling_modes", "authorities", "tools", "controls")
+	inventoryRedaction := schemaMap(t, inventorySchema, "$defs", "redaction")
+	assertRequiredKeys(t, inventoryRedaction, "level", "sensitive_paths_included", "canary_values_included")
+
 	architectureSchema := loadSchema(t, "ariadne-architecture-v1.schema.json")
 	assertRequiredKeys(t, architectureSchema,
 		"schema_version",
@@ -4281,6 +4309,7 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertJSONHasSchemaRequiredFields(t, "ariadne-inventory-v1.schema.json", inventory)
 	assessment, err := report.BuildAssessReport(inventory, r, "breaking")
 	if err != nil {
 		t.Fatal(err)

@@ -179,7 +179,7 @@ repo-only,/srv/repos/example
 
 Useful flags:
 
-- `--agent all|codex|claude`
+- `--agent all|claude|codex|cursor|windsurf|continue|aider|gemini|opencode`
 - `--mode repo|endpoint`
 - `--format table|json|dot|mermaid`
 - `--out <file>`

@@ -233,6 +233,7 @@ An exposure path includes:
 Draft schemas are available in:
 
 - [schema/ariadne-report-v1.schema.json](../schema/ariadne-report-v1.schema.json)
+- [schema/ariadne-inventory-v1.schema.json](../schema/ariadne-inventory-v1.schema.json)
 - [schema/ariadne-scan-v1.schema.json](../schema/ariadne-scan-v1.schema.json)
 - [schema/ariadne-architecture-v1.schema.json](../schema/ariadne-architecture-v1.schema.json)
 - [schema/ariadne-architecture-scan-v1.schema.json](../schema/ariadne-architecture-scan-v1.schema.json)
