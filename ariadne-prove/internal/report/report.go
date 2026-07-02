@@ -4307,6 +4307,8 @@ func renderProofPlan(w io.Writer, r model.ProofPlanReport, format string) error 
 	switch strings.ToLower(format) {
 	case "", "table":
 		return renderProofPlanTable(w, r)
+	case "action":
+		return renderProofPlanAction(w, r)
 	case "json":
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -4316,6 +4318,120 @@ func renderProofPlan(w io.Writer, r model.ProofPlanReport, format string) error 
 	default:
 		return fmt.Errorf("unknown proofs format: %s", format)
 	}
+}
+
+func renderProofPlanAction(w io.Writer, r model.ProofPlanReport) error {
+	fmt.Fprintf(w, "Ariadne Proof Action\n\n")
+	if r.TargetsFile != "" {
+		fmt.Fprintf(w, "Targets file: %s\n", r.TargetsFile)
+	} else if r.TargetPath != "" {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, "Case filter: %s\n", r.CaseFilter)
+	}
+	fmt.Fprintf(w, "Proof queue: %d case(s); %d proof patch(es); %d evidence reference(s)\n\n", r.Summary.Cases, r.Summary.ProofPatches, r.Summary.EvidenceReferences)
+
+	item, hasCase := firstProofPlanCase(r)
+	patch, hasPatch := firstProofPlanPatch(r)
+	if hasCase {
+		fmt.Fprintf(w, "Case:\n")
+		fmt.Fprintf(w, "  - %s (%s)\n", controlOperatorCaseDisplayTitle(item), item.ID)
+		if item.State != "" {
+			fmt.Fprintf(w, "  - State: %s - %s\n", item.State, item.StateReason)
+		}
+		if item.PriorityReason != "" {
+			fmt.Fprintf(w, "  - Priority: %s\n", item.PriorityReason)
+		}
+		if item.NextStep != "" {
+			fmt.Fprintf(w, "  - Next step: %s\n", item.NextStep)
+		}
+	} else {
+		fmt.Fprintf(w, "Case:\n  - none\n")
+	}
+
+	evidenceRefs := r.EvidenceReferences
+	if hasCase && len(item.EvidenceReferences) > 0 {
+		evidenceRefs = item.EvidenceReferences
+	}
+	if len(evidenceRefs) > 0 {
+		fmt.Fprintf(w, "\nEvidence to inspect:\n")
+		for _, line := range evidenceReferenceLinesBySource(evidenceRefs, 4) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+	}
+
+	if hasPatch {
+		fmt.Fprintf(w, "\nProof to add or verify:\n")
+		fmt.Fprintf(w, "  - Control: %s\n", patch.Control)
+		fmt.Fprintf(w, "  - Proof surface: %s\n", patch.Surface)
+		if len(patch.Fields) > 0 {
+			fmt.Fprintf(w, "  - Fields: %s\n", strings.Join(controlProofPatchFieldLines(patch.Fields), "; "))
+		}
+		if patch.Example != "" {
+			fmt.Fprintf(w, "  - Example: %s\n", compactExample(patch.Example))
+		}
+		if patch.Summary != "" {
+			fmt.Fprintf(w, "  - Patch: %s\n", patch.Summary)
+		}
+	} else {
+		fmt.Fprintf(w, "\nProof to add or verify:\n")
+		fmt.Fprintf(w, "  - No proof patch is needed for this case.\n")
+		if hasCase && len(item.StartingControls) > 0 {
+			fmt.Fprintf(w, "  - Observed controls: %s\n", strings.Join(limitStrings(item.StartingControls, 5), "; "))
+		}
+	}
+
+	if r.PatchExportCommand != "" && hasPatch {
+		fmt.Fprintf(w, "\nExport suggested files:\n  - %s\n", r.PatchExportCommand)
+	}
+
+	rerunCommands := r.RerunCommands
+	if hasPatch && len(patch.RerunCommands) > 0 {
+		rerunCommands = patch.RerunCommands
+	} else if hasCase && len(item.RerunCommands) > 0 {
+		rerunCommands = item.RerunCommands
+	}
+	if len(rerunCommands) > 0 {
+		fmt.Fprintf(w, "\nRerun:\n")
+		for _, command := range limitStrings(rerunCommands, 2) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	}
+
+	if len(r.CompareCommands) > 0 {
+		fmt.Fprintf(w, "\nCompare loop:\n")
+		for _, command := range limitStrings(r.CompareCommands, 3) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	}
+
+	successCriteria := r.SuccessCriteria
+	if hasPatch && len(patch.SuccessCriteria) > 0 {
+		successCriteria = patch.SuccessCriteria
+	} else if hasCase && len(item.SuccessCriteria) > 0 {
+		successCriteria = item.SuccessCriteria
+	}
+	if len(successCriteria) > 0 {
+		fmt.Fprintf(w, "\nDone when:\n")
+		for _, criterion := range limitStrings(successCriteria, 3) {
+			fmt.Fprintf(w, "  - %s\n", criterion)
+		}
+	}
+
+	limitations := r.Limitations
+	if hasPatch && len(patch.Limitations) > 0 {
+		limitations = uniqueStrings(append(append([]string{}, patch.Limitations...), limitations...))
+	}
+	if len(limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range limitStrings(limitations, 3) {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	fmt.Fprintln(w)
+	return nil
 }
 
 func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {

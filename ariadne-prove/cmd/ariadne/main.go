@@ -183,7 +183,7 @@ func runProofs(args []string) {
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
-	format := fs.String("format", "table", "output format: table, json, html")
+	format := fs.String("format", "table", "output format: table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	patchDir := fs.String("patch-dir", "", "write suggested proof patch files and manifest to this directory")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
@@ -618,6 +618,7 @@ Examples:
   ariadne cases --path . --format html --out cases-dashboard.html
   ariadne cases --targets targets.txt
   ariadne proofs --path . --case case:input-trust-boundary
+  ariadne proofs --path . --case case:input-trust-boundary --format action
   ariadne proofs --path . --case case:input-trust-boundary --format json
   ariadne proofs --path . --case case:input-trust-boundary --format html --out proof-plan.html
   ariadne proofs --path . --case case:input-trust-boundary --patch-dir proof-patches

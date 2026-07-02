@@ -3315,6 +3315,42 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		}
 	}
 
+	var action bytes.Buffer
+	if err := report.RenderProofs(&action, r, "action", "breaking", "case:input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	actionOut := action.String()
+	for _, want := range []string{
+		"Ariadne Proof Action",
+		"Case filter: case:input-trust-boundary",
+		"Proof queue: 1 case(s); 2 proof patch(es); 1 evidence reference(s)",
+		"Input Trust Boundary (case:input-trust-boundary)",
+		"State: open",
+		"Evidence to inspect:",
+		"CLAUDE.md",
+		"Proof to add or verify:",
+		"Control: control:input-isolation",
+		"Proof surface: .ariadne/input-policy.json",
+		"input_isolation=true",
+		"instruction_isolation=true",
+		"Export suggested files:",
+		"--patch-dir proof-patches",
+		"Rerun:",
+		"ariadne cases --path",
+		"Compare loop:",
+		"before-proof.json",
+		"after-proof.json",
+		"ariadne compare --before before-proof.json --after after-proof.json",
+		"Done when:",
+		"control:input-isolation is no longer returned",
+		"Limitations:",
+		"Proof patches declare evidence Ariadne can parse",
+	} {
+		if !strings.Contains(actionOut, want) {
+			t.Fatalf("proof action output missing %q:\n%s", want, actionOut)
+		}
+	}
+
 	var jsonOut bytes.Buffer
 	if err := report.RenderProofs(&jsonOut, r, "json", "breaking", "case:input-trust-boundary"); err != nil {
 		t.Fatal(err)
@@ -3521,6 +3557,38 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 		!proofWorkflowStepHasCommand(decoded.Workflow, "rerun-case", "ariadne cases --path") ||
 		!proofWorkflowStepHasCommand(decoded.Workflow, "compare-before-after", "ariadne compare --before before-proof.json --after after-proof.json") {
 		t.Fatalf("closed proof plan should carry ordered proof workflow: %+v", decoded.Workflow)
+	}
+
+	var actionOut bytes.Buffer
+	if err := report.RenderProofs(&actionOut, r, "action", "breaking", "input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	actionRendered := actionOut.String()
+	for _, want := range []string{
+		"Ariadne Proof Action",
+		"Case filter: case:input-trust-boundary",
+		"Proof queue: 1 case(s); 0 proof patch(es)",
+		"State: closed",
+		"No proof patch is needed for this case.",
+		"Observed controls: control:input-isolation; control:trusted-source-policy",
+		"Evidence to inspect:",
+		".ariadne/input-policy.json",
+		"Rerun:",
+		"Compare loop:",
+		"Done when:",
+	} {
+		if !strings.Contains(actionRendered, want) {
+			t.Fatalf("closed proof action output missing %q:\n%s", want, actionRendered)
+		}
+	}
+	for _, unwanted := range []string{
+		"Export suggested files:",
+		"Proof surface:",
+		"Fields:",
+	} {
+		if strings.Contains(actionRendered, unwanted) {
+			t.Fatalf("closed proof action output should not include %q:\n%s", unwanted, actionRendered)
+		}
 	}
 
 	var htmlOut bytes.Buffer

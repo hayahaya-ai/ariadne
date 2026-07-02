@@ -27,6 +27,7 @@ func TestResolveDefaultStoryRootFindsRepoSubdir(t *testing.T) {
 func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 	root := t.TempDir()
 	outPath := filepath.Join(root, "proof-plan.json")
+	actionPath := filepath.Join(root, "proof-action.txt")
 	patchDir := filepath.Join(root, "proof-patches")
 	runProofs([]string{
 		"--path", filepath.Join("..", "..", "testdata", "realpath", "combined-risk"),
@@ -35,8 +36,15 @@ func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 		"--out", outPath,
 		"--patch-dir", patchDir,
 	})
+	runProofs([]string{
+		"--path", filepath.Join("..", "..", "testdata", "realpath", "combined-risk"),
+		"--case", "case:input-trust-boundary",
+		"--format", "action",
+		"--out", actionPath,
+	})
 	for _, path := range []string{
 		outPath,
+		actionPath,
 		filepath.Join(patchDir, "README.md"),
 		filepath.Join(patchDir, "manifest.json"),
 		filepath.Join(patchDir, "surfaces", ".ariadne", "input-policy.json"),
@@ -51,6 +59,18 @@ func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 	}
 	if !strings.Contains(string(blob), `"input_isolation": true`) {
 		t.Fatalf("exported patch file missing input isolation evidence:\n%s", blob)
+	}
+	action := readTestFile(t, actionPath)
+	for _, want := range []string{
+		"Ariadne Proof Action",
+		"Proof to add or verify:",
+		"Control: control:input-isolation",
+		"Proof surface: .ariadne/input-policy.json",
+		"Compare loop:",
+	} {
+		if !strings.Contains(action, want) {
+			t.Fatalf("proof action output missing %q:\n%s", want, action)
+		}
 	}
 }
 
