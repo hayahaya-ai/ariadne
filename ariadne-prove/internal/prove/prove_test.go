@@ -3277,6 +3277,37 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if !containsString(decoded.Limitations, "deterministic evidence") {
 		t.Fatalf("proof plan should keep declared-evidence limitation: %+v", decoded.Limitations)
 	}
+	exportDir := filepath.Join(t.TempDir(), "proof-patches")
+	exported, err := report.ExportProofPatchFiles(exportDir, decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported.PatchCount != 2 || len(exported.Files) != 1 {
+		t.Fatalf("proof export should group two patches into one suggested surface file: %+v", exported)
+	}
+	for _, path := range []string{exported.ManifestPath, exported.ReadmePath, filepath.Join(exportDir, "surfaces", ".ariadne", "input-policy.json")} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("proof export missing %s: %v", path, err)
+		}
+	}
+	exportedPolicy, err := os.ReadFile(filepath.Join(exportDir, "surfaces", ".ariadne", "input-policy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"input_isolation": true`, `"trusted_instruction_sources": true`} {
+		if !strings.Contains(string(exportedPolicy), want) {
+			t.Fatalf("exported proof policy missing %q:\n%s", want, exportedPolicy)
+		}
+	}
+	manifest, err := os.ReadFile(exported.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"patch_count": 2`, `"surface": ".ariadne/input-policy.json"`, `"path": "surfaces/.ariadne/input-policy.json"`} {
+		if !strings.Contains(string(manifest), want) {
+			t.Fatalf("export manifest missing %q:\n%s", want, manifest)
+		}
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderProofs(&htmlOut, r, "html", "breaking", "case:input-trust-boundary"); err != nil {

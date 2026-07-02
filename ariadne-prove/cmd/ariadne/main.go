@@ -183,9 +183,13 @@ func runProofs(args []string) {
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
 	format := fs.String("format", "table", "output format: table, json, html")
 	outPath := fs.String("out", "", "write output to file")
+	patchDir := fs.String("patch-dir", "", "write suggested proof patch files and manifest to this directory")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
 	if *targetsFile != "" {
+		if *patchDir != "" {
+			fatal(fmt.Errorf("--patch-dir is only supported with --path, not --targets"))
+		}
 		r, err := prove.RunScan(prove.Options{
 			TargetsFile:           *targetsFile,
 			Agent:                 *agent,
@@ -213,6 +217,18 @@ func runProofs(args []string) {
 	})
 	if err != nil {
 		fatal(err)
+	}
+	if *patchDir != "" {
+		plan, err := report.BuildProofPlanForReport(r, *status, *caseID)
+		if err != nil {
+			fatal(err)
+		}
+		exported, err := report.ExportProofPatchFiles(*patchDir, plan)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Fprintf(os.Stderr, "Exported %d proof patch(es) to %s\n", exported.PatchCount, exported.Directory)
+		fmt.Fprintf(os.Stderr, "Manifest: %s\n", exported.ManifestPath)
 	}
 	writer, closeFn, err := outputWriter(*outPath)
 	if err != nil {
@@ -602,6 +618,7 @@ Examples:
   ariadne proofs --path . --case case:input-trust-boundary
   ariadne proofs --path . --case case:input-trust-boundary --format json
   ariadne proofs --path . --case case:input-trust-boundary --format html --out proof-plan.html
+  ariadne proofs --path . --case case:input-trust-boundary --patch-dir proof-patches
   ariadne compare --before before-proof.json --after after-proof.json
   ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html
   ariadne controls --path .

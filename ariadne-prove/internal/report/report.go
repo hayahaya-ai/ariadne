@@ -236,39 +236,55 @@ func RenderCasesScan(w io.Writer, r model.ScanReport, format string, statusFilte
 }
 
 func RenderProofs(w io.Writer, r model.Report, format string, statusFilter string, caseFilter string) error {
-	architecture, err := BuildArchitectureReport(r, statusFilter)
+	plan, err := BuildProofPlanForReport(r, statusFilter, caseFilter)
 	if err != nil {
 		return err
+	}
+	return renderProofPlan(w, plan, format)
+}
+
+func BuildProofPlanForReport(r model.Report, statusFilter string, caseFilter string) (model.ProofPlanReport, error) {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return model.ProofPlanReport{}, err
 	}
 	catalog := BuildControlCaseBoardReport(architecture)
 	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
 		if closed, ok, closedErr := buildFocusedClosedCaseBoardReport(r, statusFilter, caseFilter); closedErr != nil {
-			return closedErr
+			return model.ProofPlanReport{}, closedErr
 		} else if ok {
 			catalog = closed
 		} else {
-			return err
+			return model.ProofPlanReport{}, err
 		}
 	}
-	return renderProofPlan(w, BuildProofPlanReport(catalog), format)
+	return BuildProofPlanReport(catalog), nil
 }
 
 func RenderProofsScan(w io.Writer, r model.ScanReport, format string, statusFilter string, caseFilter string) error {
-	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	plan, err := BuildProofPlanForScanReport(r, statusFilter, caseFilter)
 	if err != nil {
 		return err
+	}
+	return renderProofPlan(w, plan, format)
+}
+
+func BuildProofPlanForScanReport(r model.ScanReport, statusFilter string, caseFilter string) (model.ProofPlanReport, error) {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return model.ProofPlanReport{}, err
 	}
 	catalog := BuildControlCaseBoardScanReport(architecture)
 	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
 		if closed, ok, closedErr := buildFocusedClosedCaseBoardScanReport(r, statusFilter, caseFilter); closedErr != nil {
-			return closedErr
+			return model.ProofPlanReport{}, closedErr
 		} else if ok {
 			catalog = closed
 		} else {
-			return err
+			return model.ProofPlanReport{}, err
 		}
 	}
-	return renderProofPlan(w, BuildProofPlanReport(catalog), format)
+	return BuildProofPlanReport(catalog), nil
 }
 
 func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogReport {

@@ -185,7 +185,7 @@ This catalog is derived from the architecture closure plan. It does not create a
 - `compare_commands`, with the exact before-proof, after-proof, and compare commands for the rerun loop
 - `limitations`, including the distinction between declared evidence and observed runtime enforcement
 
-This proof plan is read-only. It narrows the action packet for an operator or dashboard, but it does not write policy files and does not claim that declared evidence proves live enforcement.
+This proof plan is read-only by default. It narrows the action packet for an operator or dashboard, but it does not write policy files and does not claim that declared evidence proves live enforcement. When invoked with `--patch-dir <dir>`, Ariadne exports suggested proof evidence files plus a manifest under that directory; the export is still review-first and does not mutate the scanned repo.
 
 `ariadne proofs --format html` renders the same focused proof plan as an operator dashboard: summary metrics, an evidence workbench, selected cases, proof patches, evidence references, rerun commands, compare-loop commands, success criteria, and limitations.
 
