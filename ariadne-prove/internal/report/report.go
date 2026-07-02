@@ -1841,6 +1841,9 @@ func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
 	if len(action.RerunCommands) > 0 {
 		fmt.Fprintf(w, "  - Rerun: %s\n", action.RerunCommands[0])
 	}
+	if len(action.CompareCommands) > 0 {
+		fmt.Fprintf(w, "  - Compare loop: %s\n", strings.Join(limitStrings(action.CompareCommands, 3), "; "))
+	}
 	fmt.Fprintln(w)
 }
 

@@ -3537,6 +3537,16 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 			t.Fatalf("assessment table missing %q:\n%s", want, out)
 		}
 	}
+	firstActionStart := strings.Index(out, "First action:")
+	firstActionEnd := strings.Index(out, "What was inspected:")
+	if firstActionStart < 0 || firstActionEnd < 0 || firstActionEnd <= firstActionStart {
+		t.Fatalf("assessment table should contain a bounded first action block:\n%s", out)
+	}
+	firstActionBlock := out[firstActionStart:firstActionEnd]
+	if !strings.Contains(firstActionBlock, "Compare loop: ariadne proofs --path") ||
+		!strings.Contains(firstActionBlock, "ariadne compare --before before-proof.json --after after-proof.json") {
+		t.Fatalf("first action should include the compare loop commands:\n%s", firstActionBlock)
+	}
 
 	var jsonOut bytes.Buffer
 	if err := report.RenderAssess(&jsonOut, inventory, r, "json", "breaking"); err != nil {
@@ -3566,6 +3576,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.FirstAction.EvidenceExamples) == 0 ||
 		len(decoded.FirstAction.ProofPatches) == 0 ||
 		len(decoded.FirstAction.RerunCommands) == 0 ||
+		len(decoded.FirstAction.CompareCommands) == 0 ||
 		len(decoded.FirstAction.SuccessCriteria) == 0 {
 		t.Fatalf("assessment should include a fact-backed first action: %+v", decoded.FirstAction)
 	}
