@@ -73,6 +73,49 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	}
 }
 
+func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+	assessmentPath := filepath.Join(root, "ariadne-dashboard.html")
+	exposurePath := filepath.Join(root, "exposure-dashboard.html")
+
+	runDashboard([]string{
+		"--path", target,
+		"--out", assessmentPath,
+	})
+	runDashboard([]string{
+		"--path", target,
+		"--view", "exposure",
+		"--out", exposurePath,
+	})
+
+	assessment := readTestFile(t, assessmentPath)
+	for _, want := range []string{
+		"Ariadne Assessment",
+		"Operator Cases",
+		"Export proof files",
+		"--patch-dir proof-patches",
+	} {
+		if !strings.Contains(assessment, want) {
+			t.Fatalf("default dashboard missing %q:\n%s", want, assessment)
+		}
+	}
+	if strings.Contains(assessment, "Ariadne Exposure Dashboard") {
+		t.Fatalf("default dashboard should use the assessment view, not exposure view:\n%s", assessment)
+	}
+
+	exposure := readTestFile(t, exposurePath)
+	for _, want := range []string{
+		"Ariadne Exposure Dashboard",
+		"Exposure Paths",
+		"Facts Dive",
+	} {
+		if !strings.Contains(exposure, want) {
+			t.Fatalf("exposure dashboard missing %q:\n%s", want, exposure)
+		}
+	}
+}
+
 func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 	root := t.TempDir()
 	outPath := filepath.Join(root, "proof-plan.json")

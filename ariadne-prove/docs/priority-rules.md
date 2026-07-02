@@ -105,10 +105,11 @@ Rules match graph evidence and exposure results. They do not match arbitrary raw
 ariadne prove --path . --rules .ariadne/rules.json
 ariadne scan --targets targets.txt --rules .ariadne/rules.json --format json
 ariadne dashboard --path . --rules .ariadne/rules.json --out ariadne-dashboard.html
+ariadne dashboard --path . --view exposure --rules .ariadne/rules.json --out exposure-dashboard.html
 ariadne dashboard --targets targets.txt --out fleet-dashboard.html
 ```
 
-`dashboard` writes a local static HTML report with:
+`dashboard` defaults to the operator assessment view with first action, operator cases, evidence links, and proof-loop commands. Use `--view exposure` when you want the lower-level exposure/facts dashboard with:
 
 - issue summary
 - prioritized issue table

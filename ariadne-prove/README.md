@@ -23,7 +23,7 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - Prioritizes graph-backed issues with deterministic rules.
 - Supports custom rule policies for organization-specific risky paths.
 - Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
-- Writes a local HTML dashboard with issues and a facts dive.
+- Writes a local HTML operator dashboard with first action, evidence links, proof bundles, case boards, and Zero Trust boundary coverage views.
 - Emits stable JSON for automation, fleet aggregation, and security data pipelines.
 
 ## Current Exposure Families
@@ -116,6 +116,7 @@ Inspect the current repository:
 ./bin/ariadne controls --path .
 ./bin/ariadne controls --path . --format html --out controls-dashboard.html
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
+./bin/ariadne dashboard --path . --view exposure --out exposure-dashboard.html
 ./bin/ariadne prove --path . --llm-request-out llm-request.json
 ```
 
@@ -186,8 +187,8 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 | `ariadne controls --path <dir>` | Show missing hard-barrier controls, proof surfaces, and the flaws they close. Use `--format html` for the focused operator dashboard. |
 | `ariadne controls --targets <file>` | Group missing hard-barrier controls across many targets. |
 | `ariadne scan --targets <file>` | Run `prove` across many local or mounted targets and aggregate the results. |
-| `ariadne dashboard --path <dir>` | Write a local HTML issue dashboard for one target. |
-| `ariadne dashboard --targets <file>` | Write a local HTML issue dashboard across many targets. |
+| `ariadne dashboard --path <dir>` | Write the primary local HTML operator dashboard for one target. Use `--view exposure` for the lower-level exposure/facts view. |
+| `ariadne dashboard --targets <file>` | Write the primary local HTML fleet operator dashboard across many targets. Use `--view exposure` for the lower-level fleet exposure view. |
 | `ariadne stories list` | List validation scenarios. |
 | `ariadne prove --story <id>` | Run one validation scenario against its expected oracle. |
 

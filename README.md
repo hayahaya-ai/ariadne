@@ -101,7 +101,7 @@ If Ariadne cannot cite facts, evidence references, graph edges, controls, and li
 - Detects AI supply-chain evidence such as AI-BOM or ML-BOM surfaces, model provenance, dependency health, provider review, signing, and runtime validation declarations.
 - Flags inline credential field indicators in agent configuration without emitting values.
 - Supports optional fact-bound LLM review on top of Ariadne's redacted evidence packet.
-- Writes local HTML dashboards with issue, facts-dive, and Zero Trust boundary coverage views.
+- Writes local HTML operator dashboards with first action, evidence links, proof bundles, case boards, and Zero Trust boundary coverage views.
 - Emits JSON for automation, fleet aggregation, and security data pipelines.
 
 ## Exposure Families
@@ -144,6 +144,7 @@ From `ariadne-prove/`:
 ./bin/ariadne prove --path .
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json
 ./bin/ariadne dashboard --path . --out ariadne-dashboard.html
+./bin/ariadne dashboard --path . --view exposure --out exposure-dashboard.html
 ./bin/ariadne dashboard --targets targets.txt --out fleet-dashboard.html
 ./bin/ariadne prove --path . --rules .ariadne/rules.json
 ./bin/ariadne prove --path . --llm-request-out llm-request.json

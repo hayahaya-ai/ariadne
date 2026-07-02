@@ -220,9 +220,10 @@ ariadne inventory --path . --format mermaid --out ariadne-graph.mmd
 ariadne prove --path . --format dot --out ariadne-graph.dot
 ariadne scan --targets targets.txt --format mermaid --out fleet-graph.mmd
 ariadne dashboard --path . --out ariadne-dashboard.html
+ariadne dashboard --path . --view exposure --out exposure-dashboard.html
 ```
 
-`dot` output is Graphviz-compatible. `mermaid` output uses `flowchart LR`.
+`dashboard` defaults to the operator assessment view. Use `--view exposure` for the lower-level exposure and facts dashboard. `dot` output is Graphviz-compatible. `mermaid` output uses `flowchart LR`.
 
 ### Exposure
 

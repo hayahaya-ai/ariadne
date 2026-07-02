@@ -561,6 +561,10 @@ func runDashboard(args []string) {
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	outPath := fs.String("out", "ariadne-dashboard.html", "write HTML dashboard to file")
+	view := fs.String("view", "assessment", "dashboard view: assessment, exposure")
+	status := fs.String("status", "breaking", "architecture flaw status filter for assessment view: breaking, controlled, unknown, not_observed, observed, all")
+	caseID := fs.String("case", "", "operator case id to focus in assessment view, e.g. case:input-trust-boundary")
+	controlID := fs.String("control", "", "missing hard-barrier control to focus in assessment view, e.g. control:input-isolation")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
 	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
@@ -574,6 +578,10 @@ func runDashboard(args []string) {
 		fatal(err)
 	}
 	defer closeFn()
+	dashboardView := strings.ToLower(strings.TrimSpace(*view))
+	if dashboardView == "" {
+		dashboardView = "assessment"
+	}
 	if *targetsFile != "" {
 		r, err := prove.RunScan(prove.Options{
 			TargetsFile:           *targetsFile,
@@ -591,8 +599,17 @@ func runDashboard(args []string) {
 		if err != nil {
 			fatal(err)
 		}
-		if err := report.RenderScan(writer, r, "html"); err != nil {
-			fatal(err)
+		var renderErr error
+		switch dashboardView {
+		case "assessment", "assess", "operator":
+			renderErr = report.RenderAssessScanFocused(writer, r, "html", *status, report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID})
+		case "exposure", "legacy":
+			renderErr = report.RenderScan(writer, r, "html")
+		default:
+			renderErr = fmt.Errorf("unknown dashboard view: %s", *view)
+		}
+		if renderErr != nil {
+			fatal(renderErr)
 		}
 		return
 	}
@@ -611,8 +628,21 @@ func runDashboard(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	if err := report.Render(writer, r, "html"); err != nil {
-		fatal(err)
+	var renderErr error
+	switch dashboardView {
+	case "assessment", "assess", "operator":
+		inventory, err := prove.RunInventory(prove.Options{Path: *path, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+		if err != nil {
+			fatal(err)
+		}
+		renderErr = report.RenderAssessFocused(writer, inventory, r, "html", *status, report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID})
+	case "exposure", "legacy":
+		renderErr = report.Render(writer, r, "html")
+	default:
+		renderErr = fmt.Errorf("unknown dashboard view: %s", *view)
+	}
+	if renderErr != nil {
+		fatal(renderErr)
 	}
 }
 
@@ -649,7 +679,7 @@ Commands:
   inventory      Collect deterministic AI surface facts without classifying exposure
   prove          Prove supported exposure paths for a real path or Story Lab scenario
   scan           Run exposure analysis across one or more local/mounted targets
-  dashboard      Write a local HTML issue dashboard for one target or a target list
+  dashboard      Write a local HTML operator dashboard for one target or a target list
   stories list   List Story Lab scenarios
 
 Examples:
@@ -685,6 +715,7 @@ Examples:
   ariadne inventory --path . --format mermaid --out graph.mmd
   ariadne prove --path .
   ariadne dashboard --path . --out ariadne-dashboard.html
+  ariadne dashboard --path . --view exposure --out exposure-dashboard.html
   ariadne dashboard --targets targets.txt --out fleet-dashboard.html
   ariadne prove --path . --format dot --out graph.dot
   ariadne scan --targets targets.txt --format json
