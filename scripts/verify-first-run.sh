@@ -227,6 +227,10 @@ expect_contains "$assess_json" '.claude/settings.json'
 expect_contains "$assess_json" '.codex/config.toml'
 
 expect_contains "$assess_html" "Ariadne Assessment"
+expect_contains "$assess_html" "Source Reference Workbench"
+expect_contains "$assess_html" "Exact files and lines to open first"
+expect_contains "$assess_html" "Inspect command"
+expect_contains "$assess_html" "sed -n"
 expect_contains "$assess_html" "Operator Workbench"
 expect_contains "$assess_html" "1. Current Case"
 expect_contains "$assess_html" "2. Evidence To Open"
@@ -372,6 +376,11 @@ expect_contains "$self_bundle/operator-packet.json" '"compare_state"'
 expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
+expect_contains "$self_bundle/dashboard.html" "Source Reference Workbench"
+expect_contains "$self_bundle/dashboard.html" "Exact files and lines to open first"
+expect_contains "$self_bundle/dashboard.html" "Inspect command"
+expect_contains "$self_bundle/dashboard.html" "sed -n"
+expect_contains "$self_bundle/dashboard.html" "ls -ld"
 expect_contains "$self_bundle/dashboard.html" "Operator Workbench"
 expect_contains "$self_bundle/dashboard.html" "Case Lifecycle"
 expect_contains "$self_bundle/dashboard.html" "Signal / Noise Evidence"
@@ -498,6 +507,11 @@ expect_contains "$endpoint_json" '.roo/mcp.json'
 expect_contains "$endpoint_json" '.gemini/settings.json'
 
 expect_contains "$endpoint_html" "Ariadne Assessment"
+expect_contains "$endpoint_html" "Source Reference Workbench"
+expect_contains "$endpoint_html" "Exact files and lines to open first"
+expect_contains "$endpoint_html" "Inspect command"
+expect_contains "$endpoint_html" "sed -n"
+expect_contains "$endpoint_html" "ls -ld"
 expect_contains "$endpoint_html" "Operator Workbench"
 expect_contains "$endpoint_html" "1. Current Case"
 expect_contains "$endpoint_html" "2. Evidence To Open"

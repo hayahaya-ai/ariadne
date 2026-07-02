@@ -188,6 +188,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
+	renderAssessSourceReferenceWorkbenchDashboard(w, r)
 	renderAssessOperatorPacketDashboard(w, r)
 	renderAssessOperatorWorkbenchDashboard(w, r)
 	renderAssessCaseLifecycleDashboard(w, r.TargetPath, r.CaseLifecycle)
@@ -210,6 +211,48 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintln(w, "</body>")
 	fmt.Fprintln(w, "</html>")
 	return nil
+}
+
+func renderAssessSourceReferenceWorkbenchDashboard(w io.Writer, r model.AssessReport) {
+	refs := assessDashboardSourceReferences(r)
+	if len(refs) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Source Reference Workbench</h2><div class="subtle">Exact files and lines to open first. These rows come from deterministic evidence references, not generated opinion.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Evidence refs", fmt.Sprintf("%d", len(refs))},
+		{"Local files", fmt.Sprintf("%d", countLocalEvidenceReferences(r.TargetPath, refs))},
+		{"Top case", firstNonEmpty(r.Summary.TopCaseID, "none")},
+		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
+	})
+	renderAssessEvidenceReferenceTable(w, r.TargetPath, refs, 12)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func assessDashboardSourceReferences(r model.AssessReport) []model.EvidenceReference {
+	var refs []model.EvidenceReference
+	refs = append(refs, r.OperatorPacket.EvidenceToOpen...)
+	refs = append(refs, r.OperatorWorkbench.EvidenceToOpen...)
+	refs = append(refs, r.Decision.EvidenceReferences...)
+	refs = append(refs, r.SignalQuality.EvidenceReferences...)
+	refs = append(refs, r.Triage.EvidenceReferences...)
+	refs = append(refs, r.FirstAction.EvidenceReferences...)
+	refs = append(refs, r.FirstAction.CurrentAction.EvidenceReferences...)
+	if len(r.TopCases) > 0 {
+		refs = append(refs, r.TopCases[0].EvidenceReferences...)
+	}
+	return rankEvidenceReferencesForOperator(refs)
+}
+
+func countLocalEvidenceReferences(root string, refs []model.EvidenceReference) int {
+	count := 0
+	for _, ref := range refs {
+		if dashboardEvidenceReferencePath(root, ref) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error {
@@ -2193,19 +2236,74 @@ func renderAssessEvidenceReferenceTable(w io.Writer, root string, refs []model.E
 		limit = len(refs)
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
-	fmt.Fprintln(w, "<thead><tr><th>Source</th><th>Kind</th><th>Fact</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Source</th><th>Line</th><th>Kind</th><th>Fact</th><th>Inspect command</th></tr></thead><tbody>")
 	for i, ref := range refs[:limit] {
 		source := firstNonEmpty(ref.Source, ref.ID, ref.Kind)
 		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("evidence", fmt.Sprintf("%d-%s-%s", i+1, ref.ID, source))))
 		fmt.Fprintf(w, `<td>%s</td>`, dashboardFileRefHTML(root, source))
+		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(evidenceReferenceLineLabel(ref)))
 		fmt.Fprintf(w, `<td>%s</td>`, esc(ref.Kind))
 		fmt.Fprintf(w, `<td>%s</td>`, esc(ref.Summary))
+		fmt.Fprintf(w, `<td>%s</td>`, dashboardEvidenceReferenceInspectCommandHTML(root, ref))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(refs) > limit {
-		fmt.Fprintf(w, `<tr><td colspan="3"><span class="subtle">%d more evidence reference(s) in JSON output.</span></td></tr>`, len(refs)-limit)
+		fmt.Fprintf(w, `<tr><td colspan="5"><span class="subtle">%d more evidence reference(s) in JSON output.</span></td></tr>`, len(refs)-limit)
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
+}
+
+func evidenceReferenceLineLabel(ref model.EvidenceReference) string {
+	if ref.LineStart <= 0 {
+		return "not recorded"
+	}
+	if ref.LineEnd > ref.LineStart {
+		return fmt.Sprintf("%d-%d", ref.LineStart, ref.LineEnd)
+	}
+	return fmt.Sprintf("%d", ref.LineStart)
+}
+
+func dashboardEvidenceReferenceInspectCommandHTML(root string, ref model.EvidenceReference) string {
+	command := dashboardEvidenceReferenceInspectCommand(root, ref)
+	if command == "" {
+		return `<span class="subtle">source is not a local file</span>`
+	}
+	return renderCommandList([]string{command})
+}
+
+func dashboardEvidenceReferenceInspectCommand(root string, ref model.EvidenceReference) string {
+	path := dashboardEvidenceReferencePath(root, ref)
+	if path == "" {
+		return ""
+	}
+	if dashboardEvidenceReferenceMetadataOnly(ref) {
+		return fmt.Sprintf("ls -ld %s", shellQuoteCommandArg(path))
+	}
+	if ref.LineStart > 0 {
+		lineEnd := ref.LineEnd
+		if lineEnd < ref.LineStart {
+			lineEnd = ref.LineStart
+		}
+		return fmt.Sprintf("sed -n '%d,%dp' %s", ref.LineStart, lineEnd, shellQuoteCommandArg(path))
+	}
+	return fmt.Sprintf("sed -n '1,160p' %s", shellQuoteCommandArg(path))
+}
+
+func dashboardEvidenceReferencePath(root string, ref model.EvidenceReference) string {
+	source := firstNonEmpty(ref.Source, ref.ID, ref.Kind)
+	return dashboardFilePath(root, source)
+}
+
+func dashboardEvidenceReferenceMetadataOnly(ref model.EvidenceReference) bool {
+	value := strings.ToLower(strings.TrimSpace(ref.Kind + " " + ref.Summary))
+	return strings.Contains(value, "history") ||
+		strings.Contains(value, "cache") ||
+		strings.Contains(value, "private context") ||
+		strings.Contains(value, "high-volume") ||
+		strings.Contains(value, "contents were not inspected") ||
+		strings.Contains(value, "contents are not inspected") ||
+		strings.Contains(value, "contents are not emitted") ||
+		strings.Contains(value, "contents were not emitted")
 }
 
 func renderAssessControlProofRecipeTable(w io.Writer, root string, item model.ControlOperatorCase) {

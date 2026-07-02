@@ -344,6 +344,12 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	dashboard := readTestFile(t, filepath.Join(bundleDir, "dashboard.html"))
 	for _, want := range []string{
 		"Ariadne Assessment",
+		"Source Reference Workbench",
+		"Exact files and lines to open first",
+		"Inspect command",
+		"sed -n",
+		"ls -ld",
+		".claude/settings.local.json",
 		"Signal Quality",
 		"Lethal Trifecta",
 		"Operator Cases",
