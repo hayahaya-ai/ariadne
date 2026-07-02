@@ -224,6 +224,7 @@ An exposure path includes:
 - `proof_mode`
 - `path_nodes`
 - `path_edges`
+- `evidence_refs`
 - `observation`
 - `controls_break_path`
 - `limitations`

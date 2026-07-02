@@ -50,6 +50,7 @@ func RunStory(opts Options) (model.Report, error) {
 	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
 	graph := BuildGraph(collection)
 	exposure := Evaluate(collection, graph, manifest)
+	exposure = attachExposureEvidenceReferences(collection, graph, exposure)
 	zeroTrust := zerotrust.Assess(collection, graph, []model.ExposureResult{exposure})
 	policy, err := loadPolicy(story.Dir, opts.RulesPath)
 	if err != nil {
@@ -145,6 +146,7 @@ func RunPath(opts Options) (model.Report, error) {
 	graph := BuildGraph(collection)
 	exposures := EvaluateAll(collection, graph, opts.Mode)
 	normalizeRealPathExposures(exposures)
+	attachExposureSetEvidenceReferences(collection, graph, exposures)
 	zeroTrust := zerotrust.Assess(collection, graph, exposures)
 	primary := model.ExposureResult{}
 	if len(exposures) > 0 {
@@ -606,6 +608,101 @@ func normalizeRealPathExposures(exposures []model.ExposureResult) {
 			}
 		}
 	}
+}
+
+func attachExposureSetEvidenceReferences(c model.Collection, g model.Graph, exposures []model.ExposureResult) {
+	for i := range exposures {
+		exposures[i] = attachExposureEvidenceReferences(c, g, exposures[i])
+	}
+}
+
+func attachExposureEvidenceReferences(c model.Collection, g model.Graph, exposure model.ExposureResult) model.ExposureResult {
+	exposure.EvidenceReferences = evidenceReferencesForExposure(c, g, exposure)
+	return exposure
+}
+
+func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure model.ExposureResult) []model.EvidenceReference {
+	if len(exposure.PathEdges) == 0 {
+		return []model.EvidenceReference{}
+	}
+	evidenceByID := make(map[string]model.Evidence, len(c.Evidence))
+	for _, evidence := range c.Evidence {
+		evidenceByID[evidence.ID] = evidence
+	}
+	nodeByID := make(map[string]model.Node, len(g.Nodes))
+	for _, node := range g.Nodes {
+		nodeByID[node.ID] = node
+	}
+	edgeByKey := make(map[string]model.Edge, len(g.Edges))
+	for _, edge := range g.Edges {
+		edgeByKey[edge.Key()] = edge
+	}
+	var refs []model.EvidenceReference
+	for _, pathEdge := range exposure.PathEdges {
+		edge, ok := edgeByKey[pathEdge]
+		if ok {
+			if edge.EvidenceID != "" {
+				if evidence, found := evidenceByID[edge.EvidenceID]; found {
+					refs = append(refs, model.EvidenceReference{
+						ID:      evidence.ID,
+						Kind:    evidence.Kind,
+						Source:  evidence.Source,
+						Summary: evidence.Summary,
+					})
+				}
+			}
+			if ref, ok := evidenceReferenceForNode(nodeByID[edge.From]); ok {
+				refs = append(refs, ref)
+			}
+			if ref, ok := evidenceReferenceForNode(nodeByID[edge.To]); ok {
+				refs = append(refs, ref)
+			}
+			continue
+		}
+		parts := strings.Split(pathEdge, "|")
+		if len(parts) != 3 {
+			continue
+		}
+		if ref, ok := evidenceReferenceForNode(nodeByID[parts[0]]); ok {
+			refs = append(refs, ref)
+		}
+		if ref, ok := evidenceReferenceForNode(nodeByID[parts[2]]); ok {
+			refs = append(refs, ref)
+		}
+	}
+	return dedupeExposureEvidenceReferences(refs)
+}
+
+func evidenceReferenceForNode(node model.Node) (model.EvidenceReference, bool) {
+	if node.ID == "" || node.Source == "" {
+		return model.EvidenceReference{}, false
+	}
+	return model.EvidenceReference{
+		ID:      node.ID,
+		Kind:    node.Type,
+		Source:  node.Source,
+		Summary: node.Label,
+	}, true
+}
+
+func dedupeExposureEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	if len(values) == 0 {
+		return []model.EvidenceReference{}
+	}
+	seen := map[string]bool{}
+	var out []model.EvidenceReference
+	for _, value := range values {
+		key := value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary
+		if value.Source != "" {
+			key = "source|" + value.Source
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func BuildGraph(c model.Collection) model.Graph {

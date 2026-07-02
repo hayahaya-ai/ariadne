@@ -814,18 +814,19 @@ func (g Graph) HasEdge(key string) bool {
 }
 
 type ExposureResult struct {
-	ID                string      `json:"id"`
-	Title             string      `json:"title"`
-	Status            Status      `json:"status"`
-	ProofMode         ProofMode   `json:"proof_mode"`
-	Runtimes          []string    `json:"runtimes,omitempty"`
-	PathNodes         []string    `json:"path_nodes"`
-	PathEdges         []string    `json:"path_edges"`
-	Observation       Observation `json:"observation"`
-	ControlsBreakPath []string    `json:"controls_break_path,omitempty"`
-	WhyItMatters      string      `json:"why_it_matters"`
-	WhatWasTested     string      `json:"what_was_tested"`
-	Limitations       []string    `json:"limitations"`
+	ID                 string              `json:"id"`
+	Title              string              `json:"title"`
+	Status             Status              `json:"status"`
+	ProofMode          ProofMode           `json:"proof_mode"`
+	Runtimes           []string            `json:"runtimes,omitempty"`
+	PathNodes          []string            `json:"path_nodes"`
+	PathEdges          []string            `json:"path_edges"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	Observation        Observation         `json:"observation"`
+	ControlsBreakPath  []string            `json:"controls_break_path,omitempty"`
+	WhyItMatters       string              `json:"why_it_matters"`
+	WhatWasTested      string              `json:"what_was_tested"`
+	Limitations        []string            `json:"limitations"`
 }
 
 type Observation struct {

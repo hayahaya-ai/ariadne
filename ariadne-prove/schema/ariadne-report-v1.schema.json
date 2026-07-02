@@ -28,7 +28,7 @@
   "$defs": {
     "exposure": {
       "type": "object",
-      "required": ["id", "title", "status", "proof_mode", "path_nodes", "path_edges", "observation"],
+      "required": ["id", "title", "status", "proof_mode", "path_nodes", "path_edges", "evidence_refs", "observation"],
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -36,7 +36,22 @@
         "proof_mode": { "type": "string", "enum": ["inferred", "simulated", "live_lab"] },
         "path_nodes": { "type": "array", "items": { "type": "string" } },
         "path_edges": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence_reference" }
+        },
         "observation": { "type": "object" }
+      }
+    },
+    "evidence_reference": {
+      "type": "object",
+      "required": ["id", "kind", "summary"],
+      "properties": {
+        "target": { "type": "string" },
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "summary": { "type": "string" }
       }
     },
     "graph": {

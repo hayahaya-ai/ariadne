@@ -2414,13 +2414,14 @@ func renderExposureSection(w io.Writer, exposures []model.ExposureResult) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head"><div><h2>Exposure Paths</h2><div class="subtle">Supported paths Ariadne could classify from graph evidence.</div></div></div>`)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Path</th><th>Proof</th><th>Graph evidence</th><th>Controls</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Path</th><th>Proof</th><th>Graph evidence</th><th>Evidence refs</th><th>Controls</th></tr></thead><tbody>")
 	for _, exposure := range exposures {
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(string(exposure.Status)), esc(strings.ToUpper(string(exposure.Status))))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(exposure.Title), esc(exposure.Observation.Summary), esc(exposure.ID))
 		fmt.Fprintf(w, `<td>%s</td>`, esc(string(exposure.ProofMode)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(exposure.PathEdges))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(exposure.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(exposure.ControlsBreakPath))
 		fmt.Fprintln(w, "</tr>")
 	}

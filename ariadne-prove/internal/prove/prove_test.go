@@ -209,7 +209,7 @@ func TestJSONGraphsUseArraysForEmptyEdges(t *testing.T) {
 	if strings.Contains(out, `"edges":null`) || strings.Contains(out, `"nodes":null`) {
 		t.Fatalf("graph arrays must not serialize as null: %s", out)
 	}
-	if strings.Contains(out, `"path_edges":null`) || strings.Contains(out, `"path_nodes":null`) || strings.Contains(out, `"graph_edges":null`) {
+	if strings.Contains(out, `"path_edges":null`) || strings.Contains(out, `"path_nodes":null`) || strings.Contains(out, `"evidence_refs":null`) || strings.Contains(out, `"graph_edges":null`) {
 		t.Fatalf("path and issue arrays must not serialize as null: %s", out)
 	}
 	if !strings.Contains(out, `"edges":[]`) {
@@ -228,6 +228,14 @@ func TestRunPathCombinedRiskProducesMultipleExposurePaths(t *testing.T) {
 	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusExposed)
 	assertExposure(t, r, "mutable-tool-launch-execution", model.StatusExposed)
 	assertExposure(t, r, "data-egress-chain", model.StatusExposed)
+	secret := findExposure(t, r, "prompt-injection-to-secret-canary")
+	if !containsEvidenceReferenceSource(secret.EvidenceReferences, "CLAUDE.md") || !containsEvidenceReferenceSource(secret.EvidenceReferences, ".env") {
+		t.Fatalf("secret exposure should include actionable evidence refs: %+v", secret.EvidenceReferences)
+	}
+	mcp := findExposure(t, r, "mutable-tool-launch-execution")
+	if !containsEvidenceReferenceSource(mcp.EvidenceReferences, "mcp.json") {
+		t.Fatalf("MCP exposure should include actionable evidence refs: %+v", mcp.EvidenceReferences)
+	}
 	if !r.Graph.HasEdge("trustinput:repo-instruction|influences|runtime:codex") {
 		t.Fatalf("missing secret exposure graph edge")
 	}
@@ -4051,6 +4059,11 @@ func TestArchitectureHTMLDashboardsFocusZeroTrustBreakage(t *testing.T) {
 
 func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	reportSchema := loadSchema(t, "ariadne-report-v1.schema.json")
+	reportExposure := schemaMap(t, reportSchema, "$defs", "exposure")
+	assertRequiredKeys(t, reportExposure, "evidence_refs")
+	assertSchemaProperty(t, reportExposure, "evidence_refs")
+	reportEvidenceReference := schemaMap(t, reportSchema, "$defs", "evidence_reference")
+	assertRequiredKeys(t, reportEvidenceReference, "id", "kind", "summary")
 	zeroTrust := schemaMap(t, reportSchema, "$defs", "zero_trust")
 	assertRequiredKeys(t, zeroTrust, "architecture_summary", "architecture_flaws")
 	assertSchemaProperty(t, zeroTrust, "architecture_summary")
@@ -4360,6 +4373,7 @@ func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {
 		"Influence boundary",
 		"Issue Dashboard",
 		"Exposure Paths",
+		"Evidence refs",
 		"Facts Dive",
 		"Mutable tool launch can reach local code execution",
 	} {

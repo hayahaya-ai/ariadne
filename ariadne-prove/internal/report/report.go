@@ -1877,6 +1877,13 @@ func renderTable(w io.Writer, r model.Report) error {
 			fmt.Fprintf(w, "  - %s\n", edge)
 		}
 		fmt.Fprintln(w)
+		if len(exposure.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "Evidence to inspect:\n")
+			for _, line := range evidenceReferenceLines(exposure.EvidenceReferences, 6) {
+				fmt.Fprintf(w, "  - %s\n", line)
+			}
+			fmt.Fprintln(w)
+		}
 		fmt.Fprintf(w, "Classification:\n")
 		fmt.Fprintf(w, "  Status: %s\n", strings.ToUpper(string(exposure.Status)))
 		fmt.Fprintf(w, "  Proof mode: %s\n", exposure.ProofMode)
