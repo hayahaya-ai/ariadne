@@ -95,7 +95,7 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 	}
 
 	switch s.Kind {
-	case "claude-md", "agents-md", "nested-agents-md", "cursor-rules", "windsurf-rules", "codex-agents-md", "claude-command", "claude-project-memory":
+	case "claude-md", "agents-md", "nested-agents-md", "cursor-rules", "windsurf-rules", "continue-rules", "gemini-md", "codex-agents-md", "claude-command", "gemini-command", "claude-project-memory":
 		collectInstruction(c, s)
 	case "claude-subagent":
 		collectDelegationSurface(c, s)
@@ -103,7 +103,11 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectCodexConfig(c, s)
 	case "claude-settings", "claude-local-settings":
 		collectClaudeSettings(c, s)
-	case "mcp-config", "claude-mcp-config":
+	case "cursor-settings", "windsurf-settings", "continue-config", "aider-config", "gemini-settings", "opencode-config":
+		collectGenericAgentConfig(c, s)
+	case "aider-ignore":
+		collectAiderIgnore(c, s)
+	case "mcp-config", "claude-mcp-config", "cursor-mcp-config", "windsurf-mcp-config", "continue-mcp-config":
 		collectMCPConfig(c, s)
 	case "mcp-policy":
 		collectMCPPolicy(c, s)
@@ -145,7 +149,7 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectAIBOM(c, s)
 	case "opentelemetry-config":
 		collectTelemetryConfig(c, s)
-	case "claude-plugin-config", "claude-installed-plugins":
+	case "claude-plugin-config", "claude-installed-plugins", "gemini-extension":
 		collectPluginSurface(c, s)
 	case "claude-remote-settings", "claude-policy-limits":
 		collectManagedControlSurface(c, s)
@@ -167,7 +171,7 @@ func collectInstruction(c *model.Collection, s model.Surface) {
 		kind = "agent-memory"
 		summary = "Agent memory surface can influence future coding-agent behavior."
 	}
-	if s.Kind == "claude-command" {
+	if s.Category == "command-hook" {
 		id = "trustinput:agent-command"
 		kind = "agent-command"
 		summary = "Agent command surface can influence repeatable coding-agent workflows."
@@ -185,14 +189,16 @@ func collectInstruction(c *model.Collection, s model.Surface) {
 	})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+id, "trust-input", s.Source, "declared", "Agent instruction surface was parsed without emitting raw content."))
 	lower := strings.ToLower(string(data))
-	if s.Kind == "claude-command" && containsAny(lower, []string{"bash", "shell", "exec", "npm ", "npx ", "python "}) {
-		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-command-shell", Kind: "agent-command-shell", Runtime: "claude", Source: s.Source, Risky: true, Summary: "Claude command surface appears able to steer shell or command execution."})
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: "claude", Source: s.Source, Summary: "Command surface can steer local command execution when invoked by the agent."})
+	if s.Category == "command-hook" && containsAny(lower, []string{"bash", "shell", "exec", "npm ", "npx ", "python "}) {
+		runtime := runtimeForTrustInput(s)
+		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-command-shell", Kind: "agent-command-shell", Runtime: runtime, Source: s.Source, Risky: true, Summary: displayRuntime(runtime) + " command surface appears able to steer shell or command execution."})
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: runtime, Source: s.Source, Summary: "Command surface can steer local command execution when invoked by the agent."})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:agent-command-shell", "tool", s.Source, "declared", "Agent command content was inspected for command-execution indicators."))
 	}
-	if s.Kind == "claude-command" && containsExternalCommunication(lower) {
-		addExternalCommunication(c, "claude", s.Source, "Claude command surface contains external communication indicators.")
+	if s.Category == "command-hook" && containsExternalCommunication(lower) {
+		runtime := runtimeForTrustInput(s)
+		addExternalCommunication(c, runtime, s.Source, displayRuntime(runtime)+" command surface contains external communication indicators.")
 	}
 	if delegationInstructionPattern.MatchString(lower) {
 		addDelegationSurface(c, runtimeForTrustInput(s), s.Source, "Agent instruction surface includes delegation, subagent, handoff, or worker-agent language.")
@@ -249,6 +255,9 @@ func addDelegationSurface(c *model.Collection, runtime, source, summary string) 
 func runtimeForTrustInput(s model.Surface) string {
 	if s.Kind == "claude-command" || s.Kind == "claude-project-memory" {
 		return "claude"
+	}
+	if s.Runtime != "" && s.Runtime != "generic" && s.Runtime != "mcp" {
+		return s.Runtime
 	}
 	return ""
 }
@@ -331,6 +340,65 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 	}
 }
 
+func collectGenericAgentConfig(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	runtime := runtimeForSurface(s)
+	if runtime == "" {
+		return
+	}
+	source := s.Source
+	display := displayRuntime(runtime)
+	c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{
+		ID:      "runtime:" + runtime,
+		Kind:    runtime,
+		Source:  source,
+		Scope:   s.Scope,
+		Summary: display + " configuration evidence was found.",
+	})
+	configID := "config:" + runtime + "-" + s.Scope
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", display+" config source was collected."))
+	text := strings.ToLower(string(data))
+	if broadLocalAgentConfig(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: runtime, Source: source, Summary: display + " config declares broad local authority, auto-approval, or bypass posture."})
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: runtime, Source: source, Summary: display + " can read files in the configured workspace or local context."})
+	}
+	if fileReadAgentConfig(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: runtime, Source: source, Summary: display + " config declares filesystem, workspace, or context-read posture."})
+	}
+	if localExecutionAgentConfig(text) {
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: runtime, Source: source, Summary: display + " config declares shell, terminal, interpreter, or local command posture."})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
+	}
+	if mcpConfigured(text) {
+		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:mcp-configured", Kind: "mcp-configured", Runtime: runtime, Source: source, Summary: display + " config includes MCP/tool configuration."})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:mcp-configured", "tool", source, "declared", display+" MCP/tool configuration surface was collected."))
+	}
+	collectRuntimeSecurityControls(c, runtime, source, text)
+	collectToolIntegrityControls(c, runtime, source, text)
+	collectResourceControls(c, runtime, source, text)
+	collectConfigIntegrityControls(c, runtime, source, text)
+	if networkEnabled(text) || containsExternalCommunication(text) {
+		addExternalCommunication(c, runtime, source, display+" config declares external communication posture.")
+	}
+	if networkRestricted(text) {
+		c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:network-restricted", Kind: "network-restricted", Runtime: runtime, Source: source, Summary: display + " config restricts external network communication."})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:control:network-restricted", "control", source, "declared", "Network restriction control was collected."))
+	}
+	if declaresSecretDeny(text) {
+		c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:deny-secret-read", Kind: "deny-secret-read", Runtime: runtime, Source: source, Summary: display + " deny/disallow policy covers secret-like paths."})
+	}
+}
+
+func collectAiderIgnore(c *model.Collection, s model.Surface) {
+	if _, err := os.Stat(s.Path); err != nil {
+		return
+	}
+	addControl(c, "control:scoped-permissions", "scoped-permissions", "aider", s.Source, "Aider ignore policy exists and can constrain files available to the agent.")
+}
+
 func collectMCPConfig(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -346,8 +414,8 @@ func collectMCPConfig(c *model.Collection, s model.Surface) {
 	if err := json.Unmarshal(data, &root); err != nil {
 		return
 	}
-	if s.Runtime == "claude" {
-		c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{ID: "runtime:claude", Kind: "claude", Source: s.Source, Scope: s.Scope, Summary: "Claude MCP configuration evidence was found."})
+	if runtime := runtimeForSurface(s); runtime != "" {
+		c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{ID: "runtime:" + runtime, Kind: runtime, Source: s.Source, Scope: s.Scope, Summary: displayRuntime(runtime) + " MCP configuration evidence was found."})
 	}
 	for serverName, server := range root.MCPServers {
 		commandLine := strings.TrimSpace(server.Command + " " + strings.Join(server.Args, " "))
@@ -1072,7 +1140,8 @@ func collectTelemetryConfig(c *model.Collection, s model.Surface) {
 }
 
 func collectPluginSurface(c *model.Collection, s model.Surface) {
-	c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-plugin-surface", Kind: "agent-plugin-surface", Runtime: "claude", Source: s.Source, Summary: "Claude plugin or skill configuration surface exists."})
+	runtime := runtimeForSurface(s)
+	c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-plugin-surface", Kind: "agent-plugin-surface", Runtime: runtime, Source: s.Source, Summary: displayRuntime(runtime) + " plugin, skill, or extension configuration surface exists."})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:agent-plugin-surface", "tool", s.Source, "observed", "Plugin surface was observed; plugin code was not executed."))
 }
 
@@ -1260,6 +1329,31 @@ func runtimeForSurface(s model.Surface) string {
 	return s.Runtime
 }
 
+func displayRuntime(runtime string) string {
+	switch runtime {
+	case "claude":
+		return "Claude Code"
+	case "codex":
+		return "Codex"
+	case "cursor":
+		return "Cursor"
+	case "windsurf":
+		return "Windsurf"
+	case "continue":
+		return "Continue"
+	case "aider":
+		return "Aider"
+	case "gemini":
+		return "Gemini CLI"
+	case "opencode":
+		return "OpenCode"
+	case "":
+		return "Agent"
+	default:
+		return runtime
+	}
+}
+
 func gradeForSurface(s model.Surface) string {
 	switch s.HandlingMode {
 	case "parse":
@@ -1308,6 +1402,63 @@ func containsAny(text string, needles []string) bool {
 		}
 	}
 	return false
+}
+
+func broadLocalAgentConfig(text string) bool {
+	return containsAny(text, []string{
+		"danger-full-access",
+		"full_access",
+		"full access",
+		"bypasspermissions",
+		"bypass permissions",
+		"dangerously-bypass",
+		"auto-approve",
+		"auto_approve",
+		"yes_always",
+		"approval_policy = \"never\"",
+		"approval_policy: never",
+		"approval: never",
+		"yolo",
+	})
+}
+
+func fileReadAgentConfig(text string) bool {
+	return containsAny(text, []string{
+		"read_file",
+		"read files",
+		"filesystem",
+		"file_system",
+		"workspace",
+		"allowed_directories",
+		"allowed-directories",
+		"context provider",
+		"context_provider",
+	})
+}
+
+func localExecutionAgentConfig(text string) bool {
+	return containsAny(text, []string{
+		"bash(",
+		"shell",
+		"terminal",
+		"run_command",
+		"run-command",
+		"exec",
+		"subprocess",
+		"allow_commands",
+		"allow-commands",
+	})
+}
+
+func mcpConfigured(text string) bool {
+	return containsAny(text, []string{
+		"mcpservers",
+		"mcp_servers",
+		"mcp server",
+		"mcp_server",
+		"\"mcp\"",
+		"[mcp",
+	})
 }
 
 func containsExternalCommunication(text string) bool {

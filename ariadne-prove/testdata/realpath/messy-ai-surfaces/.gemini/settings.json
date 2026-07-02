@@ -1,0 +1,7 @@
+{
+  "tools": {
+    "shell": true
+  },
+  "network_access": false,
+  "approval": "required"
+}

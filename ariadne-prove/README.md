@@ -195,15 +195,16 @@ Custom deterministic rules can also live at `.ariadne/rules.json`. See [docs/pri
 
 Current deterministic discovery covers:
 
-- runtime config under `.claude/**` and `.codex/**`
+- runtime config under `.claude/**`, `.codex/**`, `.cursor/**`, `.windsurf/**`, `.continue/**`, `.gemini/**`, `.opencode/**`, and supported Aider config files
 - `CLAUDE.md`, `AGENTS.md`, and nested agent instruction files
-- Cursor and Windsurf rule files
+- Cursor, Windsurf, Continue, and Gemini instruction or rule files
 - MCP configuration
-- plugin/config surfaces
-- command files
+- plugin, skill, extension, and config surfaces
+- command files and command-like workflow surfaces
 - Claude subagent definitions under `.claude/agents/*.md`
 - project memory
-- private context summaries such as paste caches or history directories
+- private context summaries such as paste caches, chat histories, session directories, file histories, indexes, and agent cache directories
+- bounded endpoint discovery for known AI-agent home roots and exact home-level config files, without walking the whole home directory
 - secret-like boundary indicators such as `.env*`, key files, and credential files
 - `.ariadne/agent-policy.json` declarations for approval, sandbox, credential, audit, and retention controls
 - `.ariadne/agent-policy.json` declarations for cryptographic identity, least agency, identity-based isolation, traceability, input validation, and automated triage controls

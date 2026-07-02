@@ -127,15 +127,19 @@ func RunPath(opts Options) (model.Report, error) {
 		return model.Report{}, err
 	}
 	home := ""
+	base := root
 	if opts.Mode == "endpoint" {
 		home, _ = os.UserHomeDir()
+		if home != "" {
+			base = home
+		}
 	}
 	collection := adapter.Collect(adapter.Options{
 		RepoPath:              root,
 		HomePath:              home,
 		Mode:                  opts.Mode,
 		Runtime:               opts.Agent,
-		StoryDir:              root,
+		StoryDir:              base,
 		IncludeSensitivePaths: opts.IncludeSensitivePaths,
 	})
 	graph := BuildGraph(collection)
@@ -222,16 +226,20 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 	}
 	home := ""
 	target := root
+	base := root
 	if opts.Mode == "endpoint" {
 		home, _ = os.UserHomeDir()
 		target = home
+		if home != "" {
+			base = home
+		}
 	}
 	collection := adapter.Collect(adapter.Options{
 		RepoPath:              root,
 		HomePath:              home,
 		Mode:                  opts.Mode,
 		Runtime:               opts.Agent,
-		StoryDir:              root,
+		StoryDir:              base,
 		IncludeSensitivePaths: opts.IncludeSensitivePaths,
 	})
 	graph := BuildGraph(collection)
@@ -254,7 +262,7 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 		Limitations: []string{
 			"Inventory mode collects deterministic local facts only; it does not classify exposure.",
 			"Private histories, paste caches, transcripts, and file history are summarized by metadata only.",
-			"Claude, Codex, MCP, and generic repo instruction surfaces are supported in this milestone.",
+			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, MCP, and generic repo instruction surfaces are supported in this milestone.",
 		},
 	}, nil
 }

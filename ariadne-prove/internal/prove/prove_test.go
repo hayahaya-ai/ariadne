@@ -2500,6 +2500,15 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	requireSurfaceKind(t, r.Collection.Surfaces, "codex-agents-md")
 	requireSurfaceKind(t, r.Collection.Surfaces, "nested-agents-md")
 	requireSurfaceKind(t, r.Collection.Surfaces, "cursor-rules")
+	requireSurfaceKind(t, r.Collection.Surfaces, "cursor-mcp-config")
+	requireSurfaceKind(t, r.Collection.Surfaces, "windsurf-rules")
+	requireSurfaceKind(t, r.Collection.Surfaces, "continue-config")
+	requireSurfaceKind(t, r.Collection.Surfaces, "continue-rules")
+	requireSurfaceKind(t, r.Collection.Surfaces, "gemini-settings")
+	requireSurfaceKind(t, r.Collection.Surfaces, "gemini-command")
+	requireSurfaceKind(t, r.Collection.Surfaces, "aider-config")
+	requireSurfaceKind(t, r.Collection.Surfaces, "aider-private-context")
+	requireSurfaceKind(t, r.Collection.Surfaces, "opencode-config")
 	requireSurfaceKind(t, r.Collection.Surfaces, "secret-like-file")
 	for _, surface := range r.Collection.Surfaces {
 		if strings.Contains(surface.Source, "node_modules/badpkg/AGENTS.md") {
@@ -2531,10 +2540,63 @@ func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 	for _, forbidden := range []string{
 		"MESSY_REALPATH_FAKE_SECRET_DO_NOT_LEAK",
 		"MESSY_PRIVATE_CONTEXT_FAKE_SECRET_DO_NOT_LEAK",
+		"MESSY_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK",
 	} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("inventory leaked private fixture value %q", forbidden)
 		}
+	}
+}
+
+func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	t.Setenv("HOME", home)
+	mustMkdirAll(t, filepath.Join(home, ".continue"))
+	mustMkdirAll(t, filepath.Join(home, ".cursor"))
+	mustMkdirAll(t, filepath.Join(home, ".windsurf", "rules"))
+	mustMkdirAll(t, filepath.Join(home, ".gemini", "commands"))
+	mustWriteFile(t, filepath.Join(home, ".continue", "config.json"), `{
+  "contextProviders": [{"name": "code", "params": {"workspace": true}}],
+  "mcpServers": {"fs": {"command": "npx", "args": ["@example/mutable-mcp-server", "~"]}}
+}`)
+	mustWriteFile(t, filepath.Join(home, ".cursor", "mcp.json"), `{"mcpServers":{"fs":{"command":"npx","args":["@example/mutable-mcp-server","~"]}}}`)
+	mustWriteFile(t, filepath.Join(home, ".windsurf", "rules", "security.md"), "Never reveal secrets.\n")
+	mustWriteFile(t, filepath.Join(home, ".gemini", "settings.json"), `{"tools":{"shell":true},"network_access":false}`)
+	mustWriteFile(t, filepath.Join(home, ".gemini", "commands", "build.toml"), `prompt = "Run bash scripts/build.sh"`)
+	mustWriteFile(t, filepath.Join(home, ".aider.conf.yml"), "read:\n  - src\n")
+	mustWriteFile(t, filepath.Join(home, ".aider.chat.history.md"), "ENDPOINT_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK\n")
+
+	r, err := RunInventory(Options{Path: repo, Mode: "endpoint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{
+		"continue-config",
+		"cursor-mcp-config",
+		"windsurf-rules",
+		"gemini-settings",
+		"gemini-command",
+		"aider-config",
+		"aider-private-context",
+	} {
+		requireSurfaceKind(t, r.Collection.Surfaces, kind)
+	}
+	if !hasSurfaceSource(r.Collection.Surfaces, ".aider.conf.yml") {
+		t.Fatalf("endpoint inventory should emit relative home source for exact file candidate: %+v", r.Collection.Surfaces)
+	}
+	if hasSurfaceSourcePrefix(r.Collection.Surfaces, home) {
+		t.Fatalf("endpoint inventory leaked absolute home path without IncludeSensitivePaths: %+v", r.Collection.Surfaces)
+	}
+	if !r.Graph.HasEdge("runtime:gemini|can_call|tool:agent-command-shell") {
+		t.Fatalf("endpoint graph missing Gemini command shell edge")
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(blob), "ENDPOINT_AIDER_HISTORY_FAKE_SECRET_DO_NOT_LEAK") {
+		t.Fatalf("endpoint inventory leaked summarized private history content")
 	}
 }
 
@@ -2547,6 +2609,9 @@ func TestRunPathMessyAISurfacesProducesExposurePaths(t *testing.T) {
 	assertExposure(t, r, "mutable-tool-launch-execution", model.StatusExposed)
 	if !r.Graph.HasEdge("runtime:claude|has_authority|authority:local-code-execution") {
 		t.Fatalf("missing command/settings local execution authority edge")
+	}
+	if !r.Graph.HasEdge("runtime:gemini|can_call|tool:agent-command-shell") {
+		t.Fatalf("missing Gemini command shell graph edge")
 	}
 	if !hasGraphNodeType(r.Graph, "history-cache") {
 		t.Fatalf("expected summarized private context surface in graph")
@@ -4438,6 +4503,38 @@ func requireSurfaceKind(t *testing.T, surfaces []model.Surface, kind string) {
 		}
 	}
 	t.Fatalf("missing surface kind %s in %+v", kind, surfaces)
+}
+
+func hasSurfaceSource(surfaces []model.Surface, source string) bool {
+	for _, surface := range surfaces {
+		if surface.Source == source {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSurfaceSourcePrefix(surfaces []model.Surface, prefix string) bool {
+	for _, surface := range surfaces {
+		if strings.HasPrefix(surface.Source, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustWriteFile(t *testing.T, path string, data string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func hasGraphNodeType(g model.Graph, nodeType string) bool {

@@ -1,0 +1,4 @@
+auto-commits: false
+map-tokens: 2048
+read:
+  - services/api
