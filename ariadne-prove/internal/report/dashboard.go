@@ -27,9 +27,9 @@ func renderReportDashboard(w io.Writer, r model.Report) error {
 		{"Mode", r.Story.Mode},
 		{"Agent", r.Story.Runtime},
 	})
-	renderZeroTrustDashboard(w, r.ZeroTrust)
+	renderZeroTrustDashboard(w, r.TargetPath, r.ZeroTrust)
 	renderIssueDashboard(w, r.Interpretation, r.Graph, r.Evidence, r.Redaction)
-	renderExposureSection(w, r.Exposures)
+	renderExposureSection(w, r.TargetPath, r.Exposures)
 	renderFactsDive(w, r.Graph, r.Evidence, r.Warnings, r.Limitations)
 	fmt.Fprintln(w, "</main>")
 	fmt.Fprintln(w, "</body>")
@@ -189,10 +189,10 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
 	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction)
-	renderAssessClosureEvidenceDashboard(w, r.ClosureEvidence)
+	renderAssessClosureEvidenceDashboard(w, r.TargetPath, r.ClosureEvidence)
 	renderAssessCaseNavigationDashboard(w, r.TopCases)
 	renderAssessActiveCaseDashboard(w, r)
-	renderControlOperatorCasesDashboard(w, r.TopCases)
+	renderControlOperatorCasesDashboard(w, r.TargetPath, r.TopCases)
 	renderAssessArchitectureDashboard(w, r)
 	renderAssessInventoryDashboard(w, r.Inventory)
 	renderAssessCommandsDashboard(w, r.NextCommands)
@@ -218,13 +218,13 @@ func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error 
 	})
 	renderArchitectureSummaryDashboard(w, r)
 	renderArchitectureCaseWorkflowDashboard(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
-	renderArchitectureFrameworkCoverageDashboard(w, r.FrameworkCoverage)
+	renderArchitectureFrameworkCoverageDashboard(w, r.TargetPath, r.FrameworkCoverage)
 	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
-	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
-	renderArchitectureClosurePlanDashboard(w, r.ClosurePlan)
-	renderArchitectureFlawTableDashboard(w, r.Flaws)
-	renderZeroTrustBoundaryCoverageDashboard(w, r.BoundaryCoverage, 12)
-	renderZeroTrustMaturity(w, r.Maturity)
+	renderArchitectureClosureFamiliesDashboard(w, r.TargetPath, r.ClosureFamilies)
+	renderArchitectureClosurePlanDashboard(w, r.TargetPath, r.ClosurePlan)
+	renderArchitectureFlawTableDashboard(w, r.TargetPath, r.Flaws)
+	renderZeroTrustBoundaryCoverageDashboard(w, r.TargetPath, r.BoundaryCoverage, 12)
+	renderZeroTrustMaturity(w, r.TargetPath, r.Maturity)
 	renderZeroTrustCoverage(w, r.EvidenceCoverage)
 	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
@@ -248,12 +248,12 @@ func renderArchitectureScanDashboard(w io.Writer, r model.ArchitectureScanReport
 	})
 	renderArchitectureScanSummaryDashboard(w, r)
 	renderArchitectureCaseWorkflowDashboard(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board_scan", Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
-	renderArchitectureFrameworkCoverageDashboard(w, r.FrameworkCoverage)
+	renderArchitectureFrameworkCoverageDashboard(w, "", r.FrameworkCoverage)
 	renderArchitectureEvidencePlanDashboard(w, r.EvidencePlan)
-	renderArchitectureClosureFamiliesDashboard(w, r.ClosureFamilies)
-	renderArchitectureClosurePlanDashboard(w, r.ClosurePlan)
-	renderZeroTrustBoundaryCoverageDashboard(w, r.BoundaryCoverage, 12)
-	renderArchitectureFlawGroupsDashboard(w, r.Groups)
+	renderArchitectureClosureFamiliesDashboard(w, "", r.ClosureFamilies)
+	renderArchitectureClosurePlanDashboard(w, "", r.ClosurePlan)
+	renderZeroTrustBoundaryCoverageDashboard(w, "", r.BoundaryCoverage, 12)
+	renderArchitectureFlawGroupsDashboard(w, "", r.Groups)
 	renderArchitectureTargetsDashboard(w, r.Targets)
 	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
@@ -286,11 +286,11 @@ func renderControlCatalogDashboard(w io.Writer, r model.ControlCatalogReport) er
 	}
 	renderDashboardHeader(w, title, fields)
 	renderControlCatalogSummaryDashboard(w, r)
-	renderControlOperatorCasesDashboard(w, r.OperatorCases)
-	renderControlBreakPathWorkstreamsDashboard(w, r.Workstreams)
-	renderControlVerificationTasksDashboard(w, r.VerificationTasks)
-	renderControlCatalogFamiliesDashboard(w, r.Families)
-	renderControlCatalogControlsDashboard(w, r.Controls, r.ProofSpecs)
+	renderControlOperatorCasesDashboard(w, r.TargetPath, r.OperatorCases)
+	renderControlBreakPathWorkstreamsDashboard(w, r.TargetPath, r.Workstreams)
+	renderControlVerificationTasksDashboard(w, r.TargetPath, r.VerificationTasks)
+	renderControlCatalogFamiliesDashboard(w, r.TargetPath, r.Families)
+	renderControlCatalogControlsDashboard(w, r.TargetPath, r.Controls, r.ProofSpecs)
 	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
 	fmt.Fprintln(w, "</body>")
@@ -322,7 +322,7 @@ func renderControlCaseBoardDashboard(w io.Writer, r model.ControlCatalogReport) 
 	}
 	renderDashboardHeader(w, title, fields)
 	renderCaseBoardSummaryDashboard(w, r)
-	renderControlOperatorCasesDashboard(w, r.OperatorCases)
+	renderControlOperatorCasesDashboard(w, r.TargetPath, r.OperatorCases)
 	renderCaseBoardEvidenceModelDashboard(w)
 	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
@@ -357,7 +357,7 @@ func renderProofPlanDashboard(w io.Writer, r model.ProofPlanReport) error {
 	renderProofPlanSummaryDashboard(w, r)
 	renderProofPlanCurrentActionDashboard(w, r)
 	renderProofPlanWorkbenchDashboard(w, r)
-	renderControlOperatorCasesDashboard(w, r.Cases)
+	renderControlOperatorCasesDashboard(w, r.TargetPath, r.Cases)
 	renderProofPlanPatchesDashboard(w, r.TargetPath, r.ProofPatches)
 	renderProofPlanEvidenceDashboard(w, r.TargetPath, r.EvidenceReferences)
 	renderProofPlanCommandsDashboard(w, r)
@@ -902,7 +902,7 @@ func assessWorkflowProofCommandLines(step model.AssessWorkflowStep) []string {
 	return out
 }
 
-func renderAssessClosureEvidenceDashboard(w io.Writer, closure model.AssessClosureEvidence) {
+func renderAssessClosureEvidenceDashboard(w io.Writer, root string, closure model.AssessClosureEvidence) {
 	if !assessClosureEvidenceHasData(closure) {
 		return
 	}
@@ -918,17 +918,17 @@ func renderAssessClosureEvidenceDashboard(w io.Writer, closure model.AssessClosu
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Closed By Hard Barrier</h3>`)
-	renderAssessClosurePathTable(w, closure.ControlledPaths, true)
+	renderAssessClosurePathTable(w, root, closure.ControlledPaths, true)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Partial Evidence</h3>`)
-	renderAssessClosurePathTable(w, closure.PartialPaths, false)
+	renderAssessClosurePathTable(w, root, closure.PartialPaths, false)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
 }
 
-func renderAssessClosurePathTable(w io.Writer, items []model.AssessClosurePath, controlled bool) {
+func renderAssessClosurePathTable(w io.Writer, root string, items []model.AssessClosurePath, controlled bool) {
 	if len(items) == 0 {
 		fmt.Fprintln(w, `<div class="empty">No closure path evidence in this category.</div>`)
 		return
@@ -944,11 +944,11 @@ func renderAssessClosurePathTable(w io.Writer, items []model.AssessClosurePath, 
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(item.Title), esc(item.ID), esc(string(item.Status)))
 		if controlled {
 			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.HardBarriersObserved, 5)))
-			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		} else {
 			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.PartialOrFrictionControls, 5)))
 			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.RemainingMissingHardBarriers, 5)))
-			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		}
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -1018,15 +1018,15 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `<h3>Next Step</h3>`)
 	fmt.Fprintf(w, `<div>%s</div>`, esc(item.NextStep))
 	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
-	renderAssessEvidenceReferenceTable(w, item.EvidenceReferences, 6)
+	renderAssessEvidenceReferenceTable(w, r.TargetPath, item.EvidenceReferences, 6)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Controls To Start With</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(item.StartingControls, 6)))
 	fmt.Fprintln(w, `<h3>Control Proof Recipe</h3>`)
-	renderAssessControlProofRecipeTable(w, item)
+	renderAssessControlProofRecipeTable(w, r.TargetPath, item)
 	fmt.Fprintln(w, `<h3>Proof Surfaces</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(item.ProofSurfaces, 8)))
+	fmt.Fprintln(w, renderDashboardPathList(r.TargetPath, limitStrings(item.ProofSurfaces, 8)))
 	if proofPlan != nil {
 		fmt.Fprintln(w, `<h3>Top Case Proof Packet</h3>`)
 		fmt.Fprintln(w, renderSmallList([]string{
@@ -1054,7 +1054,7 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</section>`)
 }
 
-func renderAssessEvidenceReferenceTable(w io.Writer, refs []model.EvidenceReference, limit int) {
+func renderAssessEvidenceReferenceTable(w io.Writer, root string, refs []model.EvidenceReference, limit int) {
 	refs = dedupeEvidenceReferences(refs)
 	if len(refs) == 0 {
 		fmt.Fprintln(w, `<div class="empty">No evidence references were returned for this case.</div>`)
@@ -1068,7 +1068,7 @@ func renderAssessEvidenceReferenceTable(w io.Writer, refs []model.EvidenceRefere
 	for i, ref := range refs[:limit] {
 		source := firstNonEmpty(ref.Source, ref.ID, ref.Kind)
 		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("evidence", fmt.Sprintf("%d-%s-%s", i+1, ref.ID, source))))
-		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(source))
+		fmt.Fprintf(w, `<td>%s</td>`, dashboardFileRefHTML(root, source))
 		fmt.Fprintf(w, `<td>%s</td>`, esc(ref.Kind))
 		fmt.Fprintf(w, `<td>%s</td>`, esc(ref.Summary))
 		fmt.Fprintln(w, "</tr>")
@@ -1079,7 +1079,7 @@ func renderAssessEvidenceReferenceTable(w io.Writer, refs []model.EvidenceRefere
 	fmt.Fprintln(w, "</tbody></table></div>")
 }
 
-func renderAssessControlProofRecipeTable(w io.Writer, item model.ControlOperatorCase) {
+func renderAssessControlProofRecipeTable(w io.Writer, root string, item model.ControlOperatorCase) {
 	if len(item.StartingControls) == 0 {
 		fmt.Fprintln(w, `<div class="empty">No starting controls were returned for this case.</div>`)
 		return
@@ -1092,9 +1092,9 @@ func renderAssessControlProofRecipeTable(w io.Writer, item model.ControlOperator
 		surfaces := proofSurfacesForControl(item.ProofSurfaces, examples)
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="mono">%s</span></td>`, esc(control))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(surfaces, 4)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(controlEvidenceExampleLines(examples, 2), 2)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(controlProofPatchLines(patches, 2), 2)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(root, limitStrings(surfaces, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, examples, 2)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(controlProofPatchHTMLLines(root, patches, 2)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(item.StartingControls) > 6 {
@@ -1224,7 +1224,7 @@ func renderAssessArchitectureDashboard(w io.Writer, r model.AssessReport) {
 			fmt.Fprintln(w, `<div class="empty">No architecture flaws matched this status filter.</div>`)
 			break
 		}
-		renderArchitectureFlawTable(w, r.Architecture.Flaws)
+		renderArchitectureFlawTable(w, r.TargetPath, r.Architecture.Flaws)
 	case r.ArchitectureScan != nil:
 		if len(r.ArchitectureScan.Groups) == 0 {
 			fmt.Fprintln(w, `<div class="empty">No architecture flaw groups matched this status filter.</div>`)
@@ -1238,7 +1238,7 @@ func renderAssessArchitectureDashboard(w io.Writer, r model.AssessReport) {
 			fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(group.Title), esc(group.Principle), esc(group.ID))
 			fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustSummaryPills(group.StatusCounts))
 			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.Targets, 8)))
-			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.EvidenceSources, 6)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(r.TargetPath, limitStrings(group.EvidenceSources, 6)))
 			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.ControlEvidenceNeeded, 6)))
 			fmt.Fprintln(w, "</tr>")
 		}
@@ -1346,7 +1346,7 @@ func renderIssueDashboard(w io.Writer, interpretation model.Interpretation, grap
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
+func renderZeroTrustDashboard(w io.Writer, root string, z model.ZeroTrust) {
 	if z.FrameworkVersion == "" {
 		return
 	}
@@ -1362,11 +1362,11 @@ func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
 		{"Not observed", fmt.Sprintf("%d", z.Summary.NotObserved)},
 		{"Checks", fmt.Sprintf("%d", z.Summary.Total)},
 	})
-	renderZeroTrustBoundaryCoverageDashboard(w, buildArchitectureBoundaryCoverage([]architectureCoverageInput{{
+	renderZeroTrustBoundaryCoverageDashboard(w, root, buildArchitectureBoundaryCoverage([]architectureCoverageInput{{
 		TargetID:  "target",
 		ZeroTrust: z,
 	}}), 8)
-	renderArchitectureFlawsDashboard(w, z)
+	renderArchitectureFlawsDashboard(w, root, z)
 	fmt.Fprintln(w, `<h3>Boundary Checks</h3>`)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
 	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Boundary</th><th>Finding</th><th>Evidence</th><th>Graph / Control</th><th>Next action</th></tr></thead><tbody>")
@@ -1375,18 +1375,18 @@ func renderZeroTrustDashboard(w io.Writer, z model.ZeroTrust) {
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(string(check.Status)), esc(statusLabel(string(check.Status))))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(check.Boundary), esc(check.Principle), esc(check.ID), esc(check.Tier))
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(check.Finding), esc(check.DesignTest))
-		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(check.Evidence))
+		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(root, check.Evidence))
 		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(check.GraphEdges, 4)), renderControlLine(check.Controls))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(check.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
-	renderZeroTrustMaturity(w, z.Maturity)
+	renderZeroTrustMaturity(w, root, z.Maturity)
 	renderZeroTrustCoverage(w, z.Coverage)
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderArchitectureFlawsDashboard(w io.Writer, z model.ZeroTrust) {
+func renderArchitectureFlawsDashboard(w io.Writer, root string, z model.ZeroTrust) {
 	if len(z.ArchitectureFlaws) == 0 {
 		return
 	}
@@ -1406,10 +1406,10 @@ func renderArchitectureFlawsDashboard(w io.Writer, z model.ZeroTrust) {
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(flaw.Title), esc(flaw.Principle), esc(flaw.ID), esc(strings.Join(flaw.Boundaries, ", ")))
 		fmt.Fprintf(w, `<td>%s</td>`, renderArchitectureControlTest(flaw.ControlTest))
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(flaw.Finding), esc(flaw.WhyItMatters))
-		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(flaw.Evidence))
+		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(root, flaw.Evidence))
 		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(flaw.GraphEdges, 4)), renderControlLine(flaw.Controls))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(flaw.ControlEvidenceNeeded, 6)))
-		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Next action</h3>%s</td>`, renderSmallList(limitStrings(flaw.EvidenceSurfaces, 4)), renderSmallList(limitStrings(flaw.Actions, 3)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Next action</h3>%s</td>`, renderDashboardPathList(root, limitStrings(flaw.EvidenceSurfaces, 4)), renderSmallList(limitStrings(flaw.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
@@ -1473,7 +1473,7 @@ func renderArchitectureCaseWorkflowDashboard(w io.Writer, families []model.Archi
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderArchitectureFrameworkCoverageDashboard(w io.Writer, items []model.ArchitectureFrameworkArea) {
+func renderArchitectureFrameworkCoverageDashboard(w io.Writer, root string, items []model.ArchitectureFrameworkArea) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Framework Coverage</h2><div class="subtle">How Ariadne maps the Zero Trust agent architecture guidance to deterministic checks, evidence anchors, and remaining gaps.</div></div>`)
@@ -1490,7 +1490,7 @@ func renderArchitectureFrameworkCoverageDashboard(w io.Writer, items []model.Arc
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(item.Area), esc(item.Source), esc(item.ID), esc(item.Tier))
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%d target(s)</div>%s</td>`, renderZeroTrustSummaryPills(item.StatusCounts), item.TargetCount, renderSmallList(limitStrings(item.Targets, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.CheckIDs, 8)))
-		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)), renderControlLine(limitStrings(item.Controls, 5)))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderDashboardPathList(root, limitStrings(item.EvidenceSources, 6)), renderControlLine(limitStrings(item.Controls, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td><h3>Control evidence needed</h3>%s<h3>Missing evidence</h3>%s<h3>Next collectors</h3>%s</td>`, renderSmallList(limitStrings(item.ControlEvidenceNeeded, 6)), renderSmallList(limitStrings(item.MissingEvidence, 5)), renderSmallList(limitStrings(item.NextCollectors, 3)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Limitations, 3)))
@@ -1500,7 +1500,7 @@ func renderArchitectureFrameworkCoverageDashboard(w io.Writer, items []model.Arc
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderArchitectureFlawTableDashboard(w io.Writer, flaws []model.ZeroTrustArchitecture) {
+func renderArchitectureFlawTableDashboard(w io.Writer, root string, flaws []model.ZeroTrustArchitecture) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Architecture Failure Map</h2><div class="subtle">Each row states the boundary break, the evidence anchor, and the hard barrier needed to close it.</div></div>`)
@@ -1510,11 +1510,11 @@ func renderArchitectureFlawTableDashboard(w io.Writer, flaws []model.ZeroTrustAr
 		fmt.Fprintln(w, "</section>")
 		return
 	}
-	renderArchitectureFlawTable(w, flaws)
+	renderArchitectureFlawTable(w, root, flaws)
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderArchitectureClosurePlanDashboard(w io.Writer, items []model.ArchitectureClosure) {
+func renderArchitectureClosurePlanDashboard(w io.Writer, root string, items []model.ArchitectureClosure) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Closure Plan</h2><div class="subtle">Missing hard barriers ranked by affected architecture flaws and targets.</div></div>`)
@@ -1533,8 +1533,8 @@ func renderArchitectureClosurePlanDashboard(w io.Writer, items []model.Architect
 		fmt.Fprintf(w, `<td>%d flaw(s)<br>%d target(s)</td>`, item.FlawCount, item.TargetCount)
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
-		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)), renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
-		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
+		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.EvidenceSources, 6)), renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
@@ -2024,7 +2024,7 @@ func renderProofPatchPayloads(patches []model.ControlProofPatch, limit int) stri
 	return b.String()
 }
 
-func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOperatorCase) {
+func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model.ControlOperatorCase) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Operator Cases</h2><div class="subtle">A smaller action layer that connects architecture breakage, evidence references, proof surfaces, proof patches, rerun criteria, and compare-loop commands.</div></div>`)
@@ -2046,9 +2046,9 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%d control(s), %d flaw(s), %d target(s)</div></td>`, esc(controlOperatorCaseDisplayTitle(item)), esc(item.ID), item.ControlCount, item.FlawCount, item.TargetCount)
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><h3>Priority</h3><div>%s</div><h3>Next step</h3><div>%s</div></td>`, esc(firstNonEmpty(item.State, "open")), esc(item.StateReason), esc(item.PriorityReason), esc(item.NextStep))
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(item.Question), esc(item.Finding))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderOperatorCaseStartCell(item))
-		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Proof patches</h3>%s<h3>Evidence examples</h3>%s</td>`, renderSmallList(limitStrings(item.ProofSurfaces, 6)), renderSmallList(controlProofPatchLines(item.ProofPatches, 2)), renderSmallList(controlEvidenceExampleLines(item.EvidenceExamples, 2)))
+		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Proof patches</h3>%s<h3>Evidence examples</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.ProofSurfaces, 6)), renderDashboardHTMLList(controlProofPatchHTMLLines(root, item.ProofPatches, 2)), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, item.EvidenceExamples, 2)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 2)), renderSmallList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -2068,7 +2068,7 @@ func renderOperatorCaseStartCell(item model.ControlOperatorCase) string {
 	return out
 }
 
-func renderControlBreakPathWorkstreamsDashboard(w io.Writer, workstreams []model.ControlBreakPathWorkstream) {
+func renderControlBreakPathWorkstreamsDashboard(w io.Writer, root string, workstreams []model.ControlBreakPathWorkstream) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Break-Path Workstreams</h2><div class="subtle">Capability areas that group many missing controls into a smaller set of architecture break-path decisions.</div></div>`)
@@ -2090,8 +2090,8 @@ func renderControlBreakPathWorkstreamsDashboard(w io.Writer, workstreams []model
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(item.Title), esc(item.ID), esc(item.Rationale))
 		fmt.Fprintf(w, `<td>%d control(s)<br>%d flaw(s)<br>%d target(s)</td>`, item.ControlCount, item.FlawCount, item.TargetCount)
 		fmt.Fprintf(w, `<td>%s<div class="mono">%s</div></td>`, renderSmallList(limitStrings(item.StartingControls, 5)), esc(strings.Join(limitStrings(item.StartingTaskIDs, 5), ", ")))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.ProofSurfaces, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(root, limitStrings(item.ProofSurfaces, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -2102,7 +2102,7 @@ func renderControlBreakPathWorkstreamsDashboard(w io.Writer, workstreams []model
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderControlVerificationTasksDashboard(w io.Writer, tasks []model.ControlVerificationTask) {
+func renderControlVerificationTasksDashboard(w io.Writer, root string, tasks []model.ControlVerificationTask) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Verification Tasks</h2><div class="subtle">Operator tasks that explain what evidence to add or verify, where Ariadne will look, and how to rerun the check.</div></div>`)
@@ -2123,10 +2123,10 @@ func renderControlVerificationTasksDashboard(w io.Writer, tasks []model.ControlV
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(task.Severity), esc(strings.ToUpper(task.Severity)))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div></td>`, esc(task.Control), esc(task.ID))
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(task.Question), esc(task.Why))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(task.EvidenceReferences, 4)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.ProofSurfaces, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, task.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(root, limitStrings(task.ProofSurfaces, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(task.RecognizedIndicators, 8)))
-		fmt.Fprintf(w, `<td><h3>Patch</h3>%s<h3>Examples</h3>%s</td>`, renderSmallList(controlProofPatchLines(task.ProofPatches, 2)), renderSmallList(controlEvidenceExampleLines(task.EvidenceExamples, 2)))
+		fmt.Fprintf(w, `<td><h3>Patch</h3>%s<h3>Examples</h3>%s</td>`, renderDashboardHTMLList(controlProofPatchHTMLLines(root, task.ProofPatches, 2)), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, task.EvidenceExamples, 2)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(task.RerunCommands, 2)), renderSmallList(limitStrings(task.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -2137,7 +2137,7 @@ func renderControlVerificationTasksDashboard(w io.Writer, tasks []model.ControlV
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderControlCatalogFamiliesDashboard(w io.Writer, items []model.ArchitectureClosureFamily) {
+func renderControlCatalogFamiliesDashboard(w io.Writer, root string, items []model.ArchitectureClosureFamily) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Control Families</h2><div class="subtle">Capability areas ranked by the missing hard barriers needed to close architecture flaws.</div></div>`)
@@ -2156,14 +2156,14 @@ func renderControlCatalogFamiliesDashboard(w io.Writer, items []model.Architectu
 		fmt.Fprintf(w, `<td>%d control(s)<br>%d flaw(s)<br>%d target(s)</td>`, item.ControlCount, item.FlawCount, item.TargetCount)
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Controls, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
-		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Evidence anchors</h3>%s<h3>Evidence references</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 6)), renderSmallList(limitStrings(item.EvidenceSources, 6)), renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Evidence anchors</h3>%s<h3>Evidence references</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.EvidenceSurfaces, 6)), renderDashboardPathList(root, limitStrings(item.EvidenceSources, 6)), renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderControlCatalogControlsDashboard(w io.Writer, items []model.ArchitectureClosure, proofSpecs []model.ControlProofSpec) {
+func renderControlCatalogControlsDashboard(w io.Writer, root string, items []model.ArchitectureClosure, proofSpecs []model.ControlProofSpec) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Controls To Prove</h2><div class="subtle">Each row states the missing hard barrier, the flaw it closes, the evidence reference, and the proof surface Ariadne expects.</div></div>`)
@@ -2183,8 +2183,8 @@ func renderControlCatalogControlsDashboard(w io.Writer, items []model.Architectu
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(item.Control), esc(strings.ReplaceAll(item.ControlTestResult, "_", " ")), esc(strings.Join(limitStrings(item.CheckIDs, 4), ", ")))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
-		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)), renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 6)))
+		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.EvidenceSources, 6)), renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(root, limitStrings(item.EvidenceSurfaces, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(proof.RecognizedIndicators, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Actions, 4)))
 		fmt.Fprintln(w, "</tr>")
@@ -2219,7 +2219,7 @@ func renderArchitectureEvidencePlanDashboard(w io.Writer, items []model.Architec
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderArchitectureClosureFamiliesDashboard(w io.Writer, items []model.ArchitectureClosureFamily) {
+func renderArchitectureClosureFamiliesDashboard(w io.Writer, root string, items []model.ArchitectureClosureFamily) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Closure Families</h2><div class="subtle">Missing hard barriers grouped into Zero Trust capability areas.</div></div>`)
@@ -2239,15 +2239,15 @@ func renderArchitectureClosureFamiliesDashboard(w io.Writer, items []model.Archi
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Controls, 8)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Flaws, 5)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(item.Targets, 8)))
-		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSources, 6)), renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
-		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
+		fmt.Fprintf(w, `<td><h3>Anchors</h3>%s<h3>References</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.EvidenceSources, 6)), renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderDashboardPathList(root, limitStrings(item.EvidenceSurfaces, 5)), renderSmallList(limitStrings(item.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderArchitectureFlawTable(w io.Writer, flaws []model.ZeroTrustArchitecture) {
+func renderArchitectureFlawTable(w io.Writer, root string, flaws []model.ZeroTrustArchitecture) {
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
 	fmt.Fprintln(w, "<thead><tr><th>Status</th><th>Architecture flaw</th><th>Control test</th><th>Evidence anchors</th><th>Graph / observed controls</th><th>Breaks when</th><th>Evidence surfaces / next action</th></tr></thead><tbody>")
 	for _, flaw := range flaws {
@@ -2255,16 +2255,16 @@ func renderArchitectureFlawTable(w io.Writer, flaws []model.ZeroTrustArchitectur
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><div class="pill %s">%s</div></td>`, cssClass(string(flaw.Status)), esc(statusLabel(string(flaw.Status))), cssClass(flaw.Severity), esc(strings.ToUpper(flaw.Severity)))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div><div class="subtle">%s</div></td>`, esc(flaw.Title), esc(flaw.Principle), esc(flaw.ID), esc(strings.Join(flaw.Boundaries, ", ")), esc(flaw.Finding))
 		fmt.Fprintf(w, `<td>%s</td>`, renderArchitectureControlTest(flaw.ControlTest))
-		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(flaw.Evidence))
+		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustEvidence(root, flaw.Evidence))
 		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(limitStrings(flaw.GraphEdges, 4)), renderControlLine(flaw.Controls))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(flaw.ControlEvidenceNeeded, 6)))
-		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Next action</h3>%s</td>`, renderSmallList(limitStrings(flaw.EvidenceSurfaces, 5)), renderSmallList(limitStrings(flaw.Actions, 3)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Next action</h3>%s</td>`, renderDashboardPathList(root, limitStrings(flaw.EvidenceSurfaces, 5)), renderSmallList(limitStrings(flaw.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 }
 
-func renderZeroTrustBoundaryCoverageDashboard(w io.Writer, boundaries []model.ArchitectureBoundary, limit int) {
+func renderZeroTrustBoundaryCoverageDashboard(w io.Writer, root string, boundaries []model.ArchitectureBoundary, limit int) {
 	if len(boundaries) == 0 {
 		return
 	}
@@ -2293,7 +2293,7 @@ func renderZeroTrustBoundaryCoverageDashboard(w io.Writer, boundaries []model.Ar
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div><div class="subtle">%s</div></td>`, esc(boundary.Boundary), esc(boundary.Principle), esc(boundary.CheckID), esc(boundary.DesignTest))
 		fmt.Fprintf(w, `<td>%s</td>`, renderArchitectureBoundaryTargetPills(boundary))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(boundary.EvidenceSources, 5)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(root, limitStrings(boundary.EvidenceSources, 5)))
 		fmt.Fprintf(w, `<td><h3>Missing evidence</h3>%s<h3>Next collectors</h3>%s</td>`, renderSmallList(limitStrings(boundary.MissingEvidence, 5)), renderSmallList(limitStrings(boundary.NextCollectors, 3)))
 		fmt.Fprintf(w, `<td><h3>Controls observed</h3>%s<h3>Evidence needed</h3>%s</td>`, renderSmallList(limitStrings(boundary.Controls, 5)), renderSmallList(limitStrings(boundary.ControlEvidenceNeeded, 6)))
 		fmt.Fprintln(w, "</tr>")
@@ -2304,7 +2304,7 @@ func renderZeroTrustBoundaryCoverageDashboard(w io.Writer, boundaries []model.Ar
 	}
 }
 
-func renderZeroTrustMaturity(w io.Writer, maturity model.ZeroTrustMaturity) {
+func renderZeroTrustMaturity(w io.Writer, root string, maturity model.ZeroTrustMaturity) {
 	if maturity.TargetTier == "" {
 		return
 	}
@@ -2326,7 +2326,7 @@ func renderZeroTrustMaturity(w io.Writer, maturity model.ZeroTrustMaturity) {
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(req.Capability), esc(req.Principle), esc(req.ID))
 		fmt.Fprintf(w, `<td><span class="pill neutral">%s</span></td>`, esc(strings.ReplaceAll(req.ControlQuality, "_", " ")))
 		fmt.Fprintf(w, `<td>%s</td>`, esc(req.Finding))
-		fmt.Fprintf(w, `<td>%s%s</td>`, renderZeroTrustEvidence(req.Evidence), renderControlLine(req.Controls))
+		fmt.Fprintf(w, `<td>%s%s</td>`, renderZeroTrustEvidence(root, req.Evidence), renderControlLine(req.Controls))
 		fmt.Fprintf(w, `<td>%s%s</td>`, renderSmallList(req.MissingEvidence), renderSmallList(limitStrings(req.Actions, 2)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -2402,7 +2402,7 @@ func renderScanZeroTrustDashboard(w io.Writer, r model.ScanReport) {
 		{"Breaking checks", fmt.Sprintf("%d", total.Breaking)},
 		{"Checks", fmt.Sprintf("%d", total.Total)},
 	})
-	renderZeroTrustBoundaryCoverageDashboard(w, buildArchitectureBoundaryCoverage(coverageInputs), 10)
+	renderZeroTrustBoundaryCoverageDashboard(w, "", buildArchitectureBoundaryCoverage(coverageInputs), 10)
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
 	fmt.Fprintln(w, "<thead><tr><th>Target</th><th>Zero Trust readout</th></tr></thead><tbody>")
 	for _, row := range byTarget {
@@ -2434,7 +2434,7 @@ func renderArchitectureScanSummaryDashboard(w io.Writer, r model.ArchitectureSca
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderArchitectureFlawGroupsDashboard(w io.Writer, groups []model.ArchitectureFlawGroup) {
+func renderArchitectureFlawGroupsDashboard(w io.Writer, root string, groups []model.ArchitectureFlawGroup) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintln(w, `<div class="section-head">`)
 	fmt.Fprintln(w, `<div><h2>Flaws By Target Coverage</h2><div class="subtle">Which architecture failure categories recur across the scanned targets.</div></div>`)
@@ -2453,9 +2453,9 @@ func renderArchitectureFlawGroupsDashboard(w io.Writer, groups []model.Architect
 		fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustSummaryPills(group.StatusCounts))
 		fmt.Fprintf(w, `<td>%s</td>`, renderControlTestResults(group.ControlTestResults))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.Targets, 8)))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.EvidenceSources, 6)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardPathList(root, limitStrings(group.EvidenceSources, 6)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.ControlEvidenceNeeded, 6)))
-		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderSmallList(limitStrings(group.EvidenceSurfaces, 5)), renderSmallList(limitStrings(group.Actions, 3)))
+		fmt.Fprintf(w, `<td><h3>Evidence surfaces</h3>%s<h3>Actions</h3>%s</td>`, renderDashboardPathList(root, limitStrings(group.EvidenceSurfaces, 5)), renderSmallList(limitStrings(group.Actions, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
@@ -2490,7 +2490,7 @@ func renderArchitectureTargetsDashboard(w io.Writer, targets []model.Architectur
 	fmt.Fprintln(w, "</section>")
 }
 
-func renderZeroTrustEvidence(evidence []model.ZeroTrustEvidence) string {
+func renderZeroTrustEvidence(root string, evidence []model.ZeroTrustEvidence) string {
 	if len(evidence) == 0 {
 		return `<span class="subtle">No direct evidence mapped.</span>`
 	}
@@ -2499,9 +2499,7 @@ func renderZeroTrustEvidence(evidence []model.ZeroTrustEvidence) string {
 	for _, item := range limitEvidence(evidence, 5) {
 		b.WriteString("<li>")
 		if item.Source != "" {
-			b.WriteString(`<span class="mono">`)
-			b.WriteString(esc(item.Source))
-			b.WriteString(`</span>`)
+			b.WriteString(dashboardFileRefHTML(root, item.Source))
 		} else if item.ID != "" {
 			b.WriteString(`<span class="mono">`)
 			b.WriteString(esc(item.ID))
@@ -2820,7 +2818,7 @@ func interpretationMeta(interpretation model.Interpretation) string {
 	return strings.Join(parts, " | ")
 }
 
-func renderExposureSection(w io.Writer, exposures []model.ExposureResult) {
+func renderExposureSection(w io.Writer, root string, exposures []model.ExposureResult) {
 	if len(exposures) == 0 {
 		return
 	}
@@ -2834,7 +2832,7 @@ func renderExposureSection(w io.Writer, exposures []model.ExposureResult) {
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(exposure.Title), esc(exposure.Observation.Summary), esc(exposure.ID))
 		fmt.Fprintf(w, `<td>%s</td>`, esc(string(exposure.ProofMode)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(exposure.PathEdges))
-		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(exposure.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, exposure.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(exposure.ControlsBreakPath))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -3159,6 +3157,23 @@ func dashboardControlEvidenceExampleHTML(root string, example model.ControlEvide
 	return strings.TrimSpace(line)
 }
 
+func controlEvidenceExampleHTMLLines(root string, examples []model.ControlEvidenceExample, limit int) []string {
+	if limit <= 0 || limit > len(examples) {
+		limit = len(examples)
+	}
+	out := make([]string, 0, limit+1)
+	for _, example := range examples[:limit] {
+		out = append(out, dashboardControlEvidenceExampleHTML(root, example))
+	}
+	if len(examples) > limit {
+		out = append(out, esc(fmt.Sprintf("%d additional example(s) in JSON output", len(examples)-limit)))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
 func dashboardControlProofPatchHTML(root string, patch model.ControlProofPatch) string {
 	line := strings.TrimSpace(patch.Surface)
 	if line != "" {
@@ -3179,6 +3194,23 @@ func dashboardControlProofPatchHTML(root string, patch model.ControlProofPatch) 
 		line += " Example: " + esc(compactExample(patch.Example))
 	}
 	return strings.TrimSpace(line)
+}
+
+func controlProofPatchHTMLLines(root string, patches []model.ControlProofPatch, limit int) []string {
+	if limit <= 0 || limit > len(patches) {
+		limit = len(patches)
+	}
+	out := make([]string, 0, limit+1)
+	for _, patch := range patches[:limit] {
+		out = append(out, dashboardControlProofPatchHTML(root, patch))
+	}
+	if len(patches) > limit {
+		out = append(out, esc(fmt.Sprintf("%d additional proof patch(es) in JSON output", len(patches)-limit)))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func dashboardFileRefHTML(root, value string) string {

@@ -3798,6 +3798,37 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 			t.Fatalf("assessment dashboard missing %q:\n%s", want, rendered)
 		}
 	}
+	operatorStart := strings.Index(rendered, "<h2>Operator Cases</h2>")
+	operatorEnd := strings.Index(rendered, "<h2>Architecture Break Paths</h2>")
+	if operatorStart < 0 || operatorEnd < 0 || operatorEnd <= operatorStart {
+		t.Fatalf("assessment dashboard should contain a bounded operator cases block:\n%s", rendered)
+	}
+	operatorBlock := rendered[operatorStart:operatorEnd]
+	for _, want := range []string{
+		`id="case-case-egress-output-boundary"`,
+		`.claude/settings.json">.claude/settings.json</a>`,
+		`.ariadne/egress-policy.json">.ariadne/egress-policy.json</a>`,
+		"Proof patches",
+	} {
+		if !strings.Contains(operatorBlock, want) {
+			t.Fatalf("operator cases block should keep actionable file links and proof patches; missing %q:\n%s", want, operatorBlock)
+		}
+	}
+	architectureStart := strings.Index(rendered, "<h2>Architecture Break Paths</h2>")
+	architectureEnd := strings.Index(rendered, "<h2>What Was Inspected</h2>")
+	if architectureStart < 0 || architectureEnd < 0 || architectureEnd <= architectureStart {
+		t.Fatalf("assessment dashboard should contain a bounded architecture block:\n%s", rendered)
+	}
+	architectureBlock := rendered[architectureStart:architectureEnd]
+	for _, want := range []string{
+		`.claude/settings.json">.claude/settings.json</a>`,
+		`.codex/config.toml">.codex/config.toml</a>`,
+		".ariadne/egress-policy.json",
+	} {
+		if !strings.Contains(architectureBlock, want) {
+			t.Fatalf("architecture block should keep actionable evidence links; missing %q:\n%s", want, architectureBlock)
+		}
+	}
 }
 
 func TestAssessReportShowsClosureEvidence(t *testing.T) {
