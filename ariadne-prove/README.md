@@ -211,6 +211,7 @@ Useful flags:
 - `--rules <file>`
 - `--interpret deterministic|llm`
 - `--llm-request-out <file>`
+- `--llm-review-profile follow-up|inventory-blind`
 - `--llm-review <file>`
 - `--llm-command <command>`
 - `--include-sensitive-paths`
@@ -365,7 +366,7 @@ See [docs/fleet.md](docs/fleet.md).
 
 ## Project Status
 
-This repository currently focuses on deterministic evidence, graph-backed exposure, deterministic priority interpretation, and optional fact-bound LLM review. The deterministic layer remains useful on its own and is the evidence source for LLM review.
+This repository currently focuses on deterministic evidence, graph-backed exposure, deterministic priority interpretation, and optional fact-bound LLM review. The deterministic layer remains useful on its own and is the evidence source for LLM review. LLM review packets have two profiles: `follow-up` for ingestible reviews over Ariadne exposure IDs and graph edges, and `inventory-blind` for lower-bias exploration that omits Ariadne's exposure ranking until a hypothesis is mapped back to deterministic evidence.
 
 ## Contributing
 

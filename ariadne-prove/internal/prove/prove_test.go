@@ -488,6 +488,70 @@ func TestRunPathWritesRedactedLLMReviewRequest(t *testing.T) {
 	if len(request.Graph.Edges) == 0 || len(request.Deterministic.Issues) == 0 {
 		t.Fatalf("LLM request should include graph evidence and deterministic anchor")
 	}
+	if request.ReviewProfile != "follow_up" {
+		t.Fatalf("review profile = %s, want follow_up", request.ReviewProfile)
+	}
+	if request.ReviewContract.Summary == "" || len(request.ReviewerTasks) == 0 {
+		t.Fatalf("LLM request should include review contract and reviewer tasks: %+v", request)
+	}
+	if !containsString(request.ReviewContract.RequiredCitations, "exposure_id") ||
+		!containsString(request.ReviewContract.ForbiddenClaims, "Secret values, private file contents, exact sensitive paths, or unredacted cache/history contents.") {
+		t.Fatalf("LLM review contract should require exposure citations and forbid private content claims: %+v", request.ReviewContract)
+	}
+	if len(request.CitationCatalog.ExposureIDs) == 0 || len(request.CitationCatalog.GraphEdges) == 0 || len(request.CitationCatalog.SourceRefs) == 0 {
+		t.Fatalf("LLM citation catalog should include exposures, graph edges, and source refs: %+v", request.CitationCatalog)
+	}
+	if !containsString(request.CitationCatalog.ExposureIDs, "data-egress-chain") ||
+		!containsString(request.CitationCatalog.GraphEdges, "trustinput:repo-instruction|influences|runtime:codex") {
+		t.Fatalf("LLM citation catalog missing expected stable anchors: %+v", request.CitationCatalog)
+	}
+}
+
+func TestRunPathWritesInventoryBlindLLMReviewRequest(t *testing.T) {
+	requestPath := filepath.Join(t.TempDir(), "llm-request.json")
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), LLMRequestOut: requestPath, LLMReviewProfile: "inventory-blind"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Interpretation.Mode != "deterministic" {
+		t.Fatalf("request generation should not change interpretation mode, got %s", r.Interpretation.Mode)
+	}
+	data, err := os.ReadFile(requestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request model.LLMReviewRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.ReviewProfile != "inventory_blind" {
+		t.Fatalf("review profile = %s, want inventory_blind", request.ReviewProfile)
+	}
+	if len(request.Exposures) != 0 || len(request.Deterministic.Issues) != 0 {
+		t.Fatalf("inventory-blind request should omit deterministic exposure anchors: exposures=%d issues=%d", len(request.Exposures), len(request.Deterministic.Issues))
+	}
+	if !containsString(request.ReviewContract.RequiredCitations, "fact_ids") ||
+		!containsString(request.ReviewContract.ForbiddenClaims, "Final Ariadne findings, accepted issue priorities, or exposure classifications.") {
+		t.Fatalf("inventory-blind contract should require fact citations and forbid findings: %+v", request.ReviewContract)
+	}
+	if len(request.CitationCatalog.ExposureIDs) != 0 || len(request.CitationCatalog.FactIDs) == 0 || len(request.CitationCatalog.SourceRefs) == 0 {
+		t.Fatalf("inventory-blind citation catalog should include facts/source refs but no exposures: %+v", request.CitationCatalog)
+	}
+}
+
+func TestRunPathRejectsInventoryBlindLLMInterpretation(t *testing.T) {
+	reviewPath := filepath.Join(t.TempDir(), "llm-review.json")
+	review := `{
+  "schema_version": "ariadne.llm_review/v1",
+  "issues": []
+}`
+	if err := os.WriteFile(reviewPath, []byte(review), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), InterpretMode: "llm", LLMReviewPath: reviewPath, LLMReviewProfile: "inventory-blind"})
+	if err == nil || !strings.Contains(err.Error(), "request-only") {
+		t.Fatalf("expected request-only inventory-blind error, got %v", err)
+	}
 }
 
 func TestDataEgressChainProtectedStoryControlBreaksPath(t *testing.T) {

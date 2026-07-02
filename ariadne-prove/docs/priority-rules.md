@@ -125,15 +125,25 @@ The LLM does not collect facts. Ariadne collects and redacts the facts first, th
 
 - redacted surfaces and facts
 - graph nodes and edges
-- exposure paths
-- deterministic interpretation as an anchor
+- a reviewer task list
+- a citation catalog of fact IDs, source refs, graph edges, controls, authorities, and boundaries
+- a review contract that states allowed claims, forbidden claims, required citations, and response rules
+- exposure paths and deterministic interpretation as an anchor in the default `follow-up` profile
 - limitations and redaction metadata
 
-Generate a review packet:
+Generate an ingestible follow-up review packet:
 
 ```bash
 ariadne prove --path . --llm-request-out llm-request.json
 ```
+
+Generate a lower-bias inventory-blind packet:
+
+```bash
+ariadne prove --path . --llm-request-out llm-request.json --llm-review-profile inventory-blind
+```
+
+Inventory-blind packets omit Ariadne's exposure paths and deterministic issue ranking. They are for exploratory review and collector-gap discovery; Ariadne does not ingest them as findings until the hypothesis is mapped back to deterministic exposure evidence.
 
 Have an LLM reviewer produce JSON with schema version `ariadne.llm_review/v1`, then ingest it:
 
@@ -191,5 +201,6 @@ LLM output is fact-bound:
 - every `graph_edges` entry must exactly match an Ariadne graph edge
 - unsupported severity, priority, or disposition values are rejected
 - LLM output is stored as interpretation, not as raw evidence
+- `inventory-blind` packets are request-only and cannot be ingested directly as Ariadne findings
 
 This keeps Ariadne fact-first while allowing non-deterministic review for ambiguous or organization-specific judgment.

@@ -76,6 +76,7 @@ func runAssess(args []string) {
 	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
 	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
 	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmReviewProfile := fs.String("llm-review-profile", "follow-up", "LLM review profile: follow-up, inventory-blind")
 	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -95,6 +96,7 @@ func runAssess(args []string) {
 			LLMReviewPath:         *llmReview,
 			LLMCommand:            *llmCommand,
 			LLMRequestOut:         *llmRequestOut,
+			LLMReviewProfile:      *llmReviewProfile,
 			LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
 			IncludeSensitivePaths: *includeSensitive,
 		})
@@ -119,6 +121,7 @@ func runAssess(args []string) {
 		LLMReviewPath:         *llmReview,
 		LLMCommand:            *llmCommand,
 		LLMRequestOut:         *llmRequestOut,
+		LLMReviewProfile:      *llmReviewProfile,
 		LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
 		IncludeSensitivePaths: *includeSensitive,
 	})
@@ -145,6 +148,7 @@ func runSelf(args []string) {
 	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
 	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
 	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmReviewProfile := fs.String("llm-review-profile", "follow-up", "LLM review profile: follow-up, inventory-blind")
 	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	bundleDir := fs.String("bundle-dir", "", "write a first-run evidence bundle with summary, runbook, operator packet, dashboard, inventory, cases, and proof plan")
@@ -174,6 +178,7 @@ func runSelf(args []string) {
 		LLMReviewPath:         *llmReview,
 		LLMCommand:            *llmCommand,
 		LLMRequestOut:         *llmRequestOut,
+		LLMReviewProfile:      *llmReviewProfile,
 		LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
 		IncludeSensitivePaths: *includeSensitive,
 	})
@@ -1189,6 +1194,7 @@ func runScan(args []string) {
 	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
 	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
 	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmReviewProfile := fs.String("llm-review-profile", "follow-up", "LLM review profile: follow-up, inventory-blind")
 	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -1202,6 +1208,7 @@ func runScan(args []string) {
 		LLMReviewPath:         *llmReview,
 		LLMCommand:            *llmCommand,
 		LLMRequestOut:         *llmRequestOut,
+		LLMReviewProfile:      *llmReviewProfile,
 		LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
 		IncludeSensitivePaths: *includeSensitive,
 	})
@@ -1255,6 +1262,7 @@ func runProve(args []string) {
 	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
 	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
 	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmReviewProfile := fs.String("llm-review-profile", "follow-up", "LLM review profile: follow-up, inventory-blind")
 	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -1273,6 +1281,7 @@ func runProve(args []string) {
 			LLMReviewPath:         *llmReview,
 			LLMCommand:            *llmCommand,
 			LLMRequestOut:         *llmRequestOut,
+			LLMReviewProfile:      *llmReviewProfile,
 			LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
 			IncludeSensitivePaths: *includeSensitive,
 		})
@@ -1286,6 +1295,7 @@ func runProve(args []string) {
 			LLMReviewPath:         *llmReview,
 			LLMCommand:            *llmCommand,
 			LLMRequestOut:         *llmRequestOut,
+			LLMReviewProfile:      *llmReviewProfile,
 			LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
 			IncludeSensitivePaths: *includeSensitive,
 		})
@@ -1322,6 +1332,7 @@ func runDashboard(args []string) {
 	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
 	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
 	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmReviewProfile := fs.String("llm-review-profile", "follow-up", "LLM review profile: follow-up, inventory-blind")
 	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -1345,6 +1356,7 @@ func runDashboard(args []string) {
 			LLMReviewPath:         *llmReview,
 			LLMCommand:            *llmCommand,
 			LLMRequestOut:         *llmRequestOut,
+			LLMReviewProfile:      *llmReviewProfile,
 			LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
 			IncludeSensitivePaths: *includeSensitive,
 		})
@@ -1374,6 +1386,7 @@ func runDashboard(args []string) {
 		LLMReviewPath:         *llmReview,
 		LLMCommand:            *llmCommand,
 		LLMRequestOut:         *llmRequestOut,
+		LLMReviewProfile:      *llmReviewProfile,
 		LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
 		IncludeSensitivePaths: *includeSensitive,
 	})
@@ -1486,6 +1499,7 @@ Examples:
   ariadne prove --path . --agent codex --format json
   ariadne prove --path . --rules .ariadne/rules.json
   ariadne prove --path . --llm-request-out llm-request.json
+  ariadne prove --path . --llm-request-out llm-request.json --llm-review-profile inventory-blind
   ariadne prove --path . --interpret llm --llm-review llm-review.json
   ariadne prove --story local-agent-secret-exposed
   ariadne prove --story local-agent-secret-exposed --format json`))

@@ -32,6 +32,7 @@ type Options struct {
 	LLMReviewPath         string
 	LLMCommand            string
 	LLMRequestOut         string
+	LLMReviewProfile      string
 	LLMTimeout            time.Duration
 	IncludeSensitivePaths bool
 }
@@ -100,6 +101,7 @@ func RunStory(opts Options) (model.Report, error) {
 		ReviewPath:     opts.LLMReviewPath,
 		Command:        opts.LLMCommand,
 		RequestOut:     opts.LLMRequestOut,
+		ReviewProfile:  opts.LLMReviewProfile,
 		Timeout:        opts.LLMTimeout,
 		Question:       report.Story.UserQuestion,
 		Redaction:      report.Redaction,
@@ -200,6 +202,7 @@ func RunPath(opts Options) (model.Report, error) {
 		ReviewPath:     opts.LLMReviewPath,
 		Command:        opts.LLMCommand,
 		RequestOut:     opts.LLMRequestOut,
+		ReviewProfile:  opts.LLMReviewProfile,
 		Timeout:        opts.LLMTimeout,
 		Question:       report.Story.UserQuestion,
 		Redaction:      report.Redaction,
@@ -536,6 +539,7 @@ func RunScan(opts Options) (model.ScanReport, error) {
 			LLMReviewPath:         opts.LLMReviewPath,
 			LLMCommand:            opts.LLMCommand,
 			LLMRequestOut:         opts.LLMRequestOut,
+			LLMReviewProfile:      opts.LLMReviewProfile,
 			LLMTimeout:            opts.LLMTimeout,
 			IncludeSensitivePaths: opts.IncludeSensitivePaths,
 		})

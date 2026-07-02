@@ -213,7 +213,7 @@ LLM review mode uses two JSON payloads:
 - request packet: `ariadne.llm_review_request/v1`
 - review response: `ariadne.llm_review/v1`
 
-The request packet contains only Ariadne's redacted collection facts, graph evidence, exposure paths, deterministic interpretation, redaction metadata, and limitations. The response is accepted only when every issue cites an existing exposure and supported graph edges.
+The request packet contains only Ariadne's redacted collection facts, graph evidence, redaction metadata, limitations, a reviewer task list, a citation catalog, and a review contract. In the default `follow-up` profile it also includes exposure paths and deterministic interpretation; the response is accepted only when every issue cites an existing exposure and supported graph edges. In the `inventory-blind` profile, Ariadne omits exposure paths and deterministic issue ranking so a reviewer can look for hypotheses or collector gaps with less anchoring. Inventory-blind reviewer output is request-only until a hypothesis is mapped back to deterministic exposure evidence.
 
 ## Graph Export Formats
 

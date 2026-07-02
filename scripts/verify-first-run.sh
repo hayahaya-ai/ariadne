@@ -46,6 +46,11 @@ exposure_dashboard_html="$workdir/exposure-dashboard.html"
 cases_txt="$workdir/cases.txt"
 proofs_action="$workdir/proofs-action.txt"
 closure_dir="$workdir/ariadne-closure"
+llm_request="$workdir/llm-request.json"
+llm_request_run="$workdir/llm-request-run.json"
+llm_blind_request="$workdir/llm-request-inventory-blind.json"
+llm_blind_run="$workdir/llm-request-inventory-blind-run.json"
+llm_blind_error="$workdir/llm-inventory-blind-ingest.err"
 
 "$bin" assess --path "$fixture" --out "$assess_summary"
 "$bin" assess --path "$fixture" --format table --out "$assess_txt"
@@ -58,6 +63,13 @@ closure_dir="$workdir/ariadne-closure"
 "$bin" cases --path "$fixture" --out "$cases_txt"
 "$bin" proofs --path "$fixture" --case case:input-trust-boundary --format action --out "$proofs_action"
 "$bin" closure --path "$fixture" --case case:egress-output-boundary --dir "$closure_dir"
+"$bin" prove --path "$fixture" --llm-request-out "$llm_request" --format json --out "$llm_request_run"
+"$bin" prove --path "$fixture" --llm-request-out "$llm_blind_request" --llm-review-profile inventory-blind --format json --out "$llm_blind_run"
+if "$bin" prove --path "$fixture" --interpret llm --llm-review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --llm-review-profile inventory-blind --format json --out "$workdir/llm-blind-ingest.json" 2> "$llm_blind_error"; then
+  echo "inventory-blind LLM review ingestion unexpectedly succeeded" >&2
+  echo "artifacts left in: $workdir" >&2
+  exit 1
+fi
 
 summary_lines="$(wc -l < "$assess_summary" | tr -d '[:space:]')"
 if [ "$summary_lines" -gt 90 ]; then
@@ -108,6 +120,29 @@ expect_contains "$assess_summary" "More detail:"
 expect_contains "$assess_summary" "--format table"
 expect_not_contains "$assess_summary" "additional items in JSON"
 expect_not_contains "$assess_summary" "more evidence reference(s) in JSON"
+
+expect_contains "$llm_request" '"schema_version": "ariadne.llm_review_request/v1"'
+expect_contains "$llm_request" '"review_profile": "follow_up"'
+expect_contains "$llm_request" '"review_contract"'
+expect_contains "$llm_request" '"reviewer_tasks"'
+expect_contains "$llm_request" '"citation_catalog"'
+expect_contains "$llm_request" '"required_citations"'
+expect_contains "$llm_request" '"exposure_id"'
+expect_contains "$llm_request" '"forbidden_claims"'
+expect_contains "$llm_request" '"Secret values, private file contents, exact sensitive paths, or unredacted cache/history contents."'
+expect_contains "$llm_request" '"exposure_ids"'
+expect_contains "$llm_request" '"data-egress-chain"'
+expect_contains "$llm_request" '"source_refs"'
+expect_contains "$llm_request" '"canary_values_included": false'
+expect_not_contains "$llm_request" "REALPATH_FAKE_SECRET_DO_NOT_LEAK"
+expect_contains "$llm_blind_request" '"review_profile": "inventory_blind"'
+expect_contains "$llm_blind_request" '"exposures": []'
+expect_contains "$llm_blind_request" '"mode": "not_included"'
+expect_contains "$llm_blind_request" '"issues": []'
+expect_contains "$llm_blind_request" '"exposure_ids": []'
+expect_contains "$llm_blind_request" '"fact_ids"'
+expect_contains "$llm_blind_request" '"Final Ariadne findings, accepted issue priorities, or exposure classifications."'
+expect_contains "$llm_blind_error" "request-only"
 
 expect_contains "$assess_txt" "What was inspected:"
 expect_contains "$assess_txt" "Decision:"

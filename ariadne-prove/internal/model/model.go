@@ -1585,21 +1585,50 @@ type RuleCondition struct {
 }
 
 type LLMReviewRequest struct {
-	SchemaVersion      string           `json:"schema_version"`
-	Target             string           `json:"target"`
-	Mode               string           `json:"mode"`
-	Question           string           `json:"question"`
-	Instructions       []string         `json:"instructions"`
-	Collection         Collection       `json:"collection"`
-	Graph              Graph            `json:"graph"`
-	Exposures          []ExposureResult `json:"exposures"`
-	Deterministic      Interpretation   `json:"deterministic_interpretation"`
-	Redaction          RedactionInfo    `json:"redaction"`
-	Limitations        []string         `json:"limitations"`
-	AllowedPriorities  []Priority       `json:"allowed_priorities"`
-	AllowedSeverities  []Severity       `json:"allowed_severities"`
-	AllowedStatuses    []Status         `json:"allowed_statuses"`
-	AllowedDisposition []Disposition    `json:"allowed_dispositions"`
+	SchemaVersion      string             `json:"schema_version"`
+	Target             string             `json:"target"`
+	Mode               string             `json:"mode"`
+	ReviewProfile      string             `json:"review_profile"`
+	Question           string             `json:"question"`
+	Instructions       []string           `json:"instructions"`
+	ReviewContract     LLMReviewContract  `json:"review_contract"`
+	ReviewerTasks      []LLMReviewerTask  `json:"reviewer_tasks"`
+	CitationCatalog    LLMCitationCatalog `json:"citation_catalog"`
+	Collection         Collection         `json:"collection"`
+	Graph              Graph              `json:"graph"`
+	Exposures          []ExposureResult   `json:"exposures"`
+	Deterministic      Interpretation     `json:"deterministic_interpretation"`
+	Redaction          RedactionInfo      `json:"redaction"`
+	Limitations        []string           `json:"limitations"`
+	AllowedPriorities  []Priority         `json:"allowed_priorities"`
+	AllowedSeverities  []Severity         `json:"allowed_severities"`
+	AllowedStatuses    []Status           `json:"allowed_statuses"`
+	AllowedDisposition []Disposition      `json:"allowed_dispositions"`
+}
+
+type LLMReviewContract struct {
+	Summary           string   `json:"summary"`
+	RequiredCitations []string `json:"required_citations"`
+	AllowedClaims     []string `json:"allowed_claims"`
+	ForbiddenClaims   []string `json:"forbidden_claims"`
+	ResponseRules     []string `json:"response_rules"`
+}
+
+type LLMReviewerTask struct {
+	ID                string   `json:"id"`
+	Title             string   `json:"title"`
+	Prompt            string   `json:"prompt"`
+	RequiredCitations []string `json:"required_citations"`
+}
+
+type LLMCitationCatalog struct {
+	ExposureIDs  []string            `json:"exposure_ids"`
+	FactIDs      []string            `json:"fact_ids"`
+	GraphEdges   []string            `json:"graph_edges"`
+	ControlIDs   []string            `json:"control_ids"`
+	AuthorityIDs []string            `json:"authority_ids"`
+	BoundaryIDs  []string            `json:"boundary_ids"`
+	SourceRefs   []EvidenceReference `json:"source_refs"`
 }
 
 type LLMReviewResponse struct {
