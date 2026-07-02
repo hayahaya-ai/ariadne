@@ -3237,24 +3237,60 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 
 func TestProofPatchCanCloseInputTrustCase(t *testing.T) {
 	path := copyRealPathFixture(t, "combined-risk")
+
+	beforeRun, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeProof := renderProofPlanJSON(t, beforeRun, "input-trust-boundary")
+	plan, err := report.BuildProofPlanForReport(beforeRun, "breaking", "case:input-trust-boundary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary.ProofPatches != 2 {
+		t.Fatalf("input trust proof plan should start with two proof patches: %+v", plan.Summary)
+	}
+	exported, err := report.ExportProofPatchFiles(filepath.Join(t.TempDir(), "proof-patches"), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported.PatchCount != 2 {
+		t.Fatalf("exported proof patch count = %d, want 2", exported.PatchCount)
+	}
+	exportedPolicy := filepath.Join(exported.Directory, "surfaces", ".ariadne", "input-policy.json")
+	policy, err := os.ReadFile(exportedPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"input_isolation": true`,
+		`"instruction_isolation": true`,
+		`"trusted_instruction_sources": true`,
+		`"trusted_sources": true`,
+	} {
+		if !strings.Contains(string(policy), want) {
+			t.Fatalf("exported proof policy missing %q:\n%s", want, policy)
+		}
+	}
 	policyDir := filepath.Join(path, ".ariadne")
 	if err := os.MkdirAll(policyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	policy := `{
-  "input_isolation": true,
-  "instruction_isolation": true,
-  "trusted_instruction_sources": true,
-  "trusted_sources": true
-}
-`
-	if err := os.WriteFile(filepath.Join(policyDir, "input-policy.json"), []byte(policy), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(policyDir, "input-policy.json"), policy, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	r, err := RunPath(Options{Path: path})
 	if err != nil {
 		t.Fatal(err)
+	}
+	afterProof := renderProofPlanJSON(t, r, "input-trust-boundary")
+	compare, err := report.BuildCaseCompareReport(beforeProof, afterProof, "before-proof.json", "after-proof.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compare.Summary.Closed != 1 || len(compare.Cases) != 1 || compare.Cases[0].Disposition != "closed" || compare.Cases[0].BeforeState != "open" || compare.Cases[0].AfterState != "closed" {
+		t.Fatalf("exported proof patch should compare open -> closed: %+v", compare)
 	}
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustControlled)
 	for _, control := range []string{"control:input-isolation", "control:trusted-source-policy"} {
