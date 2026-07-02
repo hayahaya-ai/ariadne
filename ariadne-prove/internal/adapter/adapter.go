@@ -82,6 +82,7 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		Summary:       s.Summary,
 		Limitations:   limitationsForSurface(s),
 	})
+	collectRuntimeSurfaceEvidence(c, s)
 
 	switch s.HandlingMode {
 	case "skip", "ignore":
@@ -157,6 +158,27 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectGitHubActionsWorkflow(c, s)
 	}
 	_ = opts
+}
+
+func collectRuntimeSurfaceEvidence(c *model.Collection, s model.Surface) {
+	if s.HandlingMode != "parse" {
+		return
+	}
+	runtime := runtimeForSurface(s)
+	if runtime == "" {
+		return
+	}
+	summary := displayRuntime(runtime) + " surface evidence was found."
+	if s.Category == "trust-input" {
+		summary = displayRuntime(runtime) + " instruction or rule surface evidence was found; authority is not inferred from this surface alone."
+	}
+	c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{
+		ID:      "runtime:" + runtime,
+		Kind:    runtime,
+		Source:  s.Source,
+		Scope:   s.Scope,
+		Summary: summary,
+	})
 }
 
 func collectInstruction(c *model.Collection, s model.Surface) {

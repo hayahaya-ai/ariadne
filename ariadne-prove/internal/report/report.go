@@ -5959,6 +5959,9 @@ func operatorEvidenceReferenceRank(value model.EvidenceReference, proofSet map[s
 	if kind == "control" || strings.HasPrefix(source, ".ariadne/") || strings.Contains(source, "policy") {
 		return 1
 	}
+	if kind == "runtime" {
+		return 6
+	}
 	if operatorSourceLooksConfig(source) || operatorKindLooksActionable(kind) {
 		return 2
 	}
@@ -5976,7 +5979,7 @@ func operatorEvidenceReferenceRank(value model.EvidenceReference, proofSet map[s
 
 func operatorKindLooksActionable(kind string) bool {
 	switch kind {
-	case "runtime", "authority", "tool", "trust_input", "config", "instruction", "mcp", "plugin", "command", "hook", "permission", "sandbox", "approval":
+	case "authority", "tool", "trust_input", "config", "instruction", "mcp", "plugin", "command", "hook", "permission", "sandbox", "approval":
 		return true
 	default:
 		return strings.Contains(kind, "config") || strings.Contains(kind, "permission") || strings.Contains(kind, "authority")

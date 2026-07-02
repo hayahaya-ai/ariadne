@@ -2584,6 +2584,15 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	if !hasGraphNodeType(r.Graph, "command-hook") {
 		t.Fatalf("expected command-hook surface node in graph")
 	}
+	windsurfMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "windsurf", "repo")
+	if !containsString(windsurfMap.SourceRefs, ".windsurf/rules/security.md") || len(windsurfMap.Authorities) != 0 {
+		t.Fatalf("windsurf rule-only surface should create runtime surface context without authority: %+v", windsurfMap)
+	}
+	if !hasGraphNodeID(r.Graph, "runtime:windsurf") ||
+		!r.Graph.HasEdge("trustinput:repo-instruction|influences|runtime:windsurf") ||
+		hasAuthorityRuntime(r.Collection.Authorities, "windsurf") {
+		t.Fatalf("windsurf rule-only surface should connect trust input to runtime without inferred authority: nodes=%+v edges=%+v authorities=%+v", r.Graph.Nodes, r.Graph.Edges, r.Collection.Authorities)
+	}
 	continueMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "continue", "repo")
 	if !containsString(continueMap.SourceRefs, ".continue/config.json") || !containsString(continueMap.SourceRefs, ".continue/rules/security.md") {
 		t.Fatalf("continue surface map should retain source refs: %+v", continueMap)
@@ -2771,6 +2780,15 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	aiderMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "aider", "endpoint")
 	if !containsString(aiderMap.SourceRefs, ".aider.conf.yml") || !containsString(aiderMap.SourceRefs, ".aider.chat.history.md") {
 		t.Fatalf("endpoint aider surface map missing relative source refs: %+v", aiderMap)
+	}
+	windsurfMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "windsurf", "endpoint")
+	if !containsString(windsurfMap.SourceRefs, ".windsurf/rules/security.md") || len(windsurfMap.Authorities) != 0 {
+		t.Fatalf("endpoint windsurf rule-only surface should not infer authority: %+v", windsurfMap)
+	}
+	if !hasGraphNodeID(r.Graph, "runtime:windsurf") ||
+		!r.Graph.HasEdge("trustinput:repo-instruction|influences|runtime:windsurf") ||
+		hasAuthorityRuntime(r.Collection.Authorities, "windsurf") {
+		t.Fatalf("endpoint windsurf rule-only surface should connect trust input to runtime without inferred authority: nodes=%+v edges=%+v authorities=%+v", r.Graph.Nodes, r.Graph.Edges, r.Collection.Authorities)
 	}
 	geminiMap := requireSurfaceMapRuntime(t, r.SurfaceMap, "gemini", "endpoint")
 	if !containsString(geminiMap.Authorities, "local-code-execution") || !containsString(geminiMap.Tools, "agent-command-shell") {
@@ -7073,6 +7091,15 @@ func hasControlID(controls []model.Control, id string) bool {
 	return false
 }
 
+func hasAuthorityRuntime(authorities []model.Authority, runtime string) bool {
+	for _, authority := range authorities {
+		if authority.Runtime == runtime {
+			return true
+		}
+	}
+	return false
+}
+
 func requireSurfaceMapRuntime(t *testing.T, items []model.SurfaceMap, runtime string, scope string) model.SurfaceMap {
 	t.Helper()
 	for _, item := range items {
@@ -7119,6 +7146,15 @@ func mustWriteFile(t *testing.T, path string, data string) {
 func hasGraphNodeType(g model.Graph, nodeType string) bool {
 	for _, node := range g.Nodes {
 		if node.Type == nodeType {
+			return true
+		}
+	}
+	return false
+}
+
+func hasGraphNodeID(g model.Graph, id string) bool {
+	for _, node := range g.Nodes {
+		if node.ID == id {
 			return true
 		}
 	}
