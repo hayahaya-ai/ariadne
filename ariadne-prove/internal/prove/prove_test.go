@@ -3312,6 +3312,84 @@ func TestProofPatchCanCloseInputTrustCase(t *testing.T) {
 	}
 }
 
+func TestProofBundleCanCloseTopEgressCase(t *testing.T) {
+	path := copyRealPathFixture(t, "combined-risk")
+	const caseID = "case:egress-output-boundary"
+
+	beforeRun, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeProof := renderProofPlanJSON(t, beforeRun, caseID)
+	plan, err := report.BuildProofPlanForReport(beforeRun, "breaking", caseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary.ProofPatches != 5 {
+		t.Fatalf("egress proof plan should start with five proof patches: %+v", plan.Summary)
+	}
+	exported, err := report.ExportProofPatchFiles(filepath.Join(t.TempDir(), "proof-patches"), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported.PatchCount != 5 || len(exported.Files) != 2 {
+		t.Fatalf("proof export should group five patches into two suggested surface files: %+v", exported)
+	}
+	if !containsString(exported.Files, filepath.Join("surfaces", ".ariadne", "egress-policy.json")) ||
+		!containsString(exported.Files, filepath.Join("surfaces", ".ariadne", "output-policy.json")) {
+		t.Fatalf("proof export should include egress and output policy files: %+v", exported.Files)
+	}
+
+	applyExportedProofFiles(t, path, exported.Directory, exported.Files)
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterProof := renderProofPlanJSON(t, r, caseID)
+	compare, err := report.BuildCaseCompareReport(beforeProof, afterProof, "before-proof.json", "after-proof.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compare.Summary.Closed != 1 || len(compare.Cases) != 1 {
+		t.Fatalf("egress proof bundle should compare one closed case: %+v", compare)
+	}
+	got := compare.Cases[0]
+	if got.ID != caseID || got.Disposition != "closed" || got.BeforeState != "open" || got.AfterState != "closed" {
+		t.Fatalf("egress proof bundle should compare open -> closed: %+v", got)
+	}
+	if got.BeforeProofPatches != 5 || got.AfterProofPatches != 0 {
+		t.Fatalf("egress proof bundle should reduce proof patches from five to zero: %+v", got)
+	}
+	if !containsEvidenceReferenceSource(got.AddedEvidence, ".ariadne/egress-policy.json") ||
+		!containsEvidenceReferenceSource(got.AddedEvidence, ".ariadne/output-policy.json") {
+		t.Fatalf("compare should include added egress and output evidence refs: %+v", got.AddedEvidence)
+	}
+	for _, control := range []string{
+		"control:egress-destination-allowlist",
+		"control:network-restricted",
+		"control:output-filter-logging",
+		"control:output-redaction",
+		"control:output-sensitive-data-filter",
+	} {
+		if !containsString(got.AfterControls, control) {
+			t.Fatalf("closed egress case missing observed control %s: %+v", control, got.AfterControls)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderCases(&jsonOut, r, "json", "breaking", ""); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ControlCatalogReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if hasControlOperatorCaseID(decoded.OperatorCases, caseID) {
+		t.Fatalf("proof bundle should remove egress case from breaking case board: %+v", decoded.OperatorCases)
+	}
+}
+
 func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {
@@ -5454,6 +5532,31 @@ func copyTree(src string, dst string) error {
 		}
 		return os.WriteFile(target, data, info.Mode())
 	})
+}
+
+func applyExportedProofFiles(t *testing.T, targetPath string, exportDir string, files []string) {
+	t.Helper()
+	surfaceRoot := filepath.Join(exportDir, "surfaces")
+	for _, file := range files {
+		rel, err := filepath.Rel(surfaceRoot, file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+			t.Fatalf("exported proof file %s is outside surfaces dir %s", file, surfaceRoot)
+		}
+		blob, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dst := filepath.Join(targetPath, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, blob, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func assertExposure(t *testing.T, r model.Report, id string, status model.Status) {
