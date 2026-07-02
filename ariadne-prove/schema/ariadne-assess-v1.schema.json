@@ -12,6 +12,7 @@
     "agent",
     "status_filter",
     "summary",
+    "triage",
     "inventory",
     "exposure",
     "closure_evidence",
@@ -36,6 +37,7 @@
     "agent": { "type": "string" },
     "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
     "summary": { "$ref": "#/$defs/assess_summary" },
+    "triage": { "$ref": "#/$defs/assess_triage" },
     "inventory": { "$ref": "#/$defs/assess_inventory" },
     "exposure": { "$ref": "#/$defs/assess_exposure" },
     "closure_evidence": { "$ref": "#/$defs/assess_closure_evidence" },
@@ -172,6 +174,40 @@
         "current_action": {
           "$ref": "#/$defs/assess_current_action"
         }
+      }
+    },
+    "assess_triage": {
+      "type": "object",
+      "required": [
+        "status",
+        "headline",
+        "start_here",
+        "hard_risk_signals",
+        "normal_capabilities",
+        "missing_hard_barriers",
+        "partial_or_friction_controls",
+        "present_hard_barriers",
+        "unknown_evidence",
+        "evidence_refs",
+        "next_action",
+        "proof_loop"
+      ],
+      "properties": {
+        "status": { "type": "string", "enum": ["action_required", "needs_evidence", "controlled", "no_supported_signal"] },
+        "headline": { "type": "string" },
+        "start_here": { "type": "string" },
+        "hard_risk_signals": { "type": "array", "items": { "type": "string" } },
+        "normal_capabilities": { "type": "array", "items": { "type": "string" } },
+        "missing_hard_barriers": { "type": "array", "items": { "type": "string" } },
+        "partial_or_friction_controls": { "type": "array", "items": { "type": "string" } },
+        "present_hard_barriers": { "type": "array", "items": { "type": "string" } },
+        "unknown_evidence": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "next_action": { "type": "string" },
+        "proof_loop": { "type": "array", "items": { "type": "string" } }
       }
     },
     "assess_current_action": {

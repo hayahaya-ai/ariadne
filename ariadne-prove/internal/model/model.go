@@ -281,6 +281,7 @@ type AssessReport struct {
 	Agent            string                  `json:"agent"`
 	StatusFilter     string                  `json:"status_filter"`
 	Summary          AssessSummary           `json:"summary"`
+	Triage           AssessTriage            `json:"triage"`
 	Inventory        AssessInventory         `json:"inventory"`
 	Exposure         AssessExposure          `json:"exposure"`
 	ClosureEvidence  AssessClosureEvidence   `json:"closure_evidence"`
@@ -373,6 +374,21 @@ type AssessSummary struct {
 	TopCaseID                    string `json:"top_case_id,omitempty"`
 	TopCaseTitle                 string `json:"top_case_title,omitempty"`
 	TopCaseNextStep              string `json:"top_case_next_step,omitempty"`
+}
+
+type AssessTriage struct {
+	Status                    string              `json:"status"`
+	Headline                  string              `json:"headline"`
+	StartHere                 string              `json:"start_here"`
+	HardRiskSignals           []string            `json:"hard_risk_signals"`
+	NormalCapabilities        []string            `json:"normal_capabilities"`
+	MissingHardBarriers       []string            `json:"missing_hard_barriers"`
+	PartialOrFrictionControls []string            `json:"partial_or_friction_controls"`
+	PresentHardBarriers       []string            `json:"present_hard_barriers"`
+	UnknownEvidence           []string            `json:"unknown_evidence"`
+	EvidenceReferences        []EvidenceReference `json:"evidence_refs"`
+	NextAction                string              `json:"next_action"`
+	ProofLoop                 []string            `json:"proof_loop"`
 }
 
 type AssessInventory struct {

@@ -59,6 +59,8 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	summary := buildAssessSummary(inventorySummary, exposure, architecture.Summary, caseBoard.Summary, caseBoard.OperatorCases)
 	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
 	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
+	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
+	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -70,6 +72,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		Agent:            r.Story.Runtime,
 		StatusFilter:     architecture.StatusFilter,
 		Summary:          summary,
+		Triage:           triage,
 		Inventory:        inventorySummary,
 		Exposure:         exposure,
 		ClosureEvidence:  closureEvidence,
@@ -77,7 +80,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		CaseBoard:        caseBoard,
 		TopCases:         topCases,
 		TopCaseProofPlan: topCaseProofPlan,
-		FirstAction:      buildAssessFirstAction(topCases, topCaseProofPlan),
+		FirstAction:      firstAction,
 		NextCommands:     nextCommands,
 		Redaction:        r.Redaction,
 		Warnings:         uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
@@ -117,6 +120,9 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 	}
 	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
 	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
+	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
+	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
+	triage := buildAssessTriage(summary, model.AssessInventory{}, exposure, closureEvidence, firstAction)
 	nextCommands := assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -128,14 +134,15 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 		Agent:            r.Agent,
 		StatusFilter:     architecture.StatusFilter,
 		Summary:          summary,
+		Triage:           triage,
 		Inventory:        model.AssessInventory{},
 		Exposure:         exposure,
-		ClosureEvidence:  buildAssessClosureEvidence(exposures, closureTargets),
+		ClosureEvidence:  closureEvidence,
 		ArchitectureScan: &architecture,
 		CaseBoard:        caseBoard,
 		TopCases:         topCases,
 		TopCaseProofPlan: topCaseProofPlan,
-		FirstAction:      buildAssessFirstAction(topCases, topCaseProofPlan),
+		FirstAction:      firstAction,
 		NextCommands:     nextCommands,
 		Redaction:        r.Redaction,
 		Warnings:         append([]string{}, r.Warnings...),
@@ -1320,6 +1327,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
 	fmt.Fprintf(w, "Open cases: %d; missing hard barriers: %d; exposed paths: %d\n\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
 
+	renderAssessTriage(w, r.Triage)
 	action := r.FirstAction
 	if !action.Available {
 		fmt.Fprintf(w, "Current action:\n  - none\n\n")
@@ -1584,6 +1592,146 @@ func buildAssessSummary(inventory model.AssessInventory, exposure model.AssessEx
 		summary.TopCaseNextStep = cases[0].NextStep
 	}
 	return summary
+}
+
+func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction) model.AssessTriage {
+	triage := model.AssessTriage{
+		Status:                    assessTriageStatus(summary, exposure, action),
+		HardRiskSignals:           []string{},
+		NormalCapabilities:        []string{},
+		MissingHardBarriers:       []string{},
+		PartialOrFrictionControls: []string{},
+		PresentHardBarriers:       []string{},
+		UnknownEvidence:           []string{},
+		EvidenceReferences:        []model.EvidenceReference{},
+		ProofLoop:                 []string{},
+	}
+	if action.Available {
+		triage.StartHere = action.CaseID
+		triage.Headline = fmt.Sprintf("Start with %s because Ariadne ranked it as the first open operator case.", firstNonEmpty(action.Title, action.CaseID))
+		triage.NextAction = action.NextStep
+		triage.EvidenceReferences = dedupeEvidenceReferences(action.EvidenceReferences)
+		if action.WhyFirst != "" {
+			triage.HardRiskSignals = append(triage.HardRiskSignals, action.WhyFirst)
+		}
+		if len(action.EvidenceReferences) > 0 {
+			triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d evidence reference(s) support the top case.", len(dedupeEvidenceReferences(action.EvidenceReferences))))
+		}
+		triage.MissingHardBarriers = append(triage.MissingHardBarriers, action.StartingControls...)
+		triage.ProofLoop = assessTriageProofLoop(action)
+	} else {
+		triage.Headline = "No open operator case matched this filter."
+		triage.NextAction = "Review controlled, unknown, or not-observed results if the question is evidence coverage rather than active break paths."
+	}
+	if summary.BreakingArchitectureFlaws > 0 {
+		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d breaking architecture flaw(s) remain after deterministic graph correlation.", summary.BreakingArchitectureFlaws))
+	}
+	if exposure.Exposed > 0 {
+		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d exposed path(s) reach a sensitive boundary without a breaking control.", exposure.Exposed))
+	}
+	if summary.MissingHardBarrierControls > 0 {
+		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d missing hard-barrier control(s) are keeping cases open.", summary.MissingHardBarrierControls))
+	}
+	triage.NormalCapabilities = assessNormalCapabilityLines(inventory)
+	triage.MissingHardBarriers = uniqueStrings(append(triage.MissingHardBarriers, closure.RemainingMissingHardBarriers...))
+	triage.PartialOrFrictionControls = uniqueStrings(closure.PartialOrFrictionControls)
+	triage.PresentHardBarriers = uniqueStrings(closure.HardBarriersObserved)
+	if summary.UnknownArchitectureFlaws > 0 {
+		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d architecture flaw(s) need more deterministic evidence before Ariadne can classify them.", summary.UnknownArchitectureFlaws))
+	}
+	if exposure.Inconclusive > 0 {
+		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d exposure path(s) are inconclusive because authority, boundary, or control evidence is incomplete.", exposure.Inconclusive))
+	}
+	if summary.NotObservedArchitectureFlaws > 0 {
+		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d architecture area(s) were not observed in collected surfaces.", summary.NotObservedArchitectureFlaws))
+	}
+	triage.HardRiskSignals = uniqueStrings(triage.HardRiskSignals)
+	triage.UnknownEvidence = uniqueStrings(triage.UnknownEvidence)
+	if triage.Headline == "" {
+		triage.Headline = assessTriageHeadline(triage.Status)
+	}
+	if triage.NextAction == "" {
+		triage.NextAction = assessTriageNextAction(triage.Status)
+	}
+	return triage
+}
+
+func assessTriageStatus(summary model.AssessSummary, exposure model.AssessExposure, action model.AssessFirstAction) string {
+	if action.Available || summary.MissingHardBarrierControls > 0 || summary.BreakingArchitectureFlaws > 0 || exposure.Exposed > 0 {
+		return "action_required"
+	}
+	if summary.UnknownArchitectureFlaws > 0 || exposure.Inconclusive > 0 {
+		return "needs_evidence"
+	}
+	if summary.ControlledArchitectureFlaws > 0 || exposure.Protected > 0 {
+		return "controlled"
+	}
+	return "no_supported_signal"
+}
+
+func assessTriageHeadline(status string) string {
+	switch status {
+	case "action_required":
+		return "Ariadne found graph-backed signal that needs an operator action."
+	case "needs_evidence":
+		return "Ariadne needs more deterministic evidence before prioritizing a closure case."
+	case "controlled":
+		return "Ariadne observed controls that close the supported paths for this filter."
+	default:
+		return "Ariadne did not find a supported exposure or architecture break path for this filter."
+	}
+}
+
+func assessTriageNextAction(status string) string {
+	switch status {
+	case "action_required":
+		return "Inspect the top case evidence, add or verify the suggested proof evidence, then rerun and compare."
+	case "needs_evidence":
+		return "Collect the missing deterministic evidence before treating this as either exposed or protected."
+	case "controlled":
+		return "Save the controlled evidence and rerun after material config changes."
+	default:
+		return "Run inventory or broaden the target if you expected AI-agent surfaces."
+	}
+}
+
+func assessNormalCapabilityLines(inventory model.AssessInventory) []string {
+	var lines []string
+	if inventory.Runtimes > 0 {
+		lines = append(lines, fmt.Sprintf("%d agent runtime surface(s) were observed; runtime presence is expected and is not a finding by itself.", inventory.Runtimes))
+	}
+	if inventory.Authorities > 0 {
+		lines = append(lines, fmt.Sprintf("%d authority surface(s) were observed; authority is normal for useful agents but becomes risk when untrusted influence can reach sensitive boundaries without hard barriers.", inventory.Authorities))
+	}
+	if inventory.Tools > 0 {
+		lines = append(lines, fmt.Sprintf("%d tool surface(s) were observed; tools are normal capability unless scope, integrity, approval, or egress controls are missing.", inventory.Tools))
+	}
+	if inventory.TrustInputs > 0 {
+		lines = append(lines, fmt.Sprintf("%d trust input surface(s) were observed; instructions are expected inputs unless they can steer privileged runtime authority.", inventory.TrustInputs))
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "No standalone normal-capability counts are available in this view; triage is based on case-board and closure evidence.")
+	}
+	return lines
+}
+
+func assessTriageProofLoop(action model.AssessFirstAction) []string {
+	var out []string
+	if action.CurrentAction.PatchExportCommand != "" {
+		out = append(out, "Export suggested proof files: "+action.CurrentAction.PatchExportCommand)
+	} else if action.PatchExportCommand != "" {
+		out = append(out, "Export suggested proof files: "+action.PatchExportCommand)
+	}
+	if rerun := assessCurrentRerunCommand(action); rerun != "" {
+		out = append(out, "Rerun after evidence changes: "+rerun)
+	}
+	for _, command := range limitStrings(action.CompareCommands, 3) {
+		out = append(out, "Compare proof state: "+command)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func zeroTrustSummaryFromArchitectureScan(summary model.ArchitectureScanSummary) model.ZeroTrustSummary {
@@ -2051,6 +2199,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	}
 	fmt.Fprintln(w)
 
+	renderAssessTriage(w, r.Triage)
 	renderAssessFirstAction(w, r.FirstAction)
 
 	if r.Inventory.Surfaces > 0 || r.Inventory.Facts > 0 || r.Inventory.GraphNodes > 0 {
@@ -2089,6 +2238,45 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 		}
 	}
 	return nil
+}
+
+func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
+	if triage.Status == "" && triage.Headline == "" {
+		return
+	}
+	fmt.Fprintf(w, "Signal triage:\n")
+	if triage.Status != "" {
+		fmt.Fprintf(w, "  - Status: %s\n", readableToken(triage.Status))
+	}
+	if triage.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", triage.Headline)
+	}
+	if triage.StartHere != "" {
+		fmt.Fprintf(w, "  - Start here: %s\n", triage.StartHere)
+	}
+	renderAssessTriageLines(w, "Hard signal", triage.HardRiskSignals, 6)
+	renderAssessTriageLines(w, "Normal capability", triage.NormalCapabilities, 4)
+	renderAssessTriageLines(w, "Missing hard barrier", triage.MissingHardBarriers, 6)
+	renderAssessTriageLines(w, "Partial/friction control", triage.PartialOrFrictionControls, 6)
+	renderAssessTriageLines(w, "Present hard barrier", triage.PresentHardBarriers, 6)
+	renderAssessTriageLines(w, "Unknown evidence", triage.UnknownEvidence, 4)
+	if len(triage.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(triage.EvidenceReferences, 3), "; "))
+	}
+	if triage.NextAction != "" {
+		fmt.Fprintf(w, "  - Next action: %s\n", triage.NextAction)
+	}
+	renderAssessTriageLines(w, "Proof loop", triage.ProofLoop, 6)
+	fmt.Fprintln(w)
+}
+
+func renderAssessTriageLines(w io.Writer, label string, values []string, limit int) {
+	if len(values) == 0 {
+		return
+	}
+	for _, value := range limitStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
 }
 
 func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {

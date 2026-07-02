@@ -188,6 +188,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
+	renderAssessTriageDashboard(w, r.TargetPath, r.Triage)
 	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction)
 	renderAssessClosureEvidenceDashboard(w, r.TargetPath, r.ClosureEvidence)
 	renderAssessCaseNavigationDashboard(w, r.TopCases)
@@ -758,6 +759,50 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	if r.Summary.TopCaseNextStep != "" {
 		fmt.Fprintf(w, `<div><strong>Start here:</strong> %s <span class="subtle">(%s)</span></div>`, esc(r.Summary.TopCaseNextStep), esc(r.Summary.TopCaseTitle))
 	}
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTriage) {
+	if triage.Status == "" && triage.Headline == "" {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Signal Triage</h2><div class="subtle">Fact-first separation of real risk, expected agent capability, missing controls, partial controls, and evidence gaps.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Status", statusLabel(firstNonEmpty(triage.Status, "unknown"))},
+		{"Start here", firstNonEmpty(triage.StartHere, "none")},
+		{"Hard signals", fmt.Sprintf("%d", len(triage.HardRiskSignals))},
+		{"Missing barriers", fmt.Sprintf("%d", len(triage.MissingHardBarriers))},
+		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(triage.EvidenceReferences)))},
+	})
+	if triage.Headline != "" {
+		fmt.Fprintf(w, `<p><strong>Readout:</strong> %s</p>`, esc(triage.Headline))
+	}
+	if triage.NextAction != "" {
+		fmt.Fprintf(w, `<p><strong>Next action:</strong> %s</p>`, esc(triage.NextAction))
+	}
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Hard Signal</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(triage.HardRiskSignals, 5)))
+	fmt.Fprintln(w, `<h3>Normal Capability</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(triage.NormalCapabilities, 5)))
+	fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
+	fmt.Fprintln(w, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, triage.EvidenceReferences, 5)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Missing Hard Barriers</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(triage.MissingHardBarriers, 8)))
+	fmt.Fprintln(w, `<h3>Partial Or Friction Controls</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(triage.PartialOrFrictionControls, 6)))
+	fmt.Fprintln(w, `<h3>Present Hard Barriers</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(triage.PresentHardBarriers, 6)))
+	fmt.Fprintln(w, `<h3>Unknown Evidence</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(triage.UnknownEvidence, 5)))
+	fmt.Fprintln(w, `<h3>Proof Loop</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(triage.ProofLoop, 5)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
 }
 

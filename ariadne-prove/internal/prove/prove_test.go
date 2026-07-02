@@ -3594,6 +3594,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assess",
 		"Question: Where is Zero Trust agent architecture breaking",
 		"Readout:",
+		"Signal triage:",
+		"Status: action required",
+		"Hard signal:",
+		"Normal capability:",
+		"Missing hard barrier:",
 		"First action:",
 		"Why first:",
 		"Current workflow step: Add Or Verify Proof",
@@ -3651,6 +3656,23 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if decoded.Summary.BreakingArchitectureFlaws == 0 || decoded.Architecture == nil || len(decoded.Architecture.Flaws) == 0 {
 		t.Fatalf("assessment should include architecture break paths: summary=%+v architecture=%+v", decoded.Summary, decoded.Architecture)
+	}
+	if decoded.Triage.Status != "action_required" ||
+		decoded.Triage.Headline == "" ||
+		decoded.Triage.StartHere != decoded.TopCases[0].ID ||
+		len(decoded.Triage.HardRiskSignals) == 0 ||
+		len(decoded.Triage.NormalCapabilities) == 0 ||
+		len(decoded.Triage.MissingHardBarriers) == 0 ||
+		len(decoded.Triage.EvidenceReferences) == 0 ||
+		decoded.Triage.NextAction == "" ||
+		len(decoded.Triage.ProofLoop) == 0 {
+		t.Fatalf("assessment should include fact-first signal triage: %+v", decoded.Triage)
+	}
+	if !containsString(decoded.Triage.MissingHardBarriers, "control:egress-destination-allowlist") {
+		t.Fatalf("triage should identify the top missing hard barrier: %+v", decoded.Triage.MissingHardBarriers)
+	}
+	if !containsString(decoded.Triage.ProofLoop, "ariadne compare --before before-proof.json --after after-proof.json") {
+		t.Fatalf("triage should preserve the compare proof loop: %+v", decoded.Triage.ProofLoop)
 	}
 	if decoded.Summary.OperatorCases == 0 || len(decoded.TopCases) == 0 || decoded.TopCases[0].Rank != 1 || decoded.TopCases[0].NextStep == "" {
 		t.Fatalf("assessment should include ranked top cases: summary=%+v cases=%+v", decoded.Summary, decoded.TopCases)
@@ -3723,6 +3745,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	actionRendered := actionOut.String()
 	for _, want := range []string{
 		"Ariadne Action",
+		"Signal triage:",
+		"Normal capability:",
+		"Missing hard barrier:",
 		"Current action:",
 		"Control: control:egress-destination-allowlist",
 		"Proof surface: .ariadne/egress-policy.json",
@@ -3759,6 +3784,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assessment",
 		"Assessment Readout",
+		"Signal Triage",
+		"Hard Signal",
+		"Normal Capability",
+		"Missing Hard Barriers",
 		"First Action",
 		"Current Action Packet",
 		"Proof To Add Or Verify",
@@ -3876,6 +3905,7 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	out := table.String()
 	for _, want := range []string{
 		"Closure evidence observed:",
+		"Signal triage:",
 		"Controlled architecture flaws: 1",
 		"Partial/friction-only architecture flaws: 1",
 		"CONTROLLED Data or agent actions can leave through arbitrary external destinations",
@@ -3909,6 +3939,12 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	if len(decoded.ClosureEvidence.ControlledPaths) == 0 || len(decoded.ClosureEvidence.ControlledPaths[0].EvidenceReferences) == 0 {
 		t.Fatalf("assessment closure paths should retain evidence refs: %+v", decoded.ClosureEvidence.ControlledPaths)
 	}
+	if !containsString(decoded.Triage.PresentHardBarriers, "control:egress-destination-allowlist") {
+		t.Fatalf("triage should separate present hard barriers: %+v", decoded.Triage)
+	}
+	if !containsString(decoded.Triage.PartialOrFrictionControls, "control:output-redaction") {
+		t.Fatalf("triage should separate partial/friction controls: %+v", decoded.Triage)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
@@ -3917,6 +3953,7 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	rendered := htmlOut.String()
 	for _, want := range []string{
 		"Closure Evidence",
+		"Signal Triage",
 		"Closed By Hard Barrier",
 		"Partial Evidence",
 		"Hard barriers observed",
@@ -4539,6 +4576,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"agent",
 		"status_filter",
 		"summary",
+		"triage",
 		"inventory",
 		"exposure",
 		"closure_evidence",
@@ -4554,6 +4592,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, assessSchema, "top_case_proof_plan")
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
+	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
+	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "evidence_refs", "next_action", "proof_loop")
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
 	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "patch_export_command", "success_criteria", "workflow", "current_action")
 	assessCurrentAction := schemaMap(t, assessSchema, "$defs", "assess_current_action")

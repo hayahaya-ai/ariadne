@@ -136,6 +136,7 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 `ariadne assess --format json` emits the primary first-run assessment contract with:
 
 - `summary`, combining inspected-surface counts, exposure path counts, architecture flaw counts, missing hard-barrier controls, and the top case
+- `triage`, separating hard risk signal from normal/expected agent capability, missing hard barriers, partial/friction controls, present hard barriers, unknown evidence gaps, evidence refs, next action, and proof loop
 - `inventory`, summarizing discovered AI surfaces, typed facts, graph size, runtime/tool/authority/control/boundary counts, surface categories, and handling modes
 - `exposure`, summarizing exposed, protected, and inconclusive paths with a bounded list of top path records
 - `closure_evidence`, summarizing protected exposure paths, controlled architecture flaws, partial/friction-only control evidence, hard barriers observed, remaining missing hard barriers, and source-backed closure paths
@@ -146,9 +147,9 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `first_action`, the highest-priority case distilled into one fact-backed action with priority reason, next step, evidence refs, proof surfaces, accepted evidence examples, proof patches, rerun commands, compare commands, suggested proof export command, success criteria, an ordered evidence -> proof -> rerun -> compare workflow, and `current_action` pointers to the active workflow step, source evidence refs, rerun command, compare command, and proof export command. When available, `current_action` also embeds the selected proof patch and accepted evidence example so clients can render the active action without re-indexing arrays.
 - `next_commands`, including the exact `assess`, focused `cases`, focused `proofs`, `controls`, and `architecture` commands to rerun
 
-The assessment contract is a composition layer. It does not create a separate classification engine; classifications and `first_action` remain derived from deterministic facts, graph edges, architecture flaws, ranked operator cases, and missing hard-barrier controls.
+The assessment contract is a composition layer. It does not create a separate classification engine; classifications, `triage`, and `first_action` remain derived from deterministic facts, graph edges, architecture flaws, ranked operator cases, closure evidence, and missing hard-barrier controls.
 
-`ariadne assess --format action` renders the `first_action.current_action` packet as a compact operator view. It does not change the JSON contract; it hides the larger inventory, architecture, and case-board sections when the operator only needs the active proof step.
+`ariadne assess --format action` renders the signal triage plus the `first_action.current_action` packet as a compact operator view. It does not change the JSON contract; it hides the larger inventory, architecture, and case-board sections when the operator only needs the active proof step.
 
 `ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
 
