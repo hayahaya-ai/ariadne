@@ -3977,6 +3977,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"partial_or_friction_controls":null`,
 		`"present_hard_barriers":null`,
 		`"unknown_evidence":null`,
+		`"evidence_gap_actions":null`,
 	} {
 		if strings.Contains(jsonOut.String(), unwanted) {
 			t.Fatalf("assessment JSON should emit stable empty arrays, not %s:\n%s", unwanted, jsonOut.String())
@@ -3984,7 +3985,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if decoded.Triage.PartialOrFrictionControls == nil ||
 		decoded.Triage.PresentHardBarriers == nil ||
-		decoded.Triage.UnknownEvidence == nil {
+		decoded.Triage.UnknownEvidence == nil ||
+		decoded.Triage.EvidenceGapActions == nil {
 		t.Fatalf("assessment triage empty categories should decode as empty arrays, not nil slices: %+v", decoded.Triage)
 	}
 	if !hasAssessSignal(decoded.Triage.SignalDetails, "risk", "action_required", "case:egress-output-boundary") {
@@ -4290,6 +4292,76 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	} {
 		if !strings.Contains(architectureBlock, want) {
 			t.Fatalf("architecture block should keep actionable evidence links; missing %q:\n%s", want, architectureBlock)
+		}
+	}
+}
+
+func TestAssessNeedsEvidenceShowsEvidenceGapActions(t *testing.T) {
+	path := realPathFixture(t, "repo-only-risk")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var actionOut bytes.Buffer
+	if err := report.RenderAssess(&actionOut, inventory, r, "action", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	actionRendered := actionOut.String()
+	for _, want := range []string{
+		"Status: needs evidence",
+		"Unknown evidence:",
+		"Evidence gap action:",
+		"Inspect all architecture states: ariadne architecture --path",
+		"Export deterministic inventory facts: ariadne inventory --path",
+		"Runtime authority evidence is missing",
+		"Current action:",
+		"collect missing evidence",
+	} {
+		if !strings.Contains(actionRendered, want) {
+			t.Fatalf("needs-evidence assessment action output missing %q:\n%s", want, actionRendered)
+		}
+	}
+	if strings.Contains(actionRendered, "Status: action required") ||
+		strings.Contains(actionRendered, "Add Or Verify Proof") {
+		t.Fatalf("needs-evidence output should not present remediation proof work:\n%s", actionRendered)
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderAssess(&jsonOut, inventory, r, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Triage.Status != "needs_evidence" ||
+		len(decoded.Triage.UnknownEvidence) == 0 ||
+		len(decoded.Triage.EvidenceGapActions) < 3 ||
+		!containsString(decoded.Triage.EvidenceGapActions, "ariadne architecture --path") ||
+		!containsString(decoded.Triage.EvidenceGapActions, "ariadne inventory --path") ||
+		!containsString(decoded.Triage.EvidenceGapActions, "Runtime authority evidence is missing") ||
+		decoded.FirstAction.Available {
+		t.Fatalf("needs-evidence JSON should expose collection actions without remediation action: triage=%+v action=%+v", decoded.Triage, decoded.FirstAction)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	htmlRendered := htmlOut.String()
+	for _, want := range []string{
+		"Evidence Gap Actions",
+		"Inspect all architecture states: ariadne architecture --path",
+		"Export deterministic inventory facts: ariadne inventory --path",
+		"Runtime authority evidence is missing",
+	} {
+		if !strings.Contains(htmlRendered, want) {
+			t.Fatalf("needs-evidence assessment dashboard missing %q:\n%s", want, htmlRendered)
 		}
 	}
 }
@@ -5442,7 +5514,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
-	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "signal_details", "evidence_refs", "next_action", "proof_loop")
+	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "evidence_gap_actions", "signal_details", "evidence_refs", "next_action", "proof_loop")
 	assessSignal := schemaMap(t, assessSchema, "$defs", "assess_signal")
 	assertRequiredKeys(t, assessSignal, "id", "category", "disposition", "summary", "why_it_matters", "risk_boundary", "graph_edges", "evidence_refs", "related_controls", "limitations")
 	assessClosurePlanItem := schemaMap(t, assessSchema, "$defs", "assess_closure_plan_item")

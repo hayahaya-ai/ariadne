@@ -206,6 +206,7 @@
         "partial_or_friction_controls",
         "present_hard_barriers",
         "unknown_evidence",
+        "evidence_gap_actions",
         "signal_details",
         "evidence_refs",
         "next_action",
@@ -221,6 +222,7 @@
         "partial_or_friction_controls": { "type": "array", "items": { "type": "string" } },
         "present_hard_barriers": { "type": "array", "items": { "type": "string" } },
         "unknown_evidence": { "type": "array", "items": { "type": "string" } },
+        "evidence_gap_actions": { "type": "array", "items": { "type": "string" } },
         "signal_details": {
           "type": "array",
           "items": { "$ref": "#/$defs/assess_signal" }

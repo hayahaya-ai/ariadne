@@ -323,6 +323,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
+	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -407,6 +408,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	closurePlan := buildAssessClosurePlan(topCases, 5)
 	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
+	triage.EvidenceGapActions = assessScanEvidenceGapActions(r.TargetsFile, r.Mode, r.Agent, triage)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -1706,7 +1708,16 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	renderAssessClosurePlan(w, r.ClosurePlan, 3)
 	action := r.FirstAction
 	if !action.Available {
-		fmt.Fprintf(w, "Current action:\n  - none\n\n")
+		fmt.Fprintf(w, "Current action:\n")
+		if len(r.Triage.EvidenceGapActions) > 0 {
+			fmt.Fprintf(w, "  - collect missing evidence\n")
+			for _, item := range limitStrings(r.Triage.EvidenceGapActions, 4) {
+				fmt.Fprintf(w, "    - %s\n", item)
+			}
+			fmt.Fprintln(w)
+		} else {
+			fmt.Fprintf(w, "  - none\n\n")
+		}
 		renderAssessActionLimitations(w, r.Limitations)
 		return nil
 	}
@@ -2338,6 +2349,7 @@ func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInvent
 		PartialOrFrictionControls: []string{},
 		PresentHardBarriers:       []string{},
 		UnknownEvidence:           []string{},
+		EvidenceGapActions:        []string{},
 		SignalDetails:             []model.AssessSignal{},
 		EvidenceReferences:        []model.EvidenceReference{},
 		ProofLoop:                 []string{},
@@ -3227,6 +3239,21 @@ func assessPathCommands(path, mode, agent, statusFilter string, cases []model.Co
 	return commands
 }
 
+func assessPathEvidenceGapActions(path, mode, agent string, triage model.AssessTriage, inventory model.AssessInventory) []string {
+	if len(triage.UnknownEvidence) == 0 {
+		return []string{}
+	}
+	cli := ariadneCommand()
+	actions := []string{
+		fmt.Sprintf("Inspect all architecture states: %s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("Export deterministic inventory facts: %s inventory --path %s --mode %s --agent %s --format json --out ariadne-inventory.json", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	}
+	if inventory.TrustInputs > 0 && (inventory.Runtimes == 0 || inventory.Authorities == 0) {
+		actions = append(actions, "Runtime authority evidence is missing; collect endpoint/runtime config from the machine or mounted home where the agent executes.")
+	}
+	return uniqueStrings(actions)
+}
+
 func assessScanCommands(targetsFile, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
 	cli := ariadneCommand()
 	targetsArg := targetsFileCommandArg(targetsFile)
@@ -3241,6 +3268,18 @@ func assessScanCommands(targetsFile, mode, agent, statusFilter string, cases []m
 		fmt.Sprintf("%s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
 	)
 	return commands
+}
+
+func assessScanEvidenceGapActions(targetsFile, mode, agent string, triage model.AssessTriage) []string {
+	if len(triage.UnknownEvidence) == 0 {
+		return []string{}
+	}
+	cli := ariadneCommand()
+	targetsArg := targetsFileCommandArg(targetsFile)
+	return uniqueStrings([]string{
+		fmt.Sprintf("Inspect all fleet architecture states: %s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("Export fleet assessment JSON: %s assess --targets %s --mode %s --agent %s --status all --format json --out ariadne-assess.json", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	})
 }
 
 func assessFocusCommand(command string, focus AssessFocus) string {
@@ -3518,6 +3557,7 @@ func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
 	renderAssessTriageLines(w, "Partial/friction control", triage.PartialOrFrictionControls, 6)
 	renderAssessTriageLines(w, "Present hard barrier", triage.PresentHardBarriers, 6)
 	renderAssessTriageLines(w, "Unknown evidence", triage.UnknownEvidence, 4)
+	renderAssessTriageLines(w, "Evidence gap action", triage.EvidenceGapActions, 4)
 	if len(triage.EvidenceReferences) > 0 {
 		fmt.Fprintf(w, "  - Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(triage.EvidenceReferences, 3), "; "))
 	}

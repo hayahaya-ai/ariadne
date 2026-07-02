@@ -427,6 +427,7 @@ type AssessTriage struct {
 	PartialOrFrictionControls []string            `json:"partial_or_friction_controls"`
 	PresentHardBarriers       []string            `json:"present_hard_barriers"`
 	UnknownEvidence           []string            `json:"unknown_evidence"`
+	EvidenceGapActions        []string            `json:"evidence_gap_actions"`
 	SignalDetails             []AssessSignal      `json:"signal_details"`
 	EvidenceReferences        []EvidenceReference `json:"evidence_refs"`
 	NextAction                string              `json:"next_action"`

@@ -836,6 +836,8 @@ func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTr
 	fmt.Fprintln(w, renderSmallList(limitStrings(triage.PresentHardBarriers, 6)))
 	fmt.Fprintln(w, `<h3>Unknown Evidence</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(triage.UnknownEvidence, 5)))
+	fmt.Fprintln(w, `<h3>Evidence Gap Actions</h3>`)
+	fmt.Fprintln(w, renderSmallList(limitStrings(triage.EvidenceGapActions, 5)))
 	fmt.Fprintln(w, `<h3>Proof Loop</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(triage.ProofLoop, 5)))
 	fmt.Fprintln(w, `</div>`)
