@@ -2907,13 +2907,18 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 	}
 	decisionBlock := boundedBlock(t, actionRendered, "Decision:", "What was inspected:")
 	for _, want := range []string{
-		"Evidence files: .aider.chat.history.md; .aider.conf.yml; .claude/paste-cache",
+		"Evidence files: .aider.conf.yml; .claude/settings.local.json; .cline/mcp.json",
+		"Evidence fact: target: .aider.conf.yml:1 [runtime]",
 		"Missing hard barrier: control:credential-isolation",
 		"Present hard barrier: control:network-restricted",
 	} {
 		if !strings.Contains(decisionBlock, want) {
 			t.Fatalf("endpoint decision packet should separate present and missing controls; missing %q:\n%s", want, decisionBlock)
 		}
+	}
+	decisionEvidenceLine := firstLineContaining(decisionBlock, "Evidence files:")
+	if strings.Contains(decisionEvidenceLine, ".aider.chat.history.md") || strings.Contains(decisionEvidenceLine, ".claude/paste-cache") {
+		t.Fatalf("endpoint decision should lead with actionable config evidence, not private history/cache evidence:\n%s", decisionEvidenceLine)
 	}
 	sourceBlock := boundedBlock(t, actionRendered, "Evidence files:", "Accepted evidence:")
 	for _, want := range []string{
@@ -7087,6 +7092,15 @@ func boundedBlock(t *testing.T, value string, start string, end string) string {
 	}
 	endIdx := startIdx + len(start) + endOffset
 	return value[startIdx:endIdx]
+}
+
+func firstLineContaining(value string, fragment string) string {
+	for _, line := range strings.Split(value, "\n") {
+		if strings.Contains(line, fragment) {
+			return line
+		}
+	}
+	return ""
 }
 
 func containsAssessFactSource(values []model.AssessFact, source string) bool {

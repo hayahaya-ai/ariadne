@@ -2093,7 +2093,7 @@ func renderAssessActiveCaseDashboard(w io.Writer, r model.AssessReport) {
 }
 
 func renderAssessEvidenceReferenceTable(w io.Writer, root string, refs []model.EvidenceReference, limit int) {
-	refs = dedupeEvidenceReferences(refs)
+	refs = rankEvidenceReferencesForOperator(refs)
 	if len(refs) == 0 {
 		fmt.Fprintln(w, `<div class="empty">No evidence references were returned for this case.</div>`)
 		return
@@ -3072,7 +3072,7 @@ func proofPlanEvidenceReferenceHTMLLines(root string, refs []model.EvidenceRefer
 }
 
 func decisionEvidenceReferenceHTMLLines(root string, refs []model.EvidenceReference, limit int) []string {
-	refs = dedupeEvidenceReferences(refs)
+	refs = rankEvidenceReferencesForOperator(refs)
 	if len(refs) == 0 {
 		return []string{}
 	}
@@ -4506,7 +4506,7 @@ func renderDashboardPathList(root string, items []string) string {
 }
 
 func dashboardEvidenceReferencesBySource(values []model.EvidenceReference, limit int) []model.EvidenceReference {
-	values = dedupeEvidenceReferences(values)
+	values = rankEvidenceReferencesForOperator(values)
 	if len(values) == 0 {
 		return []model.EvidenceReference{}
 	}

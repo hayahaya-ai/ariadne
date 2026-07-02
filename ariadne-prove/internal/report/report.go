@@ -1995,7 +1995,7 @@ func renderAssessSummary(w io.Writer, r model.AssessReport) error {
 
 	fmt.Fprintf(w, "\nEvidence:\n")
 	renderAssessEvidenceSources(w, r.Decision.EvidenceSources, 8)
-	for _, ref := range firstEvidenceReferences(r.Decision.EvidenceReferences, 4) {
+	for _, ref := range firstOrderedEvidenceReferences(r.Decision.EvidenceReferences, 4) {
 		fmt.Fprintf(w, "  - Fact: %s\n", evidenceReferenceLine(ref))
 	}
 
@@ -2254,12 +2254,13 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 			fmt.Fprintf(w, "  - Instruction: %s\n", action.CurrentAction.Instruction)
 		}
 	}
-	if len(action.CurrentAction.EvidenceReferences) > 0 {
+	actionEvidenceRefs := rankEvidenceReferencesForOperator(action.CurrentAction.EvidenceReferences, action.ProofSurfaces...)
+	if len(actionEvidenceRefs) > 0 {
 		fmt.Fprintf(w, "\nEvidence to inspect:\n")
-		for _, line := range evidenceReferenceLinesBySource(action.CurrentAction.EvidenceReferences, 4) {
+		for _, line := range operatorEvidenceReferenceLinesBySource(actionEvidenceRefs, 4) {
 			fmt.Fprintf(w, "  - %s\n", line)
 		}
-		renderEvidenceSourceListBlock(w, evidenceReferenceSources(action.CurrentAction.EvidenceReferences, false), 16)
+		renderEvidenceSourceListBlock(w, evidenceReferenceSources(actionEvidenceRefs, false), 16)
 	}
 	if example := assessCurrentEvidenceExampleLine(action); example != "" {
 		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
@@ -3492,7 +3493,7 @@ func normalizeAssessSignalNoiseItems(items []model.AssessSignalNoiseItem) []mode
 	out := make([]model.AssessSignalNoiseItem, 0, len(items))
 	for _, item := range items {
 		item.GraphEdges = nonNilStrings(uniqueStrings(item.GraphEdges))
-		item.EvidenceReferences = nonNilEvidenceReferences(dedupeEvidenceReferences(item.EvidenceReferences))
+		item.EvidenceReferences = nonNilEvidenceReferences(rankEvidenceReferencesForOperator(item.EvidenceReferences))
 		item.Sources = nonNilStrings(uniqueStrings(item.Sources))
 		item.Controls = nonNilStrings(uniqueStrings(item.Controls))
 		item.Limitations = nonNilStrings(uniqueStrings(item.Limitations))
@@ -3589,6 +3590,9 @@ func signalNoiseSourcesFromFacts(facts []model.AssessFact, capability string) []
 
 func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction, targetPath string) model.AssessDecision {
 	generatedProofPaths, suggestedDestinations, destinationPaths, applyCommands := assessDecisionProofBundle(action, targetPath)
+	rankedEvidenceRefs := rankEvidenceReferencesForOperator(action.EvidenceReferences, action.ProofSurfaces...)
+	primaryEvidenceRefs := operatorPrimaryEvidenceReferences(rankedEvidenceRefs)
+	primaryEvidenceSources := evidenceReferenceSources(primaryEvidenceRefs, false)
 	decision := model.AssessDecision{
 		Status:                    firstNonEmpty(triage.Status, "no_supported_signal"),
 		Headline:                  firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
@@ -3603,8 +3607,8 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 		InspectionSummary:         assessDecisionInspectionSummary(inventory, 3),
 		RiskReasons:               assessDecisionRiskReasons(triage.HardRiskSignals),
 		NormalCapabilities:        firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
-		EvidenceSources:           firstStrings(uniqueStrings(state.EvidenceSources), 8),
-		EvidenceReferences:        firstEvidenceReferences(action.EvidenceReferences, 5),
+		EvidenceSources:           firstStrings(uniqueStrings(firstNonEmptyStrings(primaryEvidenceSources, state.EvidenceSources)), 8),
+		EvidenceReferences:        firstOrderedEvidenceReferences(primaryEvidenceRefs, 5),
 		PathSummary:               firstStrings(uniqueStrings(state.PathSummary), 6),
 		MissingHardBarriers:       firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
 		PresentHardBarriers:       firstStrings(uniqueStrings(state.PresentHardBarriers), 5),
@@ -3633,10 +3637,10 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 		decision.StartHere = firstNonEmpty(summary.TopCaseID, action.CaseID)
 	}
 	if len(decision.EvidenceSources) == 0 && len(action.EvidenceReferences) > 0 {
-		decision.EvidenceSources = firstStrings(uniqueStrings(evidenceReferenceSources(action.EvidenceReferences, false)), 16)
+		decision.EvidenceSources = firstStrings(uniqueStrings(evidenceReferenceSources(rankedEvidenceRefs, false)), 16)
 	}
 	if len(decision.EvidenceReferences) == 0 && len(triage.EvidenceReferences) > 0 {
-		decision.EvidenceReferences = firstEvidenceReferences(triage.EvidenceReferences, 5)
+		decision.EvidenceReferences = firstOrderedEvidenceReferences(rankEvidenceReferencesForOperator(triage.EvidenceReferences, action.ProofSurfaces...), 5)
 	}
 	if len(decision.PathSummary) == 0 && len(state.Summary) > 0 {
 		decision.PathSummary = firstStrings(uniqueStrings(state.Summary), 3)
@@ -3766,7 +3770,7 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 		NextStep:    action.NextStep,
 		CurrentStep: currentStep,
 	}
-	workbench.EvidenceToOpen = dedupeEvidenceReferences(evidenceRefs)
+	workbench.EvidenceToOpen = rankEvidenceReferencesForOperator(evidenceRefs, proofSurfaces...)
 	workbench.GraphPath = firstNonEmptyStrings(state.PathSummary, state.GraphEdges)
 	workbench.SignalChain = buildAssessWorkbenchSignalChain(action, state)
 	workbench.Proof = model.AssessWorkbenchProof{
@@ -3802,10 +3806,10 @@ func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.As
 
 func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) model.AssessOperatorWorkbench {
 	workbench.SignalChain = normalizeAssessSignalNoiseItems(workbench.SignalChain)
-	workbench.EvidenceToOpen = nonNilEvidenceReferences(dedupeEvidenceReferences(workbench.EvidenceToOpen))
 	workbench.GraphPath = nonNilStrings(uniqueStrings(workbench.GraphPath))
 	workbench.Proof.Controls = nonNilStrings(uniqueStrings(workbench.Proof.Controls))
 	workbench.Proof.Surfaces = nonNilStrings(uniqueStrings(workbench.Proof.Surfaces))
+	workbench.EvidenceToOpen = nonNilEvidenceReferences(rankEvidenceReferencesForOperator(workbench.EvidenceToOpen, workbench.Proof.Surfaces...))
 	workbench.Proof.GeneratedProofPaths = nonNilStrings(uniqueStrings(workbench.Proof.GeneratedProofPaths))
 	workbench.Proof.SuggestedDestinations = nonNilStrings(uniqueStrings(workbench.Proof.SuggestedDestinations))
 	workbench.Proof.DestinationPaths = nonNilStrings(uniqueStrings(workbench.Proof.DestinationPaths))
@@ -3826,8 +3830,8 @@ func buildAssessWorkbenchSignalChain(action model.AssessFirstAction, state model
 	if len(evidenceRefs) == 0 {
 		evidenceRefs = action.EvidenceReferences
 	}
-	evidenceRefs = dedupeEvidenceReferences(evidenceRefs)
-	capabilityRefs := signalNoiseEvidenceReferencesByKind(evidenceRefs, "runtime", "authority", "tool", "trust_input")
+	evidenceRefs = rankEvidenceReferencesForOperator(evidenceRefs, action.ProofSurfaces...)
+	capabilityRefs := operatorCapabilityEvidenceReferences(evidenceRefs)
 	if len(capabilityRefs) == 0 {
 		capabilityRefs = evidenceRefs
 	}
@@ -3924,7 +3928,7 @@ func buildAssessWorkbenchActions(workbench model.AssessOperatorWorkbench, action
 	if !workbench.Available {
 		return []model.AssessWorkbenchAction{}
 	}
-	evidenceRefs := dedupeEvidenceReferences(workbench.EvidenceToOpen)
+	evidenceRefs := rankEvidenceReferencesForOperator(workbench.EvidenceToOpen, workbench.Proof.Surfaces...)
 	evidenceFiles := evidenceReferenceSources(evidenceRefs, false)
 	proofFiles := firstNonEmptyStrings(
 		firstNonEmptyStrings(workbench.Proof.GeneratedProofPaths, workbench.Proof.DestinationPaths),
@@ -4017,7 +4021,7 @@ func nonNilAssessWorkbenchActions(items []model.AssessWorkbenchAction) []model.A
 	}
 	out := make([]model.AssessWorkbenchAction, 0, len(items))
 	for _, item := range items {
-		item.EvidenceReferences = nonNilEvidenceReferences(dedupeEvidenceReferences(item.EvidenceReferences))
+		item.EvidenceReferences = nonNilEvidenceReferences(rankEvidenceReferencesForOperator(item.EvidenceReferences))
 		item.Files = nonNilStrings(uniqueStrings(item.Files))
 		item.Commands = nonNilStrings(uniqueStrings(item.Commands))
 		item.Controls = nonNilStrings(uniqueStrings(item.Controls))
@@ -4333,6 +4337,14 @@ func assessDecisionInspectionSummary(inventory model.AssessInventory, surfaceMap
 
 func firstEvidenceReferences(values []model.EvidenceReference, limit int) []model.EvidenceReference {
 	values = dedupeEvidenceReferences(values)
+	if limit <= 0 || len(values) <= limit {
+		return values
+	}
+	return append([]model.EvidenceReference{}, values[:limit]...)
+}
+
+func firstOrderedEvidenceReferences(values []model.EvidenceReference, limit int) []model.EvidenceReference {
+	values = nonNilEvidenceReferences(values)
 	if limit <= 0 || len(values) <= limit {
 		return values
 	}
@@ -5111,6 +5123,155 @@ func evidenceReferenceSourcesForControl(refs []model.EvidenceReference, control 
 		}
 	}
 	return uniqueStrings(out)
+}
+
+func rankEvidenceReferencesForOperator(values []model.EvidenceReference, proofSurfaces ...string) []model.EvidenceReference {
+	values = dedupeEvidenceReferences(values)
+	if len(values) == 0 {
+		return []model.EvidenceReference{}
+	}
+	proofSet := map[string]bool{}
+	for _, surface := range proofSurfaces {
+		surface = strings.ToLower(strings.TrimSpace(surface))
+		if surface != "" {
+			proofSet[surface] = true
+		}
+	}
+	sort.SliceStable(values, func(i, j int) bool {
+		leftRank := operatorEvidenceReferenceRank(values[i], proofSet)
+		rightRank := operatorEvidenceReferenceRank(values[j], proofSet)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if values[i].Source != values[j].Source {
+			return values[i].Source < values[j].Source
+		}
+		if values[i].LineStart != values[j].LineStart {
+			return values[i].LineStart < values[j].LineStart
+		}
+		if values[i].Kind != values[j].Kind {
+			return values[i].Kind < values[j].Kind
+		}
+		if values[i].Target != values[j].Target {
+			return values[i].Target < values[j].Target
+		}
+		return values[i].ID < values[j].ID
+	})
+	return values
+}
+
+func operatorCapabilityEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	if refs := signalNoiseEvidenceReferencesByKind(values, "runtime", "authority", "tool", "trust_input", "config", "instruction"); len(refs) > 0 {
+		return rankEvidenceReferencesForOperator(refs)
+	}
+	var refs []model.EvidenceReference
+	for _, ref := range values {
+		if operatorEvidenceReferenceRank(ref, nil) <= 2 {
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) > 0 {
+		return rankEvidenceReferencesForOperator(refs)
+	}
+	return firstEvidenceReferences(rankEvidenceReferencesForOperator(values), 4)
+}
+
+func operatorPrimaryEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	values = rankEvidenceReferencesForOperator(values)
+	var out []model.EvidenceReference
+	for _, ref := range values {
+		source := strings.TrimSpace(ref.Source)
+		if operatorEvidenceReferenceRank(ref, nil) <= 3 || (source != "" && !evidenceSourceLooksFile(source)) {
+			out = append(out, ref)
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return values
+}
+
+func operatorEvidenceReferenceRank(value model.EvidenceReference, proofSet map[string]bool) int {
+	source := strings.ToLower(strings.TrimSpace(value.Source))
+	kind := strings.ToLower(strings.TrimSpace(value.Kind))
+	id := strings.ToLower(strings.TrimSpace(value.ID))
+	if kind == "summary" || id == "evidence:omitted" {
+		return 99
+	}
+	if proofSet != nil && (proofSet[source] || proofSet[id]) {
+		return 0
+	}
+	if kind == "control" || strings.HasPrefix(source, ".ariadne/") || strings.Contains(source, "policy") {
+		return 1
+	}
+	if operatorSourceLooksConfig(source) || operatorKindLooksActionable(kind) {
+		return 2
+	}
+	if strings.Contains(id, "credential") || strings.Contains(id, "secret") || operatorSourceLooksSensitiveBoundary(source) {
+		return 3
+	}
+	if operatorSourceLooksPrivateContext(source) || operatorKindLooksPrivateContext(kind) {
+		return 8
+	}
+	if kind == "boundary" {
+		return 4
+	}
+	return 5
+}
+
+func operatorKindLooksActionable(kind string) bool {
+	switch kind {
+	case "runtime", "authority", "tool", "trust_input", "config", "instruction", "mcp", "plugin", "command", "hook", "permission", "sandbox", "approval":
+		return true
+	default:
+		return strings.Contains(kind, "config") || strings.Contains(kind, "permission") || strings.Contains(kind, "authority")
+	}
+}
+
+func operatorKindLooksPrivateContext(kind string) bool {
+	return strings.Contains(kind, "history") ||
+		strings.Contains(kind, "cache") ||
+		strings.Contains(kind, "transcript") ||
+		strings.Contains(kind, "session") ||
+		strings.Contains(kind, "paste") ||
+		strings.Contains(kind, "memory")
+}
+
+func operatorSourceLooksConfig(source string) bool {
+	base := source
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return strings.Contains(source, "settings") ||
+		strings.Contains(source, "config") ||
+		strings.Contains(source, "mcp.json") ||
+		strings.Contains(source, ".mcp.json") ||
+		strings.Contains(source, "rules") ||
+		base == "claude.md" ||
+		base == "agents.md" ||
+		strings.HasPrefix(base, ".aider.conf")
+}
+
+func operatorSourceLooksSensitiveBoundary(source string) bool {
+	base := source
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return base == ".env" ||
+		strings.Contains(base, ".pem") ||
+		strings.Contains(base, "id_rsa") ||
+		strings.Contains(base, "id_ed25519") ||
+		strings.Contains(base, "credentials") ||
+		strings.Contains(base, "secret")
+}
+
+func operatorSourceLooksPrivateContext(source string) bool {
+	return strings.Contains(source, "history") ||
+		strings.Contains(source, "cache") ||
+		strings.Contains(source, "transcript") ||
+		strings.Contains(source, "session") ||
+		strings.Contains(source, "paste") ||
+		strings.Contains(source, ".jsonl")
 }
 
 func assessClosurePlanCompareCommand(commands []string) string {
@@ -6961,9 +7122,17 @@ func renderProofPlanAction(w io.Writer, r model.ProofPlanReport) error {
 	if hasCase && len(item.EvidenceReferences) > 0 {
 		evidenceRefs = item.EvidenceReferences
 	}
+	proofSurfaces := []string{}
+	if hasPatch {
+		proofSurfaces = append(proofSurfaces, patch.Surface)
+	}
+	if hasCase {
+		proofSurfaces = append(proofSurfaces, item.ProofSurfaces...)
+	}
+	evidenceRefs = rankEvidenceReferencesForOperator(evidenceRefs, proofSurfaces...)
 	if len(evidenceRefs) > 0 {
 		fmt.Fprintf(w, "\nEvidence to inspect:\n")
-		for _, line := range evidenceReferenceLinesBySource(evidenceRefs, 4) {
+		for _, line := range operatorEvidenceReferenceLinesBySource(evidenceRefs, 4) {
 			fmt.Fprintf(w, "  - %s\n", line)
 		}
 		renderEvidenceSourceListBlock(w, evidenceReferenceSources(evidenceRefs, false), 8)
@@ -10247,6 +10416,43 @@ func evidenceReferenceLinesBySource(values []model.EvidenceReference, limit int)
 	lines := evidenceReferenceLines(compact, limit)
 	if len(values) > len(compact) && limit > 0 && len(compact) > limit {
 		lines[len(lines)-1] = fmt.Sprintf("%d more evidence source(s) in JSON", len(compact)-limit)
+	}
+	return lines
+}
+
+func operatorEvidenceReferenceLinesBySource(values []model.EvidenceReference, limit int) []string {
+	values = rankEvidenceReferencesForOperator(values)
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]bool{}
+	compact := make([]model.EvidenceReference, 0, len(values))
+	for _, value := range values {
+		key := value.Source
+		if key == "" {
+			key = value.ID
+		}
+		if key == "" {
+			key = value.Kind
+		}
+		if value.Target != "" {
+			key = value.Target + "|" + key
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		compact = append(compact, value)
+	}
+	if limit <= 0 || limit > len(compact) {
+		limit = len(compact)
+	}
+	lines := make([]string, 0, limit+1)
+	for _, value := range compact[:limit] {
+		lines = append(lines, evidenceReferenceLine(value))
+	}
+	if len(compact) > limit {
+		lines = append(lines, fmt.Sprintf("%d more evidence source(s) in JSON", len(compact)-limit))
 	}
 	return lines
 }
