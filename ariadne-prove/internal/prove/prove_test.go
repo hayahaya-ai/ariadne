@@ -4050,6 +4050,73 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	}
 }
 
+func TestAssessSummaryIsCompactFirstRunReadout(t *testing.T) {
+	path := realPathFixture(t, "combined-risk")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary bytes.Buffer
+	if err := report.RenderAssess(&summary, inventory, r, "summary", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := summary.String()
+	for _, want := range []string{
+		"Ariadne Summary",
+		"Decision:",
+		"Verdict: action required",
+		"Start here: Egress And Output Boundary (case:egress-output-boundary)",
+		"Why first:",
+		"What was inspected:",
+		"Risk basis:",
+		"Normal capability:",
+		"Evidence:",
+		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
+		"Modeled/internal evidence: zt:control-strength",
+		"Fact:",
+		"Path:",
+		"Supported graph edge:",
+		"Controls:",
+		"Missing hard barrier: control:egress-destination-allowlist",
+		"Present hard barrier: none observed for the current case",
+		"Partial/friction control: none observed for the current case",
+		"Unknown evidence: none for the current case",
+		"Next action:",
+		"Do this: Add or verify control:egress-destination-allowlist evidence at .ariadne/egress-policy.json",
+		"Before proof:",
+		"Export proof files:",
+		"Review/apply:",
+		"Rerun:",
+		"After proof:",
+		"Compare:",
+		"Done when:",
+		"More detail:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("assessment summary missing %q:\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{
+		"Signal details:",
+		"Closure plan:",
+		"Architecture break paths:",
+		"Top case proof packet:",
+		"additional items in JSON",
+		"more evidence reference(s) in JSON",
+	} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("assessment summary should not include full audit section %q:\n%s", notWant, out)
+		}
+	}
+	if lines := strings.Count(strings.TrimSpace(out), "\n") + 1; lines > 90 {
+		t.Fatalf("assessment summary should stay compact; got %d lines:\n%s", lines, out)
+	}
+}
+
 func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	path := realPathFixture(t, "combined-risk")
 	inventory, err := RunInventory(Options{Path: path})

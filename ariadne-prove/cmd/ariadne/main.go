@@ -63,7 +63,7 @@ func runAssess(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:input-isolation")
-	format := fs.String("format", "table", "output format: table, action, json, html")
+	format := fs.String("format", "table", "output format: summary, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -642,6 +642,7 @@ Commands:
 
 Examples:
   ariadne assess --path .
+  ariadne assess --path . --format summary
   ariadne assess --path . --format action
   ariadne assess --path . --format html --out ariadne-assessment.html
   ariadne assess --targets targets.txt --format json

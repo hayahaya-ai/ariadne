@@ -18,6 +18,17 @@ expect_contains() {
   fi
 }
 
+expect_not_contains() {
+  local file="$1"
+  local needle="$2"
+  if grep -Fq -- "$needle" "$file"; then
+    echo "unexpected text in $file:" >&2
+    echo "  $needle" >&2
+    echo "artifacts left in: $workdir" >&2
+    exit 1
+  fi
+}
+
 echo "Ariadne first-run verification"
 echo "  bin: $bin"
 echo "  fixture: $fixture"
@@ -25,16 +36,52 @@ echo "  endpoint fixture: $endpoint_fixture"
 echo "  artifacts: $workdir"
 
 assess_txt="$workdir/assess.txt"
+assess_summary="$workdir/assess-summary.txt"
 assess_json="$workdir/assess.json"
 assess_html="$workdir/assess.html"
 cases_txt="$workdir/cases.txt"
 proofs_action="$workdir/proofs-action.txt"
 
 "$bin" assess --path "$fixture" --out "$assess_txt"
+"$bin" assess --path "$fixture" --format summary --out "$assess_summary"
 "$bin" assess --path "$fixture" --format json --out "$assess_json"
 "$bin" assess --path "$fixture" --format html --out "$assess_html"
 "$bin" cases --path "$fixture" --out "$cases_txt"
 "$bin" proofs --path "$fixture" --case case:input-trust-boundary --format action --out "$proofs_action"
+
+summary_lines="$(wc -l < "$assess_summary" | tr -d '[:space:]')"
+if [ "$summary_lines" -gt 90 ]; then
+  echo "assessment summary is too long: $summary_lines lines" >&2
+  echo "artifacts left in: $workdir" >&2
+  exit 1
+fi
+expect_contains "$assess_summary" "Ariadne Summary"
+expect_contains "$assess_summary" "Decision:"
+expect_contains "$assess_summary" "Verdict: action required"
+expect_contains "$assess_summary" "Start here: Egress And Output Boundary (case:egress-output-boundary)"
+expect_contains "$assess_summary" "What was inspected:"
+expect_contains "$assess_summary" "Risk basis:"
+expect_contains "$assess_summary" "Normal capability:"
+expect_contains "$assess_summary" "Evidence:"
+expect_contains "$assess_summary" "Evidence files: .claude/settings.json; .codex/config.toml; .env"
+expect_contains "$assess_summary" "Modeled/internal evidence: zt:control-strength"
+expect_contains "$assess_summary" "Path:"
+expect_contains "$assess_summary" "Controls:"
+expect_contains "$assess_summary" "Missing hard barrier: control:egress-destination-allowlist"
+expect_contains "$assess_summary" "Present hard barrier: none observed for the current case"
+expect_contains "$assess_summary" "Partial/friction control: none observed for the current case"
+expect_contains "$assess_summary" "Unknown evidence: none for the current case"
+expect_contains "$assess_summary" "Next action:"
+expect_contains "$assess_summary" "Before proof:"
+expect_contains "$assess_summary" "Export proof files:"
+expect_contains "$assess_summary" "Review/apply:"
+expect_contains "$assess_summary" "Rerun:"
+expect_contains "$assess_summary" "After proof:"
+expect_contains "$assess_summary" "Compare:"
+expect_contains "$assess_summary" "Done when:"
+expect_contains "$assess_summary" "More detail:"
+expect_not_contains "$assess_summary" "additional items in JSON"
+expect_not_contains "$assess_summary" "more evidence reference(s) in JSON"
 
 expect_contains "$assess_txt" "What was inspected:"
 expect_contains "$assess_txt" "Decision:"

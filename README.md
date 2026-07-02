@@ -15,11 +15,11 @@ The active implementation is in [`ariadne-prove/`](ariadne-prove/).
 ```bash
 make build
 make verify-first-run
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format summary
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format html --out /tmp/ariadne-assess.html
 ```
 
-The first command builds the CLI. The second command runs the product verification loop against known fixtures. The third command is the first-run triage experience: it tells you what Ariadne inspected, what facts it collected, which operator case is first, what evidence supports it, what is normal agent capability, what is real risk, what hard barrier is missing, and how to prove the fix worked.
+The first command builds the CLI. The second command runs the product verification loop against known fixtures. The third command is the compact first-run triage experience: it tells you what Ariadne inspected, what facts it collected, which operator case is first, what evidence supports it, what is normal agent capability, what is real risk, what hard barrier is missing, and how to prove the fix worked. Use `--format table` when you want the full terminal audit trail.
 
 ## First-Run Triage Loop
 
@@ -27,7 +27,7 @@ Ariadne is meant to be used as an operator workflow, not just a scanner.
 
 ```bash
 # 1. Get the first action.
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format summary
 
 # 2. Focus the prioritized case.
 ./bin/ariadne cases --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary

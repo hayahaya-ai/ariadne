@@ -1888,6 +1888,8 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 	switch strings.ToLower(format) {
 	case "", "table":
 		return renderAssessTable(w, r)
+	case "summary", "brief":
+		return renderAssessSummary(w, r)
 	case "action":
 		return renderAssessAction(w, r)
 	case "json":
@@ -1898,6 +1900,159 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		return renderAssessDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown assess format: %s", format)
+	}
+}
+
+func renderAssessSummary(w io.Writer, r model.AssessReport) error {
+	fmt.Fprintf(w, "Ariadne Summary\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Mode: %s  Agent: %s  Filter: %s\n", r.Mode, r.Agent, r.StatusFilter)
+	renderAssessFocusLine(w, r)
+	fmt.Fprintf(w, "Open cases: %d  Missing hard barriers: %d  Exposed paths: %d\n\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
+
+	fmt.Fprintf(w, "Decision:\n")
+	if r.Decision.Status != "" {
+		fmt.Fprintf(w, "  - Verdict: %s\n", readableToken(r.Decision.Status))
+	}
+	if r.Decision.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", r.Decision.Headline)
+	}
+	if r.Decision.TopCaseID != "" {
+		fmt.Fprintf(w, "  - Start here: %s (%s)\n", firstNonEmpty(r.Decision.TopCaseTitle, r.Decision.TopCaseID), r.Decision.TopCaseID)
+	}
+	if r.Decision.WhyPrioritized != "" {
+		fmt.Fprintf(w, "  - Why first: %s\n", r.Decision.WhyPrioritized)
+	}
+	if r.Decision.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", r.Decision.CurrentControl)
+	}
+	if r.Decision.CurrentProofSurface != "" {
+		fmt.Fprintf(w, "  - Proof surface: %s\n", r.Decision.CurrentProofSurface)
+	}
+
+	fmt.Fprintf(w, "\nWhat was inspected:\n")
+	fmt.Fprintf(w, "  - AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)\n", r.Inventory.Surfaces, r.Inventory.Facts, r.Inventory.GraphNodes, r.Inventory.GraphEdges)
+	fmt.Fprintf(w, "  - Runtimes: %d; trust inputs: %d; tools: %d; authorities: %d; controls: %d; boundaries: %d\n", r.Inventory.Runtimes, r.Inventory.TrustInputs, r.Inventory.Tools, r.Inventory.Authorities, r.Inventory.Controls, r.Inventory.Boundaries)
+	for _, line := range firstStrings(r.Decision.RiskReasons, 2) {
+		fmt.Fprintf(w, "  - Risk basis: %s\n", line)
+	}
+	for _, line := range firstStrings(r.Decision.NormalCapabilities, 1) {
+		fmt.Fprintf(w, "  - Normal capability: %s\n", line)
+	}
+
+	fmt.Fprintf(w, "\nEvidence:\n")
+	renderAssessEvidenceSources(w, r.Decision.EvidenceSources, 8)
+	for _, ref := range firstEvidenceReferences(r.Decision.EvidenceReferences, 4) {
+		fmt.Fprintf(w, "  - Fact: %s\n", evidenceReferenceLine(ref))
+	}
+
+	if len(r.Decision.PathSummary) > 0 {
+		fmt.Fprintf(w, "\nPath:\n")
+		for _, line := range firstStrings(r.Decision.PathSummary, 5) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+	}
+
+	fmt.Fprintf(w, "\nControls:\n")
+	renderAssessSummaryBucketLines(w, "Missing hard barrier", r.Decision.MissingHardBarriers, 5, "none for the current case")
+	renderAssessSummaryBucketLines(w, "Present hard barrier", r.Decision.PresentHardBarriers, 4, "none observed for the current case")
+	renderAssessSummaryBucketLines(w, "Partial/friction control", r.Decision.PartialOrFrictionControls, 4, "none observed for the current case")
+	renderAssessSummaryBucketLines(w, "Unknown evidence", r.Decision.UnknownEvidence, 4, "none for the current case")
+
+	renderAssessSummaryNextAction(w, r)
+	renderAssessSummaryLimitations(w, r.Limitations)
+	return nil
+}
+
+func renderAssessSummaryBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
+	if len(values) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s: %s\n", label, empty)
+		}
+		return
+	}
+	for _, value := range firstStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
+}
+
+func renderAssessSummaryNextAction(w io.Writer, r model.AssessReport) {
+	action := r.FirstAction
+	if !action.Available {
+		fmt.Fprintf(w, "\nNext action:\n")
+		if r.Triage.NextAction != "" {
+			fmt.Fprintf(w, "  - %s\n", r.Triage.NextAction)
+		} else {
+			fmt.Fprintf(w, "  - No current proof action is available from the selected evidence.\n")
+		}
+		renderAssessDecisionLines(w, "Evidence gap action", r.Decision.EvidenceGapActions, 4)
+		return
+	}
+	current := action.CurrentAction
+	fmt.Fprintf(w, "\nNext action:\n")
+	if current.Instruction != "" {
+		fmt.Fprintf(w, "  - Do this: %s\n", current.Instruction)
+	} else if action.NextStep != "" {
+		fmt.Fprintf(w, "  - Do this: %s\n", action.NextStep)
+	}
+	if current.Control != "" {
+		fmt.Fprintf(w, "  - Control: %s\n", current.Control)
+	}
+	if current.Surface != "" {
+		fmt.Fprintf(w, "  - Proof surface: %s\n", current.Surface)
+	}
+	if example := assessCurrentEvidenceExampleLine(action); example != "" {
+		fmt.Fprintf(w, "  - Accepted evidence: %s\n", example)
+	}
+	if patch := assessCurrentProofPatchLine(action); patch != "" {
+		fmt.Fprintf(w, "  - Proof patch: %s\n", patch)
+	}
+	if r.Decision.BeforeProofCommand != "" {
+		fmt.Fprintf(w, "  - Before proof: %s\n", r.Decision.BeforeProofCommand)
+	}
+	if current.PatchExportCommand != "" {
+		fmt.Fprintf(w, "  - Export proof files: %s\n", current.PatchExportCommand)
+	} else if r.Decision.ProofCommand != "" {
+		fmt.Fprintf(w, "  - Proof command: %s\n", r.Decision.ProofCommand)
+	}
+	if current.ApplyCommand != "" {
+		fmt.Fprintf(w, "  - Review/apply: %s\n", current.ApplyCommand)
+	} else if r.Decision.ApplyCommand != "" {
+		fmt.Fprintf(w, "  - Review/apply: %s\n", r.Decision.ApplyCommand)
+	}
+	if rerun := assessCurrentRerunCommand(action); rerun != "" {
+		fmt.Fprintf(w, "  - Rerun: %s\n", rerun)
+	} else if r.Decision.RerunCommand != "" {
+		fmt.Fprintf(w, "  - Rerun: %s\n", r.Decision.RerunCommand)
+	}
+	if r.Decision.AfterProofCommand != "" {
+		fmt.Fprintf(w, "  - After proof: %s\n", r.Decision.AfterProofCommand)
+	}
+	if r.Decision.CompareCommand != "" {
+		fmt.Fprintf(w, "  - Compare: %s\n", r.Decision.CompareCommand)
+	} else if current.CompareCommand != "" {
+		fmt.Fprintf(w, "  - Compare: %s\n", current.CompareCommand)
+	}
+	renderAssessDecisionLines(w, "Done when", r.Decision.DoneCriteria, 3)
+	if len(r.NextCommands) > 0 {
+		fmt.Fprintf(w, "\nMore detail:\n")
+		for _, command := range firstStrings(r.NextCommands, 3) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	}
+}
+
+func renderAssessSummaryLimitations(w io.Writer, limitations []string) {
+	if len(limitations) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nLimitations:\n")
+	for _, limitation := range firstStrings(limitations, 3) {
+		fmt.Fprintf(w, "  - %s\n", limitation)
 	}
 }
 
