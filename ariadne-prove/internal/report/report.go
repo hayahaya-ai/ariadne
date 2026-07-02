@@ -29,6 +29,96 @@ func Render(w io.Writer, r model.Report, format string) error {
 	}
 }
 
+func RenderAssess(w io.Writer, inventory model.InventoryReport, r model.Report, format string, statusFilter string) error {
+	assess, err := BuildAssessReport(inventory, r, statusFilter)
+	if err != nil {
+		return err
+	}
+	return renderAssess(w, assess, format)
+}
+
+func RenderAssessScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
+	assess, err := BuildAssessScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	return renderAssess(w, assess, format)
+}
+
+func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFilter string) (model.AssessReport, error) {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return model.AssessReport{}, err
+	}
+	caseBoard := BuildControlCaseBoardReport(architecture)
+	exposure := buildAssessExposure(reportExposures(r))
+	inventorySummary := buildAssessInventory(inventory)
+	summary := buildAssessSummary(inventorySummary, exposure, architecture.Summary, caseBoard.Summary, caseBoard.OperatorCases)
+	return model.AssessReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         r.RunID,
+		GeneratedAt:   r.GeneratedAt,
+		RunKind:       "assess",
+		TargetPath:    r.TargetPath,
+		Mode:          r.Story.Mode,
+		Agent:         r.Story.Runtime,
+		StatusFilter:  architecture.StatusFilter,
+		Summary:       summary,
+		Inventory:     inventorySummary,
+		Exposure:      exposure,
+		Architecture:  &architecture,
+		CaseBoard:     caseBoard,
+		TopCases:      topControlOperatorCases(caseBoard.OperatorCases, 5),
+		NextCommands:  assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases),
+		Redaction:     r.Redaction,
+		Warnings:      uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
+		Limitations:   uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
+	}, nil
+}
+
+func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.AssessReport, error) {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return model.AssessReport{}, err
+	}
+	caseBoard := BuildControlCaseBoardScanReport(architecture)
+	exposure := model.AssessExposure{
+		Paths:        r.Summary.ExposurePaths,
+		Exposed:      r.Summary.Exposed,
+		Protected:    r.Summary.Protected,
+		Inconclusive: r.Summary.Inconclusive,
+		TopPaths:     []model.ExposureResult{},
+	}
+	summary := buildAssessSummary(model.AssessInventory{}, exposure, zeroTrustSummaryFromArchitectureScan(architecture.Summary), caseBoard.Summary, caseBoard.OperatorCases)
+	summary.Targets = r.Summary.Targets
+	summary.CompletedTargets = r.Summary.Completed
+	summary.Errors = r.Summary.Errors
+	targets := make([]model.ScanTarget, 0, len(r.Targets))
+	for _, target := range r.Targets {
+		targets = append(targets, target.Target)
+	}
+	return model.AssessReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            r.RunID,
+		GeneratedAt:      r.GeneratedAt,
+		RunKind:          "assess_scan",
+		Targets:          targets,
+		Mode:             r.Mode,
+		Agent:            r.Agent,
+		StatusFilter:     architecture.StatusFilter,
+		Summary:          summary,
+		Inventory:        model.AssessInventory{},
+		Exposure:         exposure,
+		ArchitectureScan: &architecture,
+		CaseBoard:        caseBoard,
+		TopCases:         topControlOperatorCases(caseBoard.OperatorCases, 5),
+		NextCommands:     assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases),
+		Redaction:        r.Redaction,
+		Warnings:         append([]string{}, r.Warnings...),
+		Limitations:      append([]string{}, r.Limitations...),
+	}, nil
+}
+
 func RenderArchitecture(w io.Writer, r model.Report, format string, statusFilter string) error {
 	architecture, err := BuildArchitectureReport(r, statusFilter)
 	if err != nil {
@@ -420,6 +510,175 @@ func RenderScan(w io.Writer, r model.ScanReport, format string) error {
 	}
 }
 
+func renderAssess(w io.Writer, r model.AssessReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderAssessTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderAssessDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown assess format: %s", format)
+	}
+}
+
+func buildAssessInventory(r model.InventoryReport) model.AssessInventory {
+	return model.AssessInventory{
+		TargetPath:        r.TargetPath,
+		Surfaces:          len(r.Collection.Surfaces),
+		Facts:             len(r.Collection.Facts),
+		GraphNodes:        len(r.Graph.Nodes),
+		GraphEdges:        len(r.Graph.Edges),
+		Runtimes:          len(r.Collection.Runtimes),
+		TrustInputs:       len(r.Collection.TrustInputs),
+		Tools:             len(r.Collection.Tools),
+		Authorities:       len(r.Collection.Authorities),
+		Controls:          len(r.Collection.Controls),
+		Boundaries:        len(r.Collection.Boundaries),
+		SurfaceCategories: assessSurfaceCounts(r.Collection.Surfaces, func(surface model.Surface) string { return surface.Category }),
+		HandlingModes:     assessSurfaceCounts(r.Collection.Surfaces, func(surface model.Surface) string { return surface.HandlingMode }),
+		Limitations:       append([]string{}, r.Limitations...),
+	}
+}
+
+func buildAssessExposure(exposures []model.ExposureResult) model.AssessExposure {
+	out := model.AssessExposure{Paths: len(exposures)}
+	for _, exposure := range exposures {
+		switch exposure.Status {
+		case model.StatusExposed:
+			out.Exposed++
+		case model.StatusProtected:
+			out.Protected++
+		case model.StatusInconclusive:
+			out.Inconclusive++
+		}
+	}
+	out.TopPaths = append([]model.ExposureResult{}, exposures...)
+	if len(out.TopPaths) > 5 {
+		out.TopPaths = out.TopPaths[:5]
+	}
+	if out.TopPaths == nil {
+		out.TopPaths = []model.ExposureResult{}
+	}
+	return out
+}
+
+func buildAssessSummary(inventory model.AssessInventory, exposure model.AssessExposure, architecture model.ZeroTrustSummary, controls model.ControlCatalogSummary, cases []model.ControlOperatorCase) model.AssessSummary {
+	summary := model.AssessSummary{
+		Targets:                      1,
+		CompletedTargets:             1,
+		Surfaces:                     inventory.Surfaces,
+		Facts:                        inventory.Facts,
+		GraphNodes:                   inventory.GraphNodes,
+		GraphEdges:                   inventory.GraphEdges,
+		ExposurePaths:                exposure.Paths,
+		Exposed:                      exposure.Exposed,
+		Protected:                    exposure.Protected,
+		Inconclusive:                 exposure.Inconclusive,
+		ArchitectureFlaws:            architecture.Total,
+		BreakingArchitectureFlaws:    architecture.Breaking,
+		ControlledArchitectureFlaws:  architecture.Controlled,
+		UnknownArchitectureFlaws:     architecture.Unknown,
+		NotObservedArchitectureFlaws: architecture.NotObserved,
+		OperatorCases:                len(cases),
+		MissingHardBarrierControls:   controls.Controls,
+		CriticalMissingHardBarriers:  controls.Critical,
+		HighMissingHardBarriers:      controls.High,
+		MediumMissingHardBarriers:    controls.Medium,
+		LowMissingHardBarriers:       controls.Low,
+	}
+	if len(cases) > 0 {
+		summary.TopCaseID = cases[0].ID
+		summary.TopCaseTitle = cases[0].Title
+		summary.TopCaseNextStep = cases[0].NextStep
+	}
+	return summary
+}
+
+func zeroTrustSummaryFromArchitectureScan(summary model.ArchitectureScanSummary) model.ZeroTrustSummary {
+	return model.ZeroTrustSummary{
+		Total:       summary.MatchingFlaws,
+		Breaking:    summary.Breaking,
+		Controlled:  summary.Controlled,
+		Unknown:     summary.Unknown,
+		NotObserved: summary.NotObserved,
+	}
+}
+
+func assessSurfaceCounts(surfaces []model.Surface, keyFn func(model.Surface) string) []model.AssessCount {
+	counts := map[string]int{}
+	for _, surface := range surfaces {
+		key := strings.TrimSpace(keyFn(surface))
+		if key == "" {
+			key = "unknown"
+		}
+		counts[key]++
+	}
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]model.AssessCount, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, model.AssessCount{Name: key, Count: counts[key]})
+	}
+	if out == nil {
+		return []model.AssessCount{}
+	}
+	return out
+}
+
+func topControlOperatorCases(cases []model.ControlOperatorCase, limit int) []model.ControlOperatorCase {
+	if limit <= 0 || limit > len(cases) {
+		limit = len(cases)
+	}
+	out := append([]model.ControlOperatorCase{}, cases[:limit]...)
+	if out == nil {
+		return []model.ControlOperatorCase{}
+	}
+	return out
+}
+
+func reportExposures(r model.Report) []model.ExposureResult {
+	if len(r.Exposures) > 0 {
+		return append([]model.ExposureResult{}, r.Exposures...)
+	}
+	if r.Exposure.ID != "" {
+		return []model.ExposureResult{r.Exposure}
+	}
+	return []model.ExposureResult{}
+}
+
+func assessPathCommands(path, mode, agent, statusFilter string, cases []model.ControlOperatorCase) []string {
+	base := fmt.Sprintf("ariadne assess --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter))
+	commands := []string{base}
+	if len(cases) > 0 {
+		commands = append(commands, fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+	}
+	commands = append(commands,
+		fmt.Sprintf("ariadne controls --path %s --mode %s --agent %s --status %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
+		fmt.Sprintf("ariadne architecture --path %s --mode %s --agent %s --status all", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	)
+	return commands
+}
+
+func assessScanCommands(mode, agent, statusFilter string, cases []model.ControlOperatorCase) []string {
+	base := fmt.Sprintf("ariadne assess --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter))
+	commands := []string{base}
+	if len(cases) > 0 {
+		commands = append(commands, fmt.Sprintf("ariadne cases --targets <targets-file> --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+	}
+	commands = append(commands,
+		fmt.Sprintf("ariadne controls --targets <targets-file> --mode %s --agent %s --status %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
+		fmt.Sprintf("ariadne architecture --targets <targets-file> --mode %s --agent %s --status all", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	)
+	return commands
+}
+
 func renderGraphDOT(w io.Writer, title string, g model.Graph) error {
 	fmt.Fprintln(w, "digraph ariadne_graph {")
 	fmt.Fprintln(w, "  rankdir=LR;")
@@ -584,6 +843,125 @@ func renderScanTable(w io.Writer, r model.ScanReport) error {
 		}
 	}
 	return nil
+}
+
+func renderAssessTable(w io.Writer, r model.AssessReport) error {
+	fmt.Fprintf(w, "Ariadne Assess\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
+	fmt.Fprintf(w, "Agent: %s\n", r.Agent)
+	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
+	fmt.Fprintf(w, "Question: Where is Zero Trust agent architecture breaking, and what proof closes the path?\n\n")
+
+	fmt.Fprintf(w, "Readout:\n")
+	fmt.Fprintf(w, "  - Architecture: %d matching flaw(s), %d breaking, %d controlled, %d unknown, %d not observed\n",
+		r.Summary.ArchitectureFlaws,
+		r.Summary.BreakingArchitectureFlaws,
+		r.Summary.ControlledArchitectureFlaws,
+		r.Summary.UnknownArchitectureFlaws,
+		r.Summary.NotObservedArchitectureFlaws,
+	)
+	fmt.Fprintf(w, "  - Operator cases: %d case(s), %d missing hard-barrier control(s)\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls)
+	fmt.Fprintf(w, "  - Exposure paths: %d total, %d exposed, %d protected, %d inconclusive\n", r.Summary.ExposurePaths, r.Summary.Exposed, r.Summary.Protected, r.Summary.Inconclusive)
+	if r.Summary.TopCaseID != "" {
+		fmt.Fprintf(w, "  - Start here: %s (%s)\n", r.Summary.TopCaseTitle, r.Summary.TopCaseID)
+	}
+	fmt.Fprintln(w)
+
+	if r.Inventory.Surfaces > 0 || r.Inventory.Facts > 0 || r.Inventory.GraphNodes > 0 {
+		fmt.Fprintf(w, "What was inspected:\n")
+		fmt.Fprintf(w, "  - AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)\n", r.Inventory.Surfaces, r.Inventory.Facts, r.Inventory.GraphNodes, r.Inventory.GraphEdges)
+		fmt.Fprintf(w, "  - Runtimes: %d; trust inputs: %d; tools: %d; authorities: %d; controls: %d; boundaries: %d\n", r.Inventory.Runtimes, r.Inventory.TrustInputs, r.Inventory.Tools, r.Inventory.Authorities, r.Inventory.Controls, r.Inventory.Boundaries)
+		if len(r.Inventory.SurfaceCategories) > 0 {
+			fmt.Fprintf(w, "  - Surface categories: %s\n", assessCountLine(r.Inventory.SurfaceCategories))
+		}
+		if len(r.Inventory.HandlingModes) > 0 {
+			fmt.Fprintf(w, "  - Handling modes: %s\n", assessCountLine(r.Inventory.HandlingModes))
+		}
+		fmt.Fprintln(w)
+	}
+
+	renderAssessArchitectureBreaks(w, r)
+	renderControlOperatorCases(w, r.CaseBoard.OperatorCases, 5)
+	fmt.Fprintln(w)
+
+	if len(r.NextCommands) > 0 {
+		fmt.Fprintf(w, "Next commands:\n")
+		for _, command := range r.NextCommands {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "Limitations:\n")
+		for _, limitation := range r.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func renderAssessArchitectureBreaks(w io.Writer, r model.AssessReport) {
+	fmt.Fprintf(w, "Architecture break paths:\n")
+	switch {
+	case r.Architecture != nil:
+		if len(r.Architecture.Flaws) == 0 {
+			fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
+			return
+		}
+		limit := len(r.Architecture.Flaws)
+		if limit > 5 {
+			limit = 5
+		}
+		for _, flaw := range r.Architecture.Flaws[:limit] {
+			fmt.Fprintf(w, "  - %s %s: %s\n", statusLabel(string(flaw.Status)), flaw.Title, flaw.Finding)
+			if len(flaw.Evidence) > 0 {
+				fmt.Fprintf(w, "    Evidence: %s\n", zeroTrustEvidenceLine(flaw.Evidence, 3))
+			}
+			if len(flaw.ControlEvidenceNeeded) > 0 {
+				fmt.Fprintf(w, "    Breaks when: %s\n", strings.Join(limitStrings(flaw.ControlEvidenceNeeded, 4), "; "))
+			}
+		}
+		if len(r.Architecture.Flaws) > limit {
+			fmt.Fprintf(w, "  - %d more architecture flaw(s) in JSON or dashboard output\n", len(r.Architecture.Flaws)-limit)
+		}
+	case r.ArchitectureScan != nil:
+		if len(r.ArchitectureScan.Groups) == 0 {
+			fmt.Fprintf(w, "  - no fleet architecture flaw groups matched status filter %q\n\n", r.StatusFilter)
+			return
+		}
+		limit := len(r.ArchitectureScan.Groups)
+		if limit > 5 {
+			limit = 5
+		}
+		for _, group := range r.ArchitectureScan.Groups[:limit] {
+			fmt.Fprintf(w, "  - %s %s: %d target(s), %d breaking occurrence(s)\n", strings.ToUpper(group.Severity), group.Title, group.TargetCount, group.StatusCounts.Breaking)
+			if len(group.EvidenceSources) > 0 {
+				fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(limitStrings(group.EvidenceSources, 3), "; "))
+			}
+			if len(group.ControlEvidenceNeeded) > 0 {
+				fmt.Fprintf(w, "    Breaks when: %s\n", strings.Join(limitStrings(group.ControlEvidenceNeeded, 4), "; "))
+			}
+		}
+		if len(r.ArchitectureScan.Groups) > limit {
+			fmt.Fprintf(w, "  - %d more architecture flaw group(s) in JSON or dashboard output\n", len(r.ArchitectureScan.Groups)-limit)
+		}
+	default:
+		fmt.Fprintf(w, "  - no architecture report attached\n")
+	}
+	fmt.Fprintln(w)
+}
+
+func assessCountLine(items []model.AssessCount) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, fmt.Sprintf("%s=%d", item.Name, item.Count))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func renderInventoryTable(w io.Writer, r model.InventoryReport) error {

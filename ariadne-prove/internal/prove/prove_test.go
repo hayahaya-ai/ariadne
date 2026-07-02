@@ -3033,6 +3033,129 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 	}
 }
 
+func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
+	path := realPathFixture(t, "combined-risk")
+	inventory, err := RunInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderAssess(&table, inventory, r, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne Assess",
+		"Question: Where is Zero Trust agent architecture breaking",
+		"Readout:",
+		"What was inspected:",
+		"Architecture break paths:",
+		"Operator cases:",
+		"case:egress-output-boundary",
+		"Priority:",
+		"Evidence references:",
+		"Prove at:",
+		".ariadne/egress-policy.json",
+		"Next commands:",
+		"ariadne cases --path",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("assessment table missing %q:\n%s", want, out)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderAssess(&jsonOut, inventory, r, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "assess" || decoded.StatusFilter != "breaking" {
+		t.Fatalf("unexpected assessment metadata: %+v", decoded)
+	}
+	if decoded.Summary.Surfaces == 0 || decoded.Inventory.Surfaces == 0 || decoded.Inventory.GraphNodes == 0 {
+		t.Fatalf("assessment should include inventory summary: %+v", decoded.Inventory)
+	}
+	if decoded.Summary.BreakingArchitectureFlaws == 0 || decoded.Architecture == nil || len(decoded.Architecture.Flaws) == 0 {
+		t.Fatalf("assessment should include architecture break paths: summary=%+v architecture=%+v", decoded.Summary, decoded.Architecture)
+	}
+	if decoded.Summary.OperatorCases == 0 || len(decoded.TopCases) == 0 || decoded.TopCases[0].Rank != 1 || decoded.TopCases[0].NextStep == "" {
+		t.Fatalf("assessment should include ranked top cases: summary=%+v cases=%+v", decoded.Summary, decoded.TopCases)
+	}
+	if decoded.CaseBoard.RunKind != "case_board" || len(decoded.CaseBoard.OperatorCases) == 0 {
+		t.Fatalf("assessment should include case board contract: %+v", decoded.CaseBoard)
+	}
+	if !containsString(decoded.NextCommands, "ariadne cases --path") {
+		t.Fatalf("assessment should include focused case command: %+v", decoded.NextCommands)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderAssess(&htmlOut, inventory, r, "html", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Ariadne Assessment",
+		"Assessment Readout",
+		"What Was Inspected",
+		"Operator Cases",
+		"Architecture Break Paths",
+		"Next Commands",
+		"case:egress-output-boundary",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("assessment dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestAssessScanAggregatesFleetCases(t *testing.T) {
+	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table bytes.Buffer
+	if err := report.RenderAssessScan(&table, scan, "table", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	out := table.String()
+	for _, want := range []string{
+		"Ariadne Assess",
+		"Targets:",
+		"Architecture break paths:",
+		"Operator cases:",
+		"case:egress-output-boundary",
+		"ariadne cases --targets <targets-file>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("fleet assessment table missing %q:\n%s", want, out)
+		}
+	}
+	var jsonOut bytes.Buffer
+	if err := report.RenderAssessScan(&jsonOut, scan, "json", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.AssessReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.RunKind != "assess_scan" || decoded.ArchitectureScan == nil || decoded.Summary.Targets == 0 || len(decoded.Targets) == 0 {
+		t.Fatalf("fleet assessment should include scan architecture and targets: %+v", decoded)
+	}
+	if len(decoded.TopCases) == 0 || decoded.CaseBoard.RunKind != "case_board_scan" {
+		t.Fatalf("fleet assessment should include fleet case board: %+v", decoded.CaseBoard)
+	}
+	if !containsString(decoded.NextCommands, "ariadne cases --targets <targets-file>") {
+		t.Fatalf("fleet assessment should include focused fleet case command: %+v", decoded.NextCommands)
+	}
+}
+
 func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
@@ -3508,6 +3631,33 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, controlVerificationTask, "id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "evidence_examples", "actions", "rerun_commands", "success_criteria", "limitations")
 	controlEvidenceExample := schemaMap(t, controlCatalogSchema, "$defs", "control_evidence_example")
 	assertRequiredKeys(t, controlEvidenceExample, "surface", "summary", "example", "limitations")
+
+	assessSchema := loadSchema(t, "ariadne-assess-v1.schema.json")
+	assertRequiredKeys(t, assessSchema,
+		"schema_version",
+		"run_id",
+		"generated_at",
+		"run_kind",
+		"mode",
+		"agent",
+		"status_filter",
+		"summary",
+		"inventory",
+		"exposure",
+		"case_board",
+		"top_cases",
+		"next_commands",
+		"redaction",
+		"limitations",
+	)
+	assertSchemaProperty(t, assessSchema, "architecture")
+	assertSchemaProperty(t, assessSchema, "architecture_scan")
+	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
+	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
+	assessInventory := schemaMap(t, assessSchema, "$defs", "assess_inventory")
+	assertRequiredKeys(t, assessInventory, "surfaces", "facts", "graph_nodes", "graph_edges", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "surface_categories", "handling_modes")
+	assessExposure := schemaMap(t, assessSchema, "$defs", "assess_exposure")
+	assertRequiredKeys(t, assessExposure, "paths", "exposed", "protected", "inconclusive", "top_paths")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
@@ -3522,6 +3672,15 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-v1.schema.json", architecture)
 	controlCatalog := report.BuildControlCatalogReport(architecture)
 	assertJSONHasSchemaRequiredFields(t, "ariadne-control-catalog-v1.schema.json", controlCatalog)
+	inventory, err := RunInventory(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := report.BuildAssessReport(inventory, r, "breaking")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONHasSchemaRequiredFields(t, "ariadne-assess-v1.schema.json", assessment)
 
 	scan, err := RunScan(Options{TargetsFile: realPathFixture(t, "targets.txt")})
 	if err != nil {
@@ -3534,6 +3693,11 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-scan-v1.schema.json", architectureScan)
 	controlCatalogScan := report.BuildControlCatalogScanReport(architectureScan)
 	assertJSONHasSchemaRequiredFields(t, "ariadne-control-catalog-v1.schema.json", controlCatalogScan)
+	assessmentScan, err := report.BuildAssessScanReport(scan, "breaking")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONHasSchemaRequiredFields(t, "ariadne-assess-v1.schema.json", assessmentScan)
 }
 
 func TestDashboardReportContainsIssuesAndFactsDive(t *testing.T) {

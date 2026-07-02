@@ -158,6 +158,87 @@ type ControlCatalogReport struct {
 	Limitations       []string                     `json:"limitations"`
 }
 
+type AssessReport struct {
+	SchemaVersion    string                  `json:"schema_version"`
+	RunID            string                  `json:"run_id"`
+	GeneratedAt      time.Time               `json:"generated_at"`
+	RunKind          string                  `json:"run_kind"`
+	TargetPath       string                  `json:"target_path,omitempty"`
+	Targets          []ScanTarget            `json:"targets,omitempty"`
+	Mode             string                  `json:"mode"`
+	Agent            string                  `json:"agent"`
+	StatusFilter     string                  `json:"status_filter"`
+	Summary          AssessSummary           `json:"summary"`
+	Inventory        AssessInventory         `json:"inventory"`
+	Exposure         AssessExposure          `json:"exposure"`
+	Architecture     *ArchitectureReport     `json:"architecture,omitempty"`
+	ArchitectureScan *ArchitectureScanReport `json:"architecture_scan,omitempty"`
+	CaseBoard        ControlCatalogReport    `json:"case_board"`
+	TopCases         []ControlOperatorCase   `json:"top_cases"`
+	NextCommands     []string                `json:"next_commands"`
+	Redaction        RedactionInfo           `json:"redaction"`
+	Warnings         []string                `json:"warnings,omitempty"`
+	Limitations      []string                `json:"limitations"`
+}
+
+type AssessSummary struct {
+	Targets                      int    `json:"targets"`
+	CompletedTargets             int    `json:"completed_targets"`
+	Errors                       int    `json:"errors"`
+	Surfaces                     int    `json:"surfaces"`
+	Facts                        int    `json:"facts"`
+	GraphNodes                   int    `json:"graph_nodes"`
+	GraphEdges                   int    `json:"graph_edges"`
+	ExposurePaths                int    `json:"exposure_paths"`
+	Exposed                      int    `json:"exposed"`
+	Protected                    int    `json:"protected"`
+	Inconclusive                 int    `json:"inconclusive"`
+	ArchitectureFlaws            int    `json:"architecture_flaws"`
+	BreakingArchitectureFlaws    int    `json:"breaking_architecture_flaws"`
+	ControlledArchitectureFlaws  int    `json:"controlled_architecture_flaws"`
+	UnknownArchitectureFlaws     int    `json:"unknown_architecture_flaws"`
+	NotObservedArchitectureFlaws int    `json:"not_observed_architecture_flaws"`
+	OperatorCases                int    `json:"operator_cases"`
+	MissingHardBarrierControls   int    `json:"missing_hard_barrier_controls"`
+	CriticalMissingHardBarriers  int    `json:"critical_missing_hard_barriers"`
+	HighMissingHardBarriers      int    `json:"high_missing_hard_barriers"`
+	MediumMissingHardBarriers    int    `json:"medium_missing_hard_barriers"`
+	LowMissingHardBarriers       int    `json:"low_missing_hard_barriers"`
+	TopCaseID                    string `json:"top_case_id,omitempty"`
+	TopCaseTitle                 string `json:"top_case_title,omitempty"`
+	TopCaseNextStep              string `json:"top_case_next_step,omitempty"`
+}
+
+type AssessInventory struct {
+	TargetPath        string        `json:"target_path,omitempty"`
+	Surfaces          int           `json:"surfaces"`
+	Facts             int           `json:"facts"`
+	GraphNodes        int           `json:"graph_nodes"`
+	GraphEdges        int           `json:"graph_edges"`
+	Runtimes          int           `json:"runtimes"`
+	TrustInputs       int           `json:"trust_inputs"`
+	Tools             int           `json:"tools"`
+	Authorities       int           `json:"authorities"`
+	Controls          int           `json:"controls"`
+	Boundaries        int           `json:"boundaries"`
+	SurfaceCategories []AssessCount `json:"surface_categories"`
+	HandlingModes     []AssessCount `json:"handling_modes"`
+	Limitations       []string      `json:"limitations,omitempty"`
+}
+
+type AssessExposure struct {
+	Paths        int              `json:"paths"`
+	Exposed      int              `json:"exposed"`
+	Protected    int              `json:"protected"`
+	Inconclusive int              `json:"inconclusive"`
+	TopPaths     []ExposureResult `json:"top_paths"`
+}
+
+type AssessCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
 type ControlCatalogSummary struct {
 	Controls int `json:"controls"`
 	Critical int `json:"critical"`

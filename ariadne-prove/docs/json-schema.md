@@ -133,6 +133,18 @@ Control quality separates hard barriers from partial or friction-only evidence. 
 - `closure_families`, where missing hard barriers are grouped into Zero Trust capability areas with evidence anchors and structured evidence references
 - `closure_plan`, where missing hard barriers are ranked by affected flaws and targets with evidence anchors and structured evidence references
 
+`ariadne assess --format json` emits the primary first-run assessment contract with:
+
+- `summary`, combining inspected-surface counts, exposure path counts, architecture flaw counts, missing hard-barrier controls, and the top case
+- `inventory`, summarizing discovered AI surfaces, typed facts, graph size, runtime/tool/authority/control/boundary counts, surface categories, and handling modes
+- `exposure`, summarizing exposed, protected, and inconclusive paths with a bounded list of top path records
+- `architecture` for single-target assessment, or `architecture_scan` for target-list assessment
+- `case_board`, the same operator case-board contract emitted by `ariadne cases`
+- `top_cases`, a bounded case-first queue for humans
+- `next_commands`, including the exact `assess`, focused `cases`, `controls`, and `architecture` commands to rerun
+
+The assessment contract is a composition layer. It does not create a separate classification engine; classifications remain derived from deterministic facts, graph edges, architecture flaws, and missing hard-barrier controls.
+
 `ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
 
 - `summary`

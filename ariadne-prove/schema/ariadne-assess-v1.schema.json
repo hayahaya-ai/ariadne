@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-assess-v1.schema.json",
+  "title": "Ariadne Assessment v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "mode",
+    "agent",
+    "status_filter",
+    "summary",
+    "inventory",
+    "exposure",
+    "case_board",
+    "top_cases",
+    "next_commands",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "type": "string", "enum": ["assess", "assess_scan"] },
+    "target_path": { "type": "string" },
+    "targets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/scan_target" }
+    },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "summary": { "$ref": "#/$defs/assess_summary" },
+    "inventory": { "$ref": "#/$defs/assess_inventory" },
+    "exposure": { "$ref": "#/$defs/assess_exposure" },
+    "architecture": { "$ref": "ariadne-architecture-v1.schema.json" },
+    "architecture_scan": { "$ref": "ariadne-architecture-scan-v1.schema.json" },
+    "case_board": { "$ref": "ariadne-control-catalog-v1.schema.json" },
+    "top_cases": {
+      "type": "array",
+      "items": { "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_operator_case" }
+    },
+    "next_commands": { "type": "array", "items": { "type": "string" } },
+    "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "assess_summary": {
+      "type": "object",
+      "required": [
+        "targets",
+        "completed_targets",
+        "errors",
+        "surfaces",
+        "facts",
+        "graph_nodes",
+        "graph_edges",
+        "exposure_paths",
+        "exposed",
+        "protected",
+        "inconclusive",
+        "architecture_flaws",
+        "breaking_architecture_flaws",
+        "controlled_architecture_flaws",
+        "unknown_architecture_flaws",
+        "not_observed_architecture_flaws",
+        "operator_cases",
+        "missing_hard_barrier_controls",
+        "critical_missing_hard_barriers",
+        "high_missing_hard_barriers",
+        "medium_missing_hard_barriers",
+        "low_missing_hard_barriers"
+      ],
+      "properties": {
+        "targets": { "type": "integer" },
+        "completed_targets": { "type": "integer" },
+        "errors": { "type": "integer" },
+        "surfaces": { "type": "integer" },
+        "facts": { "type": "integer" },
+        "graph_nodes": { "type": "integer" },
+        "graph_edges": { "type": "integer" },
+        "exposure_paths": { "type": "integer" },
+        "exposed": { "type": "integer" },
+        "protected": { "type": "integer" },
+        "inconclusive": { "type": "integer" },
+        "architecture_flaws": { "type": "integer" },
+        "breaking_architecture_flaws": { "type": "integer" },
+        "controlled_architecture_flaws": { "type": "integer" },
+        "unknown_architecture_flaws": { "type": "integer" },
+        "not_observed_architecture_flaws": { "type": "integer" },
+        "operator_cases": { "type": "integer" },
+        "missing_hard_barrier_controls": { "type": "integer" },
+        "critical_missing_hard_barriers": { "type": "integer" },
+        "high_missing_hard_barriers": { "type": "integer" },
+        "medium_missing_hard_barriers": { "type": "integer" },
+        "low_missing_hard_barriers": { "type": "integer" },
+        "top_case_id": { "type": "string" },
+        "top_case_title": { "type": "string" },
+        "top_case_next_step": { "type": "string" }
+      }
+    },
+    "assess_inventory": {
+      "type": "object",
+      "required": [
+        "surfaces",
+        "facts",
+        "graph_nodes",
+        "graph_edges",
+        "runtimes",
+        "trust_inputs",
+        "tools",
+        "authorities",
+        "controls",
+        "boundaries",
+        "surface_categories",
+        "handling_modes"
+      ],
+      "properties": {
+        "target_path": { "type": "string" },
+        "surfaces": { "type": "integer" },
+        "facts": { "type": "integer" },
+        "graph_nodes": { "type": "integer" },
+        "graph_edges": { "type": "integer" },
+        "runtimes": { "type": "integer" },
+        "trust_inputs": { "type": "integer" },
+        "tools": { "type": "integer" },
+        "authorities": { "type": "integer" },
+        "controls": { "type": "integer" },
+        "boundaries": { "type": "integer" },
+        "surface_categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_count" }
+        },
+        "handling_modes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assess_count" }
+        },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "assess_exposure": {
+      "type": "object",
+      "required": ["paths", "exposed", "protected", "inconclusive", "top_paths"],
+      "properties": {
+        "paths": { "type": "integer" },
+        "exposed": { "type": "integer" },
+        "protected": { "type": "integer" },
+        "inconclusive": { "type": "integer" },
+        "top_paths": {
+          "type": "array",
+          "items": { "$ref": "ariadne-report-v1.schema.json#/$defs/exposure" }
+        }
+      }
+    },
+    "scan_target": {
+      "type": "object",
+      "required": ["id", "path"],
+      "properties": {
+        "id": { "type": "string" },
+        "path": { "type": "string" }
+      }
+    },
+    "assess_count": {
+      "type": "object",
+      "required": ["name", "count"],
+      "properties": {
+        "name": { "type": "string" },
+        "count": { "type": "integer" }
+      }
+    }
+  }
+}

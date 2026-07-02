@@ -21,6 +21,8 @@ func main() {
 		os.Exit(0)
 	}
 	switch os.Args[1] {
+	case "assess":
+		runAssess(os.Args[2:])
 	case "prove":
 		runProve(os.Args[2:])
 	case "architecture":
@@ -43,6 +45,74 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
 		usage(os.Stderr)
 		os.Exit(2)
+	}
+}
+
+func runAssess(args []string) {
+	fs := flag.NewFlagSet("assess", flag.ExitOnError)
+	targetsFile := fs.String("targets", "", "file of assessment targets, one path per line or id,path")
+	path := fs.String("path", ".", "repo or workspace path to assess")
+	agent := fs.String("agent", "all", "agent runtime to inspect: codex, claude, all")
+	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
+	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
+	format := fs.String("format", "table", "output format: table, json, html")
+	outPath := fs.String("out", "", "write output to file")
+	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
+	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
+	llmReview := fs.String("llm-review", "", "LLM review JSON file to ingest")
+	llmCommand := fs.String("llm-command", "", "local LLM reviewer command; reads request JSON on stdin and writes review JSON on stdout")
+	llmRequestOut := fs.String("llm-request-out", "", "write redacted LLM review request JSON to file")
+	llmTimeout := fs.Int("llm-timeout-seconds", 60, "timeout for --llm-command")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	if *targetsFile != "" {
+		r, err := prove.RunScan(prove.Options{
+			TargetsFile:           *targetsFile,
+			Path:                  *path,
+			Agent:                 *agent,
+			Mode:                  *mode,
+			RulesPath:             *rulesPath,
+			InterpretMode:         *interpretMode,
+			LLMReviewPath:         *llmReview,
+			LLMCommand:            *llmCommand,
+			LLMRequestOut:         *llmRequestOut,
+			LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
+			IncludeSensitivePaths: *includeSensitive,
+		})
+		if err != nil {
+			fatal(err)
+		}
+		if err := report.RenderAssessScan(writer, r, *format, *status); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	inventory, err := prove.RunInventory(prove.Options{Path: *path, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	r, err := prove.RunPath(prove.Options{
+		Path:                  *path,
+		Agent:                 *agent,
+		Mode:                  *mode,
+		RulesPath:             *rulesPath,
+		InterpretMode:         *interpretMode,
+		LLMReviewPath:         *llmReview,
+		LLMCommand:            *llmCommand,
+		LLMRequestOut:         *llmRequestOut,
+		LLMTimeout:            time.Duration(*llmTimeout) * time.Second,
+		IncludeSensitivePaths: *includeSensitive,
+	})
+	if err != nil {
+		fatal(err)
+	}
+	if err := report.RenderAssess(writer, inventory, r, *format, *status); err != nil {
+		fatal(err)
 	}
 }
 
@@ -413,6 +483,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, strings.TrimSpace(`ariadne: local agent exposure prover
 
 Commands:
+  assess        Assess one path or target list and show the first-run Zero Trust case board
   architecture   Show Zero Trust agent architecture flaws, filtered to breaking by default
   cases          Show the operator case board for architecture break paths
   controls       Show missing hard-barrier controls and where to prove them
@@ -423,6 +494,9 @@ Commands:
   stories list   List Story Lab scenarios
 
 Examples:
+  ariadne assess --path .
+  ariadne assess --path . --format html --out ariadne-assessment.html
+  ariadne assess --targets targets.txt --format json
   ariadne stories list
   ariadne architecture --path .
   ariadne architecture --targets targets.txt

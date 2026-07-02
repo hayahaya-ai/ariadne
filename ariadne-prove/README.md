@@ -104,6 +104,8 @@ make test
 Inspect the current repository:
 
 ```bash
+./bin/ariadne assess --path .
+./bin/ariadne assess --path . --format html --out ariadne-assessment.html
 ./bin/ariadne inventory --path .
 ./bin/ariadne prove --path .
 ./bin/ariadne architecture --path . --format html --out architecture-dashboard.html
@@ -119,6 +121,7 @@ Inspect the current repository:
 Emit JSON:
 
 ```bash
+./bin/ariadne assess --path . --format json --out assessment.json
 ./bin/ariadne inventory --path . --format json --out inventory.json
 ./bin/ariadne prove --path . --format json --out exposure.json
 ./bin/ariadne cases --path . --format json --out cases.json
@@ -136,6 +139,7 @@ Export the graph for review or visualization:
 Scan multiple local or mounted targets:
 
 ```bash
+./bin/ariadne assess --targets targets.txt --format html --out fleet-assessment.html
 ./bin/ariadne scan --targets targets.txt --format json --out scan.json
 ./bin/ariadne architecture --targets targets.txt --format html --out fleet-architecture.html
 ./bin/ariadne cases --targets targets.txt --format html --out fleet-cases.html
@@ -154,6 +158,8 @@ repo-only,/srv/repos/example
 
 | Command | Purpose |
 | --- | --- |
+| `ariadne assess --path <dir>` | Primary first-run readout: inspected surfaces, exposure posture, Zero Trust architecture breaks, top operator cases, evidence refs, and next commands. |
+| `ariadne assess --targets <file>` | Fleet first-run readout across local or mounted targets, with recurring break paths grouped into operator cases. |
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |
 | `ariadne prove --path <dir>` | Classify supported exposure paths for one target. |
 | `ariadne architecture --path <dir>` | Show focused Zero Trust architecture flaws for one target and the case-board commands to investigate them. |
@@ -230,6 +236,8 @@ Inventory output includes:
 - redaction metadata
 - warnings and limitations
 - graph exports with `--format dot` or `--format mermaid`
+
+Assess output is the recommended first-run product view. It composes inventory, exposure, Zero Trust architecture, and the operator case board into one readout: what was inspected, how many exposure paths were found, which architecture boundaries are breaking, which case to start with, the evidence references behind that case, proof surfaces to update, and the exact commands to rerun. JSON emits the same contract with `summary`, `inventory`, `exposure`, `architecture` or `architecture_scan`, `case_board`, `top_cases`, and `next_commands`.
 
 Prove output adds:
 

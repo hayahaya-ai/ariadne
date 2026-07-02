@@ -58,6 +58,40 @@ func renderScanDashboard(w io.Writer, r model.ScanReport) error {
 	return nil
 }
 
+func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
+	title := "Ariadne Assessment"
+	if r.RunKind == "assess_scan" {
+		title = "Ariadne Fleet Assessment"
+	}
+	fmt.Fprintln(w, "<!doctype html>")
+	fmt.Fprintln(w, `<html lang="en">`)
+	renderDashboardHead(w, title)
+	fmt.Fprintln(w, "<body>")
+	fmt.Fprintln(w, `<main class="shell">`)
+	fields := []kv{
+		{"Mode", firstNonEmpty(r.Mode, "unknown")},
+		{"Agent", firstNonEmpty(r.Agent, "unknown")},
+		{"Filter", firstNonEmpty(r.StatusFilter, "breaking")},
+		{"Cases", fmt.Sprintf("%d", r.Summary.OperatorCases)},
+	}
+	if r.RunKind == "assess_scan" {
+		fields[0] = kv{"Targets", fmt.Sprintf("%d completed / %d total", r.Summary.CompletedTargets, r.Summary.Targets)}
+	} else {
+		fields[0] = kv{"Target", firstNonEmpty(r.TargetPath, "not recorded")}
+	}
+	renderDashboardHeader(w, title, fields)
+	renderAssessSummaryDashboard(w, r)
+	renderAssessInventoryDashboard(w, r.Inventory)
+	renderControlOperatorCasesDashboard(w, r.TopCases)
+	renderAssessArchitectureDashboard(w, r)
+	renderAssessCommandsDashboard(w, r.NextCommands)
+	renderRunNotes(w, r.Warnings, r.Limitations)
+	fmt.Fprintln(w, "</main>")
+	fmt.Fprintln(w, "</body>")
+	fmt.Fprintln(w, "</html>")
+	return nil
+}
+
 func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error {
 	title := "Ariadne Zero Trust Architecture"
 	fmt.Fprintln(w, "<!doctype html>")
@@ -384,6 +418,101 @@ func renderDashboardHeader(w io.Writer, title string, fields []kv) {
 		fmt.Fprintln(w, "</div>")
 	}
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Assessment Readout</h2><div class="subtle">Single entry point: discovered surfaces, exposure posture, architecture breaks, and closure cases.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Architecture breaks", fmt.Sprintf("%d breaking / %d matching", r.Summary.BreakingArchitectureFlaws, r.Summary.ArchitectureFlaws)},
+		{"Operator cases", fmt.Sprintf("%d", r.Summary.OperatorCases)},
+		{"Missing hard barriers", fmt.Sprintf("%d", r.Summary.MissingHardBarrierControls)},
+		{"Exposure paths", fmt.Sprintf("%d exposed / %d total", r.Summary.Exposed, r.Summary.ExposurePaths)},
+		{"Top case", firstNonEmpty(r.Summary.TopCaseID, "none")},
+	})
+	if r.Summary.TopCaseNextStep != "" {
+		fmt.Fprintf(w, `<div><strong>Start here:</strong> %s <span class="subtle">(%s)</span></div>`, esc(r.Summary.TopCaseNextStep), esc(r.Summary.TopCaseTitle))
+	}
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessInventoryDashboard(w io.Writer, inventory model.AssessInventory) {
+	if inventory.Surfaces == 0 && inventory.Facts == 0 && inventory.GraphNodes == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>What Was Inspected</h2><div class="subtle">Inventory facts are collected before classification.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"AI surfaces", fmt.Sprintf("%d", inventory.Surfaces)},
+		{"Typed facts", fmt.Sprintf("%d", inventory.Facts)},
+		{"Graph nodes", fmt.Sprintf("%d", inventory.GraphNodes)},
+		{"Graph edges", fmt.Sprintf("%d", inventory.GraphEdges)},
+		{"Controls observed", fmt.Sprintf("%d", inventory.Controls)},
+	})
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div><h3>Surface categories</h3>`)
+	fmt.Fprintln(w, renderSmallList(assessCountLines(inventory.SurfaceCategories)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div><h3>Handling modes</h3>`)
+	fmt.Fprintln(w, renderSmallList(assessCountLines(inventory.HandlingModes)))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessArchitectureDashboard(w io.Writer, r model.AssessReport) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Architecture Break Paths</h2><div class="subtle">Facts are grouped by the Zero Trust boundary they break or leave unproven.</div></div></div>`)
+	switch {
+	case r.Architecture != nil:
+		if len(r.Architecture.Flaws) == 0 {
+			fmt.Fprintln(w, `<div class="empty">No architecture flaws matched this status filter.</div>`)
+			break
+		}
+		renderArchitectureFlawTable(w, r.Architecture.Flaws)
+	case r.ArchitectureScan != nil:
+		if len(r.ArchitectureScan.Groups) == 0 {
+			fmt.Fprintln(w, `<div class="empty">No architecture flaw groups matched this status filter.</div>`)
+			break
+		}
+		fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+		fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Architecture flaw</th><th>Status by target</th><th>Targets</th><th>Evidence anchors</th><th>Breaks when</th></tr></thead><tbody>")
+		for _, group := range r.ArchitectureScan.Groups {
+			fmt.Fprintln(w, "<tr>")
+			fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(group.Severity), esc(strings.ToUpper(group.Severity)))
+			fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><div class="mono">%s</div></td>`, esc(group.Title), esc(group.Principle), esc(group.ID))
+			fmt.Fprintf(w, `<td>%s</td>`, renderZeroTrustSummaryPills(group.StatusCounts))
+			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.Targets, 8)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.EvidenceSources, 6)))
+			fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(group.ControlEvidenceNeeded, 6)))
+			fmt.Fprintln(w, "</tr>")
+		}
+		fmt.Fprintln(w, "</tbody></table></div>")
+	default:
+		fmt.Fprintln(w, `<div class="empty">No architecture report attached.</div>`)
+	}
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessCommandsDashboard(w io.Writer, commands []string) {
+	if len(commands) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Next Commands</h2><div class="subtle">Rerun the same assessment, focus the top case, or inspect the full proof catalog.</div></div></div>`)
+	fmt.Fprintln(w, renderSmallList(commands))
+	fmt.Fprintln(w, `</section>`)
+}
+
+func assessCountLines(items []model.AssessCount) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, fmt.Sprintf("%s: %d", item.Name, item.Count))
+	}
+	if out == nil {
+		return []string{"none"}
+	}
+	return out
 }
 
 func renderIssueDashboard(w io.Writer, interpretation model.Interpretation, graph model.Graph, evidence []model.Evidence, redaction model.RedactionInfo) {
