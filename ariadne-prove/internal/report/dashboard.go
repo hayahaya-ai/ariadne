@@ -188,6 +188,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
+	renderAssessDecisionDashboard(w, r.TargetPath, r.Decision)
 	renderAssessTriageDashboard(w, r.TargetPath, r.Triage)
 	renderAssessClosurePlanDashboard(w, r.TargetPath, r.ClosurePlan)
 	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction, r.ControlState)
@@ -779,6 +780,52 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	if r.CaseFilter != "" || r.ControlFilter != "" {
 		fmt.Fprintf(w, `<div><strong>Focus:</strong> %s</div>`, esc(assessFocusSummary(r)))
 	}
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessDecisionDashboard(w io.Writer, root string, decision model.AssessDecision) {
+	if decision.Status == "" && decision.Headline == "" {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Decision Packet</h2><div class="subtle">The compact operator answer derived from deterministic facts, graph paths, controls, and proof state.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Verdict", statusLabel(firstNonEmpty(decision.Status, "unknown"))},
+		{"Start here", firstNonEmpty(decision.StartHere, "none")},
+		{"Evidence files", fmt.Sprintf("%d", len(decision.EvidenceSources))},
+		{"Missing barriers", fmt.Sprintf("%d", len(decision.MissingHardBarriers))},
+		{"Done criteria", fmt.Sprintf("%d", len(decision.DoneCriteria))},
+	})
+	if decision.Headline != "" {
+		fmt.Fprintf(w, `<p><strong>Readout:</strong> %s</p>`, esc(decision.Headline))
+	}
+	if decision.WhyPrioritized != "" {
+		fmt.Fprintf(w, `<p><strong>Why First:</strong> %s</p>`, esc(decision.WhyPrioritized))
+	}
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Risk Basis</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.RiskReasons))
+	fmt.Fprintln(w, `<h3>Normal Capability</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.NormalCapabilities))
+	fmt.Fprintln(w, `<h3>Path</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.PathSummary))
+	fmt.Fprintln(w, `<h3>Evidence Files</h3>`)
+	fmt.Fprintln(w, renderDashboardPathList(root, decision.EvidenceSources))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Action</h3>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(decision.Instruction)))
+	fmt.Fprintln(w, `<h3>Missing Hard Barriers</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.MissingHardBarriers))
+	fmt.Fprintln(w, `<h3>Proof Surface</h3>`)
+	fmt.Fprintln(w, renderDashboardPathList(root, nonEmptyStrings(decision.ProofSurface)))
+	fmt.Fprintln(w, `<h3>Commands</h3>`)
+	fmt.Fprintln(w, renderCommandList(nonEmptyStrings(decision.ProofCommand, decision.RerunCommand, decision.CompareCommand)))
+	fmt.Fprintln(w, `<h3>Done When</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.DoneCriteria))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
 }
 

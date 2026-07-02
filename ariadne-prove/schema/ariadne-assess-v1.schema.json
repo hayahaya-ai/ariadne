@@ -12,6 +12,7 @@
     "agent",
     "status_filter",
     "summary",
+    "decision",
     "triage",
     "inventory",
     "exposure",
@@ -41,6 +42,7 @@
     "case_filter": { "type": "string" },
     "control_filter": { "type": "string" },
     "summary": { "$ref": "#/$defs/assess_summary" },
+    "decision": { "$ref": "#/$defs/assess_decision" },
     "triage": { "$ref": "#/$defs/assess_triage" },
     "inventory": { "$ref": "#/$defs/assess_inventory" },
     "exposure": { "$ref": "#/$defs/assess_exposure" },
@@ -116,6 +118,41 @@
         "top_case_id": { "type": "string" },
         "top_case_title": { "type": "string" },
         "top_case_next_step": { "type": "string" }
+      }
+    },
+    "assess_decision": {
+      "type": "object",
+      "required": [
+        "status",
+        "headline",
+        "start_here",
+        "risk_reasons",
+        "normal_capabilities",
+        "evidence_sources",
+        "path_summary",
+        "missing_hard_barriers",
+        "done_criteria",
+        "limitations"
+      ],
+      "properties": {
+        "status": { "type": "string", "enum": ["action_required", "needs_evidence", "controlled", "no_supported_signal"] },
+        "headline": { "type": "string" },
+        "start_here": { "type": "string" },
+        "top_case_id": { "type": "string" },
+        "top_case_title": { "type": "string" },
+        "why_prioritized": { "type": "string" },
+        "risk_reasons": { "type": "array", "items": { "type": "string" } },
+        "normal_capabilities": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "path_summary": { "type": "array", "items": { "type": "string" } },
+        "missing_hard_barriers": { "type": "array", "items": { "type": "string" } },
+        "instruction": { "type": "string" },
+        "proof_surface": { "type": "string" },
+        "proof_command": { "type": "string" },
+        "rerun_command": { "type": "string" },
+        "compare_command": { "type": "string" },
+        "done_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },
     "assess_first_action": {

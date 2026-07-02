@@ -326,6 +326,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
 	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
 	controlState := buildAssessControlState(firstAction, triage)
+	decision := buildAssessDecision(summary, triage, controlState, firstAction)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -339,6 +340,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		CaseFilter:       caseBoard.CaseFilter,
 		ControlFilter:    focus.ControlFilter,
 		Summary:          summary,
+		Decision:         decision,
 		Triage:           triage,
 		ControlState:     controlState,
 		Inventory:        inventorySummary,
@@ -413,6 +415,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
 	triage.EvidenceGapActions = assessScanEvidenceGapActions(r.TargetsFile, r.Mode, r.Agent, triage)
 	controlState := buildAssessControlState(firstAction, triage)
+	decision := buildAssessDecision(summary, triage, controlState, firstAction)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
 		SchemaVersion:    model.SchemaVersion,
@@ -427,6 +430,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 		CaseFilter:       caseBoard.CaseFilter,
 		ControlFilter:    focus.ControlFilter,
 		Summary:          summary,
+		Decision:         decision,
 		Triage:           triage,
 		ControlState:     controlState,
 		Inventory:        inventorySummary,
@@ -1708,6 +1712,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	}
 	fmt.Fprintf(w, "%s: %d; missing hard barriers: %d; exposed paths: %d\n\n", caseLabel, r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
 
+	renderAssessDecision(w, r.Decision)
 	renderAssessInventorySummary(w, r.Inventory, 4)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
@@ -2497,6 +2502,104 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 	state.GraphEdges = uniqueStrings(state.GraphEdges)
 	state.Limitations = uniqueStrings(state.Limitations)
 	return state
+}
+
+func buildAssessDecision(summary model.AssessSummary, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction) model.AssessDecision {
+	decision := model.AssessDecision{
+		Status:              firstNonEmpty(triage.Status, "no_supported_signal"),
+		Headline:            firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
+		StartHere:           triage.StartHere,
+		TopCaseID:           action.CaseID,
+		TopCaseTitle:        action.Title,
+		WhyPrioritized:      action.WhyFirst,
+		RiskReasons:         assessDecisionRiskReasons(triage.HardRiskSignals),
+		NormalCapabilities:  firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
+		EvidenceSources:     firstStrings(uniqueStrings(state.EvidenceSources), 8),
+		PathSummary:         firstStrings(uniqueStrings(state.PathSummary), 6),
+		MissingHardBarriers: firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
+		Instruction:         firstNonEmpty(action.CurrentAction.Instruction, action.NextStep, triage.NextAction),
+		ProofSurface:        firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
+		ProofCommand:        firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand),
+		RerunCommand:        action.CurrentAction.RerunCommand,
+		CompareCommand:      action.CurrentAction.CompareCommand,
+		DoneCriteria:        firstStrings(uniqueStrings(firstNonEmptyStrings(action.CurrentAction.SuccessCriteria, action.SuccessCriteria)), 3),
+		Limitations: []string{
+			"Decision is derived from deterministic inventory, graph, case, and proof data; inspect detailed sections for complete evidence.",
+		},
+	}
+	if decision.StartHere == "" {
+		decision.StartHere = firstNonEmpty(summary.TopCaseID, action.CaseID)
+	}
+	if len(decision.EvidenceSources) == 0 && len(action.EvidenceReferences) > 0 {
+		decision.EvidenceSources = firstStrings(uniqueStrings(evidenceReferenceSources(action.EvidenceReferences, false)), 8)
+	}
+	if len(decision.PathSummary) == 0 && len(state.Summary) > 0 {
+		decision.PathSummary = firstStrings(uniqueStrings(state.Summary), 3)
+	}
+	if decision.ProofSurface == "" {
+		decision.ProofSurface = firstString(action.ProofSurfaces)
+	}
+	if decision.RerunCommand == "" && len(action.RerunCommands) > 0 {
+		decision.RerunCommand = action.RerunCommands[0]
+	}
+	if decision.CompareCommand == "" && len(action.CompareCommands) > 0 {
+		decision.CompareCommand = action.CompareCommands[len(action.CompareCommands)-1]
+	}
+	if !action.Available {
+		decision.TopCaseID = summary.TopCaseID
+		decision.TopCaseTitle = summary.TopCaseTitle
+		decision.WhyPrioritized = ""
+		decision.ProofCommand = ""
+		decision.RerunCommand = ""
+		decision.CompareCommand = ""
+	}
+	decision.RiskReasons = nonNilStrings(decision.RiskReasons)
+	decision.NormalCapabilities = nonNilStrings(decision.NormalCapabilities)
+	decision.EvidenceSources = nonNilStrings(decision.EvidenceSources)
+	decision.PathSummary = nonNilStrings(decision.PathSummary)
+	decision.MissingHardBarriers = nonNilStrings(decision.MissingHardBarriers)
+	decision.DoneCriteria = nonNilStrings(decision.DoneCriteria)
+	decision.Limitations = uniqueStrings(decision.Limitations)
+	return decision
+}
+
+func assessDecisionRiskReasons(signals []string) []string {
+	signals = uniqueStrings(signals)
+	var out []string
+	for _, marker := range []string{
+		"Ranked #",
+		"exposed path(s)",
+		"missing hard-barrier control(s)",
+		"breaking architecture flaw(s)",
+	} {
+		for _, signal := range signals {
+			if strings.Contains(signal, marker) && !containsReportString(out, signal) {
+				out = append(out, signal)
+			}
+			if len(out) >= 3 {
+				return out
+			}
+		}
+	}
+	for _, signal := range signals {
+		if strings.Contains(signal, "evidence reference(s)") {
+			continue
+		}
+		if !containsReportString(out, signal) {
+			out = append(out, signal)
+		}
+		if len(out) >= 3 {
+			return out
+		}
+	}
+	return firstStrings(out, 3)
+}
+
+func firstNonEmptyStrings(primary []string, fallback []string) []string {
+	if len(primary) > 0 {
+		return primary
+	}
+	return fallback
 }
 
 func assessControlStateGraphEdges(signals []model.AssessSignal) []string {
@@ -3726,6 +3829,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	}
 	fmt.Fprintln(w)
 
+	renderAssessDecision(w, r.Decision)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
 	renderAssessClosurePlan(w, r.ClosurePlan, 5)
@@ -3753,6 +3857,62 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 		}
 	}
 	return nil
+}
+
+func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
+	if decision.Status == "" && decision.Headline == "" {
+		return
+	}
+	fmt.Fprintf(w, "Decision:\n")
+	if decision.Status != "" {
+		fmt.Fprintf(w, "  - Verdict: %s\n", readableToken(decision.Status))
+	}
+	if decision.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", decision.Headline)
+	}
+	if decision.StartHere != "" {
+		if decision.TopCaseTitle != "" {
+			fmt.Fprintf(w, "  - Start here: %s (%s)\n", decision.TopCaseTitle, decision.StartHere)
+		} else {
+			fmt.Fprintf(w, "  - Start here: %s\n", decision.StartHere)
+		}
+	}
+	if decision.WhyPrioritized != "" {
+		fmt.Fprintf(w, "  - Why first: %s\n", decision.WhyPrioritized)
+	}
+	renderAssessDecisionLines(w, "Risk basis", decision.RiskReasons, 3)
+	renderAssessDecisionLines(w, "Normal capability", decision.NormalCapabilities, 2)
+	if len(decision.EvidenceSources) > 0 {
+		fmt.Fprintf(w, "  - Evidence files: %s\n", strings.Join(limitStrings(decision.EvidenceSources, 8), "; "))
+	}
+	renderAssessDecisionLines(w, "Path", decision.PathSummary, 6)
+	renderAssessDecisionLines(w, "Missing hard barrier", decision.MissingHardBarriers, 5)
+	if decision.Instruction != "" {
+		fmt.Fprintf(w, "  - Action: %s\n", decision.Instruction)
+	}
+	if decision.ProofSurface != "" {
+		fmt.Fprintf(w, "  - Prove at: %s\n", decision.ProofSurface)
+	}
+	if decision.ProofCommand != "" {
+		fmt.Fprintf(w, "  - Proof command: %s\n", decision.ProofCommand)
+	}
+	if decision.RerunCommand != "" {
+		fmt.Fprintf(w, "  - Rerun: %s\n", decision.RerunCommand)
+	}
+	if decision.CompareCommand != "" {
+		fmt.Fprintf(w, "  - Compare: %s\n", decision.CompareCommand)
+	}
+	renderAssessDecisionLines(w, "Done when", decision.DoneCriteria, 3)
+	fmt.Fprintln(w)
+}
+
+func renderAssessDecisionLines(w io.Writer, label string, values []string, limit int) {
+	if len(values) == 0 {
+		return
+	}
+	for _, value := range limitStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
 }
 
 func renderAssessTriage(w io.Writer, triage model.AssessTriage) {

@@ -4063,6 +4063,23 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		len(decoded.Triage.ProofLoop) == 0 {
 		t.Fatalf("assessment should include fact-first signal triage: %+v", decoded.Triage)
 	}
+	if decoded.Decision.Status != "action_required" ||
+		decoded.Decision.StartHere != "case:egress-output-boundary" ||
+		decoded.Decision.TopCaseID != "case:egress-output-boundary" ||
+		decoded.Decision.TopCaseTitle != "Egress And Output Boundary" ||
+		!containsString(decoded.Decision.RiskReasons, "exposed path(s) reach a sensitive boundary") ||
+		!containsString(decoded.Decision.NormalCapabilities, "authority is normal for useful agents") ||
+		!containsString(decoded.Decision.EvidenceSources, ".claude/settings.json") ||
+		!containsString(decoded.Decision.PathSummary, "boundary external destination (reaches)") ||
+		!containsString(decoded.Decision.MissingHardBarriers, "control:egress-destination-allowlist") ||
+		decoded.Decision.Instruction == "" ||
+		decoded.Decision.ProofSurface != ".ariadne/egress-policy.json" ||
+		!strings.Contains(decoded.Decision.ProofCommand, "--patch-dir proof-patches") ||
+		!strings.Contains(decoded.Decision.RerunCommand, "ariadne cases --path") ||
+		!strings.Contains(decoded.Decision.CompareCommand, "ariadne compare --before before-proof.json --after after-proof.json") ||
+		len(decoded.Decision.DoneCriteria) == 0 {
+		t.Fatalf("assessment should include a compact fact-backed decision packet: %+v", decoded.Decision)
+	}
 	if !decoded.ControlState.Available ||
 		decoded.ControlState.CaseID != "case:egress-output-boundary" ||
 		decoded.ControlState.CurrentControl != "control:egress-destination-allowlist" ||
@@ -4089,6 +4106,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"unknown_evidence":null`,
 		`"evidence_gap_actions":null`,
 		`"control_state":null`,
+		`"decision":null`,
+		`"risk_reasons":null`,
 		`"path_summary":null`,
 		`"graph_edges":null`,
 	} {
@@ -4255,6 +4274,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	actionRendered := actionOut.String()
 	for _, want := range []string{
 		"Ariadne Action",
+		"Decision:",
+		"Verdict: action required",
+		"Risk basis:",
+		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
+		"Proof command: ariadne proofs --path",
+		"--patch-dir proof-patches",
 		"Signal triage:",
 		"Signal details:",
 		"signal:top-operator-case",
@@ -4327,6 +4352,12 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assessment",
 		"Assessment Readout",
+		"Decision Packet",
+		"Verdict",
+		"Why First",
+		"Risk Basis",
+		"Proof Surface",
+		"Commands",
 		"Signal Triage",
 		"Signal Details",
 		"Graph / evidence / controls",
@@ -5683,6 +5714,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"agent",
 		"status_filter",
 		"summary",
+		"decision",
 		"triage",
 		"inventory",
 		"exposure",
@@ -5702,6 +5734,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, assessSchema, "control_filter")
 	assessSummary := schemaMap(t, assessSchema, "$defs", "assess_summary")
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
+	assessDecision := schemaMap(t, assessSchema, "$defs", "assess_decision")
+	assertRequiredKeys(t, assessDecision, "status", "headline", "start_here", "risk_reasons", "normal_capabilities", "evidence_sources", "path_summary", "missing_hard_barriers", "done_criteria", "limitations")
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
 	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "evidence_gap_actions", "signal_details", "evidence_refs", "next_action", "proof_loop")
 	assessSignal := schemaMap(t, assessSchema, "$defs", "assess_signal")
