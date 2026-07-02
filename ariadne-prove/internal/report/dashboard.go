@@ -839,7 +839,7 @@ func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTr
 	fmt.Fprintln(w, `<h3>Evidence Gap Actions</h3>`)
 	fmt.Fprintln(w, renderEvidenceGapActionList(limitStrings(triage.EvidenceGapActions, 5)))
 	fmt.Fprintln(w, `<h3>Proof Loop</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(triage.ProofLoop, 5)))
+	fmt.Fprintln(w, renderProofLoopCommandList(triage.ProofLoop))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
@@ -3508,6 +3508,47 @@ func renderCommandList(commands []string) string {
 	}
 	b.WriteString(`</div>`)
 	return b.String()
+}
+
+func renderProofLoopCommandList(values []string) string {
+	values = nonEmptyStrings(values...)
+	if len(values) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="command-list">`)
+	for _, value := range values {
+		label, command, ok := proofLoopCommandParts(value)
+		if !ok {
+			fmt.Fprintf(&b, `<div class="subtle">%s</div>`, esc(value))
+			continue
+		}
+		b.WriteString(`<div class="command-row">`)
+		b.WriteString(`<div>`)
+		if label != "" {
+			fmt.Fprintf(&b, `<div class="subtle">%s</div>`, esc(label))
+		}
+		fmt.Fprintf(&b, `<code class="mono">%s</code>`, esc(command))
+		b.WriteString(`</div>`)
+		fmt.Fprintf(&b, `<button type="button" class="copy-command" data-copy-command data-command="%s">Copy</button>`, esc(command))
+		b.WriteString(`</div>`)
+	}
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
+func proofLoopCommandParts(value string) (string, string, bool) {
+	value = strings.TrimSpace(value)
+	idx := strings.Index(value, ": ")
+	if idx < 0 {
+		return "", "", false
+	}
+	label := strings.TrimSpace(value[:idx])
+	command := strings.TrimSpace(value[idx+2:])
+	if command == "" {
+		return "", "", false
+	}
+	return label, command, true
 }
 
 func renderEvidenceGapActionList(actions []string) string {

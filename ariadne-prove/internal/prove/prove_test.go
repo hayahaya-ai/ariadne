@@ -4067,6 +4067,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !containsString(decoded.Triage.ProofLoop, "ariadne compare --before before-proof.json --after after-proof.json") {
 		t.Fatalf("triage should preserve the compare proof loop: %+v", decoded.Triage.ProofLoop)
 	}
+	if len(decoded.Triage.ProofLoop) != 6 ||
+		!containsString(decoded.Triage.ProofLoop, "Open focused proof action: ariadne proofs --path") ||
+		!containsString(decoded.Triage.ProofLoop, "Export suggested proof files: ariadne proofs --path") ||
+		!containsString(decoded.Triage.ProofLoop, "Rerun after evidence changes: ariadne cases --path") ||
+		!containsString(decoded.Triage.ProofLoop, "Compare proof state: ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html") {
+		t.Fatalf("triage proof loop should preserve every command needed for proof/rerun/compare: %+v", decoded.Triage.ProofLoop)
+	}
 	if decoded.Summary.OperatorCases == 0 || len(decoded.TopCases) == 0 || decoded.TopCases[0].Rank != 1 || decoded.TopCases[0].NextStep == "" {
 		t.Fatalf("assessment should include ranked top cases: summary=%+v cases=%+v", decoded.Summary, decoded.TopCases)
 	}
@@ -4303,6 +4310,25 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if strings.Contains(rendered, `data-command="1 additional items in JSON"`) {
 		t.Fatalf("assessment dashboard should not render summary text as a copyable command:\n%s", rendered)
+	}
+	proofLoopBlock := boundedBlock(t, rendered, "<h3>Proof Loop</h3>", "<h2>Ranked Closure Plan</h2>")
+	for _, want := range []string{
+		"Open focused proof action",
+		"Export suggested proof files",
+		"Rerun after evidence changes",
+		"Compare proof state",
+		`data-command="ariadne proofs --path`,
+		`data-command="ariadne cases --path`,
+		`data-command="ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html"`,
+		"case-compare.html",
+		`>Copy</button>`,
+	} {
+		if !strings.Contains(proofLoopBlock, want) {
+			t.Fatalf("assessment dashboard proof loop missing %q:\n%s", want, proofLoopBlock)
+		}
+	}
+	if strings.Contains(proofLoopBlock, "additional items in JSON") {
+		t.Fatalf("assessment dashboard proof loop should show the full copyable compare loop:\n%s", proofLoopBlock)
 	}
 	if strings.Contains(rendered, `data-copy-value="runtime input isolation settings"`) {
 		t.Fatalf("assessment dashboard should only expose copy-path actions for local paths:\n%s", rendered)

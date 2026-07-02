@@ -2735,7 +2735,7 @@ func assessTriageProofLoop(action model.AssessFirstAction) []string {
 	if rerun := assessCurrentRerunCommand(action); rerun != "" {
 		out = append(out, "Rerun after evidence changes: "+rerun)
 	}
-	for _, command := range limitStrings(action.CompareCommands, 3) {
+	for _, command := range action.CompareCommands {
 		out = append(out, "Compare proof state: "+command)
 	}
 	if out == nil {
