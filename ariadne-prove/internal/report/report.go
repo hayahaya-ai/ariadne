@@ -60,6 +60,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
 	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
 	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
+	closurePlan := buildAssessClosurePlan(topCases, 5)
 	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases)
 	return model.AssessReport{
@@ -81,6 +82,7 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 		TopCases:         topCases,
 		TopCaseProofPlan: topCaseProofPlan,
 		FirstAction:      firstAction,
+		ClosurePlan:      closurePlan,
 		NextCommands:     nextCommands,
 		Redaction:        r.Redaction,
 		Warnings:         uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
@@ -121,6 +123,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
 	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
 	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan)
+	closurePlan := buildAssessClosurePlan(topCases, 5)
 	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
 	triage := buildAssessTriage(summary, model.AssessInventory{}, exposure, closureEvidence, firstAction)
 	nextCommands := assessScanCommands(r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases)
@@ -143,6 +146,7 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string) (model.Asses
 		TopCases:         topCases,
 		TopCaseProofPlan: topCaseProofPlan,
 		FirstAction:      firstAction,
+		ClosurePlan:      closurePlan,
 		NextCommands:     nextCommands,
 		Redaction:        r.Redaction,
 		Warnings:         append([]string{}, r.Warnings...),
@@ -1328,6 +1332,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintf(w, "Open cases: %d; missing hard barriers: %d; exposed paths: %d\n\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
 
 	renderAssessTriage(w, r.Triage)
+	renderAssessClosurePlan(w, r.ClosurePlan, 3)
 	action := r.FirstAction
 	if !action.Available {
 		fmt.Fprintf(w, "Current action:\n  - none\n\n")
@@ -1852,6 +1857,97 @@ func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.
 	return action
 }
 
+func buildAssessClosurePlan(cases []model.ControlOperatorCase, limit int) []model.AssessClosurePlanItem {
+	if limit <= 0 {
+		limit = 5
+	}
+	var out []model.AssessClosurePlanItem
+	seen := map[string]bool{}
+	for _, item := range cases {
+		control := firstString(item.StartingControls)
+		if control == "" && len(item.ProofPatches) > 0 {
+			control = item.ProofPatches[0].Control
+		}
+		if control == "" {
+			continue
+		}
+		key := item.ID + "\x00" + control
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		patch := assessClosurePlanProofPatch(control, item.ProofPatches)
+		proofSurface := firstString(item.ProofSurfaces)
+		if patch != nil && patch.Surface != "" {
+			proofSurface = patch.Surface
+		}
+		planItem := model.AssessClosurePlanItem{
+			Rank:               len(out) + 1,
+			Control:            control,
+			CaseID:             item.ID,
+			CaseTitle:          item.Title,
+			Severity:           item.Severity,
+			State:              item.State,
+			WhyThisControl:     assessClosurePlanWhy(item, control),
+			WhatItCloses:       assessClosurePlanCloses(item),
+			AffectedFlaws:      item.FlawCount,
+			AffectedTargets:    item.TargetCount,
+			EvidenceReferences: dedupeEvidenceReferences(item.EvidenceReferences),
+			ProofSurface:       proofSurface,
+			ProofPatch:         patch,
+			RerunCommand:       firstString(item.RerunCommands),
+			CompareCommand:     assessClosurePlanCompareCommand(item.CompareCommands),
+			DoneCriteria:       nonNilStrings(item.SuccessCriteria),
+			Limitations:        nonNilStrings(item.Limitations),
+		}
+		if len(planItem.DoneCriteria) == 0 {
+			planItem.DoneCriteria = []string{"The case no longer appears as open for the selected status filter after rerun.", "The selected control is no longer returned as a missing hard barrier."}
+		}
+		out = append(out, planItem)
+		if len(out) >= limit {
+			break
+		}
+	}
+	if out == nil {
+		return []model.AssessClosurePlanItem{}
+	}
+	return out
+}
+
+func assessClosurePlanProofPatch(control string, patches []model.ControlProofPatch) *model.ControlProofPatch {
+	if len(patches) == 0 {
+		return nil
+	}
+	for _, patch := range patches {
+		if patch.Control == control {
+			item := patch
+			return &item
+		}
+	}
+	item := patches[0]
+	return &item
+}
+
+func assessClosurePlanCompareCommand(commands []string) string {
+	if len(commands) == 0 {
+		return ""
+	}
+	return commands[len(commands)-1]
+}
+
+func assessClosurePlanWhy(item model.ControlOperatorCase, control string) string {
+	reason := item.PriorityReason
+	if reason == "" {
+		reason = fmt.Sprintf("%s is the highest ranked available case for this closure row.", firstNonEmpty(item.Title, item.ID))
+	}
+	return fmt.Sprintf("%s Start with %s because it is the first parser-recognized hard-barrier proof task for this case.", reason, control)
+}
+
+func assessClosurePlanCloses(item model.ControlOperatorCase) string {
+	title := firstNonEmpty(item.Title, item.ID)
+	return fmt.Sprintf("%s covers %d affected architecture flaw(s) across %d target(s); the case is closed only when rerun evidence removes the missing hard barrier.", title, item.FlawCount, item.TargetCount)
+}
+
 func emptyAssessCurrentAction() model.AssessCurrentAction {
 	return model.AssessCurrentAction{
 		Available:            false,
@@ -2200,6 +2296,7 @@ func renderAssessTable(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintln(w)
 
 	renderAssessTriage(w, r.Triage)
+	renderAssessClosurePlan(w, r.ClosurePlan, 5)
 	renderAssessFirstAction(w, r.FirstAction)
 
 	if r.Inventory.Surfaces > 0 || r.Inventory.Facts > 0 || r.Inventory.GraphNodes > 0 {
@@ -2277,6 +2374,47 @@ func renderAssessTriageLines(w io.Writer, label string, values []string, limit i
 	for _, value := range limitStrings(values, limit) {
 		fmt.Fprintf(w, "  - %s: %s\n", label, value)
 	}
+}
+
+func renderAssessClosurePlan(w io.Writer, plan []model.AssessClosurePlanItem, limit int) {
+	if len(plan) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(plan) {
+		limit = len(plan)
+	}
+	fmt.Fprintf(w, "Closure plan:\n")
+	for _, item := range plan[:limit] {
+		fmt.Fprintf(w, "  - #%d %s -> %s (%s)\n", item.Rank, item.Control, firstNonEmpty(item.CaseTitle, item.CaseID), strings.ToUpper(item.Severity))
+		if item.WhyThisControl != "" {
+			fmt.Fprintf(w, "    Why this control: %s\n", item.WhyThisControl)
+		}
+		if item.WhatItCloses != "" {
+			fmt.Fprintf(w, "    What it closes: %s\n", item.WhatItCloses)
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(item.EvidenceReferences, 2), "; "))
+		}
+		if item.ProofSurface != "" {
+			fmt.Fprintf(w, "    Prove at: %s\n", item.ProofSurface)
+		}
+		if item.ProofPatch != nil && item.ProofPatch.Summary != "" {
+			fmt.Fprintf(w, "    Proof patch: %s\n", item.ProofPatch.Summary)
+		}
+		if item.RerunCommand != "" {
+			fmt.Fprintf(w, "    Rerun: %s\n", item.RerunCommand)
+		}
+		if item.CompareCommand != "" {
+			fmt.Fprintf(w, "    Compare: %s\n", item.CompareCommand)
+		}
+		if len(item.DoneCriteria) > 0 {
+			fmt.Fprintf(w, "    Done when: %s\n", strings.Join(limitStrings(item.DoneCriteria, 2), "; "))
+		}
+	}
+	if len(plan) > limit {
+		fmt.Fprintf(w, "  - %d more closure plan item(s) in JSON output\n", len(plan)-limit)
+	}
+	fmt.Fprintln(w)
 }
 
 func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {

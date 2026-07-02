@@ -3599,6 +3599,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Hard signal:",
 		"Normal capability:",
 		"Missing hard barrier:",
+		"Closure plan:",
+		"Why this control:",
+		"What it closes:",
+		"control:egress-destination-allowlist -> Egress And Output Boundary",
 		"First action:",
 		"Why first:",
 		"Current workflow step: Add Or Verify Proof",
@@ -3677,6 +3681,23 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if decoded.Summary.OperatorCases == 0 || len(decoded.TopCases) == 0 || decoded.TopCases[0].Rank != 1 || decoded.TopCases[0].NextStep == "" {
 		t.Fatalf("assessment should include ranked top cases: summary=%+v cases=%+v", decoded.Summary, decoded.TopCases)
 	}
+	if len(decoded.ClosurePlan) == 0 ||
+		decoded.ClosurePlan[0].Rank != 1 ||
+		decoded.ClosurePlan[0].Control != "control:egress-destination-allowlist" ||
+		decoded.ClosurePlan[0].CaseID != decoded.TopCases[0].ID ||
+		decoded.ClosurePlan[0].WhyThisControl == "" ||
+		decoded.ClosurePlan[0].WhatItCloses == "" ||
+		decoded.ClosurePlan[0].AffectedFlaws == 0 ||
+		decoded.ClosurePlan[0].AffectedTargets == 0 ||
+		len(decoded.ClosurePlan[0].EvidenceReferences) == 0 ||
+		decoded.ClosurePlan[0].ProofSurface != ".ariadne/egress-policy.json" ||
+		decoded.ClosurePlan[0].ProofPatch == nil ||
+		decoded.ClosurePlan[0].ProofPatch.Control != decoded.ClosurePlan[0].Control ||
+		decoded.ClosurePlan[0].RerunCommand == "" ||
+		!strings.Contains(decoded.ClosurePlan[0].CompareCommand, "ariadne compare --before before-proof.json --after after-proof.json") ||
+		len(decoded.ClosurePlan[0].DoneCriteria) == 0 {
+		t.Fatalf("assessment should include a ranked closure plan: %+v", decoded.ClosurePlan)
+	}
 	if !decoded.FirstAction.Available ||
 		decoded.FirstAction.CaseID != decoded.TopCases[0].ID ||
 		decoded.FirstAction.NextStep == "" ||
@@ -3746,6 +3767,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Action",
 		"Signal triage:",
+		"Closure plan:",
+		"control:egress-destination-allowlist -> Egress And Output Boundary",
+		"What it closes:",
 		"Normal capability:",
 		"Missing hard barrier:",
 		"Current action:",
@@ -3788,6 +3812,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Hard Signal",
 		"Normal Capability",
 		"Missing Hard Barriers",
+		"Ranked Closure Plan",
+		"First control",
+		"control:egress-destination-allowlist",
+		"What it closes",
 		"First Action",
 		"Current Action Packet",
 		"Proof To Add Or Verify",
@@ -4583,6 +4611,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"case_board",
 		"top_cases",
 		"first_action",
+		"closure_plan",
 		"next_commands",
 		"redaction",
 		"limitations",
@@ -4594,6 +4623,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessSummary, "targets", "completed_targets", "errors", "surfaces", "facts", "graph_nodes", "graph_edges", "exposure_paths", "exposed", "protected", "inconclusive", "architecture_flaws", "breaking_architecture_flaws", "operator_cases", "missing_hard_barrier_controls")
 	assessTriage := schemaMap(t, assessSchema, "$defs", "assess_triage")
 	assertRequiredKeys(t, assessTriage, "status", "headline", "start_here", "hard_risk_signals", "normal_capabilities", "missing_hard_barriers", "partial_or_friction_controls", "present_hard_barriers", "unknown_evidence", "evidence_refs", "next_action", "proof_loop")
+	assessClosurePlanItem := schemaMap(t, assessSchema, "$defs", "assess_closure_plan_item")
+	assertRequiredKeys(t, assessClosurePlanItem, "rank", "control", "case_id", "case_title", "severity", "state", "why_this_control", "what_it_closes", "affected_flaws", "affected_targets", "evidence_refs", "proof_surface", "rerun_command", "compare_command", "done_criteria", "limitations")
+	assertSchemaProperty(t, assessClosurePlanItem, "proof_patch")
 	assessFirstAction := schemaMap(t, assessSchema, "$defs", "assess_first_action")
 	assertRequiredKeys(t, assessFirstAction, "available", "evidence_refs", "starting_controls", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "patch_export_command", "success_criteria", "workflow", "current_action")
 	assessCurrentAction := schemaMap(t, assessSchema, "$defs", "assess_current_action")

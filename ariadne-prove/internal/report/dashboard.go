@@ -189,6 +189,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
 	renderAssessTriageDashboard(w, r.TargetPath, r.Triage)
+	renderAssessClosurePlanDashboard(w, r.TargetPath, r.ClosurePlan)
 	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction)
 	renderAssessClosureEvidenceDashboard(w, r.TargetPath, r.ClosureEvidence)
 	renderAssessCaseNavigationDashboard(w, r.TopCases)
@@ -804,6 +805,47 @@ func renderAssessTriageDashboard(w io.Writer, root string, triage model.AssessTr
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessClosurePlanDashboard(w io.Writer, root string, plan []model.AssessClosurePlanItem) {
+	if len(plan) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Ranked Closure Plan</h2><div class="subtle">A small proof queue distilled from the deterministic case board, so operators do not have to start from every missing control.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Plan items", fmt.Sprintf("%d", len(plan))},
+		{"First control", plan[0].Control},
+		{"First case", plan[0].CaseID},
+		{"First severity", strings.ToUpper(plan[0].Severity)},
+	})
+	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
+	fmt.Fprintln(w, `<thead><tr><th>Rank / control</th><th>Case / impact</th><th>Evidence</th><th>Proof</th><th>Rerun / done</th></tr></thead><tbody>`)
+	limit := len(plan)
+	if limit > 5 {
+		limit = 5
+	}
+	for _, item := range plan[:limit] {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>#%d %s</strong><div class="pill %s">%s</div></td>`, item.Rank, esc(item.Control), cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%d flaw(s), %d target(s)</div><h3>Why</h3><div>%s</div><h3>What it closes</h3><div>%s</div></td>`, esc(firstNonEmpty(item.CaseTitle, item.CaseID)), esc(item.CaseID), item.AffectedFlaws, item.AffectedTargets, esc(item.WhyThisControl), esc(item.WhatItCloses))
+		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
+		fmt.Fprintf(w, `<td><h3>Surface</h3>%s<h3>Patch</h3>%s</td>`, renderDashboardPathList(root, nonEmptyStrings(item.ProofSurface)), renderAssessClosurePlanPatchHTML(root, item.ProofPatch))
+		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Compare</h3>%s<h3>Done when</h3>%s</td>`, renderCommandList(nonEmptyStrings(item.RerunCommand)), renderCommandList(nonEmptyStrings(item.CompareCommand)), renderSmallList(limitStrings(item.DoneCriteria, 3)))
+		fmt.Fprintln(w, `</tr>`)
+	}
+	if len(plan) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="5"><span class="subtle">%d more closure plan item(s) in JSON output.</span></td></tr>`, len(plan)-limit)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessClosurePlanPatchHTML(root string, patch *model.ControlProofPatch) string {
+	if patch == nil {
+		return `<span class="subtle">none</span>`
+	}
+	return renderDashboardHTMLList(controlProofPatchHTMLLines(root, []model.ControlProofPatch{*patch}, 1))
 }
 
 func renderAssessFirstActionDashboard(w io.Writer, root string, action model.AssessFirstAction) {

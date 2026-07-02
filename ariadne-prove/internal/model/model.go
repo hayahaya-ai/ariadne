@@ -291,6 +291,7 @@ type AssessReport struct {
 	TopCases         []ControlOperatorCase   `json:"top_cases"`
 	TopCaseProofPlan *ProofPlanReport        `json:"top_case_proof_plan,omitempty"`
 	FirstAction      AssessFirstAction       `json:"first_action"`
+	ClosurePlan      []AssessClosurePlanItem `json:"closure_plan"`
 	NextCommands     []string                `json:"next_commands"`
 	Redaction        RedactionInfo           `json:"redaction"`
 	Warnings         []string                `json:"warnings,omitempty"`
@@ -334,6 +335,26 @@ type AssessCurrentAction struct {
 	CompareCommand       string                  `json:"compare_command"`
 	PatchExportCommand   string                  `json:"patch_export_command"`
 	SuccessCriteria      []string                `json:"success_criteria"`
+}
+
+type AssessClosurePlanItem struct {
+	Rank               int                 `json:"rank"`
+	Control            string              `json:"control"`
+	CaseID             string              `json:"case_id"`
+	CaseTitle          string              `json:"case_title"`
+	Severity           string              `json:"severity"`
+	State              string              `json:"state"`
+	WhyThisControl     string              `json:"why_this_control"`
+	WhatItCloses       string              `json:"what_it_closes"`
+	AffectedFlaws      int                 `json:"affected_flaws"`
+	AffectedTargets    int                 `json:"affected_targets"`
+	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
+	ProofSurface       string              `json:"proof_surface"`
+	ProofPatch         *ControlProofPatch  `json:"proof_patch,omitempty"`
+	RerunCommand       string              `json:"rerun_command"`
+	CompareCommand     string              `json:"compare_command"`
+	DoneCriteria       []string            `json:"done_criteria"`
+	Limitations        []string            `json:"limitations"`
 }
 
 type AssessWorkflowStep struct {

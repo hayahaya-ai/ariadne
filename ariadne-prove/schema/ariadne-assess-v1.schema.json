@@ -19,6 +19,7 @@
     "case_board",
     "top_cases",
     "first_action",
+    "closure_plan",
     "next_commands",
     "redaction",
     "limitations"
@@ -50,6 +51,10 @@
     },
     "top_case_proof_plan": { "$ref": "ariadne-proof-plan-v1.schema.json" },
     "first_action": { "$ref": "#/$defs/assess_first_action" },
+    "closure_plan": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/assess_closure_plan_item" }
+    },
     "next_commands": { "type": "array", "items": { "type": "string" } },
     "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
     "warnings": { "type": "array", "items": { "type": "string" } },
@@ -250,6 +255,57 @@
         "compare_command": { "type": "string" },
         "patch_export_command": { "type": "string" },
         "success_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "assess_closure_plan_item": {
+      "type": "object",
+      "required": [
+        "rank",
+        "control",
+        "case_id",
+        "case_title",
+        "severity",
+        "state",
+        "why_this_control",
+        "what_it_closes",
+        "affected_flaws",
+        "affected_targets",
+        "evidence_refs",
+        "proof_surface",
+        "rerun_command",
+        "compare_command",
+        "done_criteria",
+        "limitations"
+      ],
+      "properties": {
+        "rank": { "type": "integer" },
+        "control": { "type": "string" },
+        "case_id": { "type": "string" },
+        "case_title": { "type": "string" },
+        "severity": { "type": "string" },
+        "state": { "type": "string" },
+        "why_this_control": { "type": "string" },
+        "what_it_closes": { "type": "string" },
+        "affected_flaws": { "type": "integer" },
+        "affected_targets": { "type": "integer" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "proof_surface": { "type": "string" },
+        "proof_patch": {
+          "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_proof_patch"
+        },
+        "rerun_command": { "type": "string" },
+        "compare_command": { "type": "string" },
+        "done_criteria": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
           "type": "array",
           "items": { "type": "string" }
         }
