@@ -188,6 +188,8 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 		"Ariadne Assessment",
 		"Operator Runbook",
 		"Current Action",
+		"Source Action Board",
+		"add_or_verify_control",
 		"Create closure workspace",
 		"Open these first",
 		"Current proof command",
@@ -644,6 +646,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Assessment",
 		"Source Reference Workbench",
+		"Source Action Board",
+		"add_or_verify_control",
 		"Operator Runbook",
 		"Current Action",
 		"Create closure workspace",

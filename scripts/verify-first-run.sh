@@ -317,6 +317,8 @@ expect_contains "$assess_json" '"save_baseline_proof"'
 expect_contains "$assess_json" '"closure_decision"'
 expect_contains "$assess_json" '"evidence_to_open"'
 expect_contains "$assess_json" '"source_reference_workbench"'
+expect_contains "$assess_json" '"source_action_board"'
+expect_contains "$assess_json" '"action_kind": "add_or_verify_control"'
 expect_contains "$assess_json" '"inspect_command"'
 expect_contains "$assess_json" '"content_inspectable"'
 expect_contains "$assess_json" '"change_readout"'
@@ -356,6 +358,8 @@ expect_contains "$assess_json" '.codex/config.toml'
 
 expect_contains "$assess_html" "Ariadne Assessment"
 expect_contains "$assess_html" "Source Reference Workbench"
+expect_contains "$assess_html" "Source Action Board"
+expect_contains "$assess_html" "add_or_verify_control"
 expect_contains "$assess_html" "Exact files and lines to open first"
 expect_contains "$assess_html" "Inspect command"
 expect_contains "$assess_html" "sed -n"
@@ -550,6 +554,8 @@ expect_contains "$self_bundle/assessment.json" '"closure_workflow"'
 expect_contains "$self_bundle/assessment.json" '"save_baseline_proof"'
 expect_contains "$self_bundle/assessment.json" '"closure_decision"'
 expect_contains "$self_bundle/assessment.json" '"source_reference_workbench"'
+expect_contains "$self_bundle/assessment.json" '"source_action_board"'
+expect_contains "$self_bundle/assessment.json" '"action_kind": "add_or_verify_control"'
 expect_contains "$self_bundle/assessment.json" '"inspect_command"'
 expect_contains "$self_bundle/assessment.json" '"metadata_only"'
 expect_contains "$self_bundle/assessment.json" '"top_case_id": "case:identity-credentials"'
@@ -594,6 +600,8 @@ expect_contains "$managed_inventory" '"repository-integrity-boundary"'
 expect_contains "$managed_inventory" '"cloud-identity-boundary"'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
 expect_contains "$self_bundle/dashboard.html" "Source Reference Workbench"
+expect_contains "$self_bundle/dashboard.html" "Source Action Board"
+expect_contains "$self_bundle/dashboard.html" "add_or_verify_control"
 expect_contains "$self_bundle/dashboard.html" "Exact files and lines to open first"
 expect_contains "$self_bundle/dashboard.html" "Inspect command"
 expect_contains "$self_bundle/dashboard.html" "sed -n"
@@ -737,6 +745,8 @@ expect_contains "$endpoint_json" '"save_baseline_proof"'
 expect_contains "$endpoint_json" '"closure_decision"'
 expect_contains "$endpoint_json" '"evidence_to_open"'
 expect_contains "$endpoint_json" '"source_reference_workbench"'
+expect_contains "$endpoint_json" '"source_action_board"'
+expect_contains "$endpoint_json" '"action_kind": "add_or_verify_control"'
 expect_contains "$endpoint_json" '"inspect_command"'
 expect_contains "$endpoint_json" '"metadata_only"'
 expect_contains "$endpoint_json" '"change_readout"'
@@ -752,6 +762,8 @@ expect_contains "$endpoint_json" '.gemini/settings.json'
 
 expect_contains "$endpoint_html" "Ariadne Assessment"
 expect_contains "$endpoint_html" "Source Reference Workbench"
+expect_contains "$endpoint_html" "Source Action Board"
+expect_contains "$endpoint_html" "add_or_verify_control"
 expect_contains "$endpoint_html" "Exact files and lines to open first"
 expect_contains "$endpoint_html" "Inspect command"
 expect_contains "$endpoint_html" "sed -n"

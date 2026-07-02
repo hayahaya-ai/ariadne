@@ -4989,6 +4989,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !strings.Contains(jsonOut.String(), `"line_start"`) || !strings.Contains(jsonOut.String(), `"line_end"`) {
 		t.Fatalf("assessment JSON should include source line anchors in evidence references:\n%s", jsonOut.String())
 	}
+	if !strings.Contains(jsonOut.String(), `"source_action_board"`) ||
+		!hasSourceAction(decoded.SourceReferences.ActionBoard, ".claude/settings.json", "evidence", "inspect_risk_source", "sed -n", "") ||
+		!hasSourceAction(decoded.SourceReferences.ActionBoard, ".ariadne/egress-policy.json", "proof_surface", "add_or_verify_control", "test -f", "control:egress-destination-allowlist") {
+		t.Fatalf("assessment JSON should expose a file-grouped source action board: %+v", decoded.SourceReferences.ActionBoard)
+	}
 	if !decoded.CaseLifecycle.Available ||
 		decoded.CaseLifecycle.CaseID != decoded.FirstAction.CaseID ||
 		decoded.CaseLifecycle.CaseState != "open" ||
@@ -8077,6 +8082,28 @@ func hasOperatorPacketCommand(items []model.AssessOperatorCommand, id string, co
 		}
 		if fileFragment != "" && !containsString(item.Files, fileFragment) {
 			return false
+		}
+		return true
+	}
+	return false
+}
+
+func hasSourceAction(items []model.AssessSourceAction, sourceFragment string, role string, actionKind string, commandFragment string, relatedControl string) bool {
+	for _, item := range items {
+		if sourceFragment != "" && !strings.Contains(item.Source+" "+item.DisplaySource+" "+item.LocalPath, sourceFragment) {
+			continue
+		}
+		if role != "" && item.Role != role {
+			continue
+		}
+		if actionKind != "" && item.ActionKind != actionKind {
+			continue
+		}
+		if commandFragment != "" && !containsString(item.InspectCommands, commandFragment) {
+			continue
+		}
+		if relatedControl != "" && !containsString(item.RelatedControls, relatedControl) {
+			continue
 		}
 		return true
 	}

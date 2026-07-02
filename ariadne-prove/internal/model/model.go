@@ -353,6 +353,7 @@ type AssessSourceReferences struct {
 	Summary            string               `json:"summary"`
 	EvidenceReferences []EvidenceReference  `json:"evidence_refs"`
 	Rows               []AssessSourceRefRow `json:"rows"`
+	ActionBoard        []AssessSourceAction `json:"source_action_board"`
 	LocalFiles         int                  `json:"local_files"`
 	MetadataOnly       int                  `json:"metadata_only"`
 	ContentInspectable int                  `json:"content_inspectable"`
@@ -369,6 +370,22 @@ type AssessSourceRefRow struct {
 	LocalFile      bool   `json:"local_file"`
 	MetadataOnly   bool   `json:"metadata_only"`
 	InspectCommand string `json:"inspect_command,omitempty"`
+}
+
+type AssessSourceAction struct {
+	Source            string   `json:"source"`
+	DisplaySource     string   `json:"display_source"`
+	Role              string   `json:"role"`
+	ActionKind        string   `json:"action_kind"`
+	RecommendedAction string   `json:"recommended_action"`
+	LocalPath         string   `json:"local_path,omitempty"`
+	LocalFile         bool     `json:"local_file"`
+	MetadataOnly      bool     `json:"metadata_only"`
+	LineLabels        []string `json:"line_labels"`
+	Kinds             []string `json:"kinds"`
+	Facts             []string `json:"facts"`
+	InspectCommands   []string `json:"inspect_commands"`
+	RelatedControls   []string `json:"related_controls"`
 }
 
 type AssessOperatorPacketReport struct {

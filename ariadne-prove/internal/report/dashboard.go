@@ -231,8 +231,50 @@ func renderAssessSourceReferenceWorkbenchDashboard(w io.Writer, r model.AssessRe
 	if workbench.Summary != "" {
 		fmt.Fprintf(w, `<p><strong>Readout:</strong> %s</p>`, esc(workbench.Summary))
 	}
+	renderAssessSourceActionBoardDashboard(w, workbench.ActionBoard, 8)
 	renderAssessSourceReferenceRowTable(w, workbench.Rows, 12)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessSourceActionBoardDashboard(w io.Writer, actions []model.AssessSourceAction, limit int) {
+	if len(actions) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(actions) {
+		limit = len(actions)
+	}
+	fmt.Fprintln(w, `<h3>Source Action Board</h3>`)
+	fmt.Fprintln(w, `<div class="subtle">Grouped by file or source so an operator can work one surface at a time.</div>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, `<thead><tr><th>Source</th><th>Role</th><th>Action</th><th>Facts</th><th>Open / verify</th></tr></thead><tbody>`)
+	for _, action := range actions[:limit] {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td>%s<div class="subtle">Lines: %s</div></td>`, dashboardSourceActionSourceHTML(action), esc(strings.Join(limitStrings(action.LineLabels, 4), ", ")))
+		fmt.Fprintf(w, `<td><span class="pill neutral">%s</span><div class="mono">%s</div></td>`, esc(readableToken(action.Role)), esc(action.ActionKind))
+		fmt.Fprintf(w, `<td>%s%s</td>`, esc(action.RecommendedAction), dashboardSourceActionControlsHTML(action.RelatedControls))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(action.Facts, 3)))
+		fmt.Fprintf(w, `<td>%s</td>`, renderCommandList(limitStrings(action.InspectCommands, 2)))
+		fmt.Fprintln(w, `</tr>`)
+	}
+	if len(actions) > limit {
+		fmt.Fprintf(w, `<tr><td colspan="5"><span class="subtle">%d more source action(s) in JSON output.</span></td></tr>`, len(actions)-limit)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+}
+
+func dashboardSourceActionSourceHTML(action model.AssessSourceAction) string {
+	if action.LocalPath != "" {
+		return dashboardFileRefWithLabelHTML("", action.LocalPath, firstNonEmpty(action.DisplaySource, action.Source))
+	}
+	return fmt.Sprintf(`<span class="mono">%s</span>`, esc(firstNonEmpty(action.DisplaySource, action.Source)))
+}
+
+func dashboardSourceActionControlsHTML(controls []string) string {
+	controls = limitStrings(controls, 4)
+	if len(controls) == 0 {
+		return ""
+	}
+	return `<div class="subtle">Controls: ` + esc(strings.Join(controls, "; ")) + `</div>`
 }
 
 func renderArchitectureDashboard(w io.Writer, r model.ArchitectureReport) error {
