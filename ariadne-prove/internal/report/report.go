@@ -2011,6 +2011,7 @@ func renderAssessSummaryNextAction(w io.Writer, r model.AssessReport) {
 	if patch := assessCurrentProofPatchLine(action); patch != "" {
 		fmt.Fprintf(w, "  - Proof patch: %s\n", patch)
 	}
+	renderAssessSummaryProofBundle(w, action)
 	if r.Decision.BeforeProofCommand != "" {
 		fmt.Fprintf(w, "  - Before proof: %s\n", r.Decision.BeforeProofCommand)
 	}
@@ -2052,6 +2053,34 @@ func renderAssessSummaryNextAction(w io.Writer, r model.AssessReport) {
 			fmt.Fprintf(w, "  - %s\n", command)
 		}
 	}
+}
+
+func renderAssessSummaryProofBundle(w io.Writer, action model.AssessFirstAction) {
+	if !action.Available || len(action.ProofPatches) <= 1 {
+		return
+	}
+	controls := proofPatchControls(action.ProofPatches)
+	files := action.GeneratedProofPaths
+	if len(files) == 0 {
+		files = proofPatchBundleSurfaces(action.ProofPatches)
+	}
+	if len(controls) > 0 {
+		fmt.Fprintf(w, "  - Closure bundle controls: %s\n", strings.Join(firstStrings(controls, 6), "; "))
+	}
+	if len(files) > 0 {
+		fmt.Fprintf(w, "  - Closure bundle files: %s\n", strings.Join(firstStrings(files, 4), "; "))
+	}
+	fmt.Fprintf(w, "  - Closure rule: rerun must show every bundle control is no longer a missing hard barrier for this case.\n")
+}
+
+func proofPatchControls(patches []model.ControlProofPatch) []string {
+	var out []string
+	for _, patch := range patches {
+		if control := strings.TrimSpace(patch.Control); control != "" {
+			out = append(out, control)
+		}
+	}
+	return uniqueStrings(out)
 }
 
 func renderAssessSummaryLimitations(w io.Writer, limitations []string) {

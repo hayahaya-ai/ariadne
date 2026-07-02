@@ -2749,6 +2749,23 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var summaryOut bytes.Buffer
+	if err := report.RenderAssess(&summaryOut, inventory, r, "summary", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	summaryRendered := summaryOut.String()
+	summaryActionBlock := boundedBlock(t, summaryRendered, "Next action:", "More detail:")
+	for _, want := range []string{
+		"Do this: Add or verify control:credential-isolation evidence at .ariadne/identity-policy.json",
+		"Closure bundle controls: control:credential-isolation; control:cryptographic-identity; control:hardware-bound-credential; control:jit-access; control:short-lived-credential",
+		"Closure bundle files: proof-patches/surfaces/.ariadne/identity-policy.json",
+		"Closure rule: rerun must show every bundle control is no longer a missing hard barrier for this case.",
+	} {
+		if !strings.Contains(summaryActionBlock, want) {
+			t.Fatalf("endpoint summary should make the full closure bundle actionable; missing %q:\n%s", want, summaryActionBlock)
+		}
+	}
+
 	var actionOut bytes.Buffer
 	if err := report.RenderAssess(&actionOut, inventory, r, "action", "breaking"); err != nil {
 		t.Fatal(err)
@@ -4089,6 +4106,9 @@ func TestAssessSummaryIsCompactFirstRunReadout(t *testing.T) {
 		"Do this: Add or verify control:egress-destination-allowlist evidence at .ariadne/egress-policy.json",
 		"Before proof:",
 		"Export proof files:",
+		"Closure bundle controls: control:egress-destination-allowlist; control:network-restricted; control:output-filter-logging; control:output-redaction; control:output-sensitive-data-filter",
+		"Closure bundle files: proof-patches/surfaces/.ariadne/egress-policy.json; proof-patches/surfaces/.ariadne/output-policy.json",
+		"Closure rule: rerun must show every bundle control is no longer a missing hard barrier for this case.",
 		"Full case proof bundle:",
 		"proof-patches/surfaces/.ariadne/egress-policy.json",
 		"proof-patches/surfaces/.ariadne/output-policy.json",
