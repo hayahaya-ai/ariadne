@@ -199,6 +199,9 @@ type selfAssessmentBundleResult struct {
 	CaseFilter    string                     `json:"case_filter,omitempty"`
 	ControlFilter string                     `json:"control_filter,omitempty"`
 	TopCaseID     string                     `json:"top_case_id,omitempty"`
+	ReviewOrder   []string                   `json:"review_order"`
+	ProofLoop     []string                   `json:"proof_loop"`
+	Limitations   []string                   `json:"limitations"`
 	Files         []selfAssessmentBundleFile `json:"files"`
 }
 
@@ -234,6 +237,9 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		CaseFilter:    assess.CaseFilter,
 		ControlFilter: assess.ControlFilter,
 		TopCaseID:     topCaseID,
+		ReviewOrder:   selfAssessmentBundleReviewOrder(),
+		ProofLoop:     selfAssessmentBundleProofLoop(r.TargetPath, r.Story.Mode, r.Story.Runtime, assess.StatusFilter, topCaseID),
+		Limitations:   selfAssessmentBundleLimitations(),
 		Files: []selfAssessmentBundleFile{
 			{Name: "assessment.txt", Path: filepath.Join(absDir, "assessment.txt"), Description: "Compact human readout with the decision, evidence, first action, and rerun commands."},
 			{Name: "assessment.json", Path: filepath.Join(absDir, "assessment.json"), Description: "Structured assessment contract for automation and UI consumers."},
@@ -327,6 +333,72 @@ func selfAssessmentBundleCaseID(assess model.AssessReport, focus report.AssessFo
 	return ""
 }
 
+func selfAssessmentBundleReviewOrder() []string {
+	return []string{
+		"Read `assessment.txt` for the executive readout, decision, signal/noise boundary, and first action.",
+		"Open `dashboard.html` for the operator dashboard with evidence links, proof bundle rows, lifecycle, and case queue.",
+		"Use `proof-action.txt` to inspect the exact proof evidence Ariadne expects for the focused case.",
+		"Use `proof-plan.json`, `assessment.json`, `inventory.json`, and `cases.json` for automation, ticket metadata, or deeper review.",
+		"Run the proof loop commands below only after reviewing generated proof evidence and deciding what should be applied.",
+	}
+}
+
+func selfAssessmentBundleProofLoop(targetPath string, mode string, agent string, status string, caseID string) []string {
+	caseID = strings.TrimSpace(caseID)
+	if caseID == "" {
+		return []string{}
+	}
+	base := fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s --case %s",
+		selfBundleShellQuoteArg(targetPath),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(mode, "endpoint")),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(agent, "all")),
+		selfBundleShellQuoteArg(selfBundleFirstNonEmpty(status, "breaking")),
+		selfBundleShellQuoteArg(caseID),
+	)
+	return []string{
+		base + " --format action",
+		base + " --format json --out before-proof.json",
+		base + " --patch-dir proof-patches",
+		base + " --format json --out after-proof.json",
+		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
+	}
+}
+
+func selfAssessmentBundleLimitations() []string {
+	return []string{
+		"The bundle is generated from deterministic local facts, typed parsers, and graph evidence; it does not execute agents, MCP servers, package managers, or tools.",
+		"Proof patches are suggested evidence files for review. Exporting or copying them does not prove live enforcement by itself.",
+		"Treat `case-compare.html` as the closure readout after rerunning Ariadne against the changed target.",
+		"Private histories, transcripts, paste caches, and sensitive files are summarized or path-modeled; Ariadne does not emit secret values.",
+	}
+}
+
+func selfBundleFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func selfBundleShellQuoteArg(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "''"
+	}
+	if strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">") {
+		return value
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '/' || r == '.' || r == '_' || r == '-' || r == ':' {
+			continue
+		}
+		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	}
+	return value
+}
+
 func writeRenderedFile(path string, render func(io.Writer) error) error {
 	file, err := os.Create(path)
 	if err != nil {
@@ -347,15 +419,28 @@ func selfAssessmentBundleReadme(result selfAssessmentBundleResult) string {
 	if result.ControlFilter != "" {
 		fmt.Fprintf(&b, "Focused control: `%s`\n", result.ControlFilter)
 	}
+	fmt.Fprintf(&b, "\n## What This Bundle Answers\n\n")
+	fmt.Fprintf(&b, "Ariadne collected deterministic target facts, built the agent exposure graph, ranked the first operator case, and generated the proof workflow for closing or downgrading that case. The bundle is intended for local review, ticket attachment, or handoff to another operator.\n")
 	fmt.Fprintf(&b, "\n## Suggested Review Order\n\n")
-	fmt.Fprintf(&b, "1. Read `assessment.txt` for the executive readout and first action.\n")
-	fmt.Fprintf(&b, "2. Open `dashboard.html` for the local operator dashboard.\n")
-	fmt.Fprintf(&b, "3. Use `proof-action.txt` to add or verify the top proof evidence.\n")
-	fmt.Fprintf(&b, "4. Use `assessment.json`, `inventory.json`, `cases.json`, and `proof-plan.json` for automation or deeper inspection.\n")
-	fmt.Fprintf(&b, "\nThese files are generated from deterministic inventory, typed facts, and graph evidence. The bundle does not mutate the scanned target.\n\n")
+	for idx, item := range result.ReviewOrder {
+		fmt.Fprintf(&b, "%d. %s\n", idx+1, item)
+	}
+	if len(result.ProofLoop) > 0 {
+		fmt.Fprintf(&b, "\n## Proof Loop Commands\n\n")
+		fmt.Fprintf(&b, "Run these from a working directory where you want `before-proof.json`, `after-proof.json`, `proof-patches/`, and `case-compare.html` written.\n\n")
+		for _, command := range result.ProofLoop {
+			fmt.Fprintf(&b, "```bash\n%s\n```\n\n", command)
+		}
+	}
 	fmt.Fprintf(&b, "## Files\n\n")
 	for _, file := range result.Files {
 		fmt.Fprintf(&b, "- `%s`: %s\n", file.Name, file.Description)
+	}
+	if len(result.Limitations) > 0 {
+		fmt.Fprintf(&b, "\n## Limits And Privacy\n\n")
+		for _, limitation := range result.Limitations {
+			fmt.Fprintf(&b, "- %s\n", limitation)
+		}
 	}
 	return b.String()
 }

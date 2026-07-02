@@ -211,6 +211,14 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"assessment.txt",
 		"dashboard.html",
 		"proof-action.txt",
+		"What This Bundle Answers",
+		"Proof Loop Commands",
+		"before-proof.json",
+		"--patch-dir proof-patches",
+		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
+		"Limits And Privacy",
+		"does not execute agents",
+		"case-compare.html",
 		"manifest.json",
 		"case:identity-credentials",
 	} {
@@ -285,6 +293,11 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	manifest := readTestFile(t, filepath.Join(bundleDir, "manifest.json"))
 	for _, want := range []string{
 		`"top_case_id": "case:identity-credentials"`,
+		`"review_order"`,
+		`"proof_loop"`,
+		`--patch-dir proof-patches`,
+		`"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html"`,
+		`"limitations"`,
 		`"name": "README.md"`,
 		`"name": "manifest.json"`,
 		`"name": "proof-action.txt"`,

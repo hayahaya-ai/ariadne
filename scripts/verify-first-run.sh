@@ -340,8 +340,15 @@ for bundle_file in assessment.txt assessment.json dashboard.html inventory.json 
   fi
 done
 expect_contains "$self_bundle/README.md" "Ariadne Self-Assessment Bundle"
+expect_contains "$self_bundle/README.md" "What This Bundle Answers"
+expect_contains "$self_bundle/README.md" "Suggested Review Order"
+expect_contains "$self_bundle/README.md" "Proof Loop Commands"
 expect_contains "$self_bundle/README.md" "dashboard.html"
 expect_contains "$self_bundle/README.md" "proof-action.txt"
+expect_contains "$self_bundle/README.md" "--patch-dir proof-patches"
+expect_contains "$self_bundle/README.md" "ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html"
+expect_contains "$self_bundle/README.md" "Limits And Privacy"
+expect_contains "$self_bundle/README.md" "does not execute agents"
 expect_contains "$self_bundle/README.md" "case:identity-credentials"
 expect_contains "$self_bundle/assessment.json" '"run_kind": "assess"'
 expect_contains "$self_bundle/assessment.json" '"signal_quality"'
@@ -361,6 +368,10 @@ expect_contains "$self_bundle/proof-plan.json" '"run_kind": "proof_plan"'
 expect_contains "$self_bundle/proof-plan.json" '"case_filter": "case:identity-credentials"'
 expect_contains "$self_bundle/manifest.json" '"name": "README.md"'
 expect_contains "$self_bundle/manifest.json" '"name": "manifest.json"'
+expect_contains "$self_bundle/manifest.json" '"review_order"'
+expect_contains "$self_bundle/manifest.json" '"proof_loop"'
+expect_contains "$self_bundle/manifest.json" "--patch-dir proof-patches"
+expect_contains "$self_bundle/manifest.json" '"limitations"'
 
 expect_contains "$endpoint_action" "What was inspected:"
 expect_contains "$endpoint_action" "Decision:"
