@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -186,7 +188,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessSummaryDashboard(w, r)
-	renderAssessFirstActionDashboard(w, r.FirstAction)
+	renderAssessFirstActionDashboard(w, r.TargetPath, r.FirstAction)
 	renderAssessClosureEvidenceDashboard(w, r.ClosureEvidence)
 	renderAssessCaseNavigationDashboard(w, r.TopCases)
 	renderAssessActiveCaseDashboard(w, r)
@@ -560,6 +562,14 @@ tr:last-child td { border-bottom: 0; }
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+.file-link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.file-link:hover {
+  border-bottom-color: var(--accent);
+}
 .two-col {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -663,7 +673,7 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `</section>`)
 }
 
-func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstAction) {
+func renderAssessFirstActionDashboard(w io.Writer, root string, action model.AssessFirstAction) {
 	if !action.Available {
 		return
 	}
@@ -683,7 +693,7 @@ func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstActio
 	if action.NextStep != "" {
 		fmt.Fprintf(w, `<p><strong>Next step:</strong> %s</p>`, esc(action.NextStep))
 	}
-	renderAssessCurrentActionDashboard(w, action.CurrentAction)
+	renderAssessCurrentActionDashboard(w, root, action.CurrentAction)
 	renderAssessWorkflowDashboard(w, action.Workflow)
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
@@ -694,7 +704,7 @@ func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstActio
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Prove At</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(action.ProofSurfaces, 6)))
+	fmt.Fprintln(w, renderDashboardPathList(root, limitStrings(action.ProofSurfaces, 6)))
 	fmt.Fprintln(w, `<h3>Accepted Evidence</h3>`)
 	fmt.Fprintln(w, renderSmallList(controlEvidenceExampleLines(action.EvidenceExamples, 2)))
 	fmt.Fprintln(w, `<h3>Proof Patch</h3>`)
@@ -710,14 +720,14 @@ func renderAssessFirstActionDashboard(w io.Writer, action model.AssessFirstActio
 	fmt.Fprintln(w, `</section>`)
 }
 
-func renderAssessCurrentActionDashboard(w io.Writer, action model.AssessCurrentAction) {
+func renderAssessCurrentActionDashboard(w io.Writer, root string, action model.AssessCurrentAction) {
 	if !action.Available {
 		return
 	}
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>Current Action</h3>`)
-	fmt.Fprintln(w, renderSmallList(assessCurrentActionLines(action)))
+	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentActionHTMLLines(root, action)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>After Proof</h3>`)
@@ -726,40 +736,36 @@ func renderAssessCurrentActionDashboard(w io.Writer, action model.AssessCurrentA
 	fmt.Fprintln(w, `</div>`)
 }
 
-func assessCurrentActionLines(action model.AssessCurrentAction) []string {
+func assessCurrentActionHTMLLines(root string, action model.AssessCurrentAction) []string {
 	var out []string
 	if action.WorkflowStepTitle != "" {
-		out = append(out, "Step: "+action.WorkflowStepTitle)
+		out = append(out, "Step: "+esc(action.WorkflowStepTitle))
 	}
 	if action.Control != "" {
-		out = append(out, "Control: "+action.Control)
+		out = append(out, "Control: "+esc(action.Control))
 	}
 	if action.Surface != "" {
-		out = append(out, "Surface: "+action.Surface)
+		out = append(out, "Surface: "+dashboardFileRefHTML(root, action.Surface))
 	}
-	for _, line := range evidenceReferenceLinesBySource(action.EvidenceReferences, 4) {
-		out = append(out, "Evidence: "+line)
+	for _, ref := range dashboardEvidenceReferencesBySource(action.EvidenceReferences, 4) {
+		out = append(out, "Evidence: "+dashboardEvidenceReferenceHTML(root, ref))
 	}
 	if action.ProofPatchIndex >= 0 {
 		if action.ProofPatch != nil {
-			for _, line := range controlProofPatchLines([]model.ControlProofPatch{*action.ProofPatch}, 1) {
-				out = append(out, "Proof patch: "+line)
-			}
+			out = append(out, "Proof patch: "+dashboardControlProofPatchHTML(root, *action.ProofPatch))
 		} else {
 			out = append(out, fmt.Sprintf("Proof patch: #%d", action.ProofPatchIndex+1))
 		}
 	}
 	if action.EvidenceExampleIndex >= 0 {
 		if action.EvidenceExample != nil {
-			for _, line := range controlEvidenceExampleLines([]model.ControlEvidenceExample{*action.EvidenceExample}, 1) {
-				out = append(out, "Accepted evidence: "+line)
-			}
+			out = append(out, "Accepted evidence: "+dashboardControlEvidenceExampleHTML(root, *action.EvidenceExample))
 		} else {
 			out = append(out, fmt.Sprintf("Accepted evidence: #%d", action.EvidenceExampleIndex+1))
 		}
 	}
 	if action.Instruction != "" {
-		out = append(out, "Instruction: "+action.Instruction)
+		out = append(out, "Instruction: "+esc(action.Instruction))
 	}
 	if out == nil {
 		return []string{}
@@ -2842,6 +2848,200 @@ func renderSmallList(items []string) string {
 	}
 	b.WriteString("</ul>")
 	return b.String()
+}
+
+func renderDashboardHTMLList(items []string) string {
+	if len(items) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	var b strings.Builder
+	b.WriteString(`<ul class="list">`)
+	for _, item := range items {
+		b.WriteString("<li>")
+		b.WriteString(item)
+		b.WriteString("</li>")
+	}
+	b.WriteString("</ul>")
+	return b.String()
+}
+
+func renderDashboardPathList(root string, items []string) string {
+	if len(items) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, dashboardFileRefHTML(root, item))
+	}
+	return renderDashboardHTMLList(out)
+}
+
+func dashboardEvidenceReferencesBySource(values []model.EvidenceReference, limit int) []model.EvidenceReference {
+	values = dedupeEvidenceReferences(values)
+	if len(values) == 0 {
+		return []model.EvidenceReference{}
+	}
+	seen := map[string]bool{}
+	compact := make([]model.EvidenceReference, 0, len(values))
+	for _, value := range values {
+		key := value.Source
+		if key == "" {
+			key = value.ID
+		}
+		if key == "" {
+			key = value.Kind
+		}
+		if value.Target != "" {
+			key = value.Target + "|" + key
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		compact = append(compact, value)
+	}
+	if limit <= 0 || limit > len(compact) {
+		limit = len(compact)
+	}
+	out := append([]model.EvidenceReference{}, compact[:limit]...)
+	if len(compact) > limit {
+		out = append(out, model.EvidenceReference{
+			Kind:    "summary",
+			Summary: fmt.Sprintf("%d more evidence source(s) in JSON", len(compact)-limit),
+		})
+	}
+	return out
+}
+
+func dashboardEvidenceReferenceHTML(root string, value model.EvidenceReference) string {
+	source := value.Source
+	if source == "" {
+		source = value.ID
+	}
+	if source == "" {
+		source = value.Kind
+	}
+	prefix := dashboardFileRefHTML(root, source)
+	if value.Target != "" {
+		prefix = esc(value.Target) + ": " + prefix
+	}
+	summary := strings.TrimSpace(value.Summary)
+	if len(summary) > 120 {
+		summary = summary[:117] + "..."
+	}
+	kind := strings.TrimSpace(value.Kind)
+	if summary == "" || summary == source {
+		if kind != "" {
+			return fmt.Sprintf("%s [%s]", prefix, esc(kind))
+		}
+		return prefix
+	}
+	if kind != "" {
+		return fmt.Sprintf("%s [%s] %s", prefix, esc(kind), esc(summary))
+	}
+	return prefix + " " + esc(summary)
+}
+
+func dashboardControlEvidenceExampleHTML(root string, example model.ControlEvidenceExample) string {
+	line := dashboardFileRefHTML(root, example.Surface)
+	if example.Summary != "" {
+		if line != "" {
+			line += ": "
+		}
+		line += esc(strings.TrimSpace(example.Summary))
+	}
+	if example.Example != "" {
+		if line != "" {
+			line += " "
+		}
+		line += "Example: " + esc(compactExample(example.Example))
+	}
+	return strings.TrimSpace(line)
+}
+
+func dashboardControlProofPatchHTML(root string, patch model.ControlProofPatch) string {
+	line := strings.TrimSpace(patch.Surface)
+	if line != "" {
+		line = dashboardFileRefHTML(root, line)
+	} else {
+		line = esc(strings.TrimSpace(patch.Control))
+	}
+	var fields []string
+	for _, field := range patch.Fields {
+		fields = append(fields, esc(field.Name+"="+field.ValueJSON))
+	}
+	if len(fields) > 0 {
+		line += " " + esc(patch.Operation) + " " + strings.Join(limitStrings(fields, 3), ", ")
+	} else if patch.Operation != "" {
+		line += " " + esc(patch.Operation)
+	}
+	if patch.Example != "" {
+		line += " Example: " + esc(compactExample(patch.Example))
+	}
+	return strings.TrimSpace(line)
+}
+
+func dashboardFileRefHTML(root, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	href := dashboardFileHref(root, value)
+	if href == "" {
+		return fmt.Sprintf(`<span class="mono">%s</span>`, esc(value))
+	}
+	return fmt.Sprintf(`<a class="file-link mono" href="%s">%s</a>`, esc(href), esc(value))
+}
+
+func dashboardFileHref(root, value string) string {
+	value = strings.TrimSpace(value)
+	if !dashboardLooksLikeLocalPath(value) {
+		return ""
+	}
+	path := value
+	if !filepath.IsAbs(path) {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			return ""
+		}
+		path = filepath.Join(root, path)
+	}
+	path = filepath.Clean(path)
+	if path == "." || path == string(filepath.Separator) {
+		return ""
+	}
+	return (&url.URL{Scheme: "file", Path: path}).String()
+}
+
+func dashboardLooksLikeLocalPath(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.Contains(value, "://") || strings.ContainsAny(value, "\n\r\t") {
+		return false
+	}
+	if strings.Contains(value, " ") {
+		return false
+	}
+	if strings.HasPrefix(value, "control:") ||
+		strings.HasPrefix(value, "case:") ||
+		strings.HasPrefix(value, "ztaf:") ||
+		strings.HasPrefix(value, "runtime:") ||
+		strings.HasPrefix(value, "boundary:") ||
+		strings.HasPrefix(value, "authority:") ||
+		strings.HasPrefix(value, "tool:") ||
+		strings.HasPrefix(value, "config:") ||
+		strings.HasPrefix(value, "evidence:") {
+		return false
+	}
+	if filepath.IsAbs(value) {
+		return true
+	}
+	if strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") {
+		return true
+	}
+	if strings.HasPrefix(value, ".") && value != "." && value != ".." {
+		return true
+	}
+	return strings.Contains(value, "/")
 }
 
 func countNodes(graph model.Graph, nodeType string) int {
