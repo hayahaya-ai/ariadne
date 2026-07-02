@@ -3129,6 +3129,10 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"State:",
 		"Next step:",
 		"Evidence references:",
+		"Evidence sources:",
+		".claude/settings.json",
+		".codex/config.toml",
+		".env",
 		"Start with:",
 		"Prove at:",
 		"Proof patches:",
@@ -3149,6 +3153,23 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 	}
 	if strings.Contains(out, "  Controls:\n") {
 		t.Fatalf("operator case board should not render raw control rows by default:\n%s", out)
+	}
+	topCaseBlock := boundedBlock(t, out, "case:egress-output-boundary", "case:least-agency-authority")
+	for _, want := range []string{
+		"Evidence sources:",
+		".claude/settings.json",
+		".codex/config.toml",
+		".env",
+		"Prove at:",
+		".ariadne/agent-policy.json",
+		".ariadne/egress-policy.json",
+		".ariadne/output-policy.json",
+		".claude/settings.json",
+		".codex/config.toml",
+	} {
+		if !strings.Contains(topCaseBlock, want) {
+			t.Fatalf("top operator case should expose actionable source/proof paths; missing %q:\n%s", want, topCaseBlock)
+		}
 	}
 
 	var jsonOut bytes.Buffer
@@ -3219,6 +3240,8 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"Priority:",
 		"State: open",
 		"Next step:",
+		"Evidence sources:",
+		"CLAUDE.md",
 		"Compare loop:",
 		"before-proof.json",
 		"after-proof.json",

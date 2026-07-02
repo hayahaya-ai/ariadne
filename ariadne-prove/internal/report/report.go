@@ -5618,12 +5618,15 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		}
 		if len(item.EvidenceReferences) > 0 {
 			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 2), "; "))
+			if sources := evidenceReferenceSources(item.EvidenceReferences, false); len(sources) > 0 {
+				fmt.Fprintf(w, "      Evidence sources: %s\n", strings.Join(limitStrings(sources, 8), "; "))
+			}
 		}
 		if len(item.StartingControls) > 0 {
 			fmt.Fprintf(w, "      Start with: %s\n", strings.Join(limitStrings(item.StartingControls, 4), "; "))
 		}
 		if len(item.ProofSurfaces) > 0 {
-			fmt.Fprintf(w, "      Prove at: %s\n", strings.Join(limitStrings(item.ProofSurfaces, 4), "; "))
+			fmt.Fprintf(w, "      Prove at: %s\n", strings.Join(limitStrings(item.ProofSurfaces, 8), "; "))
 		}
 		if len(item.EvidenceExamples) > 0 {
 			fmt.Fprintf(w, "      Evidence examples: %s\n", strings.Join(controlEvidenceExampleLines(item.EvidenceExamples, 2), "; "))
