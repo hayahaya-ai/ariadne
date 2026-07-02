@@ -832,24 +832,11 @@ func renderAssessSummaryDashboard(w io.Writer, r model.AssessReport) {
 }
 
 func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
-	action := r.FirstAction
-	if !action.Available {
+	workbench := r.OperatorWorkbench
+	if !workbench.Available {
 		return
 	}
-	current := action.CurrentAction
-	evidenceRefs := current.EvidenceReferences
-	if len(evidenceRefs) == 0 {
-		evidenceRefs = action.EvidenceReferences
-	}
-	proofSurfaces := assessActionDashboardSurfaces(action)
-	if current.Surface != "" && !contains(proofSurfaces, current.Surface) {
-		proofSurfaces = append([]string{current.Surface}, proofSurfaces...)
-	}
-	successCriteria := current.SuccessCriteria
-	if len(successCriteria) == 0 {
-		successCriteria = action.SuccessCriteria
-	}
-	closed := assessFirstActionClosed(action)
+	closed := workbench.Mode == "closed_case"
 	heading := "Operator Workbench"
 	subtitle := "Current case, exact evidence, proof surface, rerun loop, and done criteria in one place."
 	if closed {
@@ -860,27 +847,27 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 	fmt.Fprintln(w, `<section class="panel">`)
 	fmt.Fprintf(w, `<div class="section-head"><div><h2>%s</h2><div class="subtle">%s</div></div></div>`, esc(heading), esc(subtitle))
 	renderMetricRow(w, []kv{
-		{"Case", firstNonEmpty(action.CaseID, "not recorded")},
-		{"Control", firstNonEmpty(current.Control, firstString(action.StartingControls), "not recorded")},
-		{"Proof surface", firstNonEmpty(current.Surface, firstString(proofSurfaces), "not recorded")},
-		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(evidenceRefs)))},
-		{"State", firstNonEmpty(action.State, "open")},
+		{"Case", firstNonEmpty(workbench.Case.ID, "not recorded")},
+		{"Control", firstNonEmpty(workbench.Proof.Control, firstString(workbench.Proof.Controls), "not recorded")},
+		{"Proof surface", firstNonEmpty(workbench.Proof.Surface, firstString(workbench.Proof.Surfaces), "not recorded")},
+		{"Evidence refs", fmt.Sprintf("%d", len(dedupeEvidenceReferences(workbench.EvidenceToOpen)))},
+		{"State", firstNonEmpty(workbench.Case.State, "open")},
 	})
 	fmt.Fprintln(w, `<div class="two-col">`)
 	fmt.Fprintln(w, `<div>`)
 	fmt.Fprintln(w, `<h3>1. Current Case</h3>`)
 	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
-		action.Title+" ("+action.CaseID+")",
-		"Severity: "+strings.ToUpper(firstNonEmpty(action.Severity, "unknown")),
-		"State: "+firstNonEmpty(action.State, "open"),
-		action.WhyFirst,
-		action.NextStep,
+		workbench.Case.Title+" ("+workbench.Case.ID+")",
+		"Severity: "+strings.ToUpper(firstNonEmpty(workbench.Case.Severity, "unknown")),
+		"State: "+firstNonEmpty(workbench.Case.State, "open"),
+		"Current step: "+firstNonEmpty(workbench.Case.CurrentStep, "not recorded"),
+		workbench.Case.WhyFirst,
+		workbench.Case.NextStep,
 	)))
 	fmt.Fprintln(w, `<h3>2. Evidence To Open</h3>`)
-	renderAssessEvidenceReferenceTable(w, r.TargetPath, evidenceRefs, 10)
+	renderAssessEvidenceReferenceTable(w, r.TargetPath, workbench.EvidenceToOpen, 10)
 	fmt.Fprintln(w, `<h3>Graph Path</h3>`)
-	graphPath := firstNonEmptyStrings(r.ControlState.PathSummary, r.ControlState.GraphEdges)
-	fmt.Fprintln(w, renderSmallList(limitStrings(graphPath, 8)))
+	fmt.Fprintln(w, renderSmallList(limitStrings(workbench.GraphPath, 8)))
 	fmt.Fprintln(w, `</div>`)
 
 	fmt.Fprintln(w, `<div>`)
@@ -890,67 +877,46 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 		fmt.Fprintln(w, `<h3>3. Add Or Verify Proof</h3>`)
 	}
 	fmt.Fprintln(w, `<div class="subtle">Proof surfaces</div>`)
-	fmt.Fprintln(w, renderDashboardPathList(r.TargetPath, limitStrings(proofSurfaces, 8)))
+	fmt.Fprintln(w, renderDashboardPathList(r.TargetPath, limitStrings(workbench.Proof.Surfaces, 8)))
 	fmt.Fprintln(w, `<div class="subtle">Proof patch</div>`)
-	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentProofHTMLLines(r.TargetPath, current)))
+	fmt.Fprintln(w, renderDashboardHTMLList(assessWorkbenchProofHTMLLines(r.TargetPath, workbench.Proof)))
 	fmt.Fprintln(w, `<div class="subtle">Accepted evidence</div>`)
-	fmt.Fprintln(w, renderDashboardHTMLList(assessCurrentEvidenceExampleHTMLLines(r.TargetPath, current, action.EvidenceExamples)))
-	if len(action.GeneratedProofPaths) > 0 || len(action.ApplyCommands) > 0 || current.GeneratedProofPath != "" || current.ApplyCommand != "" {
+	fmt.Fprintln(w, renderDashboardHTMLList(assessWorkbenchEvidenceExampleHTMLLines(r.TargetPath, workbench.Proof)))
+	if len(workbench.Proof.GeneratedProofPaths) > 0 || len(workbench.Proof.ApplyCommands) > 0 || workbench.Proof.GeneratedProofPath != "" || workbench.Proof.ApplyCommand != "" {
 		fmt.Fprintln(w, `<h3>Generated Proof Files</h3>`)
-		var generated []string
-		generated = append(generated, nonEmptyStrings(current.GeneratedProofPath, current.DestinationPath)...)
-		generated = append(generated, action.GeneratedProofPaths...)
-		generated = append(generated, action.DestinationPaths...)
+		generated := append([]string{}, workbench.Proof.GeneratedProofPaths...)
+		generated = append(generated, workbench.Proof.DestinationPaths...)
 		fmt.Fprintln(w, renderSmallList(firstStrings(uniqueStrings(generated), 10)))
-		fmt.Fprintln(w, renderCommandList(nonEmptyStrings(current.ApplyCommand)))
-		if len(action.ApplyCommands) > 0 {
-			fmt.Fprintln(w, renderCommandList(action.ApplyCommands))
-		}
+		fmt.Fprintln(w, renderCommandList(workbench.Proof.ApplyCommands))
 	}
 	fmt.Fprintln(w, `<h3>4. Verify The Change</h3>`)
-	fmt.Fprintln(w, renderProofLoopCommandList(assessWorkbenchProofLoop(r)))
+	fmt.Fprintln(w, renderProofLoopCommandList(workbench.Verify.Commands))
 	fmt.Fprintln(w, `<h3>5. Done Criteria</h3>`)
-	fmt.Fprintln(w, renderSmallList(limitStrings(successCriteria, 5)))
+	fmt.Fprintln(w, renderSmallList(limitStrings(workbench.DoneCriteria, 5)))
 	fmt.Fprintln(w, `<h3>Change Readout</h3>`)
-	fmt.Fprintln(w, renderSmallList([]string{
-		"Save a before proof artifact, add or verify the proof evidence, rerun the case, save an after proof artifact, then compare before and after.",
-		"The compare report is the readout for whether the case closed, stayed open, reopened, or changed.",
-	}))
+	fmt.Fprintln(w, renderSmallList(workbench.ChangeReadout))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
 }
 
-func assessWorkbenchProofLoop(r model.AssessReport) []string {
-	if len(r.Triage.ProofLoop) > 0 {
-		return r.Triage.ProofLoop
+func assessWorkbenchProofHTMLLines(root string, proof model.AssessWorkbenchProof) []string {
+	if proof.ProofPatch != nil {
+		lines := []string{"Proof patch: " + dashboardControlProofPatchHTML(root, *proof.ProofPatch)}
+		lines = append(lines, proofPlanCurrentPatchHTMLLines(root, *proof.ProofPatch, true, proof.Mode == "observed")...)
+		return lines
 	}
-	action := r.FirstAction
-	current := action.CurrentAction
-	var out []string
-	if current.PatchExportCommand != "" {
-		out = append(out, "Export suggested proof files: "+current.PatchExportCommand)
-	} else if action.PatchExportCommand != "" {
-		out = append(out, "Export suggested proof files: "+action.PatchExportCommand)
+	if proof.Mode == "observed" {
+		return []string{"No proof patch is needed because Ariadne already observes the hard barrier for this case."}
 	}
-	if current.RerunCommand != "" {
-		out = append(out, "Rerun after evidence changes: "+current.RerunCommand)
-	} else if len(action.RerunCommands) > 0 {
-		out = append(out, "Rerun after evidence changes: "+action.RerunCommands[0])
+	return []string{"No parser-recognized proof patch was returned for this action."}
+}
+
+func assessWorkbenchEvidenceExampleHTMLLines(root string, proof model.AssessWorkbenchProof) []string {
+	if proof.EvidenceExample != nil {
+		return []string{"Accepted evidence: " + dashboardControlEvidenceExampleHTML(root, *proof.EvidenceExample)}
 	}
-	for i, command := range action.CompareCommands {
-		label := "Compare proof state"
-		if i == 0 {
-			label = "Save baseline proof before changes"
-		} else if i == 1 {
-			label = "Save after proof after rerun"
-		}
-		out = append(out, label+": "+command)
-	}
-	if len(out) == 0 && current.CompareCommand != "" {
-		out = append(out, "Compare proof state: "+current.CompareCommand)
-	}
-	return out
+	return []string{"No accepted evidence example was returned for this action."}
 }
 
 func renderAssessDecisionDashboard(w io.Writer, root string, decision model.AssessDecision) {

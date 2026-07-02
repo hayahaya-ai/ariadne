@@ -329,37 +329,39 @@ func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFi
 	controlState := buildAssessControlState(firstAction, triage)
 	signalQuality := buildAssessSignalQuality(summary, inventorySummary, triage, controlState, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, r.TargetPath)
+	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
 	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
-		SchemaVersion:    model.SchemaVersion,
-		RunID:            r.RunID,
-		GeneratedAt:      r.GeneratedAt,
-		RunKind:          "assess",
-		TargetPath:       r.TargetPath,
-		Mode:             r.Story.Mode,
-		Agent:            r.Story.Runtime,
-		StatusFilter:     architecture.StatusFilter,
-		CaseFilter:       caseBoard.CaseFilter,
-		ControlFilter:    focus.ControlFilter,
-		Summary:          summary,
-		Decision:         decision,
-		Triage:           triage,
-		SignalQuality:    signalQuality,
-		ControlState:     controlState,
-		Inventory:        inventorySummary,
-		Exposure:         exposure,
-		LethalTrifecta:   lethalTrifecta,
-		ClosureEvidence:  closureEvidence,
-		Architecture:     &architecture,
-		CaseBoard:        caseBoard,
-		TopCases:         topCases,
-		TopCaseProofPlan: topCaseProofPlan,
-		FirstAction:      firstAction,
-		ClosurePlan:      closurePlan,
-		NextCommands:     nextCommands,
-		Redaction:        r.Redaction,
-		Warnings:         uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
-		Limitations:      uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             r.RunID,
+		GeneratedAt:       r.GeneratedAt,
+		RunKind:           "assess",
+		TargetPath:        r.TargetPath,
+		Mode:              r.Story.Mode,
+		Agent:             r.Story.Runtime,
+		StatusFilter:      architecture.StatusFilter,
+		CaseFilter:        caseBoard.CaseFilter,
+		ControlFilter:     focus.ControlFilter,
+		Summary:           summary,
+		Decision:          decision,
+		Triage:            triage,
+		SignalQuality:     signalQuality,
+		ControlState:      controlState,
+		Inventory:         inventorySummary,
+		Exposure:          exposure,
+		LethalTrifecta:    lethalTrifecta,
+		ClosureEvidence:   closureEvidence,
+		Architecture:      &architecture,
+		CaseBoard:         caseBoard,
+		TopCases:          topCases,
+		TopCaseProofPlan:  topCaseProofPlan,
+		FirstAction:       firstAction,
+		OperatorWorkbench: operatorWorkbench,
+		ClosurePlan:       closurePlan,
+		NextCommands:      nextCommands,
+		Redaction:         r.Redaction,
+		Warnings:          uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
+		Limitations:       uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
 	}, nil
 }
 
@@ -422,38 +424,40 @@ func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions
 	controlState := buildAssessControlState(firstAction, triage)
 	signalQuality := buildAssessSignalQuality(summary, inventorySummary, triage, controlState, firstAction)
 	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, "")
+	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
 	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
 	return model.AssessReport{
-		SchemaVersion:    model.SchemaVersion,
-		RunID:            r.RunID,
-		GeneratedAt:      r.GeneratedAt,
-		RunKind:          "assess_scan",
-		TargetsFile:      r.TargetsFile,
-		Targets:          targets,
-		Mode:             r.Mode,
-		Agent:            r.Agent,
-		StatusFilter:     architecture.StatusFilter,
-		CaseFilter:       caseBoard.CaseFilter,
-		ControlFilter:    focus.ControlFilter,
-		Summary:          summary,
-		Decision:         decision,
-		Triage:           triage,
-		SignalQuality:    signalQuality,
-		ControlState:     controlState,
-		Inventory:        inventorySummary,
-		Exposure:         exposure,
-		LethalTrifecta:   lethalTrifecta,
-		ClosureEvidence:  closureEvidence,
-		ArchitectureScan: &architecture,
-		CaseBoard:        caseBoard,
-		TopCases:         topCases,
-		TopCaseProofPlan: topCaseProofPlan,
-		FirstAction:      firstAction,
-		ClosurePlan:      closurePlan,
-		NextCommands:     nextCommands,
-		Redaction:        r.Redaction,
-		Warnings:         append([]string{}, r.Warnings...),
-		Limitations:      uniqueSortedStrings(append(append([]string{}, r.Limitations...), inventorySummary.Limitations...)),
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             r.RunID,
+		GeneratedAt:       r.GeneratedAt,
+		RunKind:           "assess_scan",
+		TargetsFile:       r.TargetsFile,
+		Targets:           targets,
+		Mode:              r.Mode,
+		Agent:             r.Agent,
+		StatusFilter:      architecture.StatusFilter,
+		CaseFilter:        caseBoard.CaseFilter,
+		ControlFilter:     focus.ControlFilter,
+		Summary:           summary,
+		Decision:          decision,
+		Triage:            triage,
+		SignalQuality:     signalQuality,
+		ControlState:      controlState,
+		Inventory:         inventorySummary,
+		Exposure:          exposure,
+		LethalTrifecta:    lethalTrifecta,
+		ClosureEvidence:   closureEvidence,
+		ArchitectureScan:  &architecture,
+		CaseBoard:         caseBoard,
+		TopCases:          topCases,
+		TopCaseProofPlan:  topCaseProofPlan,
+		FirstAction:       firstAction,
+		OperatorWorkbench: operatorWorkbench,
+		ClosurePlan:       closurePlan,
+		NextCommands:      nextCommands,
+		Redaction:         r.Redaction,
+		Warnings:          append([]string{}, r.Warnings...),
+		Limitations:       uniqueSortedStrings(append(append([]string{}, r.Limitations...), inventorySummary.Limitations...)),
 	}, nil
 }
 
@@ -3380,6 +3384,128 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 	decision.DoneCriteria = nonNilStrings(decision.DoneCriteria)
 	decision.Limitations = uniqueStrings(decision.Limitations)
 	return decision
+}
+
+func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.AssessControlState, triage model.AssessTriage) model.AssessOperatorWorkbench {
+	workbench := model.AssessOperatorWorkbench{
+		Available:      action.Available,
+		EvidenceToOpen: []model.EvidenceReference{},
+		GraphPath:      []string{},
+		DoneCriteria:   []string{},
+		ChangeReadout:  []string{},
+		Limitations: []string{
+			"Operator workbench is derived from deterministic inventory, graph, case, and proof data; it does not add an independent judgment layer.",
+		},
+	}
+	if !action.Available {
+		workbench.Mode = "no_current_case"
+		workbench.Limitations = append(workbench.Limitations, "No operator case is available for the current filter.")
+		return normalizeAssessOperatorWorkbench(workbench)
+	}
+
+	current := action.CurrentAction
+	closed := assessFirstActionClosed(action)
+	workbench.Mode = "open_case"
+	proofMode := "add_or_verify"
+	if closed {
+		workbench.Mode = "closed_case"
+		proofMode = "observed"
+	}
+
+	evidenceRefs := current.EvidenceReferences
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = action.EvidenceReferences
+	}
+	proofSurfaces := append([]string{}, action.ProofSurfaces...)
+	if closed {
+		proofSurfaces = assessActionEvidenceSurfaces(action)
+	}
+	if current.Surface != "" && !containsReportString(proofSurfaces, current.Surface) {
+		proofSurfaces = append([]string{current.Surface}, proofSurfaces...)
+	}
+	controls := append([]string{}, action.StartingControls...)
+	if current.Control != "" && !containsReportString(controls, current.Control) {
+		controls = append([]string{current.Control}, controls...)
+	}
+	generatedProofPaths := append([]string{}, action.GeneratedProofPaths...)
+	if current.GeneratedProofPath != "" && !containsReportString(generatedProofPaths, current.GeneratedProofPath) {
+		generatedProofPaths = append([]string{current.GeneratedProofPath}, generatedProofPaths...)
+	}
+	suggestedDestinations := append([]string{}, action.SuggestedDestinations...)
+	if current.SuggestedDestination != "" && !containsReportString(suggestedDestinations, current.SuggestedDestination) {
+		suggestedDestinations = append([]string{current.SuggestedDestination}, suggestedDestinations...)
+	}
+	destinationPaths := append([]string{}, action.DestinationPaths...)
+	if current.DestinationPath != "" && !containsReportString(destinationPaths, current.DestinationPath) {
+		destinationPaths = append([]string{current.DestinationPath}, destinationPaths...)
+	}
+	applyCommands := append([]string{}, action.ApplyCommands...)
+	if current.ApplyCommand != "" && !containsReportString(applyCommands, current.ApplyCommand) {
+		applyCommands = append([]string{current.ApplyCommand}, applyCommands...)
+	}
+	currentStep := firstNonEmpty(current.WorkflowStepTitle, current.WorkflowStepID)
+	workbench.Case = model.AssessWorkbenchCase{
+		ID:          action.CaseID,
+		Title:       action.Title,
+		Severity:    action.Severity,
+		State:       firstNonEmpty(action.State, "open"),
+		WhyFirst:    action.WhyFirst,
+		NextStep:    action.NextStep,
+		CurrentStep: currentStep,
+	}
+	workbench.EvidenceToOpen = dedupeEvidenceReferences(evidenceRefs)
+	workbench.GraphPath = firstNonEmptyStrings(state.PathSummary, state.GraphEdges)
+	workbench.Proof = model.AssessWorkbenchProof{
+		Mode:                  proofMode,
+		Control:               current.Control,
+		Controls:              controls,
+		Surface:               current.Surface,
+		Surfaces:              proofSurfaces,
+		Instruction:           firstNonEmpty(current.Instruction, action.NextStep),
+		ProofPatch:            current.ProofPatch,
+		EvidenceExample:       current.EvidenceExample,
+		GeneratedProofPath:    current.GeneratedProofPath,
+		GeneratedProofPaths:   generatedProofPaths,
+		SuggestedDestination:  current.SuggestedDestination,
+		SuggestedDestinations: suggestedDestinations,
+		DestinationPath:       current.DestinationPath,
+		DestinationPaths:      destinationPaths,
+		ApplyCommand:          current.ApplyCommand,
+		ApplyCommands:         applyCommands,
+	}
+	workbench.Verify = model.AssessWorkbenchVerification{
+		Commands: assessOperatorWorkbenchProofLoop(triage, action),
+	}
+	workbench.DoneCriteria = firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria)
+	workbench.ChangeReadout = []string{
+		"Save a before proof artifact, add or verify the proof evidence, rerun the case, save an after proof artifact, then compare before and after.",
+		"The compare report is the readout for whether the case closed, stayed open, reopened, or changed.",
+	}
+	workbench.Limitations = append(workbench.Limitations, state.Limitations...)
+	return normalizeAssessOperatorWorkbench(workbench)
+}
+
+func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) model.AssessOperatorWorkbench {
+	workbench.EvidenceToOpen = nonNilEvidenceReferences(dedupeEvidenceReferences(workbench.EvidenceToOpen))
+	workbench.GraphPath = nonNilStrings(uniqueStrings(workbench.GraphPath))
+	workbench.Proof.Controls = nonNilStrings(uniqueStrings(workbench.Proof.Controls))
+	workbench.Proof.Surfaces = nonNilStrings(uniqueStrings(workbench.Proof.Surfaces))
+	workbench.Proof.GeneratedProofPaths = nonNilStrings(uniqueStrings(workbench.Proof.GeneratedProofPaths))
+	workbench.Proof.SuggestedDestinations = nonNilStrings(uniqueStrings(workbench.Proof.SuggestedDestinations))
+	workbench.Proof.DestinationPaths = nonNilStrings(uniqueStrings(workbench.Proof.DestinationPaths))
+	workbench.Proof.ApplyCommands = nonNilStrings(uniqueStrings(workbench.Proof.ApplyCommands))
+	workbench.Verify.Commands = nonNilStrings(uniqueStrings(workbench.Verify.Commands))
+	workbench.DoneCriteria = nonNilStrings(uniqueStrings(workbench.DoneCriteria))
+	workbench.ChangeReadout = nonNilStrings(uniqueStrings(workbench.ChangeReadout))
+	workbench.Limitations = nonNilStrings(uniqueStrings(workbench.Limitations))
+	return workbench
+}
+
+func assessOperatorWorkbenchProofLoop(triage model.AssessTriage, action model.AssessFirstAction) []string {
+	if len(triage.ProofLoop) > 0 {
+		return append([]string{}, triage.ProofLoop...)
+	}
+	return assessTriageProofLoop(action)
 }
 
 func assessDecisionProofBundle(action model.AssessFirstAction, targetPath string) ([]string, []string, []string, []string) {

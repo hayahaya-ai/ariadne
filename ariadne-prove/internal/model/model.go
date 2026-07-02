@@ -309,38 +309,39 @@ type CaseCompareResult struct {
 }
 
 type AssessReport struct {
-	SchemaVersion    string                  `json:"schema_version"`
-	RunID            string                  `json:"run_id"`
-	GeneratedAt      time.Time               `json:"generated_at"`
-	RunKind          string                  `json:"run_kind"`
-	TargetPath       string                  `json:"target_path,omitempty"`
-	TargetsFile      string                  `json:"targets_file,omitempty"`
-	Targets          []ScanTarget            `json:"targets,omitempty"`
-	Mode             string                  `json:"mode"`
-	Agent            string                  `json:"agent"`
-	StatusFilter     string                  `json:"status_filter"`
-	CaseFilter       string                  `json:"case_filter,omitempty"`
-	ControlFilter    string                  `json:"control_filter,omitempty"`
-	Summary          AssessSummary           `json:"summary"`
-	Decision         AssessDecision          `json:"decision"`
-	Triage           AssessTriage            `json:"triage"`
-	SignalQuality    AssessSignalQuality     `json:"signal_quality"`
-	ControlState     AssessControlState      `json:"control_state"`
-	Inventory        AssessInventory         `json:"inventory"`
-	Exposure         AssessExposure          `json:"exposure"`
-	LethalTrifecta   AssessLethalTrifecta    `json:"lethal_trifecta"`
-	ClosureEvidence  AssessClosureEvidence   `json:"closure_evidence"`
-	Architecture     *ArchitectureReport     `json:"architecture,omitempty"`
-	ArchitectureScan *ArchitectureScanReport `json:"architecture_scan,omitempty"`
-	CaseBoard        ControlCatalogReport    `json:"case_board"`
-	TopCases         []ControlOperatorCase   `json:"top_cases"`
-	TopCaseProofPlan *ProofPlanReport        `json:"top_case_proof_plan,omitempty"`
-	FirstAction      AssessFirstAction       `json:"first_action"`
-	ClosurePlan      []AssessClosurePlanItem `json:"closure_plan"`
-	NextCommands     []string                `json:"next_commands"`
-	Redaction        RedactionInfo           `json:"redaction"`
-	Warnings         []string                `json:"warnings,omitempty"`
-	Limitations      []string                `json:"limitations"`
+	SchemaVersion     string                  `json:"schema_version"`
+	RunID             string                  `json:"run_id"`
+	GeneratedAt       time.Time               `json:"generated_at"`
+	RunKind           string                  `json:"run_kind"`
+	TargetPath        string                  `json:"target_path,omitempty"`
+	TargetsFile       string                  `json:"targets_file,omitempty"`
+	Targets           []ScanTarget            `json:"targets,omitempty"`
+	Mode              string                  `json:"mode"`
+	Agent             string                  `json:"agent"`
+	StatusFilter      string                  `json:"status_filter"`
+	CaseFilter        string                  `json:"case_filter,omitempty"`
+	ControlFilter     string                  `json:"control_filter,omitempty"`
+	Summary           AssessSummary           `json:"summary"`
+	Decision          AssessDecision          `json:"decision"`
+	Triage            AssessTriage            `json:"triage"`
+	SignalQuality     AssessSignalQuality     `json:"signal_quality"`
+	ControlState      AssessControlState      `json:"control_state"`
+	Inventory         AssessInventory         `json:"inventory"`
+	Exposure          AssessExposure          `json:"exposure"`
+	LethalTrifecta    AssessLethalTrifecta    `json:"lethal_trifecta"`
+	ClosureEvidence   AssessClosureEvidence   `json:"closure_evidence"`
+	Architecture      *ArchitectureReport     `json:"architecture,omitempty"`
+	ArchitectureScan  *ArchitectureScanReport `json:"architecture_scan,omitempty"`
+	CaseBoard         ControlCatalogReport    `json:"case_board"`
+	TopCases          []ControlOperatorCase   `json:"top_cases"`
+	TopCaseProofPlan  *ProofPlanReport        `json:"top_case_proof_plan,omitempty"`
+	FirstAction       AssessFirstAction       `json:"first_action"`
+	OperatorWorkbench AssessOperatorWorkbench `json:"operator_workbench"`
+	ClosurePlan       []AssessClosurePlanItem `json:"closure_plan"`
+	NextCommands      []string                `json:"next_commands"`
+	Redaction         RedactionInfo           `json:"redaction"`
+	Warnings          []string                `json:"warnings,omitempty"`
+	Limitations       []string                `json:"limitations"`
 }
 
 type AssessDecision struct {
@@ -450,6 +451,52 @@ type AssessCurrentAction struct {
 	DestinationPath      string                  `json:"destination_path,omitempty"`
 	ApplyCommand         string                  `json:"apply_command,omitempty"`
 	SuccessCriteria      []string                `json:"success_criteria"`
+}
+
+type AssessOperatorWorkbench struct {
+	Available      bool                        `json:"available"`
+	Mode           string                      `json:"mode,omitempty"`
+	Case           AssessWorkbenchCase         `json:"case"`
+	EvidenceToOpen []EvidenceReference         `json:"evidence_to_open"`
+	GraphPath      []string                    `json:"graph_path"`
+	Proof          AssessWorkbenchProof        `json:"proof"`
+	Verify         AssessWorkbenchVerification `json:"verify"`
+	DoneCriteria   []string                    `json:"done_criteria"`
+	ChangeReadout  []string                    `json:"change_readout"`
+	Limitations    []string                    `json:"limitations"`
+}
+
+type AssessWorkbenchCase struct {
+	ID          string `json:"id,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Severity    string `json:"severity,omitempty"`
+	State       string `json:"state,omitempty"`
+	WhyFirst    string `json:"why_first,omitempty"`
+	NextStep    string `json:"next_step,omitempty"`
+	CurrentStep string `json:"current_step,omitempty"`
+}
+
+type AssessWorkbenchProof struct {
+	Mode                  string                  `json:"mode,omitempty"`
+	Control               string                  `json:"control,omitempty"`
+	Controls              []string                `json:"controls"`
+	Surface               string                  `json:"surface,omitempty"`
+	Surfaces              []string                `json:"surfaces"`
+	Instruction           string                  `json:"instruction,omitempty"`
+	ProofPatch            *ControlProofPatch      `json:"proof_patch,omitempty"`
+	EvidenceExample       *ControlEvidenceExample `json:"evidence_example,omitempty"`
+	GeneratedProofPath    string                  `json:"generated_proof_path,omitempty"`
+	GeneratedProofPaths   []string                `json:"generated_proof_paths"`
+	SuggestedDestination  string                  `json:"suggested_destination,omitempty"`
+	SuggestedDestinations []string                `json:"suggested_destinations"`
+	DestinationPath       string                  `json:"destination_path,omitempty"`
+	DestinationPaths      []string                `json:"destination_paths"`
+	ApplyCommand          string                  `json:"apply_command,omitempty"`
+	ApplyCommands         []string                `json:"apply_commands"`
+}
+
+type AssessWorkbenchVerification struct {
+	Commands []string `json:"commands"`
 }
 
 type AssessClosurePlanItem struct {

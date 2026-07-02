@@ -4515,6 +4515,29 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.FirstAction.ApplyCommands, "cp surfaces/.ariadne/output-policy.json") {
 		t.Fatalf("assessment first action should include the full proof bundle: %+v", decoded.FirstAction)
 	}
+	if !decoded.OperatorWorkbench.Available ||
+		decoded.OperatorWorkbench.Mode != "open_case" ||
+		decoded.OperatorWorkbench.Case.ID != decoded.FirstAction.CaseID ||
+		decoded.OperatorWorkbench.Case.CurrentStep != "Add Or Verify Proof" ||
+		decoded.OperatorWorkbench.Proof.Mode != "add_or_verify" ||
+		decoded.OperatorWorkbench.Proof.Control != "control:egress-destination-allowlist" ||
+		decoded.OperatorWorkbench.Proof.Surface != ".ariadne/egress-policy.json" ||
+		decoded.OperatorWorkbench.Proof.ProofPatch == nil ||
+		decoded.OperatorWorkbench.Proof.ProofPatch.Surface != ".ariadne/egress-policy.json" ||
+		decoded.OperatorWorkbench.Proof.EvidenceExample == nil ||
+		decoded.OperatorWorkbench.Proof.EvidenceExample.Surface != ".ariadne/egress-policy.json" ||
+		!containsEvidenceReferenceSource(decoded.OperatorWorkbench.EvidenceToOpen, ".claude/settings.json") ||
+		!containsEvidenceReferenceSource(decoded.OperatorWorkbench.EvidenceToOpen, ".codex/config.toml") ||
+		!containsString(decoded.OperatorWorkbench.GraphPath, "authority broad local -> boundary external destination (reaches)") ||
+		!containsString(decoded.OperatorWorkbench.Proof.GeneratedProofPaths, "proof-patches/surfaces/.ariadne/egress-policy.json") ||
+		!containsString(decoded.OperatorWorkbench.Proof.GeneratedProofPaths, "proof-patches/surfaces/.ariadne/output-policy.json") ||
+		!containsString(decoded.OperatorWorkbench.Proof.ApplyCommands, "cp surfaces/.ariadne/egress-policy.json") ||
+		!containsString(decoded.OperatorWorkbench.Proof.ApplyCommands, "cp surfaces/.ariadne/output-policy.json") ||
+		!containsString(decoded.OperatorWorkbench.Verify.Commands, "ariadne compare --before before-proof.json --after after-proof.json") ||
+		len(decoded.OperatorWorkbench.DoneCriteria) == 0 ||
+		!containsString(decoded.OperatorWorkbench.ChangeReadout, "compare report is the readout") {
+		t.Fatalf("assessment should expose a structured operator workbench contract: %+v", decoded.OperatorWorkbench)
+	}
 	for _, unwanted := range []string{
 		`"partial_or_friction_controls":null`,
 		`"present_hard_barriers":null`,
@@ -4534,6 +4557,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"graph_edges":null`,
 		`"generated_proof_paths":null`,
 		`"apply_commands":null`,
+		`"operator_workbench":null`,
+		`"evidence_to_open":null`,
+		`"change_readout":null`,
 	} {
 		if strings.Contains(jsonOut.String(), unwanted) {
 			t.Fatalf("assessment JSON should emit stable empty arrays, not %s:\n%s", unwanted, jsonOut.String())
