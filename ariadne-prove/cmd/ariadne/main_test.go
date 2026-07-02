@@ -27,6 +27,52 @@ func TestResolveDefaultStoryRootFindsRepoSubdir(t *testing.T) {
 	}
 }
 
+func TestRunAssessDefaultsToSummary(t *testing.T) {
+	root := t.TempDir()
+	summaryPath := filepath.Join(root, "assess-summary.txt")
+	tablePath := filepath.Join(root, "assess-table.txt")
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+
+	runAssess([]string{
+		"--path", target,
+		"--out", summaryPath,
+	})
+	runAssess([]string{
+		"--path", target,
+		"--format", "table",
+		"--out", tablePath,
+	})
+
+	summary := readTestFile(t, summaryPath)
+	for _, want := range []string{
+		"Ariadne Summary",
+		"Decision:",
+		"Evidence files:",
+		"Next action:",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("default assess summary missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "Ariadne Assess") || strings.Contains(summary, "Architecture break paths:") {
+		t.Fatalf("default assess should be compact summary, not full table:\n%s", summary)
+	}
+
+	table := readTestFile(t, tablePath)
+	for _, want := range []string{
+		"Ariadne Assess",
+		"Signal triage:",
+		"Architecture break paths:",
+	} {
+		if !strings.Contains(table, want) {
+			t.Fatalf("explicit table assess output missing %q:\n%s", want, table)
+		}
+	}
+	if len(strings.Split(strings.TrimSpace(summary), "\n")) >= len(strings.Split(strings.TrimSpace(table), "\n")) {
+		t.Fatalf("default summary should be shorter than table output")
+	}
+}
+
 func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 	root := t.TempDir()
 	outPath := filepath.Join(root, "proof-plan.json")

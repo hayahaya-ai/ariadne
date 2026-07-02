@@ -15,7 +15,7 @@ The active implementation is in [`ariadne-prove/`](ariadne-prove/).
 ```bash
 make build
 make verify-first-run
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format summary
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format html --out /tmp/ariadne-assess.html
 ```
 
@@ -27,7 +27,7 @@ Ariadne is meant to be used as an operator workflow, not just a scanner.
 
 ```bash
 # 1. Get the first action.
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format summary
+./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 
 # 2. Focus the prioritized case.
 ./bin/ariadne cases --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary
