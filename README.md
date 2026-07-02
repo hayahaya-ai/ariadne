@@ -14,6 +14,7 @@ The active implementation is in [`ariadne-prove/`](ariadne-prove/).
 
 ```bash
 make build
+make verify-first-run
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 ./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces
 ./bin/ariadne prove --path ariadne-prove/testdata/realpath/combined-risk
@@ -63,6 +64,7 @@ From the repository root:
 ```bash
 make test
 make build
+make verify-first-run
 ./bin/ariadne help
 ./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
 make scan
