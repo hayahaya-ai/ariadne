@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
 )
@@ -195,7 +196,13 @@ func RenderCases(w io.Writer, r model.Report, format string, statusFilter string
 	}
 	catalog := BuildControlCaseBoardReport(architecture)
 	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
-		return err
+		if closed, ok, closedErr := buildFocusedClosedCaseBoardReport(r, statusFilter, caseFilter); closedErr != nil {
+			return closedErr
+		} else if ok {
+			catalog = closed
+		} else {
+			return err
+		}
 	}
 	return renderControlCaseBoard(w, catalog, format)
 }
@@ -207,7 +214,13 @@ func RenderCasesScan(w io.Writer, r model.ScanReport, format string, statusFilte
 	}
 	catalog := BuildControlCaseBoardScanReport(architecture)
 	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
-		return err
+		if closed, ok, closedErr := buildFocusedClosedCaseBoardScanReport(r, statusFilter, caseFilter); closedErr != nil {
+			return closedErr
+		} else if ok {
+			catalog = closed
+		} else {
+			return err
+		}
 	}
 	return renderControlCaseBoard(w, catalog, format)
 }
@@ -219,7 +232,13 @@ func RenderProofs(w io.Writer, r model.Report, format string, statusFilter strin
 	}
 	catalog := BuildControlCaseBoardReport(architecture)
 	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
-		return err
+		if closed, ok, closedErr := buildFocusedClosedCaseBoardReport(r, statusFilter, caseFilter); closedErr != nil {
+			return closedErr
+		} else if ok {
+			catalog = closed
+		} else {
+			return err
+		}
 	}
 	return renderProofPlan(w, BuildProofPlanReport(catalog), format)
 }
@@ -231,7 +250,13 @@ func RenderProofsScan(w io.Writer, r model.ScanReport, format string, statusFilt
 	}
 	catalog := BuildControlCaseBoardScanReport(architecture)
 	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
-		return err
+		if closed, ok, closedErr := buildFocusedClosedCaseBoardScanReport(r, statusFilter, caseFilter); closedErr != nil {
+			return closedErr
+		} else if ok {
+			catalog = closed
+		} else {
+			return err
+		}
 	}
 	return renderProofPlan(w, BuildProofPlanReport(catalog), format)
 }
@@ -1655,7 +1680,10 @@ func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {
 	if len(r.Cases) > 0 {
 		fmt.Fprintf(w, "Cases:\n")
 		for _, item := range limitProofPlanCases(r.Cases, 5) {
-			fmt.Fprintf(w, "  - #%d %s %s (%s)\n", item.Rank, strings.ToUpper(item.Severity), item.Title, item.ID)
+			fmt.Fprintf(w, "  - %s %s (%s)\n", strings.ToUpper(item.Severity), controlOperatorCaseDisplayTitle(item), item.ID)
+			if item.State != "" {
+				fmt.Fprintf(w, "    State: %s - %s\n", item.State, item.StateReason)
+			}
 			if item.NextStep != "" {
 				fmt.Fprintf(w, "    Next step: %s\n", item.NextStep)
 			}
@@ -1962,6 +1990,201 @@ func filterControlCaseBoard(catalog *model.ControlCatalogReport, caseFilter stri
 	catalog.VerificationTasks = nonNilControlVerificationTasks(tasks)
 	catalog.Summary = summarizeControlCatalog(catalog.Controls)
 	return nil
+}
+
+type focusedClosedCaseTarget struct {
+	TargetID string
+	Flaws    []model.ZeroTrustArchitecture
+}
+
+func buildFocusedClosedCaseBoardReport(r model.Report, statusFilter string, caseFilter string) (model.ControlCatalogReport, bool, error) {
+	familyID := normalizeControlOperatorCaseID(caseFilter)
+	if familyID == "" {
+		return model.ControlCatalogReport{}, false, nil
+	}
+	architecture, err := BuildArchitectureReport(r, "all")
+	if err != nil {
+		return model.ControlCatalogReport{}, false, err
+	}
+	ctx := controlVerificationCommandContext{
+		RunKind:      "case_board",
+		Path:         architecture.TargetPath,
+		Mode:         architecture.Mode,
+		Agent:        architecture.Agent,
+		StatusFilter: firstNonEmpty(statusFilter, "breaking"),
+	}
+	item, ok := buildFocusedClosedOperatorCase(familyID, []focusedClosedCaseTarget{{TargetID: "target", Flaws: architecture.Flaws}}, ctx)
+	if !ok {
+		return model.ControlCatalogReport{}, false, nil
+	}
+	return focusedClosedCaseCatalog(architecture.RunID, architecture.GeneratedAt, "case_board", architecture.TargetPath, architecture.Mode, architecture.Agent, ctx.StatusFilter, item, architecture.Redaction, architecture.Limitations), true, nil
+}
+
+func buildFocusedClosedCaseBoardScanReport(r model.ScanReport, statusFilter string, caseFilter string) (model.ControlCatalogReport, bool, error) {
+	familyID := normalizeControlOperatorCaseID(caseFilter)
+	if familyID == "" {
+		return model.ControlCatalogReport{}, false, nil
+	}
+	architecture, err := BuildArchitectureScanReport(r, "all")
+	if err != nil {
+		return model.ControlCatalogReport{}, false, err
+	}
+	var targets []focusedClosedCaseTarget
+	for _, target := range architecture.Targets {
+		if target.Error != "" {
+			continue
+		}
+		targetID := target.Target.ID
+		if targetID == "" {
+			targetID = "target"
+		}
+		targets = append(targets, focusedClosedCaseTarget{TargetID: targetID, Flaws: target.Flaws})
+	}
+	ctx := controlVerificationCommandContext{
+		RunKind:      "case_board_scan",
+		Mode:         architecture.Mode,
+		Agent:        architecture.Agent,
+		StatusFilter: firstNonEmpty(statusFilter, "breaking"),
+	}
+	item, ok := buildFocusedClosedOperatorCase(familyID, targets, ctx)
+	if !ok {
+		return model.ControlCatalogReport{}, false, nil
+	}
+	return focusedClosedCaseCatalog(architecture.RunID, architecture.GeneratedAt, "case_board_scan", "", architecture.Mode, architecture.Agent, ctx.StatusFilter, item, architecture.Redaction, architecture.Limitations), true, nil
+}
+
+func focusedClosedCaseCatalog(runID string, generatedAt time.Time, runKind string, targetPath string, mode string, agent string, statusFilter string, item model.ControlOperatorCase, redaction model.RedactionInfo, limitations []string) model.ControlCatalogReport {
+	return model.ControlCatalogReport{
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             runID,
+		GeneratedAt:       generatedAt,
+		RunKind:           runKind,
+		TargetPath:        targetPath,
+		Mode:              mode,
+		Agent:             agent,
+		StatusFilter:      firstNonEmpty(statusFilter, "breaking"),
+		CaseFilter:        item.ID,
+		Summary:           model.ControlCatalogSummary{Targets: item.TargetCount, Flaws: item.FlawCount},
+		Controls:          []model.ArchitectureClosure{},
+		Families:          []model.ArchitectureClosureFamily{},
+		OperatorCases:     []model.ControlOperatorCase{item},
+		Workstreams:       []model.ControlBreakPathWorkstream{},
+		ProofSpecs:        []model.ControlProofSpec{},
+		VerificationTasks: []model.ControlVerificationTask{},
+		Redaction:         redaction,
+		Limitations:       append([]string{}, limitations...),
+	}
+}
+
+func buildFocusedClosedOperatorCase(familyID string, targets []focusedClosedCaseTarget, ctx controlVerificationCommandContext) (model.ControlOperatorCase, bool) {
+	targetSet := map[string]bool{}
+	flawSet := map[string]bool{}
+	var evidenceRefs []model.EvidenceReference
+	var observedControls []string
+	var proofSurfaces []string
+	title := ""
+	severity := ""
+	controlledFlaws := 0
+	for _, target := range targets {
+		targetID := target.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		for _, flaw := range target.Flaws {
+			matchedTitle, controls, ok := controlledFlawMatchesFamily(flaw, familyID)
+			if !ok {
+				continue
+			}
+			if title == "" {
+				title = matchedTitle
+			}
+			if severityRank(flaw.Severity) > severityRank(severity) {
+				severity = flaw.Severity
+			}
+			controlledFlaws++
+			targetSet[targetID] = true
+			flawTitle := firstNonEmpty(flaw.Title, flaw.ID)
+			if flawTitle != "" {
+				flawSet[flawTitle] = true
+			}
+			observedControls = append(observedControls, controls...)
+			evidenceRefs = append(evidenceRefs, evidenceReferencesForFlaw(targetID, flaw)...)
+			proofSurfaces = append(proofSurfaces, flaw.EvidenceSurfaces...)
+			proofSurfaces = append(proofSurfaces, zeroTrustEvidenceSources(flaw.Evidence)...)
+		}
+	}
+	if controlledFlaws == 0 {
+		return model.ControlOperatorCase{}, false
+	}
+	caseID := "case:" + familyID
+	targetList := mapKeysSorted(targetSet)
+	flawList := mapKeysSorted(flawSet)
+	observedControls = uniqueSortedStrings(observedControls)
+	return model.ControlOperatorCase{
+		ID:                 caseID,
+		Title:              firstNonEmpty(title, familyID),
+		Severity:           firstNonEmpty(severity, "info"),
+		PriorityReason:     "Closed cases are shown because the requested case no longer appears in the missing-hard-barrier queue and controlled evidence was observed.",
+		State:              "closed",
+		StateReason:        fmt.Sprintf("%d controlled architecture flaw(s) have observed hard-barrier evidence and no missing hard barriers for this focused case.", controlledFlaws),
+		Question:           fmt.Sprintf("What evidence proves the %s break path is closed?", firstNonEmpty(title, familyID)),
+		Finding:            fmt.Sprintf("This focused case is absent from the missing-hard-barrier board because Ariadne observed hard-barrier evidence for: %s", strings.Join(limitStrings(flawList, 3), "; ")),
+		NextStep:           "No proof patch is needed for this case. Keep the observed hard-barrier evidence in place and rerun if the repo, runtime, or policy evidence changes.",
+		TargetCount:        len(targetList),
+		FlawCount:          len(flawList),
+		ControlCount:       0,
+		Targets:            targetList,
+		Flaws:              flawList,
+		EvidenceReferences: dedupeEvidenceReferences(evidenceRefs),
+		StartingControls:   observedControls,
+		StartingTaskIDs:    []string{},
+		ProofSurfaces:      uniqueSortedStrings(proofSurfaces),
+		EvidenceExamples:   []model.ControlEvidenceExample{},
+		ProofPatches:       []model.ControlProofPatch{},
+		RerunCommands:      focusedClosedCaseCommands(ctx, caseID),
+		SuccessCriteria: []string{
+			"The focused case remains absent from the missing-hard-barrier operator case board.",
+			"Matching architecture flaws remain controlled with hard_barriers_observed and no missing_hard_barriers.",
+			"Evidence references continue to point to the controls that close the path.",
+		},
+		Limitations: []string{
+			"Closed means deterministic hard-barrier evidence was observed; Ariadne still does not prove live enforcement unless runtime enforcement evidence is collected.",
+		},
+	}, true
+}
+
+func controlledFlawMatchesFamily(flaw model.ZeroTrustArchitecture, familyID string) (string, []string, bool) {
+	if flaw.Status != model.ZeroTrustControlled || len(flaw.ControlTest.MissingHardBarriers) > 0 {
+		return "", nil, false
+	}
+	controls := append([]string{}, flaw.ControlTest.HardBarriersObserved...)
+	if len(controls) == 0 {
+		controls = append(controls, flaw.Controls...)
+	}
+	for _, control := range append(append([]string{}, controls...), flaw.Controls...) {
+		id, title := architectureControlFamily(control)
+		if id == familyID {
+			return title, controls, true
+		}
+	}
+	return "", nil, false
+}
+
+func focusedClosedCaseCommands(ctx controlVerificationCommandContext, caseID string) []string {
+	mode := firstNonEmpty(ctx.Mode, "repo")
+	agent := firstNonEmpty(ctx.Agent, "all")
+	status := firstNonEmpty(ctx.StatusFilter, "breaking")
+	if ctx.RunKind == "case_board_scan" {
+		return []string{
+			fmt.Sprintf("ariadne cases --targets <targets-file> --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
+			fmt.Sprintf("ariadne architecture --targets <targets-file> --mode %s --agent %s --status all", shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		}
+	}
+	path := firstNonEmpty(ctx.Path, "<target-path>")
+	return []string{
+		fmt.Sprintf("ariadne cases --path %s --mode %s --agent %s --status %s --case %s", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
+		fmt.Sprintf("ariadne architecture --path %s --mode %s --agent %s --status all", shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	}
 }
 
 func proofPatchesWithRerunCommands(patches []model.ControlProofPatch, rewrite func([]string) []string) []model.ControlProofPatch {
@@ -2385,10 +2608,9 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		limit = len(cases)
 	}
 	for _, item := range cases[:limit] {
-		fmt.Fprintf(w, "    - #%d %s %s (%s): %d control(s), %d flaw(s), %d target(s)\n",
-			item.Rank,
+		fmt.Fprintf(w, "    - %s %s (%s): %d control(s), %d flaw(s), %d target(s)\n",
 			strings.ToUpper(item.Severity),
-			item.Title,
+			controlOperatorCaseDisplayTitle(item),
 			item.ID,
 			item.ControlCount,
 			item.FlawCount,
@@ -2517,6 +2739,18 @@ func controlOperatorCaseStateReason(workstream model.ControlBreakPathWorkstream)
 		return "No missing hard-barrier controls were returned for this break path."
 	}
 	return fmt.Sprintf("%d missing hard-barrier control(s) remain for %d architecture flaw(s) across %d target(s).", workstream.ControlCount, workstream.FlawCount, workstream.TargetCount)
+}
+
+func controlOperatorCaseDisplayTitle(item model.ControlOperatorCase) string {
+	if item.Rank > 0 {
+		return fmt.Sprintf("#%d %s", item.Rank, item.Title)
+	}
+	return item.Title
+}
+
+func controlOperatorCaseIsClosed(item model.ControlOperatorCase) bool {
+	state := strings.ToLower(strings.TrimSpace(item.State))
+	return state == "closed" || state == "controlled"
 }
 
 func controlOperatorCaseNextStep(tasks []model.ControlVerificationTask, workstream model.ControlBreakPathWorkstream) string {

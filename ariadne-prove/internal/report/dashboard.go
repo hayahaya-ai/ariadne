@@ -1150,6 +1150,7 @@ func renderProofPlanSummaryDashboard(w io.Writer, r model.ProofPlanReport) {
 	fmt.Fprintln(w, `<div><h2>Proof Plan</h2><div class="subtle">Focused evidence patches and rerun criteria for closing selected operator cases.</div></div>`)
 	fmt.Fprintln(w, "</div>")
 	renderMetricRow(w, []kv{
+		{"State", proofPlanState(r)},
 		{"Cases", fmt.Sprintf("%d", r.Summary.Cases)},
 		{"Proof patches", fmt.Sprintf("%d", r.Summary.ProofPatches)},
 		{"Evidence refs", fmt.Sprintf("%d", r.Summary.EvidenceReferences)},
@@ -1160,6 +1161,28 @@ func renderProofPlanSummaryDashboard(w io.Writer, r model.ProofPlanReport) {
 		fmt.Fprintf(w, `<div><strong>Focused case:</strong> <span class="mono">%s</span></div>`, esc(r.CaseFilter))
 	}
 	fmt.Fprintln(w, "</section>")
+}
+
+func proofPlanState(r model.ProofPlanReport) string {
+	if len(r.Cases) == 0 {
+		return "no selected cases"
+	}
+	closed := 0
+	open := 0
+	for _, item := range r.Cases {
+		if controlOperatorCaseIsClosed(item) {
+			closed++
+			continue
+		}
+		open++
+	}
+	if closed == len(r.Cases) {
+		return "closed"
+	}
+	if open == len(r.Cases) {
+		return "open"
+	}
+	return "mixed"
 }
 
 func renderProofPlanWorkbenchDashboard(w io.Writer, r model.ProofPlanReport) {
@@ -1179,10 +1202,14 @@ func renderProofPlanWorkbenchDashboard(w io.Writer, r model.ProofPlanReport) {
 		limit = 6
 	}
 	for _, item := range r.Cases[:limit] {
+		controlLabel := "Missing hard barriers"
+		if controlOperatorCaseIsClosed(item) {
+			controlLabel = "Observed hard barriers"
+		}
 		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("workbench", item.ID)))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span><h3>%s</h3><div class="mono">%s</div><div class="subtle">%s</div><h3>Next step</h3><div>%s</div></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)), esc(item.Title), esc(item.ID), esc(item.StateReason), esc(item.NextStep))
 		fmt.Fprintf(w, `<td><h3>Evidence references</h3>%s<h3>Proof surfaces</h3>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 5)), renderSmallList(limitStrings(item.ProofSurfaces, 6)))
-		fmt.Fprintf(w, `<td><h3>Missing hard barriers</h3>%s<h3>Evidence payload</h3>%s</td>`, renderSmallList(limitStrings(item.StartingControls, 5)), renderProofPatchPayloads(item.ProofPatches, 3))
+		fmt.Fprintf(w, `<td><h3>%s</h3>%s<h3>Evidence payload</h3>%s</td>`, esc(controlLabel), renderSmallList(limitStrings(item.StartingControls, 5)), renderProofPatchPayloads(item.ProofPatches, 3))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s<h3>Limits</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 4)), renderSmallList(limitStrings(item.Limitations, 2)))
 		fmt.Fprintln(w, "</tr>")
 	}
@@ -1341,11 +1368,11 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 	for _, item := range cases[:limit] {
 		fmt.Fprintf(w, `<tr id="%s">`, esc(dashboardAnchorID("case", item.ID)))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
-		fmt.Fprintf(w, `<td><strong>#%d %s</strong><div class="mono">%s</div><div class="subtle">%d control(s), %d flaw(s), %d target(s)</div></td>`, item.Rank, esc(item.Title), esc(item.ID), item.ControlCount, item.FlawCount, item.TargetCount)
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%d control(s), %d flaw(s), %d target(s)</div></td>`, esc(controlOperatorCaseDisplayTitle(item)), esc(item.ID), item.ControlCount, item.FlawCount, item.TargetCount)
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><h3>Priority</h3><div>%s</div><h3>Next step</h3><div>%s</div></td>`, esc(firstNonEmpty(item.State, "open")), esc(item.StateReason), esc(item.PriorityReason), esc(item.NextStep))
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(item.Question), esc(item.Finding))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
-		fmt.Fprintf(w, `<td>%s<div class="mono">%s</div></td>`, renderSmallList(limitStrings(item.StartingControls, 5)), esc(strings.Join(limitStrings(item.StartingTaskIDs, 5), ", ")))
+		fmt.Fprintf(w, `<td>%s</td>`, renderOperatorCaseStartCell(item))
 		fmt.Fprintf(w, `<td><h3>Proof surfaces</h3>%s<h3>Proof patches</h3>%s<h3>Evidence examples</h3>%s</td>`, renderSmallList(limitStrings(item.ProofSurfaces, 6)), renderSmallList(controlProofPatchLines(item.ProofPatches, 2)), renderSmallList(controlEvidenceExampleLines(item.EvidenceExamples, 2)))
 		fmt.Fprintf(w, `<td><h3>Rerun</h3>%s<h3>Done when</h3>%s</td>`, renderSmallList(limitStrings(item.RerunCommands, 2)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
@@ -1355,6 +1382,15 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderOperatorCaseStartCell(item model.ControlOperatorCase) string {
+	out := renderSmallList(limitStrings(item.StartingControls, 5))
+	taskIDs := strings.Join(limitStrings(item.StartingTaskIDs, 5), ", ")
+	if taskIDs != "" {
+		out += fmt.Sprintf(`<div class="mono">%s</div>`, esc(taskIDs))
+	}
+	return out
 }
 
 func renderControlBreakPathWorkstreamsDashboard(w io.Writer, workstreams []model.ControlBreakPathWorkstream) {

@@ -184,6 +184,8 @@ This proof plan is read-only. It narrows the action packet for an operator or da
 
 `ariadne proofs --format html` renders the same focused proof plan as an operator dashboard: summary metrics, an evidence workbench, selected cases, proof patches, evidence references, rerun commands, success criteria, and limitations.
 
+When a focused case has been closed by deterministic hard-barrier evidence, `ariadne cases --case <id>` and `ariadne proofs --case <id>` return the selected case with `state: "closed"`, observed hard barriers in `starting_controls`, evidence references, and no proof patches instead of treating the missing case as an error.
+
 `ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, operator cases, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, proof patches, evidence examples, and actions.
 
 `ariadne cases --format html` renders the same contract as an operator case board: summary metrics, prioritized cases, evidence references, starting controls, proof surfaces, proof patches, example evidence, rerun commands, done criteria, and a compact evidence model.

@@ -3161,6 +3161,68 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	}
 }
 
+func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "input-controls")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var caseBoard bytes.Buffer
+	if err := report.RenderCases(&caseBoard, r, "table", "breaking", "input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	caseOut := caseBoard.String()
+	for _, want := range []string{
+		"Case: case:input-trust-boundary",
+		"State: closed",
+		"0 missing hard-barrier controls",
+		"control:input-isolation",
+		"control:trusted-source-policy",
+	} {
+		if !strings.Contains(caseOut, want) {
+			t.Fatalf("closed case board missing %q:\n%s", want, caseOut)
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if err := report.RenderProofs(&jsonOut, r, "json", "breaking", "input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ProofPlanReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.CaseFilter != "case:input-trust-boundary" || decoded.Summary.Cases != 1 || len(decoded.Cases) != 1 {
+		t.Fatalf("closed proof plan should retain focused case metadata: %+v", decoded)
+	}
+	if decoded.Cases[0].State != "closed" || decoded.Summary.ProofPatches != 0 || len(decoded.ProofPatches) != 0 {
+		t.Fatalf("closed proof plan should return closed state with no proof patches: %+v", decoded)
+	}
+	if !containsString(decoded.Cases[0].StartingControls, "control:input-isolation") || !containsString(decoded.Cases[0].StartingControls, "control:trusted-source-policy") {
+		t.Fatalf("closed proof plan should show observed hard barriers: %+v", decoded.Cases[0].StartingControls)
+	}
+	if len(decoded.EvidenceReferences) == 0 {
+		t.Fatalf("closed proof plan should keep evidence references: %+v", decoded)
+	}
+
+	var htmlOut bytes.Buffer
+	if err := report.RenderProofs(&htmlOut, r, "html", "breaking", "input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	rendered := htmlOut.String()
+	for _, want := range []string{
+		"Evidence Workbench",
+		"State",
+		"closed",
+		"Observed hard barriers",
+		"No proof patch is needed",
+		"hard_barriers_observed",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("closed proof dashboard missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	path := realPathFixture(t, "combined-risk")
 	inventory, err := RunInventory(Options{Path: path})
