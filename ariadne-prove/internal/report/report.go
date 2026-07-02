@@ -2450,6 +2450,8 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 		UnknownEvidence:           nonNilStrings(uniqueStrings(triage.UnknownEvidence)),
 		ProofSurfaces:             []string{},
 		EvidenceSources:           []string{},
+		PathSummary:               []string{},
+		GraphEdges:                []string{},
 		Summary:                   []string{},
 		Limitations: []string{
 			"Control state is deterministic evidence state; it does not prove live enforcement unless runtime enforcement evidence is observed.",
@@ -2467,6 +2469,8 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 		}
 		state.EvidenceSources = nonNilStrings(evidenceReferenceSources(action.EvidenceReferences, false))
 	}
+	state.GraphEdges = assessControlStateGraphEdges(triage.SignalDetails)
+	state.PathSummary = assessControlStatePathSummary(state.GraphEdges, state.MissingHardBarriers, state.PresentHardBarriers)
 	if len(state.MissingHardBarriers) > 0 {
 		state.Summary = append(state.Summary, fmt.Sprintf("Missing hard-barrier evidence for %s.", strings.Join(limitStrings(state.MissingHardBarriers, 4), ", ")))
 	}
@@ -2489,8 +2493,94 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 		state.Available = true
 	}
 	state.Summary = uniqueStrings(state.Summary)
+	state.PathSummary = uniqueStrings(state.PathSummary)
+	state.GraphEdges = uniqueStrings(state.GraphEdges)
 	state.Limitations = uniqueStrings(state.Limitations)
 	return state
+}
+
+func assessControlStateGraphEdges(signals []model.AssessSignal) []string {
+	var out []string
+	for _, signal := range signals {
+		switch signal.ID {
+		case "signal:top-operator-case", "signal:exposed-boundary-paths", "signal:breaking-architecture-paths", "signal:missing-hard-barriers", "signal:present-hard-barriers", "signal:partial-friction-controls":
+			out = append(out, signal.GraphEdges...)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func assessControlStatePathSummary(edges []string, missing []string, present []string) []string {
+	var out []string
+	for _, relation := range []string{"influences", "configures", "has_authority", "can_call", "grants", "reaches", "restricts"} {
+		edge := firstGraphEdgeByRelation(edges, relation)
+		if relation == "reaches" {
+			edge = firstGraphEdgeByRelationTarget(edges, relation,
+				"boundary:external-destination",
+				"boundary:secret-like-file",
+				"boundary:developer-secret-boundary",
+				"boundary:agent-private-context",
+				"boundary:developer-execution-boundary",
+			)
+		}
+		if edge != "" {
+			out = append(out, "Supported graph edge: "+readableGraphEdge(edge))
+		}
+	}
+	if len(missing) > 0 {
+		out = append(out, "Missing hard barrier: "+strings.Join(limitStrings(missing, 4), ", "))
+	}
+	if len(present) > 0 {
+		out = append(out, "Observed hard barrier: "+strings.Join(limitStrings(present, 4), ", "))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func firstGraphEdgeByRelation(edges []string, relation string) string {
+	for _, edge := range edges {
+		parts := strings.Split(edge, "|")
+		if len(parts) == 3 && parts[1] == relation {
+			return edge
+		}
+	}
+	return ""
+}
+
+func firstGraphEdgeByRelationTarget(edges []string, relation string, targets ...string) string {
+	for _, target := range targets {
+		for _, edge := range edges {
+			parts := strings.Split(edge, "|")
+			if len(parts) == 3 && parts[1] == relation && parts[2] == target {
+				return edge
+			}
+		}
+	}
+	return firstGraphEdgeByRelation(edges, relation)
+}
+
+func readableGraphEdge(edge string) string {
+	parts := strings.Split(edge, "|")
+	if len(parts) != 3 {
+		return edge
+	}
+	return fmt.Sprintf("%s -> %s (%s)", readableGraphNode(parts[0]), readableGraphNode(parts[2]), readableToken(parts[1]))
+}
+
+func readableGraphNode(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) != 2 {
+		return readableToken(strings.ReplaceAll(value, "-", " "))
+	}
+	kind := strings.ReplaceAll(parts[0], "trustinput", "trust input")
+	label := strings.ReplaceAll(parts[1], "-", " ")
+	return strings.TrimSpace(readableToken(kind) + " " + readableToken(label))
 }
 
 func buildAssessSignalDetails(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, triage model.AssessTriage, flaws []model.ZeroTrustArchitecture) []model.AssessSignal {
@@ -3715,6 +3805,12 @@ func renderAssessControlState(w io.Writer, state model.AssessControlState) {
 	}
 	for _, line := range limitStrings(state.Summary, 4) {
 		fmt.Fprintf(w, "  - %s\n", line)
+	}
+	if len(state.PathSummary) > 0 {
+		fmt.Fprintf(w, "  - Path to fix:\n")
+		for _, line := range limitStrings(state.PathSummary, 7) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
 	}
 	renderAssessControlStateLines(w, "Missing hard barrier", state.MissingHardBarriers, 6)
 	renderAssessControlStateLines(w, "Present hard barrier", state.PresentHardBarriers, 6)

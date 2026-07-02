@@ -44,6 +44,9 @@ expect_contains "$assess_txt" "Control state:"
 expect_contains "$assess_txt" "Current control: control:egress-destination-allowlist"
 expect_contains "$assess_txt" "Current proof surface: .ariadne/egress-policy.json"
 expect_contains "$assess_txt" "Missing hard-barrier evidence for control:egress-destination-allowlist"
+expect_contains "$assess_txt" "Path to fix:"
+expect_contains "$assess_txt" "Supported graph edge:"
+expect_contains "$assess_txt" "boundary external destination (reaches)"
 expect_contains "$assess_txt" "First action:"
 expect_contains "$assess_txt" "Save baseline proof before changes:"
 expect_contains "$assess_txt" "Review/apply generated proof file:"
@@ -59,6 +62,9 @@ expect_contains "$assess_json" '"run_kind": "assess"'
 expect_contains "$assess_json" '"control_state"'
 expect_contains "$assess_json" '"current_control": "control:egress-destination-allowlist"'
 expect_contains "$assess_json" '"current_proof_surface": ".ariadne/egress-policy.json"'
+expect_contains "$assess_json" '"path_summary"'
+expect_contains "$assess_json" '"graph_edges"'
+expect_contains "$assess_json" 'authority:broad-local|reaches|boundary:external-destination'
 expect_contains "$assess_json" '"generated_proof_path": "proof-patches/surfaces/.ariadne/egress-policy.json"'
 expect_contains "$assess_json" '"suggested_destination": ".ariadne/egress-policy.json"'
 expect_contains "$assess_json" '"apply_command": "cd proof-patches'
@@ -74,6 +80,8 @@ expect_contains "$assess_html" "Ariadne Assessment"
 expect_contains "$assess_html" "Signal Triage"
 expect_contains "$assess_html" "Control State"
 expect_contains "$assess_html" "State Summary"
+expect_contains "$assess_html" "Path To Fix"
+expect_contains "$assess_html" "Graph Edges"
 expect_contains "$assess_html" "Review / Apply Generated Proof"
 expect_contains "$assess_html" "Generated file: proof-patches/surfaces/.ariadne/egress-policy.json"
 expect_contains "$assess_html" "Save baseline proof before changes"
@@ -112,6 +120,9 @@ expect_contains "$endpoint_action" "Control state:"
 expect_contains "$endpoint_action" "Current control: control:deny-by-default"
 expect_contains "$endpoint_action" "Current proof surface: .ariadne/agent-policy.json"
 expect_contains "$endpoint_action" "Missing hard-barrier evidence for control:deny-by-default"
+expect_contains "$endpoint_action" "Path to fix:"
+expect_contains "$endpoint_action" "Supported graph edge:"
+expect_contains "$endpoint_action" "boundary external destination (reaches)"
 expect_contains "$endpoint_action" "Save baseline proof before changes:"
 expect_contains "$endpoint_action" "Review/apply generated proof file:"
 expect_contains "$endpoint_action" "Generated file: proof-patches/surfaces/.ariadne/agent-policy.json"
@@ -133,6 +144,9 @@ expect_contains "$endpoint_json" '"top_case_id": "case:least-agency-authority"'
 expect_contains "$endpoint_json" '"control_state"'
 expect_contains "$endpoint_json" '"current_control": "control:deny-by-default"'
 expect_contains "$endpoint_json" '"current_proof_surface": ".ariadne/agent-policy.json"'
+expect_contains "$endpoint_json" '"path_summary"'
+expect_contains "$endpoint_json" '"graph_edges"'
+expect_contains "$endpoint_json" 'authority:broad-local|reaches|boundary:external-destination'
 expect_contains "$endpoint_json" '"generated_proof_path": "proof-patches/surfaces/.ariadne/agent-policy.json"'
 expect_contains "$endpoint_json" '"suggested_destination": ".ariadne/agent-policy.json"'
 expect_contains "$endpoint_json" '"apply_command": "cd proof-patches'
@@ -145,6 +159,8 @@ expect_contains "$endpoint_html" "Ariadne Assessment"
 expect_contains "$endpoint_html" "Signal Triage"
 expect_contains "$endpoint_html" "Control State"
 expect_contains "$endpoint_html" "State Summary"
+expect_contains "$endpoint_html" "Path To Fix"
+expect_contains "$endpoint_html" "Graph Edges"
 expect_contains "$endpoint_html" "Review / Apply Generated Proof"
 expect_contains "$endpoint_html" "Generated file: proof-patches/surfaces/.ariadne/agent-policy.json"
 expect_contains "$endpoint_html" "Save baseline proof before changes"

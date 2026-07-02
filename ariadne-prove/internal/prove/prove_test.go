@@ -4071,6 +4071,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.ControlState.EvidenceSources, ".claude/settings.json") ||
 		!containsString(decoded.ControlState.EvidenceSources, ".codex/config.toml") ||
 		!containsString(decoded.ControlState.ProofSurfaces, ".ariadne/egress-policy.json") ||
+		!containsString(decoded.ControlState.PathSummary, "Supported graph edge: trust input repo instruction -> runtime claude (influences)") ||
+		!containsString(decoded.ControlState.PathSummary, "boundary external destination (reaches)") ||
+		!containsString(decoded.ControlState.GraphEdges, "authority:broad-local|reaches|boundary:external-destination") ||
 		len(decoded.ControlState.Summary) == 0 {
 		t.Fatalf("assessment should expose a fact-backed control-state packet: %+v", decoded.ControlState)
 	}
@@ -4086,6 +4089,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		`"unknown_evidence":null`,
 		`"evidence_gap_actions":null`,
 		`"control_state":null`,
+		`"path_summary":null`,
+		`"graph_edges":null`,
 	} {
 		if strings.Contains(jsonOut.String(), unwanted) {
 			t.Fatalf("assessment JSON should emit stable empty arrays, not %s:\n%s", unwanted, jsonOut.String())
@@ -4274,6 +4279,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Current control: control:egress-destination-allowlist",
 		"Current proof surface: .ariadne/egress-policy.json",
 		"Missing hard-barrier evidence for control:egress-destination-allowlist",
+		"Path to fix:",
+		"Supported graph edge: trust input repo instruction -> runtime claude (influences)",
+		"boundary external destination (reaches)",
 		"Current action:",
 		"Control: control:egress-destination-allowlist",
 		"Proof surface: .ariadne/egress-policy.json",
@@ -4337,8 +4345,13 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"First Action",
 		"Control State",
 		"State Summary",
+		"Path To Fix",
+		"Supported graph edge: trust input repo instruction -&gt; runtime claude (influences)",
+		"boundary external destination (reaches)",
 		"Partial Or Friction Controls",
 		"Unknown Evidence",
+		"Graph Edges",
+		"authority:broad-local|reaches|boundary:external-destination",
 		"Missing hard-barrier evidence for control:egress-destination-allowlist",
 		"Current Action Packet",
 		"Proof To Add Or Verify",

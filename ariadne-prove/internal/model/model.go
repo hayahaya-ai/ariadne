@@ -330,6 +330,8 @@ type AssessControlState struct {
 	UnknownEvidence           []string `json:"unknown_evidence"`
 	ProofSurfaces             []string `json:"proof_surfaces"`
 	EvidenceSources           []string `json:"evidence_sources"`
+	PathSummary               []string `json:"path_summary"`
+	GraphEdges                []string `json:"graph_edges"`
 	Summary                   []string `json:"summary"`
 	Limitations               []string `json:"limitations"`
 }
