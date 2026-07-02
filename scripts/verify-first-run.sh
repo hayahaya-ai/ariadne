@@ -385,6 +385,9 @@ expect_contains "$self_bundle/manifest.json" '"name": "README.md"'
 expect_contains "$self_bundle/manifest.json" '"name": "manifest.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.json"'
+expect_contains "$self_bundle/manifest.json" '"size_bytes"'
+expect_contains "$self_bundle/manifest.json" '"sha256"'
+expect_contains "$self_bundle/manifest.json" "intentionally not self-hashed"
 expect_contains "$self_bundle/manifest.json" '"review_order"'
 expect_contains "$self_bundle/manifest.json" '"proof_loop"'
 expect_contains "$self_bundle/manifest.json" "--patch-dir proof-patches"

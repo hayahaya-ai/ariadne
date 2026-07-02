@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -267,6 +269,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"does not execute agents",
 		"case-compare.html",
 		"manifest.json",
+		"SHA-256",
 		"case:identity-credentials",
 	} {
 		if !strings.Contains(readme, want) {
@@ -387,10 +390,22 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"name": "operator-packet.txt"`,
 		`"name": "operator-packet.json"`,
 		`"name": "proof-action.txt"`,
+		`"size_bytes"`,
+		`"sha256"`,
+		`intentionally not self-hashed`,
 	} {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("self bundle manifest missing %q:\n%s", want, manifest)
 		}
+	}
+	operatorPacketJSONBytes, err := os.ReadFile(filepath.Join(bundleDir, "operator-packet.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorPacketJSONSum := sha256.Sum256(operatorPacketJSONBytes)
+	operatorPacketJSONHash := fmt.Sprintf("%x", operatorPacketJSONSum[:])
+	if !strings.Contains(manifest, operatorPacketJSONHash) {
+		t.Fatalf("self bundle manifest missing operator-packet.json hash %q:\n%s", operatorPacketJSONHash, manifest)
 	}
 }
 

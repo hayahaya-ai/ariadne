@@ -177,7 +177,7 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 
 | Command | Purpose |
 | --- | --- |
-| `ariadne self` | Primary local developer-machine readout. Inspects the current `HOME` in endpoint mode and shows the first operator action. Use `--bundle-dir ariadne-self` to save the durable first-run folder with summary, `operator-packet.txt`, `operator-packet.json`, dashboard, inventory, cases, proof action, proof plan, README, and manifest. Use `--format html --out ariadne-self.html` for only the local dashboard. |
+| `ariadne self` | Primary local developer-machine readout. Inspects the current `HOME` in endpoint mode and shows the first operator action. Use `--bundle-dir ariadne-self` to save the durable first-run folder with summary, `operator-packet.txt`, `operator-packet.json`, dashboard, inventory, cases, proof action, proof plan, README, and manifest with byte size and SHA-256 metadata for generated payload files. Use `--format html --out ariadne-self.html` for only the local dashboard. |
 | `ariadne assess --path <dir>` | Primary first-run readout: inspected surfaces, exposure posture, Zero Trust architecture breaks, top operator cases, evidence refs, and next commands. Use `--format operator` for the compact ticket-style handoff, `--format operator-json` for the same packet with run metadata, `--format action` for the fuller current-action workflow, and `--format table` for the full terminal audit trail. |
 | `ariadne assess --targets <file>` | Fleet first-run readout across local or mounted targets, with recurring break paths grouped into operator cases. |
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |

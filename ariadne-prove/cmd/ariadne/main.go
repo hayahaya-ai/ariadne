@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -209,6 +210,8 @@ type selfAssessmentBundleFile struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	Description string `json:"description"`
+	SizeBytes   int64  `json:"size_bytes,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
 }
 
 func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r model.Report, status string, focus report.AssessFocus) (selfAssessmentBundleResult, error) {
@@ -252,73 +255,78 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 			{Name: "proof-action.txt", Path: filepath.Join(absDir, "proof-action.txt"), Description: "Focused proof action for the top case or selected case."},
 			{Name: "proof-plan.json", Path: filepath.Join(absDir, "proof-plan.json"), Description: "Structured proof plan for the top case or selected case."},
 			{Name: "README.md", Path: filepath.Join(absDir, "README.md"), Description: "Bundle guide with suggested review order."},
-			{Name: "manifest.json", Path: filepath.Join(absDir, "manifest.json"), Description: "Machine-readable list of bundle files."},
+			{Name: "manifest.json", Path: filepath.Join(absDir, "manifest.json"), Description: "Machine-readable list of bundle files. The manifest entry itself is intentionally not self-hashed."},
 		},
 	}
-	add := func(name string, render func(io.Writer) error) error {
+	add := func(name string, recordMetadata bool, render func(io.Writer) error) error {
 		fullPath := filepath.Join(absDir, name)
 		if err := writeRenderedFile(fullPath, render); err != nil {
 			return err
 		}
+		if recordMetadata {
+			if err := recordSelfAssessmentBundleFileMetadata(&result, name, fullPath); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
-	if err := add("assessment.txt", func(w io.Writer) error {
+	if err := add("assessment.txt", true, func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "summary", status, focus)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("assessment.json", func(w io.Writer) error {
+	if err := add("assessment.json", true, func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "json", status, focus)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("operator-packet.txt", func(w io.Writer) error {
+	if err := add("operator-packet.txt", true, func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "operator", status, focus)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("operator-packet.json", func(w io.Writer) error {
+	if err := add("operator-packet.json", true, func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "operator-json", status, focus)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("dashboard.html", func(w io.Writer) error {
+	if err := add("dashboard.html", true, func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "html", status, focus)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("inventory.json", func(w io.Writer) error {
+	if err := add("inventory.json", true, func(w io.Writer) error {
 		return report.RenderInventory(w, inventory, "json")
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("cases.txt", func(w io.Writer) error {
+	if err := add("cases.txt", true, func(w io.Writer) error {
 		return report.RenderCases(w, r, "table", status, focus.CaseFilter)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("cases.json", func(w io.Writer) error {
+	if err := add("cases.json", true, func(w io.Writer) error {
 		return report.RenderCases(w, r, "json", status, focus.CaseFilter)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("proof-action.txt", func(w io.Writer) error {
+	if err := add("proof-action.txt", true, func(w io.Writer) error {
 		return report.RenderProofs(w, r, "action", status, topCaseID)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("proof-plan.json", func(w io.Writer) error {
+	if err := add("proof-plan.json", true, func(w io.Writer) error {
 		return report.RenderProofs(w, r, "json", status, topCaseID)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("README.md", func(w io.Writer) error {
+	if err := add("README.md", true, func(w io.Writer) error {
 		_, err := io.WriteString(w, selfAssessmentBundleReadme(result))
 		return err
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
-	if err := add("manifest.json", func(w io.Writer) error {
+	if err := add("manifest.json", false, func(w io.Writer) error {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(result)
@@ -326,6 +334,26 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		return selfAssessmentBundleResult{}, err
 	}
 	return result, nil
+}
+
+func recordSelfAssessmentBundleFileMetadata(result *selfAssessmentBundleResult, name string, path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(contents)
+	for idx := range result.Files {
+		if result.Files[idx].Name == name {
+			result.Files[idx].SizeBytes = info.Size()
+			result.Files[idx].SHA256 = fmt.Sprintf("%x", sum[:])
+			return nil
+		}
+	}
+	return fmt.Errorf("self-assessment bundle metadata target not found: %s", name)
 }
 
 func selfAssessmentBundleCaseID(assess model.AssessReport, focus report.AssessFocus) string {
@@ -447,6 +475,10 @@ func selfAssessmentBundleReadme(result selfAssessmentBundleResult) string {
 	}
 	fmt.Fprintf(&b, "## Files\n\n")
 	for _, file := range result.Files {
+		if file.SHA256 != "" {
+			fmt.Fprintf(&b, "- `%s`: %s (SHA-256 `%s`, %d bytes.)\n", file.Name, file.Description, file.SHA256, file.SizeBytes)
+			continue
+		}
 		fmt.Fprintf(&b, "- `%s`: %s\n", file.Name, file.Description)
 	}
 	if len(result.Limitations) > 0 {
