@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="${ARIADNE_BIN:-"$repo_root/bin/ariadne"}"
 fixture="${ARIADNE_VERIFY_FIXTURE:-"$repo_root/ariadne-prove/testdata/realpath/combined-risk"}"
+endpoint_fixture="${ARIADNE_VERIFY_ENDPOINT_FIXTURE:-"$repo_root/ariadne-prove/testdata/realpath/messy-ai-surfaces"}"
 workdir="$(mktemp -d "${TMPDIR:-/private/tmp}/ariadne-first-run.XXXXXX")"
 
 expect_contains() {
@@ -20,6 +21,7 @@ expect_contains() {
 echo "Ariadne first-run verification"
 echo "  bin: $bin"
 echo "  fixture: $fixture"
+echo "  endpoint fixture: $endpoint_fixture"
 echo "  artifacts: $workdir"
 
 assess_txt="$workdir/assess.txt"
@@ -69,6 +71,53 @@ expect_contains "$proofs_action" "CLAUDE.md"
 expect_contains "$proofs_action" "Proof to add or verify:"
 expect_contains "$proofs_action" "Export suggested files:"
 expect_contains "$proofs_action" "Compare loop:"
+
+endpoint_action="$workdir/endpoint-assess-action.txt"
+endpoint_json="$workdir/endpoint-assess.json"
+endpoint_html="$workdir/endpoint-assess.html"
+endpoint_cases="$workdir/endpoint-cases.txt"
+
+"$bin" assess --path "$endpoint_fixture" --mode endpoint --format action --out "$endpoint_action"
+"$bin" assess --path "$endpoint_fixture" --mode endpoint --format json --out "$endpoint_json"
+"$bin" assess --path "$endpoint_fixture" --mode endpoint --format html --out "$endpoint_html"
+"$bin" cases --path "$endpoint_fixture" --mode endpoint --case case:least-agency-authority --out "$endpoint_cases"
+
+expect_contains "$endpoint_action" "What was inspected:"
+expect_contains "$endpoint_action" "Signal triage:"
+expect_contains "$endpoint_action" "Normal capability:"
+expect_contains "$endpoint_action" "Missing hard barrier:"
+expect_contains "$endpoint_action" "Present hard barrier: control:network-restricted"
+expect_contains "$endpoint_action" "Least Agency And Authority Scope"
+expect_contains "$endpoint_action" "Evidence sources:"
+expect_contains "$endpoint_action" ".claude/.mcp.json"
+expect_contains "$endpoint_action" ".claude/settings.local.json"
+expect_contains "$endpoint_action" ".codex/config.toml"
+expect_contains "$endpoint_action" ".continue/config.json"
+expect_contains "$endpoint_action" ".cursor/mcp.json"
+expect_contains "$endpoint_action" ".gemini/settings.json"
+expect_contains "$endpoint_action" "Proof loop:"
+expect_contains "$endpoint_action" "case-compare.html"
+
+expect_contains "$endpoint_json" '"mode": "endpoint"'
+expect_contains "$endpoint_json" '"top_case_id": "case:least-agency-authority"'
+expect_contains "$endpoint_json" '"present_hard_barriers"'
+expect_contains "$endpoint_json" 'control:network-restricted'
+expect_contains "$endpoint_json" '.claude/.mcp.json'
+expect_contains "$endpoint_json" '.gemini/settings.json'
+
+expect_contains "$endpoint_html" "Ariadne Assessment"
+expect_contains "$endpoint_html" "Signal Triage"
+expect_contains "$endpoint_html" "Proof Loop"
+expect_contains "$endpoint_html" ".claude/.mcp.json"
+expect_contains "$endpoint_html" ".gemini/settings.json"
+expect_contains "$endpoint_html" "copy-command"
+
+expect_contains "$endpoint_cases" "Case: case:least-agency-authority"
+expect_contains "$endpoint_cases" "Evidence sources:"
+expect_contains "$endpoint_cases" ".claude/.mcp.json"
+expect_contains "$endpoint_cases" ".codex/config.toml"
+expect_contains "$endpoint_cases" ".gemini/settings.json"
+expect_contains "$endpoint_cases" "Prove at:"
 
 loop_target="$workdir/combined-risk"
 cp -R "$fixture" "$loop_target"
