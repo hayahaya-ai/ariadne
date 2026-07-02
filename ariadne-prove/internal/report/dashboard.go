@@ -386,6 +386,7 @@ func renderCaseCompareDashboard(w io.Writer, r model.CaseCompareReport) error {
 		{"After", firstNonEmpty(r.AfterSource, "<after>")},
 		{"Cases", fmt.Sprintf("%d", r.Summary.Cases)},
 	})
+	renderCaseCompareDecisionDashboard(w, r.Decision)
 	renderCaseCompareSummaryDashboard(w, r)
 	renderCaseCompareOutcomeDashboard(w, r.Outcome)
 	renderCaseCompareCasesDashboard(w, r.Cases)
@@ -394,6 +395,50 @@ func renderCaseCompareDashboard(w io.Writer, r model.CaseCompareReport) error {
 	fmt.Fprintln(w, "</body>")
 	fmt.Fprintln(w, "</html>")
 	return nil
+}
+
+func renderCaseCompareDecisionDashboard(w io.Writer, decision model.CaseCompareDecision) {
+	if decision.Status == "" && decision.Headline == "" {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Compare Decision</h2><div class="subtle">Proof outcome derived from before and after Ariadne JSON artifacts.</div></div></div>`)
+	renderMetricRow(w, []kv{
+		{"Verdict", statusLabel(firstNonEmpty(decision.Status, "unknown"))},
+		{"Top case", firstNonEmpty(decision.TopCaseID, "none")},
+		{"Open after", fmt.Sprintf("%d", decision.AfterOpen)},
+		{"Closed after", fmt.Sprintf("%d", decision.AfterClosed)},
+		{"Proof patches", fmt.Sprintf("%d -> %d", decision.ProofPatchesBefore, decision.ProofPatchesAfter)},
+	})
+	if decision.Headline != "" {
+		fmt.Fprintf(w, `<p><strong>Readout:</strong> %s</p>`, esc(decision.Headline))
+	}
+	if decision.BeforeState != "" || decision.AfterState != "" {
+		fmt.Fprintf(w, `<p><strong>Case transition:</strong> %s -&gt; %s`, esc(firstNonEmpty(decision.BeforeState, "unknown")), esc(firstNonEmpty(decision.AfterState, "unknown")))
+		if decision.TopCaseDisposition != "" {
+			fmt.Fprintf(w, ` (%s)`, esc(readableToken(decision.TopCaseDisposition)))
+		}
+		fmt.Fprintln(w, `</p>`)
+	}
+	fmt.Fprintln(w, `<div class="two-col">`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Added Controls</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.AddedControls))
+	fmt.Fprintln(w, `<h3>Added Evidence Sources</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.AddedEvidenceSources))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `<div>`)
+	fmt.Fprintln(w, `<h3>Open After Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.OpenCases))
+	fmt.Fprintln(w, `<h3>Closed After Rerun</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.ClosedCases))
+	fmt.Fprintln(w, `<h3>Next Action</h3>`)
+	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(decision.NextAction)))
+	fmt.Fprintln(w, `<h3>Decision Limits</h3>`)
+	fmt.Fprintln(w, renderSmallList(decision.Limitations))
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</div>`)
+	fmt.Fprintln(w, `</section>`)
 }
 
 type kv struct {

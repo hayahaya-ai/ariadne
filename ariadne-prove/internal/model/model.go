@@ -210,6 +210,7 @@ type CaseCompareReport struct {
 	BeforeSource  string              `json:"before_source"`
 	AfterSource   string              `json:"after_source"`
 	Summary       CaseCompareSummary  `json:"summary"`
+	Decision      CaseCompareDecision `json:"decision"`
 	Outcome       CaseCompareOutcome  `json:"outcome"`
 	Cases         []CaseCompareResult `json:"cases"`
 	Limitations   []string            `json:"limitations"`
@@ -224,6 +225,28 @@ type CaseCompareSummary struct {
 	Changed      int `json:"changed"`
 	Added        int `json:"added"`
 	Removed      int `json:"removed"`
+}
+
+type CaseCompareDecision struct {
+	Status               string   `json:"status"`
+	Headline             string   `json:"headline"`
+	TopCaseID            string   `json:"top_case_id,omitempty"`
+	TopCaseTitle         string   `json:"top_case_title,omitempty"`
+	TopCaseSeverity      string   `json:"top_case_severity,omitempty"`
+	TopCaseDisposition   string   `json:"top_case_disposition,omitempty"`
+	BeforeState          string   `json:"before_state,omitempty"`
+	AfterState           string   `json:"after_state,omitempty"`
+	AfterOpen            int      `json:"after_open"`
+	AfterClosed          int      `json:"after_closed"`
+	MaterialChanges      int      `json:"material_changes"`
+	ProofPatchesBefore   int      `json:"proof_patches_before"`
+	ProofPatchesAfter    int      `json:"proof_patches_after"`
+	AddedControls        []string `json:"added_controls"`
+	AddedEvidenceSources []string `json:"added_evidence_sources"`
+	OpenCases            []string `json:"open_cases"`
+	ClosedCases          []string `json:"closed_cases"`
+	NextAction           string   `json:"next_action"`
+	Limitations          []string `json:"limitations"`
 }
 
 type CaseCompareOutcome struct {

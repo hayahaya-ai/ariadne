@@ -928,6 +928,7 @@ func BuildCaseCompareReport(beforeRaw []byte, afterRaw []byte, beforeSource stri
 		out.Cases = []model.CaseCompareResult{}
 	}
 	out.Outcome = buildCaseCompareOutcome(out.Cases, out.Summary)
+	out.Decision = buildCaseCompareDecision(out.Summary, out.Outcome, out.Cases)
 	return out, nil
 }
 
@@ -1341,6 +1342,7 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 		r.Summary.Added,
 		r.Summary.Removed,
 	)
+	renderCaseCompareDecision(w, r.Decision)
 	fmt.Fprintf(w, "Outcome:\n")
 	fmt.Fprintf(w, "  %s\n", firstNonEmpty(r.Outcome.Summary, "No outcome summary recorded."))
 	fmt.Fprintf(w, "  Next action: %s\n", firstNonEmpty(r.Outcome.NextAction, "No next action recorded."))
@@ -1413,6 +1415,176 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func buildCaseCompareDecision(summary model.CaseCompareSummary, outcome model.CaseCompareOutcome, cases []model.CaseCompareResult) model.CaseCompareDecision {
+	status := "no_material_change"
+	switch {
+	case outcome.TotalCases == 0:
+		status = "no_comparable_cases"
+	case summary.Reopened > 0:
+		status = "regression"
+	case outcome.AfterOpen > 0:
+		status = "action_required"
+	case summary.Closed > 0:
+		status = "proof_succeeded"
+	case outcome.AfterClosed > 0:
+		status = "already_controlled"
+	case outcome.AfterAbsent > 0:
+		status = "no_open_cases"
+	}
+	top := selectCaseCompareDecisionCase(status, cases)
+	decision := model.CaseCompareDecision{
+		Status:               status,
+		Headline:             caseCompareDecisionHeadline(status, summary, outcome),
+		TopCaseID:            top.ID,
+		TopCaseTitle:         top.Title,
+		TopCaseSeverity:      top.Severity,
+		TopCaseDisposition:   top.Disposition,
+		BeforeState:          top.BeforeState,
+		AfterState:           top.AfterState,
+		AfterOpen:            outcome.AfterOpen,
+		AfterClosed:          outcome.AfterClosed,
+		MaterialChanges:      outcome.MaterialChanges,
+		ProofPatchesBefore:   totalCaseCompareProofPatches(cases, true),
+		ProofPatchesAfter:    totalCaseCompareProofPatches(cases, false),
+		AddedControls:        firstStrings(uniqueStrings(caseCompareAddedControls(cases)), 8),
+		AddedEvidenceSources: firstStrings(uniqueStrings(caseCompareAddedEvidenceSources(cases)), 8),
+		OpenCases:            caseCompareOutcomeCaseIDs(outcome.ActionCases),
+		ClosedCases:          caseCompareOutcomeCaseIDs(outcome.ClosedCases),
+		NextAction:           outcome.NextAction,
+		Limitations: []string{
+			"Decision is derived from before/after Ariadne JSON artifacts; compare does not rerun collectors or prove live enforcement.",
+		},
+	}
+	decision.AddedControls = nonNilStrings(decision.AddedControls)
+	decision.AddedEvidenceSources = nonNilStrings(decision.AddedEvidenceSources)
+	decision.OpenCases = nonNilStrings(decision.OpenCases)
+	decision.ClosedCases = nonNilStrings(decision.ClosedCases)
+	decision.Limitations = nonNilStrings(decision.Limitations)
+	return decision
+}
+
+func selectCaseCompareDecisionCase(status string, cases []model.CaseCompareResult) model.CaseCompareResult {
+	preferred := []string{}
+	switch status {
+	case "regression":
+		preferred = []string{"reopened"}
+	case "action_required":
+		preferred = []string{"reopened", "stayed_open", "added"}
+	case "proof_succeeded":
+		preferred = []string{"closed"}
+	case "already_controlled":
+		preferred = []string{"stayed_closed"}
+	case "no_open_cases":
+		preferred = []string{"removed"}
+	default:
+		preferred = []string{"changed", "closed", "reopened", "stayed_open", "stayed_closed", "added", "removed"}
+	}
+	for _, disposition := range preferred {
+		for _, item := range cases {
+			if strings.EqualFold(item.Disposition, disposition) {
+				return item
+			}
+		}
+	}
+	if len(cases) > 0 {
+		return cases[0]
+	}
+	return model.CaseCompareResult{}
+}
+
+func caseCompareDecisionHeadline(status string, summary model.CaseCompareSummary, outcome model.CaseCompareOutcome) string {
+	switch status {
+	case "proof_succeeded":
+		return fmt.Sprintf("Proof worked: %d case(s) closed and %d case(s) remain open after rerun.", summary.Closed, outcome.AfterOpen)
+	case "regression":
+		return fmt.Sprintf("Regression: %d case(s) reopened and %d case(s) remain open after rerun.", summary.Reopened, outcome.AfterOpen)
+	case "action_required":
+		return fmt.Sprintf("Proof incomplete: %d case(s) remain open after rerun.", outcome.AfterOpen)
+	case "already_controlled":
+		return "No open case remains; compared cases were already controlled in the after artifact."
+	case "no_open_cases":
+		return "No open case remains in the after artifact; confirm absent cases are expected scope changes."
+	case "no_comparable_cases":
+		return "No comparable cases were found in the before and after artifacts."
+	default:
+		return fmt.Sprintf("No material case-state change was observed across %d compared case(s).", outcome.TotalCases)
+	}
+}
+
+func totalCaseCompareProofPatches(cases []model.CaseCompareResult, before bool) int {
+	total := 0
+	for _, item := range cases {
+		if before {
+			total += item.BeforeProofPatches
+		} else {
+			total += item.AfterProofPatches
+		}
+	}
+	return total
+}
+
+func caseCompareAddedControls(cases []model.CaseCompareResult) []string {
+	var out []string
+	for _, item := range cases {
+		out = append(out, item.AddedControls...)
+	}
+	return out
+}
+
+func caseCompareAddedEvidenceSources(cases []model.CaseCompareResult) []string {
+	var out []string
+	for _, item := range cases {
+		out = append(out, evidenceReferenceSources(item.AddedEvidence, false)...)
+	}
+	return out
+}
+
+func caseCompareOutcomeCaseIDs(cases []model.CaseCompareOutcomeCase) []string {
+	out := make([]string, 0, len(cases))
+	for _, item := range cases {
+		out = append(out, firstNonEmpty(item.ID, item.Title))
+	}
+	return uniqueStrings(out)
+}
+
+func renderCaseCompareDecision(w io.Writer, decision model.CaseCompareDecision) {
+	if decision.Status == "" && decision.Headline == "" {
+		return
+	}
+	fmt.Fprintf(w, "Decision:\n")
+	if decision.Status != "" {
+		fmt.Fprintf(w, "  - Verdict: %s\n", readableToken(decision.Status))
+	}
+	if decision.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", decision.Headline)
+	}
+	if decision.TopCaseID != "" {
+		if decision.TopCaseTitle != "" {
+			fmt.Fprintf(w, "  - Top case: %s (%s)\n", decision.TopCaseTitle, decision.TopCaseID)
+		} else {
+			fmt.Fprintf(w, "  - Top case: %s\n", decision.TopCaseID)
+		}
+	}
+	if decision.BeforeState != "" || decision.AfterState != "" {
+		fmt.Fprintf(w, "  - Case transition: %s -> %s", firstNonEmpty(decision.BeforeState, "unknown"), firstNonEmpty(decision.AfterState, "unknown"))
+		if decision.TopCaseDisposition != "" {
+			fmt.Fprintf(w, " (%s)", readableToken(decision.TopCaseDisposition))
+		}
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintf(w, "  - After rerun: %d open; %d closed; %d material change(s)\n", decision.AfterOpen, decision.AfterClosed, decision.MaterialChanges)
+	fmt.Fprintf(w, "  - Proof patches: %d -> %d\n", decision.ProofPatchesBefore, decision.ProofPatchesAfter)
+	renderAssessDecisionLines(w, "Added control", decision.AddedControls, 5)
+	renderAssessDecisionLines(w, "Added evidence", decision.AddedEvidenceSources, 5)
+	renderAssessDecisionLines(w, "Open after rerun", decision.OpenCases, 5)
+	renderAssessDecisionLines(w, "Closed after rerun", decision.ClosedCases, 5)
+	if decision.NextAction != "" {
+		fmt.Fprintf(w, "  - Next action: %s\n", decision.NextAction)
+	}
+	renderAssessDecisionLines(w, "Decision limit", decision.Limitations, 2)
+	fmt.Fprintln(w)
 }
 
 func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {

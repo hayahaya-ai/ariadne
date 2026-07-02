@@ -284,14 +284,25 @@ expect_contains "$after_case" "State: closed"
 expect_contains "$after_case" "0 missing hard-barrier controls"
 expect_contains "$after_case" ".ariadne/input-policy.json"
 
+expect_contains "$compare_txt" "Decision:"
+expect_contains "$compare_txt" "Verdict: proof succeeded"
+expect_contains "$compare_txt" "Readout: Proof worked"
 expect_contains "$compare_txt" "open -> closed"
 expect_contains "$compare_txt" "Proof patches: 2 -> 0"
 expect_contains "$compare_txt" "Added evidence:"
 expect_contains "$compare_txt" ".ariadne/input-policy.json"
 
+expect_contains "$compare_json" '"decision"'
+expect_contains "$compare_json" '"status": "proof_succeeded"'
+expect_contains "$compare_json" '"top_case_id": "case:input-trust-boundary"'
+expect_contains "$compare_json" '"proof_patches_before": 2'
+expect_contains "$compare_json" '"proof_patches_after": 0'
+expect_contains "$compare_json" '"added_evidence_sources"'
 expect_contains "$compare_json" '"before_state": "open"'
 expect_contains "$compare_json" '"after_state": "closed"'
 expect_contains "$compare_json" '"added_evidence_refs"'
+expect_contains "$compare_html" "Compare Decision"
+expect_contains "$compare_html" "PROOF SUCCEEDED"
 expect_contains "$compare_html" "CLOSED"
 expect_contains "$compare_html" "open"
 expect_contains "$compare_html" "closed"

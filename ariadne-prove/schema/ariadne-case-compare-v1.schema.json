@@ -9,6 +9,7 @@
     "before_source",
     "after_source",
     "summary",
+    "decision",
     "outcome",
     "cases",
     "limitations"
@@ -19,6 +20,7 @@
     "before_source": { "type": "string" },
     "after_source": { "type": "string" },
     "summary": { "$ref": "#/$defs/case_compare_summary" },
+    "decision": { "$ref": "#/$defs/case_compare_decision" },
     "outcome": { "$ref": "#/$defs/case_compare_outcome" },
     "cases": {
       "type": "array",
@@ -48,6 +50,48 @@
         "changed": { "type": "integer" },
         "added": { "type": "integer" },
         "removed": { "type": "integer" }
+      }
+    },
+    "case_compare_decision": {
+      "type": "object",
+      "required": [
+        "status",
+        "headline",
+        "after_open",
+        "after_closed",
+        "material_changes",
+        "proof_patches_before",
+        "proof_patches_after",
+        "added_controls",
+        "added_evidence_sources",
+        "open_cases",
+        "closed_cases",
+        "next_action",
+        "limitations"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["proof_succeeded", "action_required", "regression", "already_controlled", "no_open_cases", "no_comparable_cases", "no_material_change"]
+        },
+        "headline": { "type": "string" },
+        "top_case_id": { "type": "string" },
+        "top_case_title": { "type": "string" },
+        "top_case_severity": { "type": "string" },
+        "top_case_disposition": { "type": "string" },
+        "before_state": { "type": "string" },
+        "after_state": { "type": "string" },
+        "after_open": { "type": "integer" },
+        "after_closed": { "type": "integer" },
+        "material_changes": { "type": "integer" },
+        "proof_patches_before": { "type": "integer" },
+        "proof_patches_after": { "type": "integer" },
+        "added_controls": { "type": "array", "items": { "type": "string" } },
+        "added_evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "open_cases": { "type": "array", "items": { "type": "string" } },
+        "closed_cases": { "type": "array", "items": { "type": "string" } },
+        "next_action": { "type": "string" },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },
     "case_compare_outcome": {

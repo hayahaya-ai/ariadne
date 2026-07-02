@@ -3882,6 +3882,20 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	if len(compare.Outcome.ClosedCases) != 1 || len(compare.Outcome.ActionCases) != 0 || !strings.Contains(compare.Outcome.NextAction, "No open case remains") {
 		t.Fatalf("compare outcome should show the case closed with no remaining action: %+v", compare.Outcome)
 	}
+	if compare.Decision.Status != "proof_succeeded" ||
+		compare.Decision.TopCaseID != "case:input-trust-boundary" ||
+		compare.Decision.TopCaseDisposition != "closed" ||
+		compare.Decision.BeforeState != "open" ||
+		compare.Decision.AfterState != "closed" ||
+		compare.Decision.AfterOpen != 0 ||
+		compare.Decision.AfterClosed != 1 ||
+		compare.Decision.ProofPatchesBefore != 2 ||
+		compare.Decision.ProofPatchesAfter != 0 ||
+		!containsString(compare.Decision.AddedEvidenceSources, ".ariadne/input-policy.json") ||
+		!containsString(compare.Decision.ClosedCases, "case:input-trust-boundary") ||
+		!strings.Contains(compare.Decision.NextAction, "No open case remains") {
+		t.Fatalf("compare decision should summarize proof success: %+v", compare.Decision)
+	}
 	if got := compare.Cases[0]; got.Disposition != "closed" || got.BeforeState != "open" || got.AfterState != "closed" {
 		t.Fatalf("compare should show open -> closed: %+v", got)
 	}
@@ -3910,6 +3924,13 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	tableOut := table.String()
 	for _, want := range []string{
 		"Ariadne case compare:",
+		"Decision:",
+		"Verdict: proof succeeded",
+		"Readout: Proof worked",
+		"Top case: Input Trust Boundary (case:input-trust-boundary)",
+		"Case transition: open -> closed (closed)",
+		"After rerun: 0 open; 1 closed; 1 material change(s)",
+		"Added evidence: .ariadne/input-policy.json",
 		"Outcome:",
 		"1 case(s) compared: 0 open after rerun, 1 closed after rerun, 0 absent after rerun, 1 material change(s).",
 		"Next action: No open case remains",
@@ -3937,6 +3958,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	rendered := htmlOut.String()
 	for _, want := range []string{
 		"Ariadne Case Compare",
+		"Compare Decision",
+		"PROOF SUCCEEDED",
+		"Proof worked",
 		"Compare Summary",
 		"Outcome",
 		"After closed",
@@ -3963,6 +3987,13 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	}
 	if reopened.Summary.Reopened != 1 || reopened.Cases[0].Disposition != "reopened" || reopened.Cases[0].BeforeState != "closed" || reopened.Cases[0].AfterState != "open" {
 		t.Fatalf("reverse compare should show reopened: %+v", reopened)
+	}
+	if reopened.Decision.Status != "regression" ||
+		reopened.Decision.TopCaseID != "case:input-trust-boundary" ||
+		reopened.Decision.TopCaseDisposition != "reopened" ||
+		reopened.Decision.AfterOpen != 1 ||
+		!containsString(reopened.Decision.OpenCases, "case:input-trust-boundary") {
+		t.Fatalf("reverse compare decision should call out the reopened case: %+v", reopened.Decision)
 	}
 	if reopened.Outcome.AfterOpen != 1 || len(reopened.Outcome.ActionCases) != 1 || !strings.Contains(reopened.Outcome.NextAction, reopened.Cases[0].ID) {
 		t.Fatalf("reverse compare should make the reopened case actionable: %+v", reopened.Outcome)
@@ -5757,12 +5788,19 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"before_source",
 		"after_source",
 		"summary",
+		"decision",
 		"outcome",
 		"cases",
 		"limitations",
 	)
 	caseCompareSummary := schemaMap(t, caseCompareSchema, "$defs", "case_compare_summary")
 	assertRequiredKeys(t, caseCompareSummary, "cases", "closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed")
+	caseCompareDecision := schemaMap(t, caseCompareSchema, "$defs", "case_compare_decision")
+	assertRequiredKeys(t, caseCompareDecision, "status", "headline", "after_open", "after_closed", "material_changes", "proof_patches_before", "proof_patches_after", "added_controls", "added_evidence_sources", "open_cases", "closed_cases", "next_action", "limitations")
+	assertSchemaProperty(t, caseCompareDecision, "top_case_id")
+	assertSchemaProperty(t, caseCompareDecision, "top_case_disposition")
+	assertSchemaProperty(t, caseCompareDecision, "before_state")
+	assertSchemaProperty(t, caseCompareDecision, "after_state")
 	caseCompareOutcome := schemaMap(t, caseCompareSchema, "$defs", "case_compare_outcome")
 	assertRequiredKeys(t, caseCompareOutcome, "summary", "total_cases", "after_open", "after_closed", "after_absent", "material_changes", "action_cases", "closed_cases", "absent_cases", "next_action")
 	caseCompareOutcomeCase := schemaMap(t, caseCompareSchema, "$defs", "case_compare_outcome_case")
