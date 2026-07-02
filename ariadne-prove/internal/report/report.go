@@ -8829,7 +8829,7 @@ func controlEvidenceExamples(control string, proofSurfaces []string, indicators 
 	if surface == "" {
 		surface = "supported control evidence surface"
 	}
-	fields := firstStrings(controlEvidenceExampleIndicators(control, indicators), 2)
+	fields := firstStrings(uniqueControlEvidenceExampleIndicators(controlEvidenceExampleIndicators(control, indicators)), 2)
 	return []model.ControlEvidenceExample{
 		{
 			Surface: surface,
@@ -8847,7 +8847,7 @@ func controlProofPatches(control string, proofSurfaces []string, indicators []st
 	if surface == "" {
 		surface = "supported control evidence surface"
 	}
-	fields := controlProofPatchFields(firstStrings(controlEvidenceExampleIndicators(control, indicators), 2))
+	fields := controlProofPatchFields(firstStrings(uniqueControlEvidenceExampleIndicators(controlEvidenceExampleIndicators(control, indicators)), 2))
 	if len(fields) == 0 {
 		return []model.ControlProofPatch{}
 	}
@@ -8870,6 +8870,7 @@ func controlProofPatches(control string, proofSurfaces []string, indicators []st
 }
 
 func controlProofPatchFields(indicators []string) []model.ControlProofPatchField {
+	indicators = uniqueControlEvidenceExampleIndicators(indicators)
 	var fields []model.ControlProofPatchField
 	for _, indicator := range indicators {
 		name, value := controlEvidenceExampleKeyValue(indicator)
@@ -8883,6 +8884,24 @@ func controlProofPatchFields(indicators []string) []model.ControlProofPatchField
 		return []model.ControlProofPatchField{}
 	}
 	return fields
+}
+
+func uniqueControlEvidenceExampleIndicators(indicators []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, indicator := range indicators {
+		key, _ := controlEvidenceExampleKeyValue(indicator)
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, indicator)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func controlProofPatchIndicators(fields []model.ControlProofPatchField) []string {

@@ -3977,6 +3977,57 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	}
 }
 
+func TestProofPatchExamplesDeduplicateNormalizedFieldNames(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var jsonOut bytes.Buffer
+	if err := report.RenderProofs(&jsonOut, r, "json", "breaking", "case:ai-supply-chain"); err != nil {
+		t.Fatal(err)
+	}
+	var decoded model.ProofPlanReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	var aiBOMPatch *model.ControlProofPatch
+	for i := range decoded.ProofPatches {
+		if decoded.ProofPatches[i].Control == "control:ai-bom" {
+			aiBOMPatch = &decoded.ProofPatches[i]
+			break
+		}
+	}
+	if aiBOMPatch == nil {
+		t.Fatalf("proof plan should include control:ai-bom patch: %+v", decoded.ProofPatches)
+	}
+	seenNames := map[string]bool{}
+	for _, field := range aiBOMPatch.Fields {
+		if seenNames[field.Name] {
+			t.Fatalf("proof patch should not duplicate normalized field name %q: %+v", field.Name, aiBOMPatch.Fields)
+		}
+		seenNames[field.Name] = true
+	}
+	if strings.Count(aiBOMPatch.Example, `"ai_bom"`) != 1 {
+		t.Fatalf("proof patch example should contain ai_bom once, got:\n%s", aiBOMPatch.Example)
+	}
+	if !strings.Contains(aiBOMPatch.Example, `"ml_bom"`) {
+		t.Fatalf("proof patch example should preserve the next unique AI BOM indicator, got:\n%s", aiBOMPatch.Example)
+	}
+
+	exported, err := report.ExportProofPatchFiles(filepath.Join(t.TempDir(), "proof-patches"), decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(exported.Directory, "surfaces", ".ariadne", "supply-chain-policy.json")
+	policy, err := os.ReadFile(policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(policy), `"ai_bom"`) != 1 {
+		t.Fatalf("exported supply-chain proof policy should contain ai_bom once, got:\n%s", string(policy))
+	}
+}
+
 func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "input-controls")})
 	if err != nil {
