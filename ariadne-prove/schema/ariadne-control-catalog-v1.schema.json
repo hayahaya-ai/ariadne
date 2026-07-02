@@ -75,13 +75,16 @@
     },
     "control_operator_case": {
       "type": "object",
-      "required": ["id", "title", "severity", "question", "finding", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "rerun_commands", "success_criteria", "limitations"],
+      "required": ["id", "title", "severity", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "rerun_commands", "success_criteria", "limitations"],
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
         "severity": { "type": "string" },
+        "state": { "type": "string" },
+        "state_reason": { "type": "string" },
         "question": { "type": "string" },
         "finding": { "type": "string" },
+        "next_step": { "type": "string" },
         "target_count": { "type": "integer" },
         "flaw_count": { "type": "integer" },
         "control_count": { "type": "integer" },

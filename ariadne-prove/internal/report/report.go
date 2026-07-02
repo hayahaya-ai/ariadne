@@ -1612,8 +1612,14 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		if item.Question != "" {
 			fmt.Fprintf(w, "      Question: %s\n", item.Question)
 		}
+		if item.State != "" {
+			fmt.Fprintf(w, "      State: %s - %s\n", item.State, item.StateReason)
+		}
 		if item.Finding != "" {
 			fmt.Fprintf(w, "      Why this case exists: %s\n", item.Finding)
+		}
+		if item.NextStep != "" {
+			fmt.Fprintf(w, "      Next step: %s\n", item.NextStep)
 		}
 		if len(item.EvidenceReferences) > 0 {
 			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 2), "; "))
@@ -1653,8 +1659,11 @@ func buildControlOperatorCases(workstreams []model.ControlBreakPathWorkstream, t
 			ID:                 "case:" + workstream.ID,
 			Title:              workstream.Title,
 			Severity:           workstream.Severity,
+			State:              controlOperatorCaseState(workstream),
+			StateReason:        controlOperatorCaseStateReason(workstream),
 			Question:           controlOperatorCaseQuestion(workstream),
 			Finding:            workstream.Rationale,
+			NextStep:           controlOperatorCaseNextStep(selectedTasks, workstream),
 			TargetCount:        workstream.TargetCount,
 			FlawCount:          workstream.FlawCount,
 			ControlCount:       workstream.ControlCount,
@@ -1692,6 +1701,40 @@ func controlOperatorCaseQuestion(workstream model.ControlBreakPathWorkstream) st
 		return "What evidence proves this architecture break path is closed?"
 	}
 	return fmt.Sprintf("What evidence proves the %s break path is closed?", workstream.Title)
+}
+
+func controlOperatorCaseState(workstream model.ControlBreakPathWorkstream) string {
+	if workstream.ControlCount > 0 {
+		return "open"
+	}
+	return "no_missing_hard_barrier"
+}
+
+func controlOperatorCaseStateReason(workstream model.ControlBreakPathWorkstream) string {
+	if workstream.ControlCount == 0 {
+		return "No missing hard-barrier controls were returned for this break path."
+	}
+	return fmt.Sprintf("%d missing hard-barrier control(s) remain for %d architecture flaw(s) across %d target(s).", workstream.ControlCount, workstream.FlawCount, workstream.TargetCount)
+}
+
+func controlOperatorCaseNextStep(tasks []model.ControlVerificationTask, workstream model.ControlBreakPathWorkstream) string {
+	if len(tasks) > 0 {
+		task := tasks[0]
+		surface := firstString(task.ProofSurfaces)
+		if len(task.EvidenceExamples) > 0 && task.EvidenceExamples[0].Surface != "" {
+			surface = task.EvidenceExamples[0].Surface
+		}
+		if task.Control != "" && surface != "" {
+			return fmt.Sprintf("Add or verify %s evidence at %s, then rerun this case.", task.Control, surface)
+		}
+		if task.Control != "" {
+			return fmt.Sprintf("Add or verify %s evidence, then rerun this case.", task.Control)
+		}
+	}
+	if len(workstream.StartingControls) > 0 {
+		return fmt.Sprintf("Start by proving %s, then rerun this case.", workstream.StartingControls[0])
+	}
+	return "Review the evidence references and add proof for the missing hard-barrier controls."
 }
 
 func controlOperatorCaseStartingTasks(workstream model.ControlBreakPathWorkstream, taskByControl map[string]model.ControlVerificationTask) []model.ControlVerificationTask {
@@ -2112,6 +2155,13 @@ func firstStrings(items []string, limit int) []string {
 		return append([]string{}, items...)
 	}
 	return append([]string{}, items[:limit]...)
+}
+
+func firstString(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return items[0]
 }
 
 func controlEvidenceExampleIndicators(control string, indicators []string) []string {

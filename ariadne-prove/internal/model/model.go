@@ -172,8 +172,11 @@ type ControlOperatorCase struct {
 	ID                 string                   `json:"id"`
 	Title              string                   `json:"title"`
 	Severity           string                   `json:"severity"`
+	State              string                   `json:"state"`
+	StateReason        string                   `json:"state_reason"`
 	Question           string                   `json:"question"`
 	Finding            string                   `json:"finding"`
+	NextStep           string                   `json:"next_step"`
 	TargetCount        int                      `json:"target_count"`
 	FlawCount          int                      `json:"flaw_count"`
 	ControlCount       int                      `json:"control_count"`

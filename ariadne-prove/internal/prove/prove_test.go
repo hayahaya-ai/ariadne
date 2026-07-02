@@ -2769,6 +2769,8 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Control families:",
 		"Operator cases:",
 		"case:input-trust-boundary",
+		"State:",
+		"Next step:",
 		"Start with:",
 		"Prove at:",
 		"Break-path workstreams:",
@@ -2850,6 +2852,7 @@ func TestControlCatalogShowsProofSurfaces(t *testing.T) {
 		"Control Evidence Catalog",
 		"Operator Cases",
 		"case:input-trust-boundary",
+		"State / next step",
 		"Break-Path Workstreams",
 		"Verification Tasks",
 		"Control Families",
@@ -2889,6 +2892,8 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Case queue:",
 		"Operator cases:",
 		"case:input-trust-boundary",
+		"State:",
+		"Next step:",
 		"Evidence references:",
 		"Start with:",
 		"Prove at:",
@@ -2935,6 +2940,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Operator Cases",
 		"case:input-trust-boundary",
 		"Evidence Model",
+		"State / next step",
 		"Architecture break paths grouped",
 		"ariadne cases --path",
 	} {
@@ -2961,6 +2967,8 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"case:input-trust-boundary",
 		"control:input-isolation",
 		".ariadne/input-policy.json",
+		"State: open",
+		"Next step:",
 		"--case case:input-trust-boundary",
 	} {
 		if !strings.Contains(out, want) {
@@ -3001,6 +3009,7 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"Ariadne Operator Case Board",
 		"case:input-trust-boundary",
 		"control:input-isolation",
+		"State / next step",
 		"Case Queue",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -3031,6 +3040,8 @@ func TestControlCatalogScanRetainsTargetCoverage(t *testing.T) {
 		"Targets:",
 		"Operator cases:",
 		"case:input-trust-boundary",
+		"State:",
+		"Next step:",
 		"Break-path workstreams:",
 		"Verification tasks:",
 		"Where to prove this:",
@@ -3115,6 +3126,8 @@ func TestOperatorCaseBoardScanRetainsTargetCoverage(t *testing.T) {
 		"Run: case_board_scan",
 		"Case queue:",
 		"case:input-trust-boundary",
+		"State:",
+		"Next step:",
 		"ariadne cases --targets <targets-file>",
 	} {
 		if !strings.Contains(out, want) {
@@ -3475,7 +3488,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
 	controlOperatorCase := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_case")
-	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "question", "finding", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "rerun_commands", "success_criteria", "limitations")
+	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "rerun_commands", "success_criteria", "limitations")
 	controlBreakPathWorkstream := schemaMap(t, controlCatalogSchema, "$defs", "control_break_path_workstream")
 	assertRequiredKeys(t, controlBreakPathWorkstream, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations")
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
@@ -3963,7 +3976,7 @@ func hasControlOperatorCase(items []model.ControlOperatorCase, id string, contro
 				break
 			}
 		}
-		if hasControl && hasSurface && hasExample && len(item.EvidenceReferences) > 0 && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
+		if hasControl && hasSurface && hasExample && item.State != "" && item.StateReason != "" && item.NextStep != "" && len(item.EvidenceReferences) > 0 && len(item.RerunCommands) > 0 && len(item.SuccessCriteria) > 0 {
 			return true
 		}
 	}

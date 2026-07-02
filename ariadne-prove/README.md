@@ -251,7 +251,7 @@ Prove output adds:
 - optional LLM review interpretation when `--interpret llm` is used
 - limitations
 
-Cases output is the case-first operator view of the architecture closure plan. It starts with the few architecture break paths an operator can act on, then shows evidence refs, starting controls, proof surfaces, evidence examples, rerun commands, and success criteria for each case. Use `--case case:input-trust-boundary` or the unprefixed case id to focus the table, JSON, or HTML output on one case and its supporting evidence.
+Cases output is the case-first operator view of the architecture closure plan. It starts with the few architecture break paths an operator can act on, then shows state, state reason, next step, evidence refs, starting controls, proof surfaces, evidence examples, rerun commands, and success criteria for each case. Case state and next step are derived from missing hard-barrier controls and parser-recognized proof tasks. Use `--case case:input-trust-boundary` or the unprefixed case id to focus the table, JSON, or HTML output on one case and its supporting evidence.
 
 Architecture output includes an operator case workflow section so the readout does not stop at "what is breaking." It prints the case-board command and focused `--case` commands for the top closure families.
 

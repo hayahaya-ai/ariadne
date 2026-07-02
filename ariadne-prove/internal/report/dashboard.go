@@ -692,7 +692,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 		return
 	}
 	fmt.Fprintln(w, `<div class="table-wrap"><table>`)
-	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Case</th><th>Why it exists</th><th>Evidence references</th><th>Start with</th><th>Prove at / example</th><th>Rerun / done when</th></tr></thead><tbody>")
+	fmt.Fprintln(w, "<thead><tr><th>Severity</th><th>Case</th><th>State / next step</th><th>Why it exists</th><th>Evidence references</th><th>Start with</th><th>Prove at / example</th><th>Rerun / done when</th></tr></thead><tbody>")
 	limit := len(cases)
 	if limit > 10 {
 		limit = 10
@@ -701,6 +701,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span></td>`, cssClass(item.Severity), esc(strings.ToUpper(item.Severity)))
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%d control(s), %d flaw(s), %d target(s)</div></td>`, esc(item.Title), esc(item.ID), item.ControlCount, item.FlawCount, item.TargetCount)
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="subtle">%s</div><h3>Next step</h3><div>%s</div></td>`, esc(firstNonEmpty(item.State, "open")), esc(item.StateReason), esc(item.NextStep))
 		fmt.Fprintf(w, `<td>%s<div class="subtle">%s</div></td>`, esc(item.Question), esc(item.Finding))
 		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(evidenceReferenceLines(item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s<div class="mono">%s</div></td>`, renderSmallList(limitStrings(item.StartingControls, 5)), esc(strings.Join(limitStrings(item.StartingTaskIDs, 5), ", ")))
@@ -709,7 +710,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, cases []model.ControlOpera
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(cases) > limit {
-		fmt.Fprintf(w, `<tr><td colspan="7"><span class="subtle">%d more operator cases in JSON output.</span></td></tr>`, len(cases)-limit)
+		fmt.Fprintf(w, `<tr><td colspan="8"><span class="subtle">%d more operator cases in JSON output.</span></td></tr>`, len(cases)-limit)
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
