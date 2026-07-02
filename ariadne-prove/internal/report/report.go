@@ -4223,10 +4223,10 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	}
 	renderAssessDecisionLines(w, "Evidence fact", evidenceReferenceLines(decision.EvidenceReferences, 5), 5)
 	renderAssessDecisionLines(w, "Path", decision.PathSummary, 6)
-	renderAssessDecisionLines(w, "Missing hard barrier", decision.MissingHardBarriers, 5)
-	renderAssessDecisionLines(w, "Present hard barrier", decision.PresentHardBarriers, 5)
-	renderAssessDecisionLines(w, "Partial/friction control", decision.PartialOrFrictionControls, 5)
-	renderAssessDecisionLines(w, "Unknown evidence", decision.UnknownEvidence, 4)
+	renderAssessDecisionBucketLines(w, "Missing hard barrier", decision.MissingHardBarriers, 5, "none for the current case")
+	renderAssessDecisionBucketLines(w, "Present hard barrier", decision.PresentHardBarriers, 5, "none observed for the current case")
+	renderAssessDecisionBucketLines(w, "Partial/friction control", decision.PartialOrFrictionControls, 5, "none observed for the current case")
+	renderAssessDecisionBucketLines(w, "Unknown evidence", decision.UnknownEvidence, 4, "none for the current case")
 	renderAssessDecisionLines(w, "Evidence gap action", decision.EvidenceGapActions, 4)
 	if decision.Instruction != "" {
 		fmt.Fprintf(w, "  - Action: %s\n", decision.Instruction)
@@ -4274,6 +4274,16 @@ func renderAssessDecisionLines(w io.Writer, label string, values []string, limit
 	for _, value := range limitStrings(values, limit) {
 		fmt.Fprintf(w, "  - %s: %s\n", label, value)
 	}
+}
+
+func renderAssessDecisionBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
+	if len(values) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s: %s\n", label, empty)
+		}
+		return
+	}
+	renderAssessDecisionLines(w, label, values, limit)
 }
 
 func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
@@ -4333,10 +4343,10 @@ func renderAssessControlState(w io.Writer, state model.AssessControlState) {
 			fmt.Fprintf(w, "    - %s\n", line)
 		}
 	}
-	renderAssessControlStateLines(w, "Missing hard barrier", state.MissingHardBarriers, 6)
-	renderAssessControlStateLines(w, "Present hard barrier", state.PresentHardBarriers, 6)
-	renderAssessControlStateLines(w, "Partial/friction control", state.PartialOrFrictionControls, 6)
-	renderAssessControlStateLines(w, "Unknown evidence", state.UnknownEvidence, 4)
+	renderAssessControlStateBucketLines(w, "Missing hard barrier", state.MissingHardBarriers, 6, "none for the current case")
+	renderAssessControlStateBucketLines(w, "Present hard barrier", state.PresentHardBarriers, 6, "none observed for the current case")
+	renderAssessControlStateBucketLines(w, "Partial/friction control", state.PartialOrFrictionControls, 6, "none observed for the current case")
+	renderAssessControlStateBucketLines(w, "Unknown evidence", state.UnknownEvidence, 4, "none for the current case")
 	if len(state.EvidenceSources) > 0 {
 		fmt.Fprintf(w, "  - Evidence sources: %s\n", strings.Join(limitStrings(state.EvidenceSources, 8), "; "))
 	}
@@ -4350,6 +4360,16 @@ func renderAssessControlStateLines(w io.Writer, label string, values []string, l
 	for _, value := range limitStrings(values, limit) {
 		fmt.Fprintf(w, "  - %s: %s\n", label, value)
 	}
+}
+
+func renderAssessControlStateBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
+	if len(values) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s: %s\n", label, empty)
+		}
+		return
+	}
+	renderAssessControlStateLines(w, label, values, limit)
 }
 
 func renderAssessSignalDetails(w io.Writer, signals []model.AssessSignal, limit int) {
