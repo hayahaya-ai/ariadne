@@ -2910,6 +2910,30 @@ func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 	if !strings.Contains(table.String(), "Runtime surface map:") || !strings.Contains(table.String(), ".continue/config.json") {
 		t.Fatalf("inventory table should include source-backed runtime surface map:\n%s", table.String())
 	}
+	var coverage bytes.Buffer
+	if err := report.RenderInventory(&coverage, r, "coverage"); err != nil {
+		t.Fatal(err)
+	}
+	coverageRendered := coverage.String()
+	for _, want := range []string{
+		"Ariadne AI Surface Coverage",
+		"Coverage matrix:",
+		"Runtime",
+		"claude",
+		"codex",
+		"cursor",
+		"continue",
+		"copilot",
+		"github-actions",
+		"gitlab-ci",
+		"mcp",
+		"Fact boundary:",
+		"coverage is inventory only; it does not classify exposure",
+	} {
+		if !strings.Contains(coverageRendered, want) {
+			t.Fatalf("inventory coverage missing %q:\n%s", want, coverageRendered)
+		}
+	}
 	var htmlOut bytes.Buffer
 	if err := report.RenderInventory(&htmlOut, r, "html"); err != nil {
 		t.Fatal(err)
@@ -2934,6 +2958,7 @@ func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 		t.Fatalf("inventory dashboard should not use assessment-language header:\n%s", rendered)
 	}
 	combined := string(blob) + table.String()
+	combined += coverageRendered
 	combined += rendered
 	for _, forbidden := range []string{
 		"MESSY_REALPATH_FAKE_SECRET_DO_NOT_LEAK",

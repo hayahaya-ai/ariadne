@@ -494,7 +494,7 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 		Limitations: []string{
 			"Inventory mode collects deterministic local facts only; it does not classify exposure.",
 			"Private histories, paste caches, transcripts, and file history are summarized by metadata only.",
-			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, GitHub Actions, MCP, and generic repo instruction surfaces are supported in this milestone.",
+			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, GitHub Copilot in VS Code, Cline, Roo Code, GitHub Actions, GitLab CI, MCP, and generic repo instruction surfaces are supported in this milestone.",
 		},
 	}, nil
 }

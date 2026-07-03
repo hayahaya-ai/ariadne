@@ -301,6 +301,7 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 			{Name: "operator-packet.txt", Path: filepath.Join(absDir, "operator-packet.txt"), Description: "Small ticket-style handoff with source refs, graph path, controls, proof checkpoint, commands, and done criteria."},
 			{Name: "operator-packet.json", Path: filepath.Join(absDir, "operator-packet.json"), Description: "Structured operator packet for ticketing, workflow systems, and automation."},
 			{Name: "dashboard.html", Path: filepath.Join(absDir, "dashboard.html"), Description: "Local operator dashboard with the same assessment evidence."},
+			{Name: "inventory-coverage.txt", Path: filepath.Join(absDir, "inventory-coverage.txt"), Description: "Compact fact-only AI runtime coverage matrix."},
 			{Name: "inventory.json", Path: filepath.Join(absDir, "inventory.json"), Description: "Deterministic AI surface inventory facts without exposure classification."},
 			{Name: "cases.txt", Path: filepath.Join(absDir, "cases.txt"), Description: "Operator case board showing the prioritized closure work."},
 			{Name: "cases.json", Path: filepath.Join(absDir, "cases.json"), Description: "Structured operator case board."},
@@ -358,6 +359,11 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	}
 	if err := add("dashboard.html", true, func(w io.Writer) error {
 		return report.RenderAssessFocused(w, inventory, r, "html", status, focus)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("inventory-coverage.txt", true, func(w io.Writer) error {
+		return report.RenderInventory(w, inventory, "coverage")
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -611,6 +617,7 @@ func selfAssessmentBundleReviewOrder() []string {
 		"Use `operator-packet.txt` as the compact ticket or handoff: source refs, graph path, controls, proof checkpoint, commands, and done criteria. Use `operator-packet.json` for automation.",
 		"Use `case-action.txt` for the focused first-case handoff and `case-action.json` for the same case action in a compact automation contract.",
 		"Open `dashboard.html` for the operator dashboard with evidence links, proof bundle rows, lifecycle, and case queue.",
+		"Use `inventory-coverage.txt` to see which AI runtimes and managed-agent surfaces were discovered, parsed, summarized, or skipped.",
 		"Use `proof-action.txt` to inspect the exact proof evidence Ariadne expects for the focused case.",
 		"Use `proof-plan.json`, `assessment.json`, `inventory.json`, and `cases.json` for broader automation, ticket metadata, or deeper review.",
 		"Run the proof loop commands below only after reviewing generated proof evidence and deciding what should be applied; use `closure-receipt.txt` as the ticket-ready closure readout.",
@@ -1255,7 +1262,7 @@ func runInventory(args []string) {
 	path := fs.String("path", ".", "repo, workspace, or mounted endpoint home path to inventory")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
-	format := fs.String("format", "table", "output format: table, json, html, dot, mermaid")
+	format := fs.String("format", "table", "output format: table, coverage, json, html, dot, mermaid")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)

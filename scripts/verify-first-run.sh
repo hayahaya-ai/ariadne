@@ -628,7 +628,7 @@ expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
 
-for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json dashboard.html inventory.json cases.txt cases.json case-action.txt case-action.json proof-action.txt proof-plan.json README.md manifest.json; do
+for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json dashboard.html inventory-coverage.txt inventory.json cases.txt cases.json case-action.txt case-action.json proof-action.txt proof-plan.json README.md manifest.json; do
   if [ ! -f "$self_bundle/$bundle_file" ]; then
     echo "missing self bundle file: $self_bundle/$bundle_file" >&2
     echo "artifacts left in: $workdir" >&2
@@ -646,6 +646,7 @@ expect_contains "$self_bundle/README.md" "operator-packet.txt"
 expect_contains "$self_bundle/README.md" "operator-packet.json"
 expect_contains "$self_bundle/README.md" "case-action.txt"
 expect_contains "$self_bundle/README.md" "case-action.json"
+expect_contains "$self_bundle/README.md" "inventory-coverage.txt"
 expect_contains "$self_bundle/README.md" "dashboard.html"
 expect_contains "$self_bundle/README.md" "proof-action.txt"
 expect_contains "$self_bundle/README.md" "--patch-dir proof-patches"
@@ -739,6 +740,15 @@ expect_contains "$self_bundle/operator-packet.json" '"case_id": "case:identity-c
 expect_contains "$self_bundle/operator-packet.json" '"compare_state"'
 expect_contains "$self_bundle/inventory.json" '"run_kind": "inventory"'
 expect_contains "$self_bundle/inventory.json" '.claude/settings.local.json'
+expect_contains "$self_bundle/inventory-coverage.txt" "Ariadne AI Surface Coverage"
+expect_contains "$self_bundle/inventory-coverage.txt" "Coverage matrix:"
+expect_contains "$self_bundle/inventory-coverage.txt" "Runtime"
+expect_contains "$self_bundle/inventory-coverage.txt" "claude"
+expect_contains "$self_bundle/inventory-coverage.txt" "codex"
+expect_contains "$self_bundle/inventory-coverage.txt" "copilot"
+expect_contains "$self_bundle/inventory-coverage.txt" "gemini"
+expect_contains "$self_bundle/inventory-coverage.txt" "roo"
+expect_contains "$self_bundle/inventory-coverage.txt" "coverage is inventory only; it does not classify exposure"
 expect_contains "$managed_inventory" '.github/workflows/ai-review.yml'
 expect_contains "$managed_inventory" '.gitlab-ci.yml'
 expect_contains "$managed_inventory" '"gitlab-ci"'
@@ -818,6 +828,7 @@ expect_contains "$self_bundle/manifest.json" '"name": "runbook.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "runbook.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.json"'
+expect_contains "$self_bundle/manifest.json" '"name": "inventory-coverage.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "case-action.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "case-action.json"'
 expect_contains "$self_bundle/manifest.json" '"size_bytes"'

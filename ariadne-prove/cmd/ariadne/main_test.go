@@ -240,6 +240,44 @@ func TestRunCasesActionFormat(t *testing.T) {
 	}
 }
 
+func TestRunInventoryCoverageFormat(t *testing.T) {
+	root := t.TempDir()
+	coveragePath := filepath.Join(root, "inventory-coverage.txt")
+	runInventory([]string{
+		"--path", filepath.Join("..", "..", "testdata", "realpath", "messy-ai-surfaces"),
+		"--format", "coverage",
+		"--out", coveragePath,
+	})
+	coverage := readTestFile(t, coveragePath)
+	for _, want := range []string{
+		"Ariadne AI Surface Coverage",
+		"Coverage matrix:",
+		"Runtime",
+		"Surfaces",
+		"Parsed",
+		"Summarized",
+		"Boundary",
+		"claude",
+		"codex",
+		"cursor",
+		"continue",
+		"copilot",
+		"github-actions",
+		"gitlab-ci",
+		"mcp",
+		"opencode",
+		"roo",
+		"Fact boundary:",
+		"coverage is inventory only; it does not classify exposure",
+		"parsed means known security-relevant artifacts were structurally inspected",
+		"summarized means private or high-volume context was counted without emitting content",
+	} {
+		if !strings.Contains(coverage, want) {
+			t.Fatalf("inventory coverage output missing %q:\n%s", want, coverage)
+		}
+	}
+}
+
 func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
@@ -579,6 +617,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"operator-packet.txt",
 		"operator-packet.json",
 		"dashboard.html",
+		"inventory-coverage.txt",
 		"inventory.json",
 		"cases.txt",
 		"cases.json",
@@ -621,6 +660,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"operator-packet.json",
 		"case-action.txt",
 		"case-action.json",
+		"inventory-coverage.txt",
 		"dashboard.html",
 		"proof-action.txt",
 		"What This Bundle Answers",
@@ -797,6 +837,24 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		}
 	}
 
+	inventoryCoverage := readTestFile(t, filepath.Join(bundleDir, "inventory-coverage.txt"))
+	for _, want := range []string{
+		"Ariadne AI Surface Coverage",
+		"Coverage matrix:",
+		"Runtime",
+		"claude",
+		"codex",
+		"copilot",
+		"gemini",
+		"roo",
+		"Fact boundary:",
+		"coverage is inventory only; it does not classify exposure",
+	} {
+		if !strings.Contains(inventoryCoverage, want) {
+			t.Fatalf("self bundle inventory coverage missing %q:\n%s", want, inventoryCoverage)
+		}
+	}
+
 	dashboard := readTestFile(t, filepath.Join(bundleDir, "dashboard.html"))
 	for _, want := range []string{
 		"Ariadne Assessment",
@@ -895,6 +953,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"name": "runbook.json"`,
 		`"name": "operator-packet.txt"`,
 		`"name": "operator-packet.json"`,
+		`"name": "inventory-coverage.txt"`,
 		`"name": "case-action.txt"`,
 		`"name": "case-action.json"`,
 		`"name": "proof-action.txt"`,

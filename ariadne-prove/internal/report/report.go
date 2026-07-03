@@ -2367,6 +2367,8 @@ func RenderInventory(w io.Writer, r model.InventoryReport, format string) error 
 	switch strings.ToLower(format) {
 	case "", "table":
 		return renderInventoryTable(w, r)
+	case "coverage", "matrix", "surface-map":
+		return renderInventoryCoverage(w, r)
 	case "json":
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -8143,6 +8145,68 @@ func surfaceMapSummaryLines(items []model.SurfaceMap) []string {
 		lines = append(lines, strings.Join(parts, " "))
 	}
 	return lines
+}
+
+func renderInventoryCoverage(w io.Writer, r model.InventoryReport) error {
+	fmt.Fprintf(w, "Ariadne AI Surface Coverage\n\n")
+	fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
+	fmt.Fprintf(w, "Agent: %s\n\n", r.Agent)
+	fmt.Fprintf(w, "Coverage matrix:\n")
+	if len(r.SurfaceMap) == 0 {
+		fmt.Fprintf(w, "  - no AI runtime surface groups were discovered\n\n")
+	} else {
+		fmt.Fprintf(w, "%-16s %-10s %8s %7s %9s %8s %6s  %s\n", "Runtime", "Scope", "Surfaces", "Parsed", "Summarized", "Boundary", "Skip", "Signals")
+		fmt.Fprintf(w, "%-16s %-10s %8s %7s %9s %8s %6s  %s\n", "-------", "-----", "--------", "------", "----------", "--------", "----", "-------")
+		for _, group := range r.SurfaceMap {
+			fmt.Fprintf(w, "%-16s %-10s %8d %7d %9d %8d %6d  %s\n",
+				group.Runtime,
+				group.Scope,
+				group.SurfaceCount,
+				group.Parsed,
+				group.Summarized,
+				group.BoundaryIndicators,
+				group.Skipped,
+				inventoryCoverageSignals(group),
+			)
+			if len(group.SourceRefs) > 0 {
+				fmt.Fprintf(w, "  sources: %s\n", strings.Join(limitStrings(group.SourceRefs, 6), "; "))
+			}
+			if len(group.Limitations) > 0 {
+				fmt.Fprintf(w, "  limits: %s\n", strings.Join(limitStrings(group.Limitations, 2), "; "))
+			}
+		}
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintf(w, "Fact boundary:\n")
+	fmt.Fprintf(w, "  - coverage is inventory only; it does not classify exposure\n")
+	fmt.Fprintf(w, "  - parsed means known security-relevant artifacts were structurally inspected\n")
+	fmt.Fprintf(w, "  - summarized means private or high-volume context was counted without emitting content\n")
+	fmt.Fprintf(w, "  - boundary means sensitive path indicators were modeled without reading values\n")
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range r.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func inventoryCoverageSignals(group model.SurfaceMap) string {
+	var signals []string
+	if len(group.Authorities) > 0 {
+		signals = append(signals, "authority="+strings.Join(limitStrings(group.Authorities, 3), ","))
+	}
+	if len(group.Tools) > 0 {
+		signals = append(signals, "tools="+strings.Join(limitStrings(group.Tools, 3), ","))
+	}
+	if len(group.Controls) > 0 {
+		signals = append(signals, "controls="+strings.Join(limitStrings(group.Controls, 3), ","))
+	}
+	if len(signals) == 0 {
+		return "surface-only"
+	}
+	return strings.Join(signals, " ")
 }
 
 func renderInventoryTable(w io.Writer, r model.InventoryReport) error {
