@@ -2032,6 +2032,7 @@ func RenderAssessRunbook(w io.Writer, runbook model.AssessOperatorRunbook) error
 	if runbook.ProofSurface != "" {
 		fmt.Fprintf(w, "Proof surface: %s\n", runbook.ProofSurface)
 	}
+	renderAssessControlProofProfile(w, runbook.CurrentControl, 6)
 	fmt.Fprintf(w, "\nOpen first:\n")
 	if len(runbook.OpenFirst) == 0 {
 		fmt.Fprintf(w, "  - none\n")
@@ -2157,6 +2158,7 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 
 	renderAssessOperatorPacketLines(w, "Actionable fact", packet.WhyActionable, 4)
 	renderAssessOperatorPacketLines(w, "Normal context", packet.NormalContext, 3)
+	renderAssessSignalContract(w, r.SignalNoise)
 
 	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
 	renderAssessOperatorPacketEvidence(w, packet.EvidenceToOpen, packet.EvidenceSources)
@@ -2171,6 +2173,7 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 	renderAssessOperatorPacketBucketLines(w, "Missing control", packet.MissingControls, 6, "none for this packet")
 	renderAssessOperatorPacketBucketLines(w, "Observed control", packet.PresentControls, 5, "none observed for this packet")
 	renderAssessOperatorPacketBucketLines(w, "Target control", packet.TargetControls, 6, "none for this packet")
+	renderAssessControlProofProfile(w, firstNonEmpty(packet.CurrentControl, firstString(packet.TargetControls), firstString(packet.MissingControls)), 6)
 
 	renderAssessOperatorPacketProofState(w, packet.ProofState)
 	if len(packet.Commands) > 0 {
@@ -2625,6 +2628,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 	renderAssessDecision(w, r.Decision)
 	renderAssessInventorySummary(w, r.Inventory, 4)
 	renderAssessSignalQuality(w, r.SignalQuality)
+	renderAssessSignalContract(w, r.SignalNoise)
 	renderAssessLethalTrifecta(w, r.LethalTrifecta)
 	renderAssessTriage(w, r.Triage)
 	renderAssessControlState(w, r.ControlState)
@@ -2665,6 +2669,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 			fmt.Fprintf(w, "  - Instruction: %s\n", action.CurrentAction.Instruction)
 		}
 	}
+	renderAssessControlProofProfile(w, firstNonEmpty(action.CurrentAction.Control, firstString(action.StartingControls)), 6)
 	actionEvidenceRefs := rankEvidenceReferencesForOperator(action.CurrentAction.EvidenceReferences, action.ProofSurfaces...)
 	if len(actionEvidenceRefs) > 0 {
 		fmt.Fprintf(w, "\nEvidence to inspect:\n")
@@ -6813,6 +6818,67 @@ func renderAssessSignalQuality(w io.Writer, quality model.AssessSignalQuality) {
 	fmt.Fprintln(w)
 }
 
+func renderAssessSignalContract(w io.Writer, signal model.AssessSignalNoise) {
+	totalItems := len(signal.ExpectedCapability) + len(signal.ExposureTransition) + len(signal.ControlEvidence) + len(signal.DowngradeEvidence) + len(signal.EvidenceGaps)
+	if signal.Status == "" && signal.Summary == "" && totalItems == 0 && len(signal.DecisionRules) == 0 {
+		return
+	}
+	expected, hasExpected := assessSignalContractItem(signal.ExpectedCapability, "capability:authorities", "capability:trust-inputs", "capability:runtimes")
+	transition, hasTransition := assessSignalContractItem(signal.ExposureTransition, "transition:capability-to-boundary", "transition:missing-hard-barrier")
+	control, hasControl := assessSignalContractItem(signal.ControlEvidence, "control:missing-hard-barriers", "control:observed-hard-barriers", "control:partial-or-friction")
+	downgrade, hasDowngrade := assessSignalContractItem(signal.DowngradeEvidence, "downgrade:prove-hard-barrier", "downgrade:remove-supported-path")
+
+	fmt.Fprintf(w, "Signal contract:\n")
+	renderAssessSignalContractLine(w, "Normal capability", expected, hasExpected, "expected agent capability is not exposure by itself")
+	renderAssessSignalContractLine(w, "Signal trigger", transition, hasTransition, "capability becomes signal only when graph evidence reaches a sensitive boundary")
+	renderAssessSignalContractLine(w, "Control state test", control, hasControl, "the case state depends on hard-barrier evidence")
+	renderAssessSignalContractLine(w, "Downgrade/close evidence", downgrade, hasDowngrade, "rerun evidence must change the graph path or control state")
+	for _, rule := range firstStrings(signal.DecisionRules, 3) {
+		fmt.Fprintf(w, "  - Decision rule: %s\n", rule)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessSignalContractLine(w io.Writer, label string, item model.AssessSignalNoiseItem, ok bool, fallback string) {
+	if !ok {
+		fmt.Fprintf(w, "  - %s: %s\n", label, fallback)
+		return
+	}
+	disposition := readableToken(firstNonEmpty(item.Disposition, "unknown"))
+	fmt.Fprintf(w, "  - %s [%s]: %s\n", label, disposition, item.Summary)
+	if item.RiskBoundary != "" {
+		fmt.Fprintf(w, "    Boundary: %s\n", item.RiskBoundary)
+	}
+	if len(item.Controls) > 0 {
+		fmt.Fprintf(w, "    Controls: %s\n", strings.Join(firstStrings(item.Controls, 4), "; "))
+	}
+	if len(item.GraphEdges) > 0 {
+		fmt.Fprintf(w, "    Graph: %s\n", strings.Join(firstStrings(item.GraphEdges, 2), "; "))
+	}
+}
+
+func renderAssessControlProofProfile(w io.Writer, control string, indicatorLimit int) {
+	control = strings.TrimSpace(control)
+	if control == "" {
+		return
+	}
+	if indicatorLimit <= 0 {
+		indicatorLimit = 6
+	}
+	familyID, familyTitle := architectureControlFamily(control)
+	fmt.Fprintf(w, "\nControl proof profile:\n")
+	fmt.Fprintf(w, "  - Control: %s\n", control)
+	fmt.Fprintf(w, "  - Family: %s (%s)\n", firstNonEmpty(familyTitle, "Unknown"), firstNonEmpty(familyID, "unknown"))
+	fmt.Fprintf(w, "  - Evidence kind: %s\n", controlEvidenceKind(control))
+	if indicators := controlRecognizedIndicators(control); len(indicators) > 0 {
+		fmt.Fprintf(w, "  - Recognized indicators: %s\n", strings.Join(firstStrings(indicators, indicatorLimit), "; "))
+	}
+	for _, note := range firstStrings(controlProofNotes(control), 2) {
+		fmt.Fprintf(w, "  - Note: %s\n", note)
+	}
+	fmt.Fprintf(w, "  - Limitation: declared evidence changes Ariadne's deterministic readout only when it is parser-recognized; live enforcement still needs observed runtime evidence.\n")
+}
+
 func renderAssessLethalTrifecta(w io.Writer, trifecta model.AssessLethalTrifecta) {
 	if trifecta.Summary == "" {
 		return
@@ -8061,6 +8127,7 @@ func renderProofPlanAction(w io.Writer, r model.ProofPlanReport) error {
 		if patch.Summary != "" {
 			fmt.Fprintf(w, "  - Patch: %s\n", patch.Summary)
 		}
+		renderAssessControlProofProfile(w, patch.Control, 6)
 	} else {
 		fmt.Fprintf(w, "\nProof to add or verify:\n")
 		fmt.Fprintf(w, "  - No proof patch is needed for this case.\n")

@@ -90,6 +90,10 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Operator Packet",
 		"Start here:",
+		"Signal contract:",
+		"Normal capability",
+		"Signal trigger",
+		"Control proof profile:",
 		"Evidence to inspect:",
 		"Metadata-only context:",
 		"Proof checkpoint:",
@@ -725,6 +729,9 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Proof Action",
 		"case:identity-credentials",
+		"Control proof profile:",
+		"Family: Identity And Credentials (identity-credentials)",
+		"Recognized indicators: credential_isolation; per_agent_credentials",
 		"Proof to add or verify:",
 		"Export suggested files:",
 	} {
@@ -820,6 +827,9 @@ func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {
 		"Proof to add or verify:",
 		"Control: control:input-isolation",
 		"Proof surface: .ariadne/input-policy.json",
+		"Control proof profile:",
+		"Family: Input Trust Boundary (input-trust-boundary)",
+		"Recognized indicators: input_isolation; instruction_isolation",
 		"Compare loop:",
 	} {
 		if !strings.Contains(action, want) {
