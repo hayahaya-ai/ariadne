@@ -5368,6 +5368,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decodedOperator.Packet.CurrentControl != "control:egress-destination-allowlist" ||
 		!hasOperatorPacketCommand(decodedOperator.Packet.Commands, "compare_state", "ariadne compare --before before-proof.json --after after-proof.json", "case-compare.html") ||
 		!containsString(decodedOperator.Packet.EvidenceSources, ".claude/settings.json") ||
+		!decodedOperator.SourceReferences.Available ||
+		len(decodedOperator.SourceReferences.Rows) == 0 ||
+		len(decodedOperator.SourceReferences.ActionBoard) == 0 ||
 		len(decodedOperator.Limitations) == 0 {
 		t.Fatalf("assessment operator-json should expose standalone packet contract: %+v", decodedOperator)
 	}
@@ -7162,13 +7165,15 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, assessClosurePath, "id", "title", "status", "control_test_result", "controls", "hard_barriers_observed", "partial_or_friction_controls", "remaining_missing_hard_barriers", "graph_edges", "evidence_refs")
 
 	operatorPacketSchema := loadSchema(t, "ariadne-operator-packet-v1.schema.json")
-	assertRequiredKeys(t, operatorPacketSchema, "schema_version", "run_id", "generated_at", "run_kind", "source_run_kind", "mode", "agent", "status_filter", "operator_packet", "redaction", "limitations")
+	assertRequiredKeys(t, operatorPacketSchema, "schema_version", "run_id", "generated_at", "run_kind", "source_run_kind", "mode", "agent", "status_filter", "operator_packet", "source_reference_workbench", "redaction", "limitations")
 	assertSchemaProperty(t, operatorPacketSchema, "target_path")
 	assertSchemaProperty(t, operatorPacketSchema, "targets_file")
+	assertSchemaProperty(t, operatorPacketSchema, "source_reference_workbench")
 	operatorRunbookSchema := loadSchema(t, "ariadne-operator-runbook-v1.schema.json")
-	assertRequiredKeys(t, operatorRunbookSchema, "schema_version", "run_id", "generated_at", "run_kind", "source_run_kind", "mode", "agent", "status_filter", "operator_runbook", "redaction", "limitations")
+	assertRequiredKeys(t, operatorRunbookSchema, "schema_version", "run_id", "generated_at", "run_kind", "source_run_kind", "mode", "agent", "status_filter", "operator_runbook", "source_reference_workbench", "redaction", "limitations")
 	assertSchemaProperty(t, operatorRunbookSchema, "target_path")
 	assertSchemaProperty(t, operatorRunbookSchema, "targets_file")
+	assertSchemaProperty(t, operatorRunbookSchema, "source_reference_workbench")
 }
 
 func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {

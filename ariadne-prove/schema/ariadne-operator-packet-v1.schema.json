@@ -13,6 +13,7 @@
     "agent",
     "status_filter",
     "operator_packet",
+    "source_reference_workbench",
     "redaction",
     "limitations"
   ],
@@ -34,6 +35,7 @@
     "case_filter": { "type": "string" },
     "control_filter": { "type": "string" },
     "operator_packet": { "$ref": "ariadne-assess-v1.schema.json#/$defs/assess_operator_packet" },
+    "source_reference_workbench": { "$ref": "ariadne-assess-v1.schema.json#/$defs/assess_source_references" },
     "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
     "warnings": { "type": "array", "items": { "type": "string" } },
     "limitations": { "type": "array", "items": { "type": "string" } }
