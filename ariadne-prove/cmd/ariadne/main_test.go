@@ -1078,6 +1078,8 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"artifact hash: before",
 		"artifact hash: after",
 		"sha256:",
+		"verification command:",
+		"--format receipt --out closure-receipt.txt",
 		"remaining action: No remaining action for this case",
 		"Limits:",
 	} {
@@ -1098,6 +1100,7 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		`"artifact_hashes"`,
 		`"sha256"`,
 		`"size_bytes"`,
+		`"verification_commands"`,
 		`"proof_verdict"`,
 		`"status": "proof_closed"`,
 		`"remaining_action": "No remaining action for this case`,
@@ -1125,6 +1128,7 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"closure-receipt.txt",
 		"Evidence refs",
 		"Artifact hashes",
+		"Verification commands",
 		"sha256:",
 	} {
 		if !strings.Contains(html, want) {

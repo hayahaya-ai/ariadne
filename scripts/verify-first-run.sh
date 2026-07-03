@@ -1138,6 +1138,8 @@ expect_contains "$compare_receipt" "evidence source:"
 expect_contains "$compare_receipt" "evidence ref:"
 expect_contains "$compare_receipt" "artifact hash:"
 expect_contains "$compare_receipt" "sha256:"
+expect_contains "$compare_receipt" "verification command:"
+expect_contains "$compare_receipt" "--format receipt --out closure-receipt.txt"
 expect_contains "$compare_receipt" "remaining action: No remaining action for this case"
 expect_contains "$compare_receipt" "Limits:"
 
@@ -1152,6 +1154,7 @@ expect_contains "$compare_json" '"artifact_sources"'
 expect_contains "$compare_json" '"artifact_hashes"'
 expect_contains "$compare_json" '"sha256"'
 expect_contains "$compare_json" '"size_bytes"'
+expect_contains "$compare_json" '"verification_commands"'
 expect_contains "$compare_json" '"proof_patches_before": 5'
 expect_contains "$compare_json" '"proof_patches_after": 0'
 expect_contains "$compare_json" '"added_evidence_sources"'

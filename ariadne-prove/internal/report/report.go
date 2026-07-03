@@ -1179,28 +1179,38 @@ func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSour
 		verdict := item.ProofVerdict
 		caseID := firstNonEmpty(item.ID, "case")
 		receipts = append(receipts, model.CaseCompareClosureReceipt{
-			ReceiptID:       "closure-receipt:" + caseID,
-			CaseID:          item.ID,
-			CaseTitle:       item.Title,
-			Severity:        item.Severity,
-			Disposition:     item.Disposition,
-			ProofStatus:     verdict.Status,
-			BeforeState:     item.BeforeState,
-			AfterState:      item.AfterState,
-			Summary:         firstNonEmpty(verdict.Summary, caseCompareClosureReceiptSummary(item)),
-			ControlEvidence: nonNilStrings(uniqueSortedStrings(verdict.ControlEvidence)),
-			EvidenceSources: nonNilStrings(uniqueSortedStrings(verdict.EvidenceSources)),
-			EvidenceRefs:    caseCompareClosureReceiptEvidenceReferences(item),
-			ArtifactSources: nonNilStrings(nonEmptyStrings(beforeSource, afterSource)),
-			ArtifactHashes:  nonNilCaseCompareArtifactHashes(artifactHashes),
-			RemainingAction: verdict.RemainingAction,
-			RerunCommands:   nonNilStrings(uniqueStrings(verdict.RerunCommands)),
-			CompareCommands: nonNilStrings(uniqueStrings(verdict.CompareCommands)),
-			DecisionRules:   nonNilStrings(uniqueStrings(verdict.DecisionRules)),
-			Limitations:     nonNilStrings(uniqueStrings(verdict.Limitations)),
+			ReceiptID:            "closure-receipt:" + caseID,
+			CaseID:               item.ID,
+			CaseTitle:            item.Title,
+			Severity:             item.Severity,
+			Disposition:          item.Disposition,
+			ProofStatus:          verdict.Status,
+			BeforeState:          item.BeforeState,
+			AfterState:           item.AfterState,
+			Summary:              firstNonEmpty(verdict.Summary, caseCompareClosureReceiptSummary(item)),
+			ControlEvidence:      nonNilStrings(uniqueSortedStrings(verdict.ControlEvidence)),
+			EvidenceSources:      nonNilStrings(uniqueSortedStrings(verdict.EvidenceSources)),
+			EvidenceRefs:         caseCompareClosureReceiptEvidenceReferences(item),
+			ArtifactSources:      nonNilStrings(nonEmptyStrings(beforeSource, afterSource)),
+			ArtifactHashes:       nonNilCaseCompareArtifactHashes(artifactHashes),
+			RemainingAction:      verdict.RemainingAction,
+			RerunCommands:        nonNilStrings(uniqueStrings(verdict.RerunCommands)),
+			CompareCommands:      nonNilStrings(uniqueStrings(verdict.CompareCommands)),
+			VerificationCommands: nonNilStrings(caseCompareClosureReceiptVerificationCommands(beforeSource, afterSource)),
+			DecisionRules:        nonNilStrings(uniqueStrings(verdict.DecisionRules)),
+			Limitations:          nonNilStrings(uniqueStrings(verdict.Limitations)),
 		})
 	}
 	return receipts
+}
+
+func caseCompareClosureReceiptVerificationCommands(beforeSource string, afterSource string) []string {
+	before := firstNonEmpty(beforeSource, "before-proof.json")
+	after := firstNonEmpty(afterSource, "after-proof.json")
+	return []string{
+		fmt.Sprintf("%s compare --before %s --after %s --format receipt --out closure-receipt.txt", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
+		fmt.Sprintf("%s compare --before %s --after %s --format html --out case-compare.html", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
+	}
 }
 
 func caseCompareClosureReceiptEvidenceReferences(item model.CaseCompareResult) []model.EvidenceReference {
@@ -1712,6 +1722,11 @@ func renderCaseCompareClosureReceipts(w io.Writer, receipts []model.CaseCompareC
 					artifact.SHA256,
 					artifact.SizeBytes,
 				)
+			}
+		}
+		if len(receipt.VerificationCommands) > 0 {
+			for _, command := range limitStrings(receipt.VerificationCommands, 2) {
+				fmt.Fprintf(w, "    verification command: %s\n", command)
 			}
 		}
 		if receipt.RemainingAction != "" {

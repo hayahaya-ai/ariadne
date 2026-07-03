@@ -52,6 +52,8 @@ Ariadne is meant to be used as an operator workflow, not just a scanner.
 ./bin/ariadne compare --before before-proof.json --after after-proof.json
 ```
 
+The compare output includes closure receipts with evidence references, before/after artifact hashes, and exact verification commands for recreating the text receipt and HTML compare.
+
 On the `combined-risk` fixture, the first action currently starts with `case:egress-output-boundary` because Ariadne connected these facts:
 
 - repo instructions can influence local agent runtimes

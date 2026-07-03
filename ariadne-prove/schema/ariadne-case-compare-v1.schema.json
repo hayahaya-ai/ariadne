@@ -269,6 +269,7 @@
         "remaining_action",
         "rerun_commands",
         "compare_commands",
+        "verification_commands",
         "decision_rules",
         "limitations"
       ],
@@ -299,6 +300,7 @@
         "remaining_action": { "type": "string" },
         "rerun_commands": { "type": "array", "items": { "type": "string" } },
         "compare_commands": { "type": "array", "items": { "type": "string" } },
+        "verification_commands": { "type": "array", "items": { "type": "string" } },
         "decision_rules": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
       }
