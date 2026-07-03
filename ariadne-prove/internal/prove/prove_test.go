@@ -5494,6 +5494,17 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Ariadne Assessment",
 		"Operator Console",
 		"The current case, source tasks, and proof loop in one place.",
+		"Case Action Board",
+		"Inspect Source Evidence",
+		"Confirm Sensitive Boundary",
+		"Add Or Verify Control Proof",
+		"Rerun And Save After Proof",
+		"Compare Before And After",
+		"Control gap:",
+		"Baseline artifact: before-proof.json",
+		"After artifact: after-proof.json",
+		"Compare artifact: case-compare.html",
+		"Boundary signal is confirmed without printing sensitive values.",
 		"Open / Verify",
 		"Create Workspace",
 		"Assessment Readout",
@@ -5681,6 +5692,22 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	}
 	if strings.Contains(rendered, `data-command="1 additional items in JSON"`) {
 		t.Fatalf("assessment dashboard should not render summary text as a copyable command:\n%s", rendered)
+	}
+	caseActionBlock := boundedBlock(t, rendered, "<h3>Case Action Board</h3>", `<div class="console-grid">`)
+	for _, want := range []string{
+		".claude/settings.json",
+		".env",
+		".ariadne/egress-policy.json",
+		"proof-patches/surfaces/.ariadne/egress-policy.json",
+		"sed -n",
+		"sensitive boundary path exists",
+		"ariadne proofs --path",
+		"ariadne cases --path",
+		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
+	} {
+		if !strings.Contains(caseActionBlock, want) {
+			t.Fatalf("case action board should show actionable evidence, proof, rerun, and compare details; missing %q:\n%s", want, caseActionBlock)
+		}
 	}
 	if strings.Contains(rendered, `/proof-patches/surfaces/.ariadne/egress-policy.json">proof-patches/surfaces/.ariadne/egress-policy.json</a>`) {
 		t.Fatalf("assessment dashboard should render generated proof artifacts as copyable paths, not target-relative file links:\n%s", rendered)

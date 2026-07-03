@@ -232,12 +232,246 @@ func renderAssessOperatorConsoleDashboard(w io.Writer, r model.AssessReport) {
 		{"Control", firstNonEmpty(packet.CurrentControl, action.CurrentAction.Control, runbook.CurrentControl, "not recorded")},
 		{"Proof surface", firstNonEmpty(packet.ProofSurface, action.CurrentAction.Surface, runbook.ProofSurface, "not recorded")},
 	})
+	renderAssessCaseActionBoardDashboard(w, r, actions)
 	fmt.Fprintln(w, `<div class="console-grid">`)
 	renderAssessOperatorConsoleCaseLane(w, r)
 	renderAssessOperatorConsoleSourceLane(w, r.TargetPath, actions)
 	renderAssessOperatorConsoleProofLane(w, r)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessCaseActionBoardDashboard(w io.Writer, r model.AssessReport, actions []model.AssessSourceAction) {
+	action := r.FirstAction
+	current := action.CurrentAction
+	packet := r.OperatorPacket
+	workbench := r.OperatorWorkbench
+	state := assessCaseActionBoardProofState(r)
+	if !action.Available && !packet.Available && !workbench.Available && len(actions) == 0 {
+		return
+	}
+
+	inspect, hasInspect := assessCaseActionBoardSourceAction(actions, "inspect_risk_source", "inspect_evidence", "verify_control", "reference_fact")
+	boundary, hasBoundary := assessCaseActionBoardSourceAction(actions, "confirm_boundary")
+	control := firstNonEmpty(current.Control, packet.CurrentControl, workbench.Proof.Control, workbench.Runbook.CurrentControl, r.Decision.CurrentControl, firstString(packet.MissingControls), firstString(action.StartingControls))
+	proofSurface := firstNonEmpty(current.Surface, packet.ProofSurface, workbench.Proof.Surface, workbench.Runbook.ProofSurface, r.Decision.ProofSurface, firstString(action.ProofSurfaces))
+	successCriteria := firstNonEmptyStrings(firstNonEmptyStrings(current.SuccessCriteria, state.SuccessCriteria), firstNonEmptyStrings(action.SuccessCriteria, workbench.DoneCriteria))
+
+	fmt.Fprintln(w, `<h3>Case Action Board</h3>`)
+	fmt.Fprintln(w, `<div class="subtle">One deterministic path from evidence to proof: inspect the source, confirm the boundary, add or verify control evidence, rerun, then compare.</div>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table case-action-table">`)
+	fmt.Fprintln(w, `<thead><tr><th>Step</th><th>Fact</th><th>Source / Surface</th><th>Action</th><th>Done When</th></tr></thead><tbody>`)
+
+	if hasInspect {
+		renderAssessCaseActionBoardRow(w,
+			"1",
+			"Inspect Source Evidence",
+			assessCaseActionBoardFactHTML(inspect, "Ariadne cited this source in the current graph path."),
+			assessCaseActionBoardSourceHTML(inspect),
+			renderCommandList(firstStrings(inspect.InspectCommands, 1)),
+			assessCaseActionBoardDoneHTML("Evidence matches the cited graph source."),
+		)
+	} else {
+		renderAssessCaseActionBoardRow(w,
+			"1",
+			"Inspect Source Evidence",
+			esc("No source action was available for this case."),
+			`<span class="subtle">not recorded</span>`,
+			`<span class="subtle">none</span>`,
+			assessCaseActionBoardDoneHTML("Add source-backed evidence before changing controls."),
+		)
+	}
+
+	if hasBoundary {
+		renderAssessCaseActionBoardRow(w,
+			"2",
+			"Confirm Sensitive Boundary",
+			assessCaseActionBoardFactHTML(boundary, "Ariadne modeled this as the sensitive boundary to protect."),
+			assessCaseActionBoardSourceHTML(boundary),
+			renderCommandList(firstStrings(boundary.InspectCommands, 1)),
+			assessCaseActionBoardDoneHTML("Boundary signal is confirmed without printing sensitive values."),
+		)
+	} else {
+		renderAssessCaseActionBoardRow(w,
+			"2",
+			"Confirm Sensitive Boundary",
+			esc("No dedicated boundary check was returned for the current case."),
+			`<span class="subtle">not recorded</span>`,
+			`<span class="subtle">none</span>`,
+			assessCaseActionBoardDoneHTML("Boundary evidence is present or the case remains evidence-limited."),
+		)
+	}
+
+	proofActionHTML := renderDashboardHTMLList(firstStrings(assessCaseActionBoardProofHTMLLines(r.TargetPath, action, workbench), 4))
+	proofCommands := nonEmptyStrings(current.PatchExportCommand, current.ApplyCommand)
+	if len(proofCommands) == 0 {
+		proofCommands = nonEmptyStrings(action.PatchExportCommand, firstString(action.ApplyCommands), workbench.Proof.ApplyCommand)
+	}
+	if len(proofCommands) > 0 {
+		proofActionHTML += `<div class="subtle">Commands</div>` + renderCommandList(firstStrings(proofCommands, 2))
+	}
+	renderAssessCaseActionBoardRow(w,
+		"3",
+		"Add Or Verify Control Proof",
+		assessCaseActionBoardControlGapHTML(control, packet.MissingControls, r.Decision.MissingHardBarriers),
+		assessCaseActionBoardProofSurfaceHTML(r.TargetPath, proofSurface, current.GeneratedProofPath, current.DestinationPath, current.SuggestedDestination),
+		proofActionHTML,
+		assessCaseActionBoardDoneHTML(firstNonEmpty(firstString(successCriteria), "Parser-recognized control evidence exists on the proof surface.")),
+	)
+
+	rerunCommands := uniqueStrings(nonEmptyStrings(
+		state.BaselineCommand,
+		firstNonEmpty(assessCurrentRerunCommand(action), firstString(workbench.Verify.Commands)),
+		state.AfterCommand,
+	))
+	renderAssessCaseActionBoardRow(w,
+		"4",
+		"Rerun And Save After Proof",
+		esc("Before and after artifacts make the control change comparable."),
+		assessCaseActionBoardArtifactsHTML(state.BaselineArtifact, state.AfterArtifact),
+		renderCommandList(firstStrings(rerunCommands, 3)),
+		assessCaseActionBoardDoneHTML("After-proof artifact exists for the same focused case."),
+	)
+
+	compareCommand := firstNonEmpty(state.CompareCommand, current.CompareCommand, firstString(action.CompareCommands))
+	renderAssessCaseActionBoardRow(w,
+		"5",
+		"Compare Before And After",
+		esc("The compare report is the closure readout for this case."),
+		assessCaseActionBoardSingleArtifactHTML("Compare artifact", state.CompareArtifact),
+		renderCommandList(nonEmptyStrings(compareCommand)),
+		assessCaseActionBoardDoneHTML(firstNonEmpty(state.ClosureCondition, firstString(successCriteria), "Compare shows whether the case closed, stayed open, reopened, or changed.")),
+	)
+
+	fmt.Fprintln(w, `</tbody></table></div>`)
+}
+
+func renderAssessCaseActionBoardRow(w io.Writer, step string, title string, factHTML string, sourceHTML string, actionHTML string, doneHTML string) {
+	fmt.Fprintln(w, `<tr>`)
+	fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div></td>`, esc(title), esc(step))
+	fmt.Fprintf(w, `<td>%s</td>`, firstNonEmpty(factHTML, `<span class="subtle">not recorded</span>`))
+	fmt.Fprintf(w, `<td>%s</td>`, firstNonEmpty(sourceHTML, `<span class="subtle">not recorded</span>`))
+	fmt.Fprintf(w, `<td>%s</td>`, firstNonEmpty(actionHTML, `<span class="subtle">none</span>`))
+	fmt.Fprintf(w, `<td>%s</td>`, firstNonEmpty(doneHTML, `<span class="subtle">not recorded</span>`))
+	fmt.Fprintln(w, `</tr>`)
+}
+
+func assessCaseActionBoardProofState(r model.AssessReport) model.AssessWorkbenchProofState {
+	state := r.OperatorPacket.ProofState
+	if state.CurrentState != "" || state.BaselineCommand != "" || state.CompareCommand != "" || len(state.SuccessCriteria) > 0 {
+		return state
+	}
+	return r.OperatorWorkbench.ProofState
+}
+
+func assessCaseActionBoardSourceAction(actions []model.AssessSourceAction, kinds ...string) (model.AssessSourceAction, bool) {
+	if len(actions) == 0 {
+		return model.AssessSourceAction{}, false
+	}
+	for _, kind := range kinds {
+		for _, action := range actions {
+			if strings.EqualFold(strings.TrimSpace(action.ActionKind), kind) {
+				return action, true
+			}
+		}
+	}
+	for _, action := range actions {
+		if !action.MetadataOnly && strings.EqualFold(strings.TrimSpace(action.Role), "evidence") {
+			return action, true
+		}
+	}
+	return actions[0], true
+}
+
+func assessCaseActionBoardFactHTML(action model.AssessSourceAction, fallback string) string {
+	lines := firstStrings(action.Facts, 2)
+	if len(lines) == 0 {
+		lines = []string{fallback}
+	}
+	if action.RecommendedAction != "" {
+		lines = append([]string{action.RecommendedAction}, lines...)
+	}
+	return renderSmallList(limitStrings(lines, 3))
+}
+
+func assessCaseActionBoardSourceHTML(action model.AssessSourceAction) string {
+	source := dashboardSourceActionSourceHTML(action)
+	lines := usefulSourceActionLineLabels(action.LineLabels)
+	if len(lines) == 0 {
+		return source
+	}
+	return source + `<div class="subtle">Lines: ` + esc(strings.Join(lines, ", ")) + `</div>`
+}
+
+func assessCaseActionBoardControlGapHTML(control string, missingControls []string, fallbackControls []string) string {
+	values := uniqueStrings(nonEmptyStrings(control))
+	values = uniqueStrings(append(values, missingControls...))
+	values = uniqueStrings(append(values, fallbackControls...))
+	if len(values) == 0 {
+		return esc("Control gap: not recorded")
+	}
+	return renderSmallList([]string{"Control gap: " + strings.Join(limitStrings(values, 4), "; ")})
+}
+
+func assessCaseActionBoardProofSurfaceHTML(root string, surface string, generated string, destination string, suggested string) string {
+	items := []string{}
+	if surface != "" {
+		items = append(items, "Proof surface: "+dashboardFileRefHTML(root, surface))
+	}
+	if generated != "" {
+		items = append(items, dashboardCopyablePathLineHTML("Generated file", generated))
+	}
+	dest := firstNonEmpty(destination, suggested)
+	if dest != "" {
+		ref := dashboardFileRefWithLabelHTML(root, dest, dashboardRelativePathLabel(root, dest))
+		if ref == "" {
+			ref = dashboardCopyablePathLineHTML("Suggested destination", dest)
+		} else {
+			ref = "Suggested destination: " + ref
+		}
+		items = append(items, ref)
+	}
+	return renderDashboardHTMLList(items)
+}
+
+func assessCaseActionBoardProofHTMLLines(root string, action model.AssessFirstAction, workbench model.AssessOperatorWorkbench) []string {
+	current := action.CurrentAction
+	if current.ProofPatch != nil {
+		return assessCurrentProofHTMLLines(root, current)
+	}
+	if workbench.Proof.ProofPatch != nil {
+		return assessWorkbenchProofHTMLLines(root, workbench.Proof)
+	}
+	return assessCurrentProofHTMLLines(root, current)
+}
+
+func assessCaseActionBoardArtifactsHTML(values ...string) string {
+	values = nonEmptyStrings(values...)
+	if len(values) == 0 {
+		return `<span class="subtle">not recorded</span>`
+	}
+	var lines []string
+	labels := []string{"Baseline artifact", "After artifact", "Compare artifact"}
+	for idx, value := range values {
+		label := "Artifact"
+		if idx < len(labels) {
+			label = labels[idx]
+		}
+		lines = append(lines, dashboardCopyablePathLineHTML(label, value))
+	}
+	return renderDashboardHTMLList(lines)
+}
+
+func assessCaseActionBoardSingleArtifactHTML(label string, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return `<span class="subtle">not recorded</span>`
+	}
+	return renderDashboardHTMLList([]string{dashboardCopyablePathLineHTML(label, value)})
+}
+
+func assessCaseActionBoardDoneHTML(value string) string {
+	return renderSmallList(nonEmptyStrings(value))
 }
 
 func renderAssessOperatorConsoleCaseLane(w io.Writer, r model.AssessReport) {
