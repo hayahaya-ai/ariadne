@@ -557,7 +557,7 @@ expect_contains "$cases_action" "Create closure receipt"
 expect_contains "$cases_action" "closure-receipt.txt"
 expect_contains "$cases_action" "Done when:"
 
-for closure_file in runbook.txt runbook.json before-proof.json proof-action.txt proof-plan.html proof-patches/README.md proof-patches/manifest.json proof-patches/surfaces/.ariadne/egress-policy.json proof-patches/surfaces/.ariadne/output-policy.json README.md manifest.json; do
+for closure_file in runbook.txt runbook.json source-inspection.txt source-inspection.json before-proof.json proof-action.txt proof-plan.html proof-patches/README.md proof-patches/manifest.json proof-patches/surfaces/.ariadne/egress-policy.json proof-patches/surfaces/.ariadne/output-policy.json README.md manifest.json; do
   if [ ! -f "$closure_dir/$closure_file" ]; then
     echo "closure workspace missing $closure_file" >&2
     echo "artifacts left in: $workdir" >&2
@@ -570,6 +570,8 @@ expect_contains "$closure_dir/README.md" "case:egress-output-boundary"
 expect_contains "$closure_dir/README.md" "Workspace Integrity"
 expect_contains "$closure_dir/README.md" "ariadne bundle verify --dir"
 expect_contains "$closure_dir/README.md" "Run the workspace integrity command"
+expect_contains "$closure_dir/README.md" "source-inspection.txt"
+expect_contains "$closure_dir/README.md" "exact source files, line labels, inspect commands"
 expect_contains "$closure_dir/README.md" "Save after proof"
 expect_contains "$closure_dir/README.md" "Create closure receipt"
 expect_contains "$closure_dir/README.md" "Create HTML compare"
@@ -579,6 +581,8 @@ expect_contains "$closure_dir/README.md" "case-compare.html"
 expect_contains "$closure_dir/manifest.json" '"run_kind": "closure_workspace"'
 expect_contains "$closure_dir/manifest.json" '"case_id": "case:egress-output-boundary"'
 expect_contains "$closure_dir/manifest.json" '"integrity_command": "ariadne bundle verify --dir'
+expect_contains "$closure_dir/manifest.json" '"name": "source-inspection.txt"'
+expect_contains "$closure_dir/manifest.json" '"name": "source-inspection.json"'
 expect_contains "$closure_dir/manifest.json" '"save_after_proof"'
 expect_contains "$closure_dir/manifest.json" '"closure_receipt"'
 expect_contains "$closure_dir/manifest.json" '"compare_state"'
@@ -586,6 +590,13 @@ expect_contains "$closure_dir/manifest.json" '"proof-patches/surfaces/.ariadne/e
 expect_contains "$closure_dir/before-proof.json" '"run_kind": "proof_plan"'
 expect_contains "$closure_dir/before-proof.json" '"case_filter": "case:egress-output-boundary"'
 expect_contains "$closure_dir/runbook.txt" "Ariadne Operator Runbook"
+expect_contains "$closure_dir/source-inspection.txt" "Ariadne Source Inspection"
+expect_contains "$closure_dir/source-inspection.txt" "Source action checklist:"
+expect_contains "$closure_dir/source-inspection.txt" "Evidence reference rows:"
+expect_contains "$closure_dir/source-inspection.txt" "inspect:"
+expect_contains "$closure_dir/source-inspection.json" '"run_kind": "source_inspection"'
+expect_contains "$closure_dir/source-inspection.json" '"source_action_board"'
+expect_contains "$closure_dir/source-inspection.json" '"inspect_commands"'
 expect_contains "$closure_dir/proof-plan.html" "Ariadne Proof Plan"
 expect_contains "$closure_verify" "Ariadne Bundle Verify"
 expect_contains "$closure_verify" "Status: ok"
@@ -643,7 +654,7 @@ expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
 
-for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json dashboard.html inventory-coverage.txt inventory.json llm-follow-up-request.txt llm-follow-up-request.json llm-inventory-blind-request.txt llm-inventory-blind-request.json cases.txt cases.json case-action.txt case-action.json proof-action.txt proof-plan.json README.md manifest.json; do
+for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json source-inspection.txt source-inspection.json dashboard.html inventory-coverage.txt inventory.json llm-follow-up-request.txt llm-follow-up-request.json llm-inventory-blind-request.txt llm-inventory-blind-request.json cases.txt cases.json case-action.txt case-action.json proof-action.txt proof-plan.json README.md manifest.json; do
   if [ ! -f "$self_bundle/$bundle_file" ]; then
     echo "missing self bundle file: $self_bundle/$bundle_file" >&2
     echo "artifacts left in: $workdir" >&2
@@ -661,6 +672,9 @@ expect_contains "$self_bundle/README.md" "runbook.txt"
 expect_contains "$self_bundle/README.md" "runbook.json"
 expect_contains "$self_bundle/README.md" "operator-packet.txt"
 expect_contains "$self_bundle/README.md" "operator-packet.json"
+expect_contains "$self_bundle/README.md" "source-inspection.txt"
+expect_contains "$self_bundle/README.md" "source-inspection.json"
+expect_contains "$self_bundle/README.md" "exact files, line labels, inspect commands"
 expect_contains "$self_bundle/README.md" "case-action.txt"
 expect_contains "$self_bundle/README.md" "case-action.json"
 expect_contains "$self_bundle/README.md" "inventory-coverage.txt"
@@ -905,12 +919,22 @@ expect_contains "$self_bundle/proof-action.txt" "Family: Identity And Credential
 expect_contains "$self_bundle/proof-action.txt" "credential_isolation"
 expect_contains "$self_bundle/proof-plan.json" '"run_kind": "proof_plan"'
 expect_contains "$self_bundle/proof-plan.json" '"case_filter": "case:identity-credentials"'
+expect_contains "$self_bundle/source-inspection.txt" "Ariadne Source Inspection"
+expect_contains "$self_bundle/source-inspection.txt" "Source action checklist:"
+expect_contains "$self_bundle/source-inspection.txt" "Evidence reference rows:"
+expect_contains "$self_bundle/source-inspection.txt" "metadata-only"
+expect_contains "$self_bundle/source-inspection.txt" "inspect:"
+expect_contains "$self_bundle/source-inspection.json" '"run_kind": "source_inspection"'
+expect_contains "$self_bundle/source-inspection.json" '"source_action_board"'
+expect_contains "$self_bundle/source-inspection.json" '"inspect_commands"'
 expect_contains "$self_bundle/manifest.json" '"name": "README.md"'
 expect_contains "$self_bundle/manifest.json" '"name": "manifest.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "runbook.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "runbook.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.json"'
+expect_contains "$self_bundle/manifest.json" '"name": "source-inspection.txt"'
+expect_contains "$self_bundle/manifest.json" '"name": "source-inspection.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "inventory-coverage.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "llm-follow-up-request.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "llm-follow-up-request.json"'

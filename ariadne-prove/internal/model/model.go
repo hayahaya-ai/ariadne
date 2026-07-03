@@ -451,6 +451,26 @@ type AssessSourceAction struct {
 	RelatedControls   []string `json:"related_controls"`
 }
 
+type AssessSourceInspectionReport struct {
+	SchemaVersion    string                 `json:"schema_version"`
+	RunID            string                 `json:"run_id"`
+	GeneratedAt      time.Time              `json:"generated_at"`
+	RunKind          string                 `json:"run_kind"`
+	SourceRunKind    string                 `json:"source_run_kind"`
+	TargetPath       string                 `json:"target_path,omitempty"`
+	TargetsFile      string                 `json:"targets_file,omitempty"`
+	Targets          []ScanTarget           `json:"targets,omitempty"`
+	Mode             string                 `json:"mode"`
+	Agent            string                 `json:"agent"`
+	StatusFilter     string                 `json:"status_filter"`
+	CaseFilter       string                 `json:"case_filter,omitempty"`
+	ControlFilter    string                 `json:"control_filter,omitempty"`
+	SourceReferences AssessSourceReferences `json:"source_reference_workbench"`
+	Redaction        RedactionInfo          `json:"redaction"`
+	Warnings         []string               `json:"warnings,omitempty"`
+	Limitations      []string               `json:"limitations"`
+}
+
 type AssessOperatorPacketReport struct {
 	SchemaVersion    string                 `json:"schema_version"`
 	RunID            string                 `json:"run_id"`

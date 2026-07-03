@@ -77,7 +77,7 @@ func runAssess(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:input-isolation")
-	format := fs.String("format", "summary", "output format: summary, runbook, runbook-json, operator, operator-json, table, action, json, html")
+	format := fs.String("format", "summary", "output format: summary, source-inspection, source-inspection-json, runbook, runbook-json, operator, operator-json, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -149,7 +149,7 @@ func runSelf(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:identity-credentials")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:credential-isolation")
-	format := fs.String("format", "summary", "output format: summary, runbook, runbook-json, operator, operator-json, table, action, json, html")
+	format := fs.String("format", "summary", "output format: summary, source-inspection, source-inspection-json, runbook, runbook-json, operator, operator-json, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -350,6 +350,8 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 			{Name: "runbook.json", Path: filepath.Join(absDir, "runbook.json"), Description: "Structured operator runbook for workflow systems and managed UI clients."},
 			{Name: "operator-packet.txt", Path: filepath.Join(absDir, "operator-packet.txt"), Description: "Small ticket-style handoff with source refs, graph path, controls, proof checkpoint, commands, and done criteria."},
 			{Name: "operator-packet.json", Path: filepath.Join(absDir, "operator-packet.json"), Description: "Structured operator packet for ticketing, workflow systems, and automation."},
+			{Name: "source-inspection.txt", Path: filepath.Join(absDir, "source-inspection.txt"), Description: "Standalone source action checklist with exact files, line labels, inspect commands, metadata-only handling, and control links."},
+			{Name: "source-inspection.json", Path: filepath.Join(absDir, "source-inspection.json"), Description: "Structured source inspection workbench for UI, ticketing, and automation clients."},
 			{Name: "dashboard.html", Path: filepath.Join(absDir, "dashboard.html"), Description: "Local operator dashboard with the same assessment evidence."},
 			{Name: "inventory-coverage.txt", Path: filepath.Join(absDir, "inventory-coverage.txt"), Description: "Compact fact-only AI runtime coverage matrix."},
 			{Name: "inventory.json", Path: filepath.Join(absDir, "inventory.json"), Description: "Deterministic AI surface inventory facts without exposure classification."},
@@ -408,6 +410,16 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	}
 	if err := add("operator-packet.json", true, func(w io.Writer) error {
 		return report.RenderAssessReport(w, assess, "operator-json")
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("source-inspection.txt", true, func(w io.Writer) error {
+		return report.RenderAssessReport(w, assess, "source-inspection")
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("source-inspection.json", true, func(w io.Writer) error {
+		return report.RenderAssessReport(w, assess, "source-inspection-json")
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -638,6 +650,8 @@ func writeClosureWorkspace(dir string, r model.Report, assess model.AssessReport
 		Files: []selfAssessmentBundleFile{
 			{Name: "runbook.txt", Path: filepath.Join(absDir, "runbook.txt"), Description: "Action-first workflow for this closure case."},
 			{Name: "runbook.json", Path: filepath.Join(absDir, "runbook.json"), Description: "Structured operator runbook for UI and workflow clients."},
+			{Name: "source-inspection.txt", Path: filepath.Join(absDir, "source-inspection.txt"), Description: "Focused source action checklist for this closure case."},
+			{Name: "source-inspection.json", Path: filepath.Join(absDir, "source-inspection.json"), Description: "Structured source inspection workbench for this closure case."},
 			{Name: "before-proof.json", Path: filepath.Join(absDir, "before-proof.json"), Description: "Baseline proof state before changing evidence."},
 			{Name: "proof-action.txt", Path: filepath.Join(absDir, "proof-action.txt"), Description: "Human proof action for the focused closure case."},
 			{Name: "proof-plan.html", Path: filepath.Join(absDir, "proof-plan.html"), Description: "Focused proof-plan dashboard for reviewing evidence, patches, commands, and success criteria."},
@@ -671,6 +685,16 @@ func writeClosureWorkspace(dir string, r model.Report, assess model.AssessReport
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(report.BuildAssessOperatorRunbookReport(assess))
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	if err := add("source-inspection.txt", true, func(w io.Writer) error {
+		return report.RenderAssessReport(w, assess, "source-inspection")
+	}); err != nil {
+		return closureWorkspaceResult{}, err
+	}
+	if err := add("source-inspection.json", true, func(w io.Writer) error {
+		return report.RenderAssessReport(w, assess, "source-inspection-json")
 	}); err != nil {
 		return closureWorkspaceResult{}, err
 	}
@@ -803,6 +827,7 @@ func selfAssessmentBundleReviewOrder() []string {
 	return []string{
 		"Run `ariadne bundle verify --dir BUNDLE_DIR` before attaching, sharing, or trusting this saved bundle.",
 		"Read `assessment.txt` for the executive readout, decision, signal/noise boundary, and first action.",
+		"Open `source-inspection.txt` for the exact files, line labels, inspect commands, metadata-only surfaces, and control links behind the current case.",
 		"Use `runbook.txt` as the action-first operator workflow: open-first evidence, current step, commands, artifacts, and closure workflow. Use `runbook.json` for UI clients and workflow automation.",
 		"Use `operator-packet.txt` as the compact ticket or handoff: source refs, graph path, controls, proof checkpoint, commands, and done criteria. Use `operator-packet.json` for automation.",
 		"Use `case-action.txt` for the focused first-case handoff and `case-action.json` for the same case action in a compact automation contract.",
@@ -999,10 +1024,11 @@ func closureWorkspaceReadme(result closureWorkspaceResult) string {
 	fmt.Fprintf(&b, "\n## Review Order\n\n")
 	fmt.Fprintf(&b, "1. Run the workspace integrity command before attaching, sharing, or trusting this saved workspace.\n")
 	fmt.Fprintf(&b, "2. Open `runbook.txt` for the action-first workflow.\n")
-	fmt.Fprintf(&b, "3. Open `proof-action.txt` for the exact proof evidence Ariadne expects.\n")
-	fmt.Fprintf(&b, "4. Review `proof-patches/README.md` and `proof-patches/manifest.json` before copying any suggested evidence file.\n")
-	fmt.Fprintf(&b, "5. After evidence is changed or verified, run the after-proof command below.\n")
-	fmt.Fprintf(&b, "6. Run the closure receipt command and use `closure-receipt.txt` as the ticket-ready closure readout. Use `case-compare.html` for richer review.\n")
+	fmt.Fprintf(&b, "3. Open `source-inspection.txt` for exact source files, line labels, inspect commands, metadata-only surfaces, and control links.\n")
+	fmt.Fprintf(&b, "4. Open `proof-action.txt` for the exact proof evidence Ariadne expects.\n")
+	fmt.Fprintf(&b, "5. Review `proof-patches/README.md` and `proof-patches/manifest.json` before copying any suggested evidence file.\n")
+	fmt.Fprintf(&b, "6. After evidence is changed or verified, run the after-proof command below.\n")
+	fmt.Fprintf(&b, "7. Run the closure receipt command and use `closure-receipt.txt` as the ticket-ready closure readout. Use `case-compare.html` for richer review.\n")
 	if len(result.ProofLoop) > 0 {
 		fmt.Fprintf(&b, "\n## Proof Loop\n\n")
 		for _, command := range result.ProofLoop {
@@ -1051,6 +1077,7 @@ func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleR
 	fmt.Fprintf(w, "Open first: %s\n", filepath.Join(result.Directory, "assessment.txt"))
 	fmt.Fprintf(w, "Runbook: %s\n", filepath.Join(result.Directory, "runbook.txt"))
 	fmt.Fprintf(w, "Runbook JSON: %s\n", filepath.Join(result.Directory, "runbook.json"))
+	fmt.Fprintf(w, "Source inspection: %s\n", filepath.Join(result.Directory, "source-inspection.txt"))
 	fmt.Fprintf(w, "Operator packet: %s\n", filepath.Join(result.Directory, "operator-packet.txt"))
 	fmt.Fprintf(w, "Operator packet JSON: %s\n", filepath.Join(result.Directory, "operator-packet.json"))
 	fmt.Fprintf(w, "Dashboard: %s\n", filepath.Join(result.Directory, "dashboard.html"))
@@ -1066,6 +1093,7 @@ func renderClosureWorkspaceSummary(w io.Writer, result closureWorkspaceResult) {
 	fmt.Fprintf(w, "Created Ariadne closure workspace at %s\n", result.Directory)
 	fmt.Fprintf(w, "Case: %s\n", result.CaseID)
 	fmt.Fprintf(w, "Open first: %s\n", filepath.Join(result.Directory, "runbook.txt"))
+	fmt.Fprintf(w, "Source inspection: %s\n", filepath.Join(result.Directory, "source-inspection.txt"))
 	fmt.Fprintf(w, "Baseline proof: %s\n", filepath.Join(result.Directory, "before-proof.json"))
 	fmt.Fprintf(w, "Suggested proof files: %s\n", filepath.Join(result.Directory, "proof-patches"))
 	for _, command := range result.ProofLoop {

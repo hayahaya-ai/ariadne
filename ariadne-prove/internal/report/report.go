@@ -2419,6 +2419,12 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(BuildAssessOperatorPacketReport(r))
+	case "source-inspection", "sources":
+		return renderAssessSourceInspection(w, r)
+	case "source-inspection-json", "sources-json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(BuildAssessSourceInspectionReport(r))
 	case "runbook", "operator-runbook":
 		return RenderAssessRunbookForTarget(w, r.OperatorWorkbench.Runbook, r.TargetPath)
 	case "runbook-json", "operator-runbook-json":
@@ -2435,6 +2441,28 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		return renderAssessDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown assess format: %s", format)
+	}
+}
+
+func BuildAssessSourceInspectionReport(r model.AssessReport) model.AssessSourceInspectionReport {
+	return model.AssessSourceInspectionReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            r.RunID,
+		GeneratedAt:      r.GeneratedAt,
+		RunKind:          "source_inspection",
+		SourceRunKind:    r.RunKind,
+		TargetPath:       r.TargetPath,
+		TargetsFile:      r.TargetsFile,
+		Targets:          r.Targets,
+		Mode:             r.Mode,
+		Agent:            r.Agent,
+		StatusFilter:     r.StatusFilter,
+		CaseFilter:       r.CaseFilter,
+		ControlFilter:    r.ControlFilter,
+		SourceReferences: r.SourceReferences,
+		Redaction:        r.Redaction,
+		Warnings:         r.Warnings,
+		Limitations:      nonNilStrings(uniqueSortedStrings(append(append([]string{}, r.SourceReferences.Limitations...), r.Limitations...))),
 	}
 }
 
@@ -2481,6 +2509,67 @@ func BuildAssessOperatorPacketReport(r model.AssessReport) model.AssessOperatorP
 		Redaction:        r.Redaction,
 		Warnings:         r.Warnings,
 		Limitations:      nonNilStrings(uniqueSortedStrings(append(append([]string{}, r.OperatorPacket.Limitations...), r.Limitations...))),
+	}
+}
+
+func renderAssessSourceInspection(w io.Writer, r model.AssessReport) error {
+	refs := r.SourceReferences
+	fmt.Fprintf(w, "Ariadne Source Inspection\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Mode: %s  Agent: %s  Filter: %s\n", r.Mode, r.Agent, r.StatusFilter)
+	renderAssessFocusLine(w, r)
+	if !refs.Available || len(refs.Rows) == 0 {
+		fmt.Fprintf(w, "\nNo source-backed evidence references are available for the selected assessment.\n")
+		renderAssessDecisionLines(w, "Evidence gap action", r.Decision.EvidenceGapActions, 4)
+		return nil
+	}
+	if refs.Summary != "" {
+		fmt.Fprintf(w, "\nReadout:\n  - %s\n", refs.Summary)
+	}
+	fmt.Fprintf(w, "\nSource action checklist:\n")
+	for _, action := range rankAssessSourceActions(refs.ActionBoard) {
+		renderAssessSourceInspectionAction(w, action)
+	}
+	fmt.Fprintf(w, "\nEvidence reference rows:\n")
+	for _, row := range refs.Rows {
+		renderAssessSourceReferenceRow(w, row)
+	}
+	if len(refs.Limitations) > 0 || len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimits:\n")
+		renderAssessRunbookStringList(w, uniqueSortedStrings(append(append([]string{}, refs.Limitations...), r.Limitations...)))
+	}
+	return nil
+}
+
+func renderAssessSourceInspectionAction(w io.Writer, action model.AssessSourceAction) {
+	source := firstNonEmpty(action.DisplaySource, action.Source, action.LocalPath, "source")
+	role := readableToken(firstNonEmpty(action.Role, "evidence"))
+	kind := firstNonEmpty(action.ActionKind, "inspect_evidence")
+	fmt.Fprintf(w, "  - %s [%s/%s]\n", source, role, kind)
+	if action.RecommendedAction != "" {
+		fmt.Fprintf(w, "    action: %s\n", action.RecommendedAction)
+	}
+	if action.LocalPath != "" {
+		fmt.Fprintf(w, "    file: %s\n", action.LocalPath)
+	}
+	if lineLabels := usefulSourceActionLineLabels(action.LineLabels); len(lineLabels) > 0 {
+		fmt.Fprintf(w, "    lines: %s\n", strings.Join(lineLabels, ", "))
+	}
+	if action.MetadataOnly {
+		fmt.Fprintf(w, "    handling: metadata-only; do not dump private history, cache, transcript, or paste contents by default\n")
+	}
+	for _, control := range action.RelatedControls {
+		fmt.Fprintf(w, "    control: %s\n", control)
+	}
+	for _, fact := range firstStrings(action.Facts, 4) {
+		fmt.Fprintf(w, "    fact: %s\n", fact)
+	}
+	for _, command := range action.InspectCommands {
+		fmt.Fprintf(w, "    inspect: %s\n", command)
 	}
 }
 

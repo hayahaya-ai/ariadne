@@ -34,6 +34,8 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	summaryPath := filepath.Join(root, "assess-summary.txt")
 	operatorPath := filepath.Join(root, "assess-operator.txt")
 	operatorJSONPath := filepath.Join(root, "assess-operator.json")
+	sourcePath := filepath.Join(root, "assess-source-inspection.txt")
+	sourceJSONPath := filepath.Join(root, "assess-source-inspection.json")
 	runbookPath := filepath.Join(root, "assess-runbook.txt")
 	runbookJSONPath := filepath.Join(root, "assess-runbook.json")
 	tablePath := filepath.Join(root, "assess-table.txt")
@@ -52,6 +54,16 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 		"--path", target,
 		"--format", "operator-json",
 		"--out", operatorJSONPath,
+	})
+	runAssess([]string{
+		"--path", target,
+		"--format", "source-inspection",
+		"--out", sourcePath,
+	})
+	runAssess([]string{
+		"--path", target,
+		"--format", "source-inspection-json",
+		"--out", sourceJSONPath,
 	})
 	runAssess([]string{
 		"--path", target,
@@ -114,6 +126,37 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	}
 	if strings.Contains(operator, "Architecture break paths:") {
 		t.Fatalf("operator assess output should stay compact:\n%s", operator)
+	}
+
+	sourceInspection := readTestFile(t, sourcePath)
+	for _, want := range []string{
+		"Ariadne Source Inspection",
+		"Source action checklist:",
+		"Evidence reference rows:",
+		"file:",
+		"line:",
+		"inspect:",
+		"control:",
+		"metadata-only",
+	} {
+		if !strings.Contains(sourceInspection, want) {
+			t.Fatalf("source inspection output missing %q:\n%s", want, sourceInspection)
+		}
+	}
+
+	sourceInspectionJSON := readTestFile(t, sourceJSONPath)
+	for _, want := range []string{
+		`"run_kind": "source_inspection"`,
+		`"source_run_kind": "assess"`,
+		`"source_reference_workbench"`,
+		`"source_action_board"`,
+		`"inspect_commands"`,
+		`"metadata_only"`,
+		`"local_path"`,
+	} {
+		if !strings.Contains(sourceInspectionJSON, want) {
+			t.Fatalf("source inspection JSON missing %q:\n%s", want, sourceInspectionJSON)
+		}
 	}
 
 	operatorJSON := readTestFile(t, operatorJSONPath)
@@ -616,6 +659,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"runbook.json",
 		"operator-packet.txt",
 		"operator-packet.json",
+		"source-inspection.txt",
+		"source-inspection.json",
 		"dashboard.html",
 		"inventory-coverage.txt",
 		"inventory.json",
@@ -662,10 +707,13 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"runbook.json",
 		"operator-packet.txt",
 		"operator-packet.json",
+		"source-inspection.txt",
+		"source-inspection.json",
 		"case-action.txt",
 		"case-action.json",
 		"Bundle Integrity",
 		"ariadne bundle verify --dir",
+		"exact files, line labels, inspect commands",
 		"inventory-coverage.txt",
 		"llm-follow-up-request.txt",
 		"llm-follow-up-request.json",
@@ -768,6 +816,36 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	} {
 		if !strings.Contains(runbookJSON, want) {
 			t.Fatalf("self bundle runbook JSON missing %q:\n%s", want, runbookJSON)
+		}
+	}
+
+	sourceInspection := readTestFile(t, filepath.Join(bundleDir, "source-inspection.txt"))
+	for _, want := range []string{
+		"Ariadne Source Inspection",
+		"Source action checklist:",
+		"Evidence reference rows:",
+		"file:",
+		"inspect:",
+		"metadata-only",
+		"control:",
+	} {
+		if !strings.Contains(sourceInspection, want) {
+			t.Fatalf("self bundle source inspection missing %q:\n%s", want, sourceInspection)
+		}
+	}
+
+	sourceInspectionJSON := readTestFile(t, filepath.Join(bundleDir, "source-inspection.json"))
+	for _, want := range []string{
+		`"run_kind": "source_inspection"`,
+		`"source_run_kind": "assess"`,
+		`"source_reference_workbench"`,
+		`"source_action_board"`,
+		`"inspect_commands"`,
+		`"metadata_only"`,
+		`"control:`,
+	} {
+		if !strings.Contains(sourceInspectionJSON, want) {
+			t.Fatalf("self bundle source inspection JSON missing %q:\n%s", want, sourceInspectionJSON)
 		}
 	}
 
@@ -1062,6 +1140,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"name": "runbook.json"`,
 		`"name": "operator-packet.txt"`,
 		`"name": "operator-packet.json"`,
+		`"name": "source-inspection.txt"`,
+		`"name": "source-inspection.json"`,
 		`"name": "inventory-coverage.txt"`,
 		`"name": "llm-follow-up-request.txt"`,
 		`"name": "llm-follow-up-request.json"`,
@@ -1217,6 +1297,8 @@ func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join(workspaceDir, "runbook.txt"),
 		filepath.Join(workspaceDir, "runbook.json"),
+		filepath.Join(workspaceDir, "source-inspection.txt"),
+		filepath.Join(workspaceDir, "source-inspection.json"),
 		filepath.Join(workspaceDir, "before-proof.json"),
 		filepath.Join(workspaceDir, "proof-action.txt"),
 		filepath.Join(workspaceDir, "proof-plan.html"),
@@ -1240,6 +1322,8 @@ func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
 		"Workspace Integrity",
 		"ariadne bundle verify --dir",
 		"Run the workspace integrity command",
+		"source-inspection.txt",
+		"exact source files, line labels, inspect commands",
 		"Save after proof",
 		"Create closure receipt",
 		"Create HTML compare",
@@ -1258,6 +1342,8 @@ func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
 		`"run_kind": "closure_workspace"`,
 		`"case_id": "case:egress-output-boundary"`,
 		`"integrity_command": "ariadne bundle verify --dir`,
+		`"name": "source-inspection.txt"`,
+		`"name": "source-inspection.json"`,
 		`"proof_loop"`,
 		`"save_after_proof"`,
 		`"closure_receipt"`,
@@ -1279,6 +1365,34 @@ func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
 	} {
 		if !strings.Contains(runbook, want) {
 			t.Fatalf("closure runbook missing %q:\n%s", want, runbook)
+		}
+	}
+
+	sourceInspection := readTestFile(t, filepath.Join(workspaceDir, "source-inspection.txt"))
+	for _, want := range []string{
+		"Ariadne Source Inspection",
+		"case:egress-output-boundary",
+		"Source action checklist:",
+		"Evidence reference rows:",
+		"file:",
+		"inspect:",
+		"control:",
+	} {
+		if !strings.Contains(sourceInspection, want) {
+			t.Fatalf("closure source inspection missing %q:\n%s", want, sourceInspection)
+		}
+	}
+
+	sourceInspectionJSON := readTestFile(t, filepath.Join(workspaceDir, "source-inspection.json"))
+	for _, want := range []string{
+		`"run_kind": "source_inspection"`,
+		`"case_filter": "case:egress-output-boundary"`,
+		`"source_action_board"`,
+		`"inspect_commands"`,
+		`"source_reference_workbench"`,
+	} {
+		if !strings.Contains(sourceInspectionJSON, want) {
+			t.Fatalf("closure source inspection JSON missing %q:\n%s", want, sourceInspectionJSON)
 		}
 	}
 
