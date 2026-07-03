@@ -402,6 +402,7 @@ type AssessReport struct {
 	FirstAction       AssessFirstAction       `json:"first_action"`
 	OperatorPacket    AssessOperatorPacket    `json:"operator_packet"`
 	OperatorWorkbench AssessOperatorWorkbench `json:"operator_workbench"`
+	ReviewPackets     []AssessReviewPacket    `json:"review_packets,omitempty"`
 	CaseLifecycle     AssessCaseLifecycle     `json:"case_lifecycle"`
 	ClosurePlan       []AssessClosurePlanItem `json:"closure_plan"`
 	NextCommands      []string                `json:"next_commands"`
@@ -680,6 +681,20 @@ type AssessOperatorCommand struct {
 	Title   string   `json:"title"`
 	Command string   `json:"command,omitempty"`
 	Files   []string `json:"files"`
+}
+
+type AssessReviewPacket struct {
+	ID            string                  `json:"id"`
+	Title         string                  `json:"title"`
+	Profile       string                  `json:"profile"`
+	Scope         string                  `json:"scope"`
+	Ingestibility string                  `json:"ingestibility"`
+	Summary       string                  `json:"summary"`
+	SummaryPath   string                  `json:"summary_path,omitempty"`
+	PacketPath    string                  `json:"packet_path"`
+	Commands      []AssessOperatorCommand `json:"commands"`
+	DoneCriteria  []string                `json:"done_criteria"`
+	Limitations   []string                `json:"limitations"`
 }
 
 type AssessWorkbenchProofState struct {

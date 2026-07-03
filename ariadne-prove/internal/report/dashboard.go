@@ -188,6 +188,7 @@ func renderAssessDashboard(w io.Writer, r model.AssessReport) error {
 	}
 	renderDashboardHeader(w, title, fields)
 	renderAssessOperatorConsoleDashboard(w, r)
+	renderAssessReviewPacketsDashboard(w, r.ReviewPackets)
 	renderAssessSummaryDashboard(w, r)
 	renderAssessOperatorRunbookDashboard(w, r)
 	renderAssessSourceReferenceWorkbenchDashboard(w, r)
@@ -240,6 +241,96 @@ func renderAssessOperatorConsoleDashboard(w io.Writer, r model.AssessReport) {
 	renderAssessOperatorConsoleProofLane(w, r)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessReviewPacketsDashboard(w io.Writer, packets []model.AssessReviewPacket) {
+	if len(packets) == 0 {
+		return
+	}
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Optional Reviewer Handoff</h2><div class="subtle">Deterministic facts stay primary. Reviewer output is usable only when it is mapped back to Ariadne packet evidence.</div></div></div>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, `<thead><tr><th>Packet</th><th>Purpose</th><th>How to use</th><th>Commands</th><th>Done when</th></tr></thead><tbody>`)
+	for _, packet := range packets {
+		fmt.Fprintln(w, `<tr>`)
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div>%s</td>`,
+			esc(firstNonEmpty(packet.Title, packet.ID)),
+			esc(firstNonEmpty(packet.Profile, "unknown")),
+			dashboardReviewPacketFilesHTML(packet),
+		)
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div><p>%s</p>%s</td>`,
+			cssClass(dashboardReviewPacketStatus(packet.Ingestibility)),
+			esc(firstNonEmpty(packet.Ingestibility, "not recorded")),
+			esc(packet.Summary),
+			renderSmallList(limitStrings(packet.Limitations, 3)),
+		)
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(nonEmptyStrings(
+			"Scope: "+packet.Scope,
+			"Ingestibility: "+packet.Ingestibility,
+		)))
+		fmt.Fprintf(w, `<td>%s</td>`, dashboardReviewPacketCommandsHTML(packet.Commands))
+		fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(packet.DoneCriteria, 4)))
+		fmt.Fprintln(w, `</tr>`)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+	fmt.Fprintln(w, `</section>`)
+}
+
+func dashboardReviewPacketFilesHTML(packet model.AssessReviewPacket) string {
+	lines := []string{}
+	if packet.SummaryPath != "" {
+		lines = append(lines, "Summary: "+dashboardFileRefWithLabelHTML("", packet.SummaryPath, filepath.Base(packet.SummaryPath)))
+	}
+	if packet.PacketPath != "" {
+		lines = append(lines, "Packet JSON: "+dashboardFileRefWithLabelHTML("", packet.PacketPath, filepath.Base(packet.PacketPath)))
+	}
+	if len(lines) == 0 {
+		return `<div class="subtle">packet path not recorded</div>`
+	}
+	return renderDashboardHTMLList(lines)
+}
+
+func dashboardReviewPacketStatus(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if strings.Contains(value, "request") || strings.Contains(value, "not") || strings.Contains(value, "no") {
+		return "unknown"
+	}
+	if strings.Contains(value, "yes") || strings.Contains(value, "ingestible") {
+		return "protected"
+	}
+	return "unknown"
+}
+
+func dashboardReviewPacketCommandsHTML(commands []model.AssessOperatorCommand) string {
+	if len(commands) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	var b strings.Builder
+	for _, command := range commands {
+		title := firstNonEmpty(command.Title, command.ID)
+		if title != "" {
+			fmt.Fprintf(&b, `<div><strong>%s</strong></div>`, esc(title))
+		}
+		if command.Command != "" {
+			b.WriteString(renderCommandList([]string{command.Command}))
+		}
+		if len(command.Files) > 0 {
+			b.WriteString(renderDashboardHTMLList(dashboardReviewPacketCommandFiles(command.Files)))
+		}
+	}
+	return b.String()
+}
+
+func dashboardReviewPacketCommandFiles(files []string) []string {
+	out := []string{}
+	for _, file := range files {
+		file = strings.TrimSpace(file)
+		if file == "" {
+			continue
+		}
+		out = append(out, "File: "+dashboardFileRefWithLabelHTML("", file, filepath.Base(file)))
+	}
+	return out
 }
 
 func renderAssessSignalContractDashboard(w io.Writer, root string, signal model.AssessSignalNoise) {

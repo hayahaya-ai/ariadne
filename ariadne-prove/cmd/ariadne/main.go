@@ -294,6 +294,7 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	if err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
+	assess.ReviewPackets = buildSelfAssessmentReviewPacketHandoffs(absDir, r.TargetPath, r.Story.Mode, r.Story.Runtime)
 	result := selfAssessmentBundleResult{
 		Directory:     absDir,
 		TargetPath:    r.TargetPath,
@@ -343,12 +344,12 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		return nil
 	}
 	if err := add("assessment.txt", true, func(w io.Writer) error {
-		return report.RenderAssessFocused(w, inventory, r, "summary", status, focus)
+		return report.RenderAssessReport(w, assess, "summary")
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
 	if err := add("assessment.json", true, func(w io.Writer) error {
-		return report.RenderAssessFocused(w, inventory, r, "json", status, focus)
+		return report.RenderAssessReport(w, assess, "json")
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -365,17 +366,17 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		return selfAssessmentBundleResult{}, err
 	}
 	if err := add("operator-packet.txt", true, func(w io.Writer) error {
-		return report.RenderAssessFocused(w, inventory, r, "operator", status, focus)
+		return report.RenderAssessReport(w, assess, "operator")
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
 	if err := add("operator-packet.json", true, func(w io.Writer) error {
-		return report.RenderAssessFocused(w, inventory, r, "operator-json", status, focus)
+		return report.RenderAssessReport(w, assess, "operator-json")
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
 	if err := add("dashboard.html", true, func(w io.Writer) error {
-		return report.RenderAssessFocused(w, inventory, r, "html", status, focus)
+		return report.RenderAssessReport(w, assess, "html")
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -483,6 +484,90 @@ func buildSelfAssessmentLLMReviewPackets(targetPath string, mode string, agent s
 		BlindPayload:    blindPayload,
 		BlindDigest:     blindDigest,
 	}, nil
+}
+
+func buildSelfAssessmentReviewPacketHandoffs(dir string, targetPath string, mode string, agent string) []model.AssessReviewPacket {
+	mode = selfBundleFirstNonEmpty(mode, "endpoint")
+	agent = selfBundleFirstNonEmpty(agent, "all")
+	followSummary := filepath.Join(dir, "llm-follow-up-request.txt")
+	followPacket := filepath.Join(dir, "llm-follow-up-request.json")
+	blindSummary := filepath.Join(dir, "llm-inventory-blind-request.txt")
+	blindPacket := filepath.Join(dir, "llm-inventory-blind-request.json")
+	reviewPath := filepath.Join(dir, "llm-review.json")
+	reviewCheckPath := filepath.Join(dir, "review-check.txt")
+	inventoryGapPath := filepath.Join(dir, "inventory-gap-check.json")
+
+	return []model.AssessReviewPacket{
+		{
+			ID:            "llm-follow-up",
+			Title:         "Review Ariadne Exposure IDs",
+			Profile:       "follow_up",
+			Scope:         "Ariadne's deterministic exposure IDs, graph edges, source refs, controls, and limitations.",
+			Ingestibility: "yes; only after ariadne review-check validates returned issues against this packet",
+			Summary:       "Optional reviewer follow-up over Ariadne's deterministic exposure evidence. The reviewer may prioritize or explain existing paths, but cannot create unsupported findings.",
+			SummaryPath:   followSummary,
+			PacketPath:    followPacket,
+			Commands: nonNilAssessOperatorCommands([]model.AssessOperatorCommand{
+				{Step: 1, ID: "open_packet", Title: "Open packet", Files: []string{followSummary, followPacket}},
+				{Step: 2, ID: "validate_review", Title: "Validate reviewer output", Command: fmt.Sprintf("ariadne review-check --packet %s --review %s --out %s", selfBundleShellQuoteArg(followPacket), selfBundleShellQuoteArg(reviewPath), selfBundleShellQuoteArg(reviewCheckPath)), Files: []string{reviewCheckPath}},
+				{Step: 3, ID: "ingest_validated_review", Title: "Ingest validated review", Command: fmt.Sprintf("ariadne prove --path %s --mode %s --agent %s --interpret llm --llm-review %s --llm-review-profile follow-up", selfBundleShellQuoteArg(targetPath), selfBundleShellQuoteArg(mode), selfBundleShellQuoteArg(agent), selfBundleShellQuoteArg(reviewPath))},
+			}),
+			DoneCriteria: []string{
+				"Reviewer output uses ariadne.llm_review/v1.",
+				"review-check accepts every issue against packet exposure IDs and graph edges.",
+				"No reviewer claim is treated as fact unless Ariadne validation accepts it.",
+			},
+			Limitations: []string{
+				"Reviewer output is interpretation over packet evidence, not new raw evidence.",
+				"Unsupported exposure IDs, statuses, graph edges, severities, priorities, and dispositions are rejected.",
+			},
+		},
+		{
+			ID:            "llm-inventory-blind",
+			Title:         "Blind Inventory Gap Review",
+			Profile:       "inventory_blind",
+			Scope:         "Redacted inventory facts and source catalog without Ariadne exposure ranking.",
+			Ingestibility: "no; request-only until hypotheses are mapped back to deterministic facts, source refs, and graph edges",
+			Summary:       "Lower-bias hypothesis and collector-gap packet. Use it to find missing deterministic coverage, not to create direct findings.",
+			SummaryPath:   blindSummary,
+			PacketPath:    blindPacket,
+			Commands: nonNilAssessOperatorCommands([]model.AssessOperatorCommand{
+				{Step: 1, ID: "open_packet", Title: "Open packet", Files: []string{blindSummary, blindPacket}},
+				{Step: 2, ID: "rerun_inventory", Title: "Rerun inventory after mapping a hypothesis", Command: fmt.Sprintf("ariadne inventory --path %s --mode %s --agent %s --format json --out %s", selfBundleShellQuoteArg(targetPath), selfBundleShellQuoteArg(mode), selfBundleShellQuoteArg(agent), selfBundleShellQuoteArg(inventoryGapPath)), Files: []string{inventoryGapPath}},
+			}),
+			DoneCriteria: []string{
+				"Every hypothesis is mapped to an existing fact/source/graph ID or recorded as a collector gap.",
+				"Any new finding is produced by deterministic Ariadne rerun evidence, not by the blind packet alone.",
+			},
+			Limitations: []string{
+				"Inventory-blind packets are intentionally not ingestible as findings.",
+				"Use this profile to improve collectors or test missed surfaces.",
+			},
+		},
+	}
+}
+
+func nonNilAssessOperatorCommands(commands []model.AssessOperatorCommand) []model.AssessOperatorCommand {
+	if commands == nil {
+		return []model.AssessOperatorCommand{}
+	}
+	out := make([]model.AssessOperatorCommand, 0, len(commands))
+	for _, command := range commands {
+		command.Files = selfBundleNonEmptyStrings(command.Files...)
+		out = append(out, command)
+	}
+	return out
+}
+
+func selfBundleNonEmptyStrings(values ...string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func writeClosureWorkspace(dir string, r model.Report, assess model.AssessReport, plan model.ProofPlanReport, status string, caseID string) (closureWorkspaceResult, error) {

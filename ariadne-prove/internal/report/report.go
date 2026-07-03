@@ -51,6 +51,10 @@ func RenderAssessFocused(w io.Writer, inventory model.InventoryReport, r model.R
 	return renderAssess(w, assess, format)
 }
 
+func RenderAssessReport(w io.Writer, assess model.AssessReport, format string) error {
+	return renderAssess(w, assess, format)
+}
+
 func RenderAssessScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
 	assess, err := BuildAssessScanReport(r, statusFilter)
 	if err != nil {

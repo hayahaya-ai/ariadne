@@ -666,6 +666,15 @@ expect_contains "$self_bundle/assessment.json" '"signal_quality"'
 expect_contains "$self_bundle/assessment.json" '"lethal_trifecta"'
 expect_contains "$self_bundle/assessment.json" '"operator_packet"'
 expect_contains "$self_bundle/assessment.json" '"operator_workbench"'
+expect_contains "$self_bundle/assessment.json" '"review_packets"'
+expect_contains "$self_bundle/assessment.json" '"id": "llm-follow-up"'
+expect_contains "$self_bundle/assessment.json" '"id": "llm-inventory-blind"'
+expect_contains "$self_bundle/assessment.json" 'llm-follow-up-request.json'
+expect_contains "$self_bundle/assessment.json" 'llm-inventory-blind-request.json'
+expect_contains "$self_bundle/assessment.json" '"ariadne review-check --packet'
+expect_contains "$self_bundle/assessment.json" '"ariadne prove --path'
+expect_contains "$self_bundle/assessment.json" 'inventory-gap-check.json'
+expect_contains "$self_bundle/assessment.json" '"ingestibility": "no; request-only'
 expect_contains "$self_bundle/assessment.json" '"action_packet"'
 expect_contains "$self_bundle/assessment.json" '"closure_loop"'
 expect_contains "$self_bundle/assessment.json" '"runbook"'
@@ -808,6 +817,17 @@ expect_contains "$managed_inventory" '"cloud-identity-boundary"'
 expect_contains "$self_bundle/dashboard.html" "Ariadne Assessment"
 expect_contains "$self_bundle/dashboard.html" "Operator Console"
 expect_contains "$self_bundle/dashboard.html" "The current case, source tasks, and proof loop in one place."
+expect_contains "$self_bundle/dashboard.html" "Optional Reviewer Handoff"
+expect_contains "$self_bundle/dashboard.html" "Deterministic facts stay primary"
+expect_contains "$self_bundle/dashboard.html" "Review Ariadne Exposure IDs"
+expect_contains "$self_bundle/dashboard.html" "llm-follow-up-request.json"
+expect_contains "$self_bundle/dashboard.html" "Validate reviewer output"
+expect_contains "$self_bundle/dashboard.html" "ariadne review-check --packet"
+expect_contains "$self_bundle/dashboard.html" "Ingest validated review"
+expect_contains "$self_bundle/dashboard.html" "Blind Inventory Gap Review"
+expect_contains "$self_bundle/dashboard.html" "llm-inventory-blind-request.json"
+expect_contains "$self_bundle/dashboard.html" "request-only"
+expect_contains "$self_bundle/dashboard.html" "inventory-gap-check.json"
 expect_contains "$self_bundle/dashboard.html" "Case Action Board"
 expect_contains "$self_bundle/dashboard.html" "Inspect Source Evidence"
 expect_contains "$self_bundle/dashboard.html" "Confirm Sensitive Boundary"
