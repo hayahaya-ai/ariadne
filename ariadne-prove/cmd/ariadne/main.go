@@ -844,7 +844,7 @@ func runCases(args []string) {
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
-	format := fs.String("format", "table", "output format: table, json, html")
+	format := fs.String("format", "table", "output format: table, receipt, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)
@@ -1163,7 +1163,7 @@ func runCompare(args []string) {
 	outPath := fs.String("out", "", "write output to file")
 	fs.Parse(args)
 	if *beforePath == "" || *afterPath == "" {
-		fatal(fmt.Errorf("usage: ariadne compare --before before.json --after after.json [--format table|json|html]"))
+		fatal(fmt.Errorf("usage: ariadne compare --before before.json --after after.json [--format table|receipt|json|html]"))
 	}
 	beforeRaw, err := os.ReadFile(*beforePath)
 	if err != nil {
@@ -1603,6 +1603,7 @@ Examples:
   ariadne proofs --path . --case case:input-trust-boundary --patch-dir proof-patches
   ariadne closure --path . --case case:input-trust-boundary --dir ariadne-closure
   ariadne compare --before before-proof.json --after after-proof.json
+  ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt
   ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html
   ariadne controls --path .
   ariadne controls --path . --format json

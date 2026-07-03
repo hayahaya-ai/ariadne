@@ -995,6 +995,8 @@ func RenderCaseCompare(w io.Writer, r model.CaseCompareReport, format string) er
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
+	case "receipt", "receipts", "closure-receipt", "closure-receipts":
+		return renderCaseCompareReceipt(w, r)
 	case "html", "dashboard":
 		return renderCaseCompareDashboard(w, r)
 	default:
@@ -1593,6 +1595,28 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 		}
 	}
 	fmt.Fprintln(w)
+	return nil
+}
+
+func renderCaseCompareReceipt(w io.Writer, r model.CaseCompareReport) error {
+	fmt.Fprintf(w, "Ariadne closure receipts\n")
+	fmt.Fprintf(w, "Before: %s\n", firstNonEmpty(r.BeforeSource, "<before>"))
+	fmt.Fprintf(w, "After: %s\n", firstNonEmpty(r.AfterSource, "<after>"))
+	if r.Decision.Status != "" || r.Decision.Headline != "" {
+		fmt.Fprintf(w, "Verdict: %s\n", readableToken(firstNonEmpty(r.Decision.Status, "unknown")))
+		if r.Decision.Headline != "" {
+			fmt.Fprintf(w, "Readout: %s\n", r.Decision.Headline)
+		}
+	}
+	fmt.Fprintf(w, "Outcome: %s\n", firstNonEmpty(r.Outcome.Summary, "No outcome summary recorded."))
+	fmt.Fprintf(w, "Next action: %s\n\n", firstNonEmpty(r.Outcome.NextAction, "No next action recorded."))
+	renderCaseCompareClosureReceipts(w, r.ClosureReceipts, 0)
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "Limits:\n")
+		for _, limitation := range limitStrings(r.Limitations, 3) {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
 	return nil
 }
 

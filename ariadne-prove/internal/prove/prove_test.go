@@ -4596,6 +4596,35 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		}
 	}
 
+	var receiptOut bytes.Buffer
+	if err := report.RenderCaseCompare(&receiptOut, compare, "receipt"); err != nil {
+		t.Fatal(err)
+	}
+	receiptRendered := receiptOut.String()
+	for _, want := range []string{
+		"Ariadne closure receipts",
+		"Before: before-open.json",
+		"After: after-closed.json",
+		"Verdict: proof succeeded",
+		"Closure receipts:",
+		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
+		"control evidence: control:input-isolation; control:trusted-source-policy",
+		"evidence source: .ariadne/input-policy.json",
+		"remaining action: No remaining action for this case",
+		"Limits:",
+	} {
+		if !strings.Contains(receiptRendered, want) {
+			t.Fatalf("compare receipt missing %q:\n%s", want, receiptRendered)
+		}
+	}
+	var receiptAlias bytes.Buffer
+	if err := report.RenderCaseCompare(&receiptAlias, compare, "closure-receipt"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(receiptAlias.String(), "Ariadne closure receipts") {
+		t.Fatalf("closure-receipt alias should render receipts:\n%s", receiptAlias.String())
+	}
+
 	var htmlOut bytes.Buffer
 	if err := report.RenderCaseCompare(&htmlOut, compare, "html"); err != nil {
 		t.Fatal(err)

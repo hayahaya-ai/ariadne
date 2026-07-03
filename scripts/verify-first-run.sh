@@ -1076,6 +1076,7 @@ before_json="$workdir/before-proof.json"
 after_json="$workdir/after-proof.json"
 after_case="$workdir/after-case.txt"
 compare_txt="$workdir/compare.txt"
+compare_receipt="$workdir/closure-receipt.txt"
 compare_json="$workdir/compare.json"
 compare_html="$workdir/compare.html"
 export_dir="$workdir/proof-patches"
@@ -1096,6 +1097,7 @@ cp "$export_dir/surfaces/.ariadne/output-policy.json" "$loop_target/.ariadne/out
 "$bin" cases --path "$loop_target" --case case:egress-output-boundary --out "$after_case"
 "$bin" proofs --path "$loop_target" --case case:egress-output-boundary --format json --out "$after_json"
 "$bin" compare --before "$before_json" --after "$after_json" --out "$compare_txt"
+"$bin" compare --before "$before_json" --after "$after_json" --format receipt --out "$compare_receipt"
 "$bin" compare --before "$before_json" --after "$after_json" --format json --out "$compare_json"
 "$bin" compare --before "$before_json" --after "$after_json" --format html --out "$compare_html"
 
@@ -1121,6 +1123,15 @@ expect_contains "$compare_txt" "Proof patches: 5 -> 0"
 expect_contains "$compare_txt" "Added evidence:"
 expect_contains "$compare_txt" ".ariadne/egress-policy.json"
 expect_contains "$compare_txt" ".ariadne/output-policy.json"
+
+expect_contains "$compare_receipt" "Ariadne closure receipts"
+expect_contains "$compare_receipt" "Verdict: proof succeeded"
+expect_contains "$compare_receipt" "Closure receipts:"
+expect_contains "$compare_receipt" "Egress And Output Boundary (case:egress-output-boundary): open -> closed / proof closed"
+expect_contains "$compare_receipt" "control evidence:"
+expect_contains "$compare_receipt" "evidence source:"
+expect_contains "$compare_receipt" "remaining action: No remaining action for this case"
+expect_contains "$compare_receipt" "Limits:"
 
 expect_contains "$compare_json" '"decision"'
 expect_contains "$compare_json" '"status": "proof_succeeded"'

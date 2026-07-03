@@ -997,6 +997,7 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 	beforePath := filepath.Join(root, "before-proof.json")
 	afterPath := filepath.Join(root, "after-proof.json")
 	tablePath := filepath.Join(root, "case-compare.txt")
+	receiptPath := filepath.Join(root, "closure-receipt.txt")
 	jsonPath := filepath.Join(root, "case-compare.json")
 	htmlPath := filepath.Join(root, "case-compare.html")
 	runProofs([]string{
@@ -1015,6 +1016,12 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"--before", beforePath,
 		"--after", afterPath,
 		"--out", tablePath,
+	})
+	runCompare([]string{
+		"--before", beforePath,
+		"--after", afterPath,
+		"--format", "receipt",
+		"--out", receiptPath,
 	})
 	runCompare([]string{
 		"--before", beforePath,
@@ -1050,6 +1057,22 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 	} {
 		if !strings.Contains(table, want) {
 			t.Fatalf("compare table missing %q:\n%s", want, table)
+		}
+	}
+	receipt := readTestFile(t, receiptPath)
+	for _, want := range []string{
+		"Ariadne closure receipts",
+		"Verdict: proof succeeded",
+		"Outcome: 1 case(s) compared: 0 open after rerun, 1 closed after rerun",
+		"Closure receipts:",
+		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
+		"control evidence: control:input-isolation; control:trusted-source-policy",
+		"evidence source: .ariadne/input-policy.json",
+		"remaining action: No remaining action for this case",
+		"Limits:",
+	} {
+		if !strings.Contains(receipt, want) {
+			t.Fatalf("compare receipt missing %q:\n%s", want, receipt)
 		}
 	}
 	blob := readTestFile(t, jsonPath)
