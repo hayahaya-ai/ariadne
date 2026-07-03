@@ -333,7 +333,7 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		return selfAssessmentBundleResult{}, err
 	}
 	if err := add("runbook.txt", true, func(w io.Writer) error {
-		return report.RenderAssessRunbook(w, assess.OperatorWorkbench.Runbook)
+		return report.RenderAssessRunbookForTarget(w, assess.OperatorWorkbench.Runbook, assess.TargetPath)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -456,7 +456,7 @@ func writeClosureWorkspace(dir string, r model.Report, assess model.AssessReport
 		return nil
 	}
 	if err := add("runbook.txt", true, func(w io.Writer) error {
-		return report.RenderAssessRunbook(w, assess.OperatorWorkbench.Runbook)
+		return report.RenderAssessRunbookForTarget(w, assess.OperatorWorkbench.Runbook, assess.TargetPath)
 	}); err != nil {
 		return closureWorkspaceResult{}, err
 	}

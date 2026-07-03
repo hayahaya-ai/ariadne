@@ -3166,6 +3166,7 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 	actionRendered := actionOut.String()
 	if !strings.Contains(actionRendered, "Case:\n  - Identity And Credentials") ||
 		!strings.Contains(actionRendered, "Evidence to inspect:") ||
+		!strings.Contains(actionRendered, "Open first source references:") ||
 		!strings.Contains(actionRendered, "Evidence files:") {
 		t.Fatalf("endpoint assessment action should include the top case evidence packet:\n%s", actionRendered)
 	}
@@ -3206,6 +3207,10 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 	}
 	operatorRendered := operatorOut.String()
 	for _, want := range []string{
+		"Open first source references:",
+		"file:",
+		"line:",
+		"inspect:",
 		"Source action board:",
 		"Evidence to inspect:",
 		"Metadata-only context:",
@@ -3218,9 +3223,10 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 			t.Fatalf("endpoint operator packet missing %q:\n%s", want, operatorRendered)
 		}
 	}
-	if strings.Index(operatorRendered, "Source action board:") > strings.Index(operatorRendered, "Evidence to inspect:") ||
+	if strings.Index(operatorRendered, "Open first source references:") > strings.Index(operatorRendered, "Source action board:") ||
+		strings.Index(operatorRendered, "Source action board:") > strings.Index(operatorRendered, "Evidence to inspect:") ||
 		strings.Index(operatorRendered, "Evidence to inspect:") > strings.Index(operatorRendered, "Metadata-only context:") {
-		t.Fatalf("endpoint operator packet should lead with actions, then inspectable evidence, then metadata-only context:\n%s", operatorRendered)
+		t.Fatalf("endpoint operator packet should lead with exact source references, then actions, then inspectable evidence, then metadata-only context:\n%s", operatorRendered)
 	}
 	inspectBlock := boundedBlock(t, operatorRendered, "Evidence to inspect:", "Metadata-only context:")
 	for _, notWant := range []string{".aider.chat.history.md", ".claude/paste-cache"} {
@@ -4657,7 +4663,9 @@ func TestAssessSummaryIsCompactFirstRunReadout(t *testing.T) {
 		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
 		"Modeled/internal evidence: zt:control-strength",
 		"Source references:",
-		"Inspect:",
+		"file:",
+		"line:",
+		"inspect:",
 		"Path:",
 		"Supported graph edge:",
 		"Controls:",
@@ -5294,6 +5302,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Control state test",
 		"Downgrade/close evidence",
 		"Capability alone is not exposure.",
+		"Open first source references:",
+		"file:",
+		"line:",
+		"inspect:",
 		"Evidence to inspect:",
 		".claude/settings.json:1",
 		"Source action board:",
@@ -5334,10 +5346,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 			t.Fatalf("assessment operator packet should stay compact and omit %q:\n%s", unwanted, operatorRendered)
 		}
 	}
+	openFirstIndex := strings.Index(operatorRendered, "Open first source references:")
 	sourceActionIndex := strings.Index(operatorRendered, "Source action board:")
 	evidenceOpenIndex := strings.Index(operatorRendered, "Evidence to inspect:")
-	if sourceActionIndex < 0 || evidenceOpenIndex < 0 || sourceActionIndex > evidenceOpenIndex {
-		t.Fatalf("assessment operator packet should put source actions before raw evidence rows:\n%s", operatorRendered)
+	if openFirstIndex < 0 || sourceActionIndex < 0 || evidenceOpenIndex < 0 || openFirstIndex > sourceActionIndex || sourceActionIndex > evidenceOpenIndex {
+		t.Fatalf("assessment operator packet should put exact source references, then source actions, then raw evidence rows:\n%s", operatorRendered)
 	}
 
 	var operatorJSON bytes.Buffer
@@ -5464,6 +5477,10 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Proof surface: .ariadne/egress-policy.json",
 		"Evidence to inspect:",
 		".claude/settings.json",
+		"Open first source references:",
+		"file:",
+		"line:",
+		"inspect:",
 		"Source action board:",
 		".claude/settings.json:1 [evidence/inspect_risk_source]",
 		".ariadne/egress-policy.json [proof surface/add_or_verify_control]",

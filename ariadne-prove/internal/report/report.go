@@ -1952,7 +1952,7 @@ func renderAssess(w io.Writer, r model.AssessReport, format string) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(BuildAssessOperatorPacketReport(r))
 	case "runbook", "operator-runbook":
-		return RenderAssessRunbook(w, r.OperatorWorkbench.Runbook)
+		return RenderAssessRunbookForTarget(w, r.OperatorWorkbench.Runbook, r.TargetPath)
 	case "runbook-json", "operator-runbook-json":
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -2015,6 +2015,10 @@ func BuildAssessOperatorPacketReport(r model.AssessReport) model.AssessOperatorP
 }
 
 func RenderAssessRunbook(w io.Writer, runbook model.AssessOperatorRunbook) error {
+	return RenderAssessRunbookForTarget(w, runbook, "")
+}
+
+func RenderAssessRunbookForTarget(w io.Writer, runbook model.AssessOperatorRunbook, root string) error {
 	fmt.Fprintf(w, "Ariadne Operator Runbook\n")
 	if !runbook.Available {
 		fmt.Fprintf(w, "No operator runbook is available for the current assessment filter.\n")
@@ -2037,9 +2041,8 @@ func RenderAssessRunbook(w io.Writer, runbook model.AssessOperatorRunbook) error
 	if len(runbook.OpenFirst) == 0 {
 		fmt.Fprintf(w, "  - none\n")
 	} else {
-		for _, ref := range runbook.OpenFirst {
-			fmt.Fprintf(w, "  - %s\n", assessRunbookEvidenceLine(ref))
-		}
+		rows := buildAssessSourceReferenceRows(root, runbook.OpenFirst)
+		renderAssessSourceReferenceRowList(w, rows, 6, "none")
 	}
 	fmt.Fprintf(w, "\nWhy this case:\n")
 	renderAssessRunbookStringList(w, runbook.WhyThisCase)
@@ -2069,20 +2072,6 @@ func RenderAssessRunbook(w io.Writer, runbook model.AssessOperatorRunbook) error
 		renderAssessRunbookStringList(w, runbook.Limitations)
 	}
 	return nil
-}
-
-func assessRunbookEvidenceLine(ref model.EvidenceReference) string {
-	source := firstNonEmpty(ref.Source, ref.ID, ref.Kind, "not recorded")
-	if ref.LineStart > 0 && ref.LineEnd > ref.LineStart {
-		source = fmt.Sprintf("%s:%d-%d", source, ref.LineStart, ref.LineEnd)
-	} else if ref.LineStart > 0 {
-		source = fmt.Sprintf("%s:%d", source, ref.LineStart)
-	}
-	fact := firstNonEmpty(ref.Summary, ref.Kind)
-	if fact == "" {
-		return source
-	}
-	return fmt.Sprintf("%s - %s", source, fact)
 }
 
 func renderAssessRunbookStepLine(w io.Writer, step model.AssessClosureLoopStep) {
@@ -2160,6 +2149,7 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 	renderAssessOperatorPacketLines(w, "Normal context", packet.NormalContext, 3)
 	renderAssessSignalContract(w, r.SignalNoise)
 
+	renderAssessSourceReferenceRowsTerminal(w, "Open first source references:", r.SourceReferences, 6)
 	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
 	renderAssessOperatorPacketEvidence(w, packet.EvidenceToOpen, packet.EvidenceSources)
 	if len(packet.GraphPath) > 0 {
@@ -2312,7 +2302,7 @@ func renderAssessSummary(w io.Writer, r model.AssessReport) error {
 
 	fmt.Fprintf(w, "\nEvidence:\n")
 	renderAssessEvidenceSources(w, r.Decision.EvidenceSources, 8)
-	renderAssessSummarySourceReferences(w, r.SourceReferences, 2)
+	renderAssessSummarySourceReferences(w, r.SourceReferences, 1)
 
 	if len(r.Decision.PathSummary) > 0 {
 		fmt.Fprintf(w, "\nPath:\n")
@@ -2338,22 +2328,76 @@ func renderAssessSummarySourceReferences(w io.Writer, refs model.AssessSourceRef
 	}
 	fmt.Fprintf(w, "Source references:\n")
 	rows := refs.Rows
-	if limit > 0 && len(rows) > limit {
-		rows = rows[:limit]
+	if limit <= 0 || limit > len(rows) {
+		limit = len(rows)
 	}
-	for _, row := range rows {
+	for _, row := range rows[:limit] {
+		source := firstNonEmpty(row.DisplaySource, row.Source, row.LocalPath, "source")
+		kind := firstNonEmpty(row.Kind, "evidence")
 		meta := ""
 		if row.MetadataOnly {
 			meta = " metadata-only"
 		}
-		line := fmt.Sprintf("%s [%s%s] %s", firstNonEmpty(row.DisplaySource, row.Source), firstNonEmpty(row.Kind, "evidence"), meta, row.Fact)
-		if row.InspectCommand != "" {
-			line += " Inspect: " + row.InspectCommand
+		fmt.Fprintf(w, "  - %s [%s%s]: %s\n", source, kind, meta, compactExample(firstNonEmpty(row.Fact, "deterministic evidence reference")))
+		var details []string
+		if row.LocalPath != "" {
+			details = append(details, "file: "+row.LocalPath)
 		}
-		fmt.Fprintf(w, "  - %s\n", line)
+		if row.Line != "" && row.Line != "not recorded" {
+			details = append(details, "line: "+row.Line)
+		}
+		if row.InspectCommand != "" {
+			details = append(details, "inspect: "+row.InspectCommand)
+		}
+		if len(details) > 0 {
+			fmt.Fprintf(w, "    %s\n", strings.Join(details, "  "))
+		}
 	}
-	if limit > 0 && len(refs.Rows) > limit {
-		fmt.Fprintf(w, "  - %d more source reference(s) in JSON and dashboard output\n", len(refs.Rows)-limit)
+}
+
+func renderAssessSourceReferenceRowsTerminal(w io.Writer, title string, refs model.AssessSourceReferences, limit int) {
+	if !refs.Available || len(refs.Rows) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "%s\n", title)
+	renderAssessSourceReferenceRowList(w, refs.Rows, limit, "")
+}
+
+func renderAssessSourceReferenceRowList(w io.Writer, rows []model.AssessSourceRefRow, limit int, empty string) {
+	if len(rows) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s\n", empty)
+		}
+		return
+	}
+	if limit <= 0 || limit > len(rows) {
+		limit = len(rows)
+	}
+	for _, row := range rows[:limit] {
+		renderAssessSourceReferenceRow(w, row)
+	}
+	if len(rows) > limit {
+		fmt.Fprintf(w, "  - %d more source reference(s) in JSON and dashboard output\n", len(rows)-limit)
+	}
+}
+
+func renderAssessSourceReferenceRow(w io.Writer, row model.AssessSourceRefRow) {
+	source := firstNonEmpty(row.DisplaySource, row.Source, row.LocalPath, "source")
+	kind := firstNonEmpty(row.Kind, "evidence")
+	meta := ""
+	if row.MetadataOnly {
+		meta = " metadata-only"
+	}
+	fact := compactExample(firstNonEmpty(row.Fact, "deterministic evidence reference"))
+	fmt.Fprintf(w, "  - %s [%s%s]: %s\n", source, kind, meta, fact)
+	if row.LocalPath != "" {
+		fmt.Fprintf(w, "    file: %s\n", row.LocalPath)
+	}
+	if row.Line != "" && row.Line != "not recorded" {
+		fmt.Fprintf(w, "    line: %s\n", row.Line)
+	}
+	if row.InspectCommand != "" {
+		fmt.Fprintf(w, "    inspect: %s\n", row.InspectCommand)
 	}
 }
 
@@ -2678,6 +2722,7 @@ func renderAssessAction(w io.Writer, r model.AssessReport) error {
 		}
 		renderEvidenceSourceListBlock(w, evidenceReferenceSources(actionEvidenceRefs, false), 16)
 	}
+	renderAssessSourceReferenceRowsTerminal(w, "\nOpen first source references:", r.SourceReferences, 6)
 	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
 	if example := assessCurrentEvidenceExampleLine(action); example != "" {
 		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
