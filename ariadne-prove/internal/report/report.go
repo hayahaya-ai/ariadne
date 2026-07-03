@@ -2159,13 +2159,7 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 	renderAssessOperatorPacketLines(w, "Normal context", packet.NormalContext, 3)
 
 	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
-	if len(packet.EvidenceToOpen) > 0 {
-		fmt.Fprintf(w, "\nEvidence to open:\n")
-		for _, ref := range firstOrderedEvidenceReferences(packet.EvidenceToOpen, 5) {
-			fmt.Fprintf(w, "  - %s\n", evidenceReferenceLine(ref))
-		}
-		renderEvidenceSourceListBlock(w, packet.EvidenceSources, 12)
-	}
+	renderAssessOperatorPacketEvidence(w, packet.EvidenceToOpen, packet.EvidenceSources)
 	if len(packet.GraphPath) > 0 {
 		fmt.Fprintf(w, "\nPath:\n")
 		for _, line := range firstStrings(packet.GraphPath, 6) {
@@ -2195,6 +2189,40 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 	renderAssessOperatorPacketLines(w, "Decision rule", packet.DecisionRules, 3)
 	renderAssessOperatorPacketLines(w, "Limitation", packet.Limitations, 3)
 	return nil
+}
+
+func renderAssessOperatorPacketEvidence(w io.Writer, refs []model.EvidenceReference, sources []string) {
+	if len(refs) == 0 {
+		return
+	}
+	inspectable, metadataOnly := splitOperatorPacketEvidence(refs)
+	if len(inspectable) > 0 {
+		fmt.Fprintf(w, "\nEvidence to inspect:\n")
+		for _, ref := range firstOrderedEvidenceReferences(inspectable, 5) {
+			fmt.Fprintf(w, "  - %s\n", evidenceReferenceLine(ref))
+		}
+	}
+	if len(metadataOnly) > 0 {
+		fmt.Fprintf(w, "\nMetadata-only context:\n")
+		fmt.Fprintf(w, "  - These private/history/cache surfaces are summarized; inspect metadata only by default.\n")
+		for _, ref := range firstOrderedEvidenceReferences(metadataOnly, 4) {
+			fmt.Fprintf(w, "  - %s\n", evidenceReferenceLine(ref))
+		}
+	}
+	renderEvidenceSourceListBlock(w, sources, 12)
+}
+
+func splitOperatorPacketEvidence(refs []model.EvidenceReference) ([]model.EvidenceReference, []model.EvidenceReference) {
+	var inspectable []model.EvidenceReference
+	var metadataOnly []model.EvidenceReference
+	for _, ref := range refs {
+		if sourceReferenceMetadataOnly(ref) {
+			metadataOnly = append(metadataOnly, ref)
+			continue
+		}
+		inspectable = append(inspectable, ref)
+	}
+	return nonNilEvidenceReferences(inspectable), nonNilEvidenceReferences(metadataOnly)
 }
 
 func renderAssessOperatorPacketLines(w io.Writer, label string, values []string, limit int) {

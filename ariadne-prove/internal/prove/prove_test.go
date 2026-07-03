@@ -3200,6 +3200,35 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		}
 	}
 
+	var operatorOut bytes.Buffer
+	if err := report.RenderAssess(&operatorOut, inventory, r, "operator", "breaking"); err != nil {
+		t.Fatal(err)
+	}
+	operatorRendered := operatorOut.String()
+	for _, want := range []string{
+		"Source action board:",
+		"Evidence to inspect:",
+		"Metadata-only context:",
+		".ariadne/identity-policy.json [proof surface/add_or_verify_control]",
+		".aider.conf.yml:1",
+		".aider.chat.history.md",
+		".claude/paste-cache",
+	} {
+		if !strings.Contains(operatorRendered, want) {
+			t.Fatalf("endpoint operator packet missing %q:\n%s", want, operatorRendered)
+		}
+	}
+	if strings.Index(operatorRendered, "Source action board:") > strings.Index(operatorRendered, "Evidence to inspect:") ||
+		strings.Index(operatorRendered, "Evidence to inspect:") > strings.Index(operatorRendered, "Metadata-only context:") {
+		t.Fatalf("endpoint operator packet should lead with actions, then inspectable evidence, then metadata-only context:\n%s", operatorRendered)
+	}
+	inspectBlock := boundedBlock(t, operatorRendered, "Evidence to inspect:", "Metadata-only context:")
+	for _, notWant := range []string{".aider.chat.history.md", ".claude/paste-cache"} {
+		if strings.Contains(inspectBlock, notWant) {
+			t.Fatalf("endpoint inspectable evidence should not include metadata-only context %q:\n%s", notWant, inspectBlock)
+		}
+	}
+
 	var jsonOut bytes.Buffer
 	if err := report.RenderAssess(&jsonOut, inventory, r, "json", "breaking"); err != nil {
 		t.Fatal(err)
@@ -5259,7 +5288,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Case: Egress And Output Boundary (case:egress-output-boundary)",
 		"Actionable fact:",
 		"Normal context:",
-		"Evidence to open:",
+		"Evidence to inspect:",
 		".claude/settings.json:1",
 		"Source action board:",
 		".claude/settings.json:1 [evidence/inspect_risk_source]",
@@ -5296,7 +5325,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		}
 	}
 	sourceActionIndex := strings.Index(operatorRendered, "Source action board:")
-	evidenceOpenIndex := strings.Index(operatorRendered, "Evidence to open:")
+	evidenceOpenIndex := strings.Index(operatorRendered, "Evidence to inspect:")
 	if sourceActionIndex < 0 || evidenceOpenIndex < 0 || sourceActionIndex > evidenceOpenIndex {
 		t.Fatalf("assessment operator packet should put source actions before raw evidence rows:\n%s", operatorRendered)
 	}

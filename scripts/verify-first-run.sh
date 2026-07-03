@@ -627,7 +627,8 @@ expect_contains "$self_bundle/runbook.json" '"open_first"'
 expect_contains "$self_bundle/runbook.json" '"closure_workflow"'
 expect_contains "$self_bundle/operator-packet.txt" "Ariadne Operator Packet"
 expect_contains "$self_bundle/operator-packet.txt" "case:identity-credentials"
-expect_contains "$self_bundle/operator-packet.txt" "Evidence to open:"
+expect_contains "$self_bundle/operator-packet.txt" "Evidence to inspect:"
+expect_contains "$self_bundle/operator-packet.txt" "Metadata-only context:"
 expect_contains "$self_bundle/operator-packet.txt" "Source action board:"
 expect_contains "$self_bundle/operator-packet.txt" "add_or_verify_control"
 expect_contains "$self_bundle/operator-packet.txt" "open/verify:"
@@ -769,11 +770,13 @@ expect_block_not_contains "$endpoint_action" "Source action board:" "Accepted ev
 expect_contains "$endpoint_operator" "Ariadne Operator Packet"
 expect_contains "$endpoint_operator" "Source action board:"
 expect_contains "$endpoint_operator" ".ariadne/identity-policy.json [proof surface/add_or_verify_control]"
-expect_contains "$endpoint_operator" "Evidence to open:"
+expect_contains "$endpoint_operator" "Evidence to inspect:"
+expect_contains "$endpoint_operator" "Metadata-only context:"
 expect_contains "$endpoint_operator" ".aider.conf.yml:1"
-expect_before "$endpoint_operator" "Source action board:" "Evidence to open:"
-expect_block_not_contains "$endpoint_operator" "Evidence to open:" "Evidence files:" ".aider.chat.history.md"
-expect_block_not_contains "$endpoint_operator" "Evidence to open:" "Evidence files:" ".claude/paste-cache"
+expect_before "$endpoint_operator" "Source action board:" "Evidence to inspect:"
+expect_before "$endpoint_operator" "Evidence to inspect:" "Metadata-only context:"
+expect_block_not_contains "$endpoint_operator" "Evidence to inspect:" "Metadata-only context:" ".aider.chat.history.md"
+expect_block_not_contains "$endpoint_operator" "Evidence to inspect:" "Metadata-only context:" ".claude/paste-cache"
 
 expect_contains "$endpoint_json" '"mode": "endpoint"'
 expect_contains "$endpoint_json" '"decision"'
