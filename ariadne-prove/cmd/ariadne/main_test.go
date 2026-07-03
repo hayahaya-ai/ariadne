@@ -292,6 +292,12 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 		"compare_state",
 		"Operator Packet",
 		"Operator Cases",
+		"Action Packet",
+		"Open first evidence",
+		"Action commands",
+		"Suggested destination",
+		"Destination path",
+		"Done criteria",
 		"Closure Loop",
 		"Artifact: before-proof.json",
 		"Export proof files",
@@ -539,6 +545,10 @@ func TestRunSelfDefaultsToEndpointAssessment(t *testing.T) {
 		"--mode endpoint",
 		"Operator Cases",
 		"Export proof files",
+		"Action commands",
+		"Open first evidence",
+		"Suggested destination",
+		"Done criteria",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("self dashboard missing %q:\n%s", want, rendered)

@@ -1215,6 +1215,20 @@ tr:last-child td { border-bottom: 0; }
 .copy-command:hover {
   border-color: var(--accent);
 }
+.action-command-list {
+  display: grid;
+  gap: 10px;
+}
+.action-command-row {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.action-command-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
 .patch-stack > div + div {
   margin-top: 10px;
   padding-top: 10px;
@@ -4329,6 +4343,7 @@ func renderOperatorCaseActionPacketHTML(root string, packet model.ControlOperato
 	}
 	var b strings.Builder
 	fmt.Fprintln(&b, `<h3>Action Packet</h3>`)
+	fmt.Fprintf(&b, `<div class="subtle">Focused case action from structured evidence. Status: %s</div>`, esc(readableToken(packet.Status)))
 	details := []string{}
 	if packet.CurrentControl != "" {
 		details = append(details, "Control: "+esc(packet.CurrentControl))
@@ -4336,33 +4351,62 @@ func renderOperatorCaseActionPacketHTML(root string, packet model.ControlOperato
 	if packet.ProofSurface != "" {
 		details = append(details, "Proof surface: "+dashboardFileRefHTML(root, packet.ProofSurface))
 	}
-	if len(packet.OpenFirst) > 0 {
-		details = append(details, fmt.Sprintf("Open first: %d evidence ref(s)", len(packet.OpenFirst)))
-	}
 	fmt.Fprintln(&b, renderDashboardHTMLList(details))
+	fmt.Fprintln(&b, `<div class="subtle">Open first evidence</div>`)
+	fmt.Fprintln(&b, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, packet.OpenFirst, 4)))
 	if len(packet.GeneratedProofPaths) > 0 {
 		fmt.Fprintln(&b, `<div class="subtle">Generated proof files</div>`)
 		fmt.Fprintln(&b, renderDashboardPathList("", limitStrings(packet.GeneratedProofPaths, 4)))
 	}
+	if len(packet.SuggestedDestinations) > 0 {
+		fmt.Fprintln(&b, `<div class="subtle">Suggested destination</div>`)
+		fmt.Fprintln(&b, renderDashboardPathList(root, limitStrings(packet.SuggestedDestinations, 4)))
+	}
+	if len(packet.DestinationPaths) > 0 {
+		fmt.Fprintln(&b, `<div class="subtle">Destination path</div>`)
+		fmt.Fprintln(&b, renderDashboardPathList("", limitStrings(packet.DestinationPaths, 4)))
+	}
 	if len(packet.Commands) > 0 {
-		fmt.Fprintln(&b, `<div class="subtle">Verify change</div>`)
-		fmt.Fprintln(&b, renderCommandList(limitStrings(controlOperatorActionPacketCommandStrings(packet.Commands), 5)))
+		fmt.Fprintln(&b, `<div class="subtle">Action commands</div>`)
+		fmt.Fprintln(&b, renderOperatorCaseActionCommandsHTML(packet.Commands, 8))
+	}
+	if len(packet.DoneCriteria) > 0 {
+		fmt.Fprintln(&b, `<div class="subtle">Done criteria</div>`)
+		fmt.Fprintln(&b, renderSmallList(limitStrings(packet.DoneCriteria, 4)))
 	}
 	return b.String()
 }
 
-func controlOperatorActionPacketCommandStrings(commands []model.ControlOperatorActionCommand) []string {
-	out := make([]string, 0, len(commands))
-	for _, command := range commands {
-		if command.Command == "" {
-			continue
+func renderOperatorCaseActionCommandsHTML(commands []model.ControlOperatorActionCommand, limit int) string {
+	if len(commands) == 0 {
+		return `<span class="subtle">none</span>`
+	}
+	if limit <= 0 || limit > len(commands) {
+		limit = len(commands)
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="action-command-list">`)
+	for _, command := range commands[:limit] {
+		b.WriteString(`<div class="action-command-row">`)
+		title := firstNonEmpty(command.Title, command.ID, "Command")
+		if command.Step > 0 {
+			fmt.Fprintf(&b, `<div><strong>%d. %s</strong></div>`, command.Step, esc(title))
+		} else {
+			fmt.Fprintf(&b, `<div><strong>%s</strong></div>`, esc(title))
 		}
-		out = append(out, command.Command)
+		if len(command.Files) > 0 {
+			fmt.Fprintf(&b, `<div class="subtle">Files</div>%s`, renderDashboardPathList("", limitStrings(command.Files, 5)))
+		}
+		if command.Command != "" {
+			fmt.Fprintf(&b, `<div class="subtle">Command</div>%s`, renderCommandList([]string{command.Command}))
+		}
+		b.WriteString(`</div>`)
 	}
-	if out == nil {
-		return []string{}
+	if len(commands) > limit {
+		fmt.Fprintf(&b, `<div class="subtle">%d additional action command(s) in JSON output.</div>`, len(commands)-limit)
 	}
-	return out
+	b.WriteString(`</div>`)
+	return b.String()
 }
 
 func renderControlCatalogFamiliesDashboard(w io.Writer, root string, items []model.ArchitectureClosureFamily) {
