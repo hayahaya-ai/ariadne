@@ -233,12 +233,79 @@ func renderAssessOperatorConsoleDashboard(w io.Writer, r model.AssessReport) {
 		{"Proof surface", firstNonEmpty(packet.ProofSurface, action.CurrentAction.Surface, runbook.ProofSurface, "not recorded")},
 	})
 	renderAssessCaseActionBoardDashboard(w, r, actions)
+	renderAssessSignalContractDashboard(w, r.TargetPath, r.SignalNoise)
 	fmt.Fprintln(w, `<div class="console-grid">`)
 	renderAssessOperatorConsoleCaseLane(w, r)
 	renderAssessOperatorConsoleSourceLane(w, r.TargetPath, actions)
 	renderAssessOperatorConsoleProofLane(w, r)
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `</section>`)
+}
+
+func renderAssessSignalContractDashboard(w io.Writer, root string, signal model.AssessSignalNoise) {
+	totalItems := len(signal.ExpectedCapability) + len(signal.ExposureTransition) + len(signal.ControlEvidence) + len(signal.DowngradeEvidence) + len(signal.EvidenceGaps)
+	if signal.Status == "" && signal.Summary == "" && totalItems == 0 && len(signal.DecisionRules) == 0 {
+		return
+	}
+	expected, hasExpected := assessSignalContractItem(signal.ExpectedCapability, "capability:authorities", "capability:trust-inputs", "capability:runtimes")
+	transition, hasTransition := assessSignalContractItem(signal.ExposureTransition, "transition:capability-to-boundary", "transition:missing-hard-barrier")
+	control, hasControl := assessSignalContractItem(signal.ControlEvidence, "control:missing-hard-barriers", "control:observed-hard-barriers", "control:partial-or-friction")
+	downgrade, hasDowngrade := assessSignalContractItem(signal.DowngradeEvidence, "downgrade:prove-hard-barrier", "downgrade:remove-supported-path")
+
+	fmt.Fprintln(w, `<h3>Signal Contract</h3>`)
+	fmt.Fprintln(w, `<div class="subtle">Why the active case is signal instead of noise: expected capability is separated from graph transition, control state, and downgrade evidence.</div>`)
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table signal-contract-table">`)
+	fmt.Fprintln(w, `<thead><tr><th>Question</th><th>Readout</th><th>Evidence / sources</th><th>Graph / controls</th></tr></thead><tbody>`)
+	renderAssessSignalContractRow(w, root, "Normal Capability Is Noise Until Correlated", expected, hasExpected, "Expected runtime, authority, tool, or input capability is not exposure by itself.")
+	renderAssessSignalContractRow(w, root, "Signal Trigger", transition, hasTransition, "Capability becomes signal only when graph evidence reaches a sensitive boundary.")
+	renderAssessSignalContractRow(w, root, "Control State Test", control, hasControl, "The path stays open, closes, or downgrades based on hard-barrier evidence.")
+	renderAssessSignalContractRow(w, root, "Downgrade Or Close Evidence", downgrade, hasDowngrade, "The case changes state only after rerun evidence changes the graph path or control state.")
+	if len(signal.DecisionRules) > 0 {
+		renderAssessSignalContractDecisionRow(w, signal.DecisionRules)
+	}
+	fmt.Fprintln(w, `</tbody></table></div>`)
+}
+
+func assessSignalContractItem(items []model.AssessSignalNoiseItem, ids ...string) (model.AssessSignalNoiseItem, bool) {
+	for _, id := range ids {
+		for _, item := range items {
+			if strings.EqualFold(strings.TrimSpace(item.ID), id) {
+				return item, true
+			}
+		}
+	}
+	if len(items) == 0 {
+		return model.AssessSignalNoiseItem{}, false
+	}
+	return items[0], true
+}
+
+func renderAssessSignalContractRow(w io.Writer, root string, question string, item model.AssessSignalNoiseItem, ok bool, fallback string) {
+	fmt.Fprintln(w, `<tr>`)
+	fmt.Fprintf(w, `<td><strong>%s</strong>`, esc(question))
+	if ok {
+		fmt.Fprintf(w, `<div class="mono">%s</div><div class="subtle">%s</div>`, esc(item.ID), esc(item.Category))
+	}
+	fmt.Fprintln(w, `</td>`)
+	if ok {
+		fmt.Fprintf(w, `<td><div class="pill %s">%s</div><div>%s</div>%s</td>`, cssClass(item.Disposition), esc(readableToken(item.Disposition)), esc(item.Summary), assessSignalNoiseRiskBoundaryHTML(item.RiskBoundary))
+		fmt.Fprintf(w, `<td>%s</td>`, renderAssessSignalNoiseEvidenceHTML(root, item))
+		fmt.Fprintf(w, `<td>%s</td>`, renderAssessSignalNoiseGraphControlHTML(item))
+	} else {
+		fmt.Fprintf(w, `<td>%s</td>`, esc(fallback))
+		fmt.Fprintln(w, `<td><span class="subtle">not observed</span></td>`)
+		fmt.Fprintln(w, `<td><span class="subtle">not observed</span></td>`)
+	}
+	fmt.Fprintln(w, `</tr>`)
+}
+
+func renderAssessSignalContractDecisionRow(w io.Writer, rules []string) {
+	fmt.Fprintln(w, `<tr>`)
+	fmt.Fprintln(w, `<td><strong>Decision Rule</strong><div class="mono">signal:decision-rule</div></td>`)
+	fmt.Fprintf(w, `<td>%s</td>`, renderSmallList(limitStrings(rules, 3)))
+	fmt.Fprintln(w, `<td><span class="subtle">applies to this readout</span></td>`)
+	fmt.Fprintln(w, `<td><span class="subtle">classification requires graph and control evidence, not capability alone</span></td>`)
+	fmt.Fprintln(w, `</tr>`)
 }
 
 func renderAssessCaseActionBoardDashboard(w io.Writer, r model.AssessReport, actions []model.AssessSourceAction) {
