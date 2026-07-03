@@ -1058,6 +1058,9 @@ expect_contains "$endpoint_compare_txt" "Verdict: proof succeeded"
 expect_contains "$endpoint_compare_txt" "open -> closed"
 expect_contains "$endpoint_compare_txt" "Missing controls before:"
 expect_contains "$endpoint_compare_txt" "Observed controls after:"
+expect_contains "$endpoint_compare_txt" "Proof verdict: proof closed"
+expect_contains "$endpoint_compare_txt" "Control evidence:"
+expect_contains "$endpoint_compare_txt" "Remaining action: No remaining action for this case"
 expect_contains "$endpoint_compare_txt" "Proof patches: 5 -> 0"
 expect_contains "$endpoint_compare_txt" ".ariadne/identity-policy.json"
 
@@ -1106,6 +1109,10 @@ expect_contains "$compare_txt" "Readout: Proof worked"
 expect_contains "$compare_txt" "open -> closed"
 expect_contains "$compare_txt" "Missing controls before:"
 expect_contains "$compare_txt" "Observed controls after:"
+expect_contains "$compare_txt" "Proof verdict: proof closed"
+expect_contains "$compare_txt" "Control evidence:"
+expect_contains "$compare_txt" "Evidence source:"
+expect_contains "$compare_txt" "Remaining action: No remaining action for this case"
 expect_contains "$compare_txt" "Proof patches: 5 -> 0"
 expect_contains "$compare_txt" "Added evidence:"
 expect_contains "$compare_txt" ".ariadne/egress-policy.json"
@@ -1119,12 +1126,18 @@ expect_contains "$compare_json" '"proof_patches_after": 0'
 expect_contains "$compare_json" '"added_evidence_sources"'
 expect_contains "$compare_json" '"before_state": "open"'
 expect_contains "$compare_json" '"after_state": "closed"'
+expect_contains "$compare_json" '"proof_verdict"'
+expect_contains "$compare_json" '"status": "proof_closed"'
+expect_contains "$compare_json" '"remaining_action": "No remaining action for this case'
 expect_contains "$compare_json" '"added_evidence_refs"'
 expect_contains "$compare_html" "Compare Decision"
 expect_contains "$compare_html" "PROOF SUCCEEDED"
 expect_contains "$compare_html" "CLOSED"
 expect_contains "$compare_html" "open"
 expect_contains "$compare_html" "closed"
+expect_contains "$compare_html" "Proof verdict"
+expect_contains "$compare_html" "Status: proof closed"
+expect_contains "$compare_html" "Remaining action: No remaining action for this case"
 expect_contains "$compare_html" "Missing controls before"
 expect_contains "$compare_html" "Observed controls after"
 expect_contains "$compare_html" ".ariadne/egress-policy.json"

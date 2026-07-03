@@ -3672,7 +3672,8 @@ func renderCaseCompareCasesDashboard(w io.Writer, cases []model.CaseCompareResul
 			renderSmallList(item.AddedControls),
 			renderSmallList(item.RemovedControls),
 		)
-		fmt.Fprintf(w, `<td><h3>Proof patches</h3><div>%d -> %d</div><h3>Evidence refs</h3><div>%d -> %d</div><h3>After evidence</h3>%s<h3>Added evidence</h3>%s<h3>Removed evidence</h3>%s</td>`,
+		fmt.Fprintf(w, `<td><h3>Proof verdict</h3>%s<h3>Proof patches</h3><div>%d -> %d</div><h3>Evidence refs</h3><div>%d -> %d</div><h3>After evidence</h3>%s<h3>Added evidence</h3>%s<h3>Removed evidence</h3>%s</td>`,
+			renderCaseCompareProofVerdictHTML(item.ProofVerdict),
 			item.BeforeProofPatches,
 			item.AfterProofPatches,
 			item.BeforeEvidenceRefs,
@@ -3690,6 +3691,29 @@ func renderCaseCompareCasesDashboard(w io.Writer, cases []model.CaseCompareResul
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderCaseCompareProofVerdictHTML(verdict model.CaseCompareProofVerdict) string {
+	if verdict.Status == "" && verdict.Summary == "" {
+		return `<div class="empty">No proof verdict recorded.</div>`
+	}
+	var lines []string
+	if verdict.Status != "" {
+		lines = append(lines, "Status: "+readableToken(verdict.Status))
+	}
+	if verdict.Summary != "" {
+		lines = append(lines, verdict.Summary)
+	}
+	for _, control := range firstStrings(verdict.ControlEvidence, 3) {
+		lines = append(lines, "Control evidence: "+control)
+	}
+	for _, source := range firstStrings(verdict.EvidenceSources, 3) {
+		lines = append(lines, "Evidence source: "+source)
+	}
+	if verdict.RemainingAction != "" {
+		lines = append(lines, "Remaining action: "+verdict.RemainingAction)
+	}
+	return renderSmallList(lines)
 }
 
 func proofPlanState(r model.ProofPlanReport) string {

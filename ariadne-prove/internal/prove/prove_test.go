@@ -4490,6 +4490,14 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	if got := compare.Cases[0]; got.Disposition != "closed" || got.BeforeState != "open" || got.AfterState != "closed" {
 		t.Fatalf("compare should show open -> closed: %+v", got)
 	}
+	if got := compare.Cases[0].ProofVerdict; got.Status != "proof_closed" ||
+		!strings.Contains(got.Summary, "Input Trust Boundary closed") ||
+		!containsString(got.ControlEvidence, "control:input-isolation") ||
+		!containsString(got.EvidenceSources, ".ariadne/input-policy.json") ||
+		!strings.Contains(got.RemainingAction, "No remaining action") ||
+		!containsString(got.CompareCommands, "case-compare.html") {
+		t.Fatalf("compare should expose a source-backed proof verdict: %+v", got)
+	}
 	if !containsString(compare.Cases[0].AfterControls, "control:input-isolation") || !containsString(compare.Cases[0].AfterControls, "control:trusted-source-policy") {
 		t.Fatalf("compare should show observed hard barriers in after report: %+v", compare.Cases[0])
 	}
@@ -4557,6 +4565,11 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"open -> closed",
 		"Missing controls before: control:input-isolation; control:trusted-source-policy",
 		"Observed controls after: control:input-isolation; control:trusted-source-policy",
+		"Proof verdict: proof closed",
+		"Summary: Input Trust Boundary closed",
+		"Control evidence: control:input-isolation; control:trusted-source-policy",
+		"Evidence source: .ariadne/input-policy.json",
+		"Remaining action: No remaining action for this case",
 		"Proof patches: 2 -> 0",
 		"After evidence:",
 		"Added evidence:",
@@ -4586,6 +4599,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"Next Action",
 		"Case Changes",
 		"CLOSED",
+		"Proof verdict",
+		"Status: proof closed",
+		"Remaining action: No remaining action for this case",
 		"Missing controls before",
 		"Observed controls after",
 		"control:input-isolation",
@@ -4611,6 +4627,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	}
 	if reopened.Summary.Reopened != 1 || reopened.Cases[0].Disposition != "reopened" || reopened.Cases[0].BeforeState != "closed" || reopened.Cases[0].AfterState != "open" {
 		t.Fatalf("reverse compare should show reopened: %+v", reopened)
+	}
+	if reopened.Cases[0].ProofVerdict.Status != "proof_regressed" || !strings.Contains(reopened.Cases[0].ProofVerdict.RemainingAction, "restore hard-barrier proof") {
+		t.Fatalf("reverse compare should expose regression proof verdict: %+v", reopened.Cases[0].ProofVerdict)
 	}
 	if reopened.Decision.Status != "regression" ||
 		reopened.Decision.TopCaseID != "case:input-trust-boundary" ||
@@ -7039,7 +7058,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	caseCompareOutcomeCase := schemaMap(t, caseCompareSchema, "$defs", "case_compare_outcome_case")
 	assertRequiredKeys(t, caseCompareOutcomeCase, "id", "title", "severity", "disposition", "before_state", "after_state", "state_reason", "next_step", "after_evidence_refs", "after_proof_patches")
 	caseCompareResult := schemaMap(t, caseCompareSchema, "$defs", "case_compare_result")
-	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_evidence_details", "after_evidence_details", "added_evidence_refs", "removed_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_rerun_commands", "after_rerun_commands", "before_compare_commands", "after_compare_commands", "before_next_step", "after_next_step")
+	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "proof_verdict", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_evidence_details", "after_evidence_details", "added_evidence_refs", "removed_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_rerun_commands", "after_rerun_commands", "before_compare_commands", "after_compare_commands", "before_next_step", "after_next_step")
+	caseCompareProofVerdict := schemaMap(t, caseCompareSchema, "$defs", "case_compare_proof_verdict")
+	assertRequiredKeys(t, caseCompareProofVerdict, "status", "summary", "control_evidence", "evidence_sources", "remaining_action", "rerun_commands", "compare_commands", "decision_rules", "limitations")
 
 	assessSchema := loadSchema(t, "ariadne-assess-v1.schema.json")
 	assertRequiredKeys(t, assessSchema,

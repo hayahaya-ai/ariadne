@@ -1075,7 +1075,94 @@ func compareCase(before model.ControlOperatorCase, beforeOK bool, after model.Co
 	item.AddedEvidence = subtractEvidenceReferences(item.AfterEvidence, item.BeforeEvidence)
 	item.RemovedEvidence = subtractEvidenceReferences(item.BeforeEvidence, item.AfterEvidence)
 	item.Disposition = caseCompareDisposition(beforeOK, beforeState, before, afterOK, afterState, after, item)
+	item.ProofVerdict = caseCompareProofVerdict(item)
 	return item
+}
+
+func caseCompareProofVerdict(item model.CaseCompareResult) model.CaseCompareProofVerdict {
+	status := caseCompareProofVerdictStatus(item)
+	summary := caseCompareProofVerdictSummary(item, status)
+	controlEvidence := item.AddedControls
+	if len(controlEvidence) == 0 {
+		controlEvidence = item.AfterControls
+	}
+	evidenceSources := evidenceReferenceSources(item.AddedEvidence, false)
+	if len(evidenceSources) == 0 {
+		evidenceSources = evidenceReferenceSources(item.AfterEvidence, false)
+	}
+	return model.CaseCompareProofVerdict{
+		Status:          status,
+		Summary:         summary,
+		ControlEvidence: uniqueSortedStrings(controlEvidence),
+		EvidenceSources: uniqueSortedStrings(evidenceSources),
+		RemainingAction: caseCompareProofVerdictRemainingAction(item, status),
+		RerunCommands:   nonNilStrings(uniqueStrings(item.AfterRerunCommands)),
+		CompareCommands: nonNilStrings(uniqueStrings(item.AfterCompareCommands)),
+		DecisionRules: []string{
+			"Compare uses before/after Ariadne JSON artifacts; it does not rerun collectors.",
+			"Closure requires the after artifact to report the case closed or absent from the selected open-case board.",
+			"Control and evidence source lists are deterministic parser outputs.",
+		},
+		Limitations: []string{
+			"A closed compare verdict does not prove live runtime enforcement.",
+		},
+	}
+}
+
+func caseCompareProofVerdictStatus(item model.CaseCompareResult) string {
+	switch item.Disposition {
+	case "closed":
+		return "proof_closed"
+	case "stayed_closed":
+		return "proof_already_closed"
+	case "reopened":
+		return "proof_regressed"
+	case "stayed_open":
+		return "proof_still_open"
+	case "added":
+		return "proof_added"
+	case "removed":
+		return "proof_removed"
+	default:
+		return "proof_changed"
+	}
+}
+
+func caseCompareProofVerdictSummary(item model.CaseCompareResult, status string) string {
+	caseName := firstNonEmpty(item.Title, item.ID, "case")
+	switch status {
+	case "proof_closed":
+		return fmt.Sprintf("%s closed: after artifact reports closed and proof patches changed from %d to %d.", caseName, item.BeforeProofPatches, item.AfterProofPatches)
+	case "proof_already_closed":
+		return fmt.Sprintf("%s stayed closed in the after artifact.", caseName)
+	case "proof_regressed":
+		return fmt.Sprintf("%s reopened: after artifact reports open after previously closed evidence.", caseName)
+	case "proof_still_open":
+		return fmt.Sprintf("%s is still open: after artifact still reports an unclosed proof path.", caseName)
+	case "proof_added":
+		return fmt.Sprintf("%s appeared in the after artifact; review whether this is newly detected exposure or a scope change.", caseName)
+	case "proof_removed":
+		return fmt.Sprintf("%s is absent from the after artifact; confirm whether the case closed or the comparison scope changed.", caseName)
+	default:
+		return fmt.Sprintf("%s changed but final state is %s.", caseName, firstNonEmpty(item.AfterState, "unknown"))
+	}
+}
+
+func caseCompareProofVerdictRemainingAction(item model.CaseCompareResult, status string) string {
+	switch status {
+	case "proof_closed", "proof_already_closed":
+		return "No remaining action for this case in the compared artifact; keep the compare artifact as closure evidence."
+	case "proof_still_open":
+		return firstNonEmpty(item.AfterNextStep, "Continue the proof loop for remaining missing hard barriers, then rerun and compare again.")
+	case "proof_regressed":
+		return "Review removed controls or evidence, restore hard-barrier proof, rerun the case, and compare again."
+	case "proof_removed":
+		return "Confirm the target, case filter, and status filter did not change before treating absence as closure."
+	case "proof_added":
+		return firstNonEmpty(item.AfterNextStep, "Triage the newly present case and run the focused proof loop.")
+	default:
+		return firstNonEmpty(item.AfterNextStep, "Review the changed case facts, rerun if needed, and compare again.")
+	}
 }
 
 func caseCompareDisposition(beforeOK bool, beforeState string, before model.ControlOperatorCase, afterOK bool, afterState string, after model.ControlOperatorCase, item model.CaseCompareResult) string {
@@ -1442,6 +1529,7 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 			fmt.Fprintf(w, "    Removed control IDs after rerun: %s\n", strings.Join(item.RemovedControls, "; "))
 		}
 		fmt.Fprintf(w, "    Proof patches: %d -> %d; evidence refs: %d -> %d\n", item.BeforeProofPatches, item.AfterProofPatches, item.BeforeEvidenceRefs, item.AfterEvidenceRefs)
+		renderCaseCompareProofVerdict(w, item.ProofVerdict)
 		if len(item.AfterEvidence) > 0 {
 			fmt.Fprintf(w, "    After evidence: %s\n", strings.Join(evidenceReferenceLines(item.AfterEvidence, 3), "; "))
 		}
@@ -1469,6 +1557,28 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func renderCaseCompareProofVerdict(w io.Writer, verdict model.CaseCompareProofVerdict) {
+	if verdict.Status == "" && verdict.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "    Proof verdict: %s\n", readableToken(firstNonEmpty(verdict.Status, "not recorded")))
+	if verdict.Summary != "" {
+		fmt.Fprintf(w, "      Summary: %s\n", verdict.Summary)
+	}
+	if len(verdict.ControlEvidence) > 0 {
+		fmt.Fprintf(w, "      Control evidence: %s\n", strings.Join(firstStrings(verdict.ControlEvidence, 5), "; "))
+	}
+	if len(verdict.EvidenceSources) > 0 {
+		fmt.Fprintf(w, "      Evidence source: %s\n", strings.Join(firstStrings(verdict.EvidenceSources, 5), "; "))
+	}
+	if verdict.RemainingAction != "" {
+		fmt.Fprintf(w, "      Remaining action: %s\n", verdict.RemainingAction)
+	}
+	for _, rule := range firstStrings(verdict.DecisionRules, 2) {
+		fmt.Fprintf(w, "      Decision rule: %s\n", rule)
+	}
 }
 
 func caseCompareControlsLabel(position string, state string) string {

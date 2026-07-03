@@ -167,6 +167,7 @@
         "title",
         "severity",
         "disposition",
+        "proof_verdict",
         "before_state",
         "after_state",
         "before_state_reason",
@@ -202,6 +203,7 @@
           "type": "string",
           "enum": ["closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed"]
         },
+        "proof_verdict": { "$ref": "#/$defs/case_compare_proof_verdict" },
         "before_state": { "type": "string" },
         "after_state": { "type": "string" },
         "before_state_reason": { "type": "string" },
@@ -240,6 +242,34 @@
         "after_compare_commands": { "type": "array", "items": { "type": "string" } },
         "before_next_step": { "type": "string" },
         "after_next_step": { "type": "string" }
+      }
+    },
+    "case_compare_proof_verdict": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "control_evidence",
+        "evidence_sources",
+        "remaining_action",
+        "rerun_commands",
+        "compare_commands",
+        "decision_rules",
+        "limitations"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["proof_closed", "proof_already_closed", "proof_regressed", "proof_still_open", "proof_added", "proof_removed", "proof_changed"]
+        },
+        "summary": { "type": "string" },
+        "control_evidence": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "remaining_action": { "type": "string" },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "compare_commands": { "type": "array", "items": { "type": "string" } },
+        "decision_rules": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     }
   }
