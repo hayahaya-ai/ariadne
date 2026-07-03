@@ -1190,6 +1190,7 @@ func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSour
 			Summary:         firstNonEmpty(verdict.Summary, caseCompareClosureReceiptSummary(item)),
 			ControlEvidence: nonNilStrings(uniqueSortedStrings(verdict.ControlEvidence)),
 			EvidenceSources: nonNilStrings(uniqueSortedStrings(verdict.EvidenceSources)),
+			EvidenceRefs:    caseCompareClosureReceiptEvidenceReferences(item),
 			ArtifactSources: nonNilStrings(nonEmptyStrings(beforeSource, afterSource)),
 			ArtifactHashes:  nonNilCaseCompareArtifactHashes(artifactHashes),
 			RemainingAction: verdict.RemainingAction,
@@ -1200,6 +1201,20 @@ func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSour
 		})
 	}
 	return receipts
+}
+
+func caseCompareClosureReceiptEvidenceReferences(item model.CaseCompareResult) []model.EvidenceReference {
+	refs := append([]model.EvidenceReference{}, item.AddedEvidence...)
+	if len(refs) == 0 {
+		refs = append(refs, item.AfterEvidence...)
+	}
+	if len(refs) == 0 {
+		refs = append(refs, item.RemovedEvidence...)
+	}
+	if len(refs) == 0 {
+		refs = append(refs, item.BeforeEvidence...)
+	}
+	return nonNilEvidenceReferences(rankEvidenceReferencesForOperator(dedupeEvidenceReferences(refs)))
 }
 
 func caseCompareArtifactHashes(beforeRaw []byte, afterRaw []byte, beforeSource string, afterSource string) []model.CaseCompareArtifactHash {
@@ -1682,6 +1697,9 @@ func renderCaseCompareClosureReceipts(w io.Writer, receipts []model.CaseCompareC
 		}
 		if len(receipt.EvidenceSources) > 0 {
 			fmt.Fprintf(w, "    evidence source: %s\n", strings.Join(firstStrings(receipt.EvidenceSources, 5), "; "))
+		}
+		if len(receipt.EvidenceRefs) > 0 {
+			fmt.Fprintf(w, "    evidence ref: %s\n", strings.Join(evidenceReferenceLines(receipt.EvidenceRefs, 3), "; "))
 		}
 		if len(receipt.ArtifactSources) > 0 {
 			fmt.Fprintf(w, "    artifacts: %s\n", strings.Join(firstStrings(receipt.ArtifactSources, 2), " -> "))

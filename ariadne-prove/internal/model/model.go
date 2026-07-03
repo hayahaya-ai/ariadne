@@ -334,6 +334,7 @@ type CaseCompareClosureReceipt struct {
 	Summary         string                    `json:"summary"`
 	ControlEvidence []string                  `json:"control_evidence"`
 	EvidenceSources []string                  `json:"evidence_sources"`
+	EvidenceRefs    []EvidenceReference       `json:"evidence_refs"`
 	ArtifactSources []string                  `json:"artifact_sources"`
 	ArtifactHashes  []CaseCompareArtifactHash `json:"artifact_hashes"`
 	RemainingAction string                    `json:"remaining_action"`

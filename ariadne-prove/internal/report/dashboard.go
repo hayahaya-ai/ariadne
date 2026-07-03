@@ -3664,7 +3664,7 @@ func renderCaseCompareClosureReceiptsDashboard(w io.Writer, receipts []model.Cas
 		fmt.Fprintln(w, "<tr>")
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s -> %s</div></td>`, esc(firstNonEmpty(receipt.CaseTitle, receipt.CaseID)), esc(receipt.CaseID), esc(firstNonEmpty(receipt.BeforeState, "unknown")), esc(firstNonEmpty(receipt.AfterState, "unknown")))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span>%s</td>`, cssClass(receipt.ProofStatus), esc(strings.ToUpper(readableToken(firstNonEmpty(receipt.ProofStatus, receipt.Disposition, "unknown")))), renderSmallList(nonEmptyStrings(receipt.Summary)))
-		fmt.Fprintf(w, `<td><h3>Control evidence</h3>%s<h3>Evidence sources</h3>%s</td>`, renderSmallList(receipt.ControlEvidence), renderSmallList(receipt.EvidenceSources))
+		fmt.Fprintf(w, `<td><h3>Control evidence</h3>%s<h3>Evidence sources</h3>%s<h3>Evidence refs</h3>%s</td>`, renderSmallList(receipt.ControlEvidence), renderSmallList(receipt.EvidenceSources), renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines("", receipt.EvidenceRefs, 4)))
 		fmt.Fprintf(w, `<td><h3>Artifacts</h3>%s<h3>Artifact hashes</h3>%s<h3>Remaining action</h3>%s<h3>Compare commands</h3>%s</td>`, renderSmallList(receipt.ArtifactSources), renderSmallList(caseCompareArtifactHashLines(receipt.ArtifactHashes)), renderSmallList(nonEmptyStrings(receipt.RemainingAction)), renderCommandList(limitStrings(receipt.CompareCommands, 2)))
 		fmt.Fprintln(w, "</tr>")
 	}

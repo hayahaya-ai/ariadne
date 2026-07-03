@@ -263,6 +263,7 @@
         "summary",
         "control_evidence",
         "evidence_sources",
+        "evidence_refs",
         "artifact_sources",
         "artifact_hashes",
         "remaining_action",
@@ -289,6 +290,10 @@
         "summary": { "type": "string" },
         "control_evidence": { "type": "array", "items": { "type": "string" } },
         "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
         "artifact_sources": { "type": "array", "items": { "type": "string" } },
         "artifact_hashes": { "type": "array", "items": { "$ref": "#/$defs/case_compare_artifact_hash" } },
         "remaining_action": { "type": "string" },

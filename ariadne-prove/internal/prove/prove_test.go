@@ -4505,6 +4505,7 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		compare.ClosureReceipts[0].ProofStatus != "proof_closed" ||
 		!containsString(compare.ClosureReceipts[0].ControlEvidence, "control:input-isolation") ||
 		!containsString(compare.ClosureReceipts[0].EvidenceSources, ".ariadne/input-policy.json") ||
+		!containsEvidenceReferenceSource(compare.ClosureReceipts[0].EvidenceRefs, ".ariadne/input-policy.json") ||
 		!containsString(compare.ClosureReceipts[0].ArtifactSources, "before-open.json") ||
 		!containsString(compare.ClosureReceipts[0].ArtifactSources, "after-closed.json") ||
 		len(compare.ClosureReceipts[0].ArtifactHashes) != 2 ||
@@ -4621,6 +4622,7 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
 		"control evidence: control:input-isolation; control:trusted-source-policy",
 		"evidence source: .ariadne/input-policy.json",
+		"evidence ref: target: .ariadne/input-policy.json",
 		"artifact hash: before before-open.json sha256:",
 		"artifact hash: after after-closed.json sha256:",
 		"remaining action: No remaining action for this case",
@@ -4674,6 +4676,7 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"After rerun",
 		"After compare loop",
 		"closure-receipt.txt",
+		"Evidence refs",
 		"Artifact hashes",
 		"sha256:",
 	} {
@@ -7127,7 +7130,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	caseCompareProofVerdict := schemaMap(t, caseCompareSchema, "$defs", "case_compare_proof_verdict")
 	assertRequiredKeys(t, caseCompareProofVerdict, "status", "summary", "control_evidence", "evidence_sources", "remaining_action", "rerun_commands", "compare_commands", "decision_rules", "limitations")
 	caseCompareClosureReceipt := schemaMap(t, caseCompareSchema, "$defs", "case_compare_closure_receipt")
-	assertRequiredKeys(t, caseCompareClosureReceipt, "receipt_id", "case_id", "case_title", "severity", "disposition", "proof_status", "before_state", "after_state", "summary", "control_evidence", "evidence_sources", "artifact_sources", "artifact_hashes", "remaining_action", "rerun_commands", "compare_commands", "decision_rules", "limitations")
+	assertRequiredKeys(t, caseCompareClosureReceipt, "receipt_id", "case_id", "case_title", "severity", "disposition", "proof_status", "before_state", "after_state", "summary", "control_evidence", "evidence_sources", "evidence_refs", "artifact_sources", "artifact_hashes", "remaining_action", "rerun_commands", "compare_commands", "decision_rules", "limitations")
 	caseCompareArtifactHash := schemaMap(t, caseCompareSchema, "$defs", "case_compare_artifact_hash")
 	assertRequiredKeys(t, caseCompareArtifactHash, "role", "source", "sha256", "size_bytes")
 
