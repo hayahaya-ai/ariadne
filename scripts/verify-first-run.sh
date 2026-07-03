@@ -567,6 +567,9 @@ done
 expect_contains "$closure_dir/README.md" "Ariadne Closure Workspace"
 expect_contains "$closure_dir/README.md" "before/change/after/compare loop"
 expect_contains "$closure_dir/README.md" "case:egress-output-boundary"
+expect_contains "$closure_dir/README.md" "Workspace Integrity"
+expect_contains "$closure_dir/README.md" "ariadne bundle verify --dir"
+expect_contains "$closure_dir/README.md" "Run the workspace integrity command"
 expect_contains "$closure_dir/README.md" "Save after proof"
 expect_contains "$closure_dir/README.md" "Create closure receipt"
 expect_contains "$closure_dir/README.md" "Create HTML compare"
@@ -575,6 +578,7 @@ expect_contains "$closure_dir/README.md" "closure-receipt.txt"
 expect_contains "$closure_dir/README.md" "case-compare.html"
 expect_contains "$closure_dir/manifest.json" '"run_kind": "closure_workspace"'
 expect_contains "$closure_dir/manifest.json" '"case_id": "case:egress-output-boundary"'
+expect_contains "$closure_dir/manifest.json" '"integrity_command": "ariadne bundle verify --dir'
 expect_contains "$closure_dir/manifest.json" '"save_after_proof"'
 expect_contains "$closure_dir/manifest.json" '"closure_receipt"'
 expect_contains "$closure_dir/manifest.json" '"compare_state"'
@@ -648,6 +652,8 @@ for bundle_file in assessment.txt assessment.json runbook.txt runbook.json opera
 done
 expect_contains "$self_bundle/README.md" "Ariadne Self-Assessment Bundle"
 expect_contains "$self_bundle/README.md" "What This Bundle Answers"
+expect_contains "$self_bundle/README.md" "Bundle Integrity"
+expect_contains "$self_bundle/README.md" "ariadne bundle verify --dir"
 expect_contains "$self_bundle/README.md" "Suggested Review Order"
 expect_contains "$self_bundle/README.md" "Proof Loop Commands"
 expect_contains "$self_bundle/README.md" "ariadne closure --path"
@@ -912,6 +918,8 @@ expect_contains "$self_bundle/manifest.json" '"name": "llm-inventory-blind-reque
 expect_contains "$self_bundle/manifest.json" '"name": "llm-inventory-blind-request.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "case-action.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "case-action.json"'
+expect_contains "$self_bundle/manifest.json" '"integrity_command": "ariadne bundle verify --dir'
+expect_contains "$self_bundle/manifest.json" 'ariadne bundle verify --dir BUNDLE_DIR'
 expect_contains "$self_bundle/manifest.json" '"size_bytes"'
 expect_contains "$self_bundle/manifest.json" '"sha256"'
 expect_contains "$self_bundle/manifest.json" "intentionally not self-hashed"

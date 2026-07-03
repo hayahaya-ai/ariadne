@@ -664,6 +664,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"operator-packet.json",
 		"case-action.txt",
 		"case-action.json",
+		"Bundle Integrity",
+		"ariadne bundle verify --dir",
 		"inventory-coverage.txt",
 		"llm-follow-up-request.txt",
 		"llm-follow-up-request.json",
@@ -1045,7 +1047,10 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	manifest := readTestFile(t, filepath.Join(bundleDir, "manifest.json"))
 	for _, want := range []string{
 		`"top_case_id": "case:identity-credentials"`,
+		`"integrity_command": "ariadne bundle verify --dir`,
 		`"review_order"`,
+		`ariadne bundle verify --dir BUNDLE_DIR`,
+		`before attaching`,
 		`"proof_loop"`,
 		`--patch-dir proof-patches`,
 		`"ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt"`,
@@ -1232,6 +1237,9 @@ func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
 		"Ariadne Closure Workspace",
 		"before/change/after/compare loop",
 		"case:egress-output-boundary",
+		"Workspace Integrity",
+		"ariadne bundle verify --dir",
+		"Run the workspace integrity command",
 		"Save after proof",
 		"Create closure receipt",
 		"Create HTML compare",
@@ -1249,6 +1257,7 @@ func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
 	for _, want := range []string{
 		`"run_kind": "closure_workspace"`,
 		`"case_id": "case:egress-output-boundary"`,
+		`"integrity_command": "ariadne bundle verify --dir`,
 		`"proof_loop"`,
 		`"save_after_proof"`,
 		`"closure_receipt"`,

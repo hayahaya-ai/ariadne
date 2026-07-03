@@ -207,18 +207,19 @@ func runSelf(args []string) {
 }
 
 type selfAssessmentBundleResult struct {
-	Directory     string                     `json:"directory"`
-	TargetPath    string                     `json:"target_path"`
-	Mode          string                     `json:"mode"`
-	Agent         string                     `json:"agent"`
-	StatusFilter  string                     `json:"status_filter"`
-	CaseFilter    string                     `json:"case_filter,omitempty"`
-	ControlFilter string                     `json:"control_filter,omitempty"`
-	TopCaseID     string                     `json:"top_case_id,omitempty"`
-	ReviewOrder   []string                   `json:"review_order"`
-	ProofLoop     []string                   `json:"proof_loop"`
-	Limitations   []string                   `json:"limitations"`
-	Files         []selfAssessmentBundleFile `json:"files"`
+	Directory        string                     `json:"directory"`
+	TargetPath       string                     `json:"target_path"`
+	Mode             string                     `json:"mode"`
+	Agent            string                     `json:"agent"`
+	StatusFilter     string                     `json:"status_filter"`
+	CaseFilter       string                     `json:"case_filter,omitempty"`
+	ControlFilter    string                     `json:"control_filter,omitempty"`
+	TopCaseID        string                     `json:"top_case_id,omitempty"`
+	IntegrityCommand string                     `json:"integrity_command"`
+	ReviewOrder      []string                   `json:"review_order"`
+	ProofLoop        []string                   `json:"proof_loop"`
+	Limitations      []string                   `json:"limitations"`
+	Files            []selfAssessmentBundleFile `json:"files"`
 }
 
 type selfAssessmentBundleFile struct {
@@ -270,19 +271,20 @@ type selfAssessmentLLMReviewPackets struct {
 }
 
 type closureWorkspaceResult struct {
-	SchemaVersion string                      `json:"schema_version"`
-	RunKind       string                      `json:"run_kind"`
-	GeneratedAt   time.Time                   `json:"generated_at"`
-	Directory     string                      `json:"directory"`
-	TargetPath    string                      `json:"target_path"`
-	Mode          string                      `json:"mode"`
-	Agent         string                      `json:"agent"`
-	StatusFilter  string                      `json:"status_filter"`
-	CaseID        string                      `json:"case_id"`
-	ProofLoop     []closureWorkspaceCommand   `json:"proof_loop"`
-	PatchFiles    []closureWorkspacePatchFile `json:"patch_files"`
-	Limitations   []string                    `json:"limitations"`
-	Files         []selfAssessmentBundleFile  `json:"files"`
+	SchemaVersion    string                      `json:"schema_version"`
+	RunKind          string                      `json:"run_kind"`
+	GeneratedAt      time.Time                   `json:"generated_at"`
+	Directory        string                      `json:"directory"`
+	TargetPath       string                      `json:"target_path"`
+	Mode             string                      `json:"mode"`
+	Agent            string                      `json:"agent"`
+	StatusFilter     string                      `json:"status_filter"`
+	CaseID           string                      `json:"case_id"`
+	IntegrityCommand string                      `json:"integrity_command"`
+	ProofLoop        []closureWorkspaceCommand   `json:"proof_loop"`
+	PatchFiles       []closureWorkspacePatchFile `json:"patch_files"`
+	Limitations      []string                    `json:"limitations"`
+	Files            []selfAssessmentBundleFile  `json:"files"`
 }
 
 type closureWorkspaceCommand struct {
@@ -329,17 +331,18 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	}
 	assess.ReviewPackets = buildSelfAssessmentReviewPacketHandoffs(absDir, r.TargetPath, r.Story.Mode, r.Story.Runtime)
 	result := selfAssessmentBundleResult{
-		Directory:     absDir,
-		TargetPath:    r.TargetPath,
-		Mode:          r.Story.Mode,
-		Agent:         r.Story.Runtime,
-		StatusFilter:  assess.StatusFilter,
-		CaseFilter:    assess.CaseFilter,
-		ControlFilter: assess.ControlFilter,
-		TopCaseID:     topCaseID,
-		ReviewOrder:   selfAssessmentBundleReviewOrder(),
-		ProofLoop:     selfAssessmentBundleProofLoop(r.TargetPath, r.Story.Mode, r.Story.Runtime, assess.StatusFilter, topCaseID),
-		Limitations:   selfAssessmentBundleLimitations(),
+		Directory:        absDir,
+		TargetPath:       r.TargetPath,
+		Mode:             r.Story.Mode,
+		Agent:            r.Story.Runtime,
+		StatusFilter:     assess.StatusFilter,
+		CaseFilter:       assess.CaseFilter,
+		ControlFilter:    assess.ControlFilter,
+		TopCaseID:        topCaseID,
+		IntegrityCommand: selfAssessmentBundleIntegrityCommand(absDir),
+		ReviewOrder:      selfAssessmentBundleReviewOrder(),
+		ProofLoop:        selfAssessmentBundleProofLoop(r.TargetPath, r.Story.Mode, r.Story.Runtime, assess.StatusFilter, topCaseID),
+		Limitations:      selfAssessmentBundleLimitations(),
 		Files: []selfAssessmentBundleFile{
 			{Name: "assessment.txt", Path: filepath.Join(absDir, "assessment.txt"), Description: "Compact human readout with the decision, evidence, first action, and rerun commands."},
 			{Name: "assessment.json", Path: filepath.Join(absDir, "assessment.json"), Description: "Structured assessment contract for automation and UI consumers."},
@@ -620,17 +623,18 @@ func writeClosureWorkspace(dir string, r model.Report, assess model.AssessReport
 		return closureWorkspaceResult{}, fmt.Errorf("closure workspace requires a case id")
 	}
 	result := closureWorkspaceResult{
-		SchemaVersion: model.SchemaVersion,
-		RunKind:       "closure_workspace",
-		GeneratedAt:   time.Now().UTC(),
-		Directory:     absDir,
-		TargetPath:    r.TargetPath,
-		Mode:          selfBundleFirstNonEmpty(r.Story.Mode, plan.Mode, "repo"),
-		Agent:         selfBundleFirstNonEmpty(r.Story.Runtime, plan.Agent, "all"),
-		StatusFilter:  selfBundleFirstNonEmpty(status, plan.StatusFilter, "breaking"),
-		CaseID:        caseID,
-		ProofLoop:     closureWorkspaceProofLoop(r.TargetPath, selfBundleFirstNonEmpty(r.Story.Mode, plan.Mode, "repo"), selfBundleFirstNonEmpty(r.Story.Runtime, plan.Agent, "all"), selfBundleFirstNonEmpty(status, plan.StatusFilter, "breaking"), caseID, absDir),
-		Limitations:   closureWorkspaceLimitations(),
+		SchemaVersion:    model.SchemaVersion,
+		RunKind:          "closure_workspace",
+		GeneratedAt:      time.Now().UTC(),
+		Directory:        absDir,
+		TargetPath:       r.TargetPath,
+		Mode:             selfBundleFirstNonEmpty(r.Story.Mode, plan.Mode, "repo"),
+		Agent:            selfBundleFirstNonEmpty(r.Story.Runtime, plan.Agent, "all"),
+		StatusFilter:     selfBundleFirstNonEmpty(status, plan.StatusFilter, "breaking"),
+		CaseID:           caseID,
+		IntegrityCommand: selfAssessmentBundleIntegrityCommand(absDir),
+		ProofLoop:        closureWorkspaceProofLoop(r.TargetPath, selfBundleFirstNonEmpty(r.Story.Mode, plan.Mode, "repo"), selfBundleFirstNonEmpty(r.Story.Runtime, plan.Agent, "all"), selfBundleFirstNonEmpty(status, plan.StatusFilter, "breaking"), caseID, absDir),
+		Limitations:      closureWorkspaceLimitations(),
 		Files: []selfAssessmentBundleFile{
 			{Name: "runbook.txt", Path: filepath.Join(absDir, "runbook.txt"), Description: "Action-first workflow for this closure case."},
 			{Name: "runbook.json", Path: filepath.Join(absDir, "runbook.json"), Description: "Structured operator runbook for UI and workflow clients."},
@@ -797,6 +801,7 @@ func selfAssessmentBundleCaseID(assess model.AssessReport, focus report.AssessFo
 
 func selfAssessmentBundleReviewOrder() []string {
 	return []string{
+		"Run `ariadne bundle verify --dir BUNDLE_DIR` before attaching, sharing, or trusting this saved bundle.",
 		"Read `assessment.txt` for the executive readout, decision, signal/noise boundary, and first action.",
 		"Use `runbook.txt` as the action-first operator workflow: open-first evidence, current step, commands, artifacts, and closure workflow. Use `runbook.json` for UI clients and workflow automation.",
 		"Use `operator-packet.txt` as the compact ticket or handoff: source refs, graph path, controls, proof checkpoint, commands, and done criteria. Use `operator-packet.json` for automation.",
@@ -911,6 +916,10 @@ func selfBundleShellQuoteArg(value string) string {
 	return value
 }
 
+func selfAssessmentBundleIntegrityCommand(dir string) string {
+	return "ariadne bundle verify --dir " + selfBundleShellQuoteArg(dir)
+}
+
 func writeRenderedFile(path string, render func(io.Writer) error) error {
 	file, err := os.Create(path)
 	if err != nil {
@@ -941,6 +950,11 @@ func selfAssessmentBundleReadme(result selfAssessmentBundleResult) string {
 	}
 	fmt.Fprintf(&b, "\n## What This Bundle Answers\n\n")
 	fmt.Fprintf(&b, "Ariadne collected deterministic target facts, built the agent exposure graph, ranked the first operator case, and generated the proof workflow for closing or downgrading that case. The bundle is intended for local review, ticket attachment, or handoff to another operator.\n")
+	if result.IntegrityCommand != "" {
+		fmt.Fprintf(&b, "\n## Bundle Integrity\n\n")
+		fmt.Fprintf(&b, "Before attaching, sharing, or trusting this saved bundle, verify the generated file hashes:\n\n")
+		fmt.Fprintf(&b, "```bash\n%s\n```\n\n", result.IntegrityCommand)
+	}
 	fmt.Fprintf(&b, "\n## Suggested Review Order\n\n")
 	for idx, item := range result.ReviewOrder {
 		fmt.Fprintf(&b, "%d. %s\n", idx+1, item)
@@ -977,12 +991,18 @@ func closureWorkspaceReadme(result closureWorkspaceResult) string {
 	fmt.Fprintf(&b, "Mode: `%s`  Agent: `%s`  Filter: `%s`\n", result.Mode, result.Agent, result.StatusFilter)
 	fmt.Fprintf(&b, "\n## What This Workspace Is\n\n")
 	fmt.Fprintf(&b, "This folder is the before/change/after/compare loop for one Ariadne operator case. Ariadne already saved the baseline proof and exported suggested proof evidence. Review the evidence before applying anything to the target.\n")
+	if result.IntegrityCommand != "" {
+		fmt.Fprintf(&b, "\n## Workspace Integrity\n\n")
+		fmt.Fprintf(&b, "Before attaching, sharing, or trusting this saved workspace, verify the generated file hashes:\n\n")
+		fmt.Fprintf(&b, "```bash\n%s\n```\n\n", result.IntegrityCommand)
+	}
 	fmt.Fprintf(&b, "\n## Review Order\n\n")
-	fmt.Fprintf(&b, "1. Open `runbook.txt` for the action-first workflow.\n")
-	fmt.Fprintf(&b, "2. Open `proof-action.txt` for the exact proof evidence Ariadne expects.\n")
-	fmt.Fprintf(&b, "3. Review `proof-patches/README.md` and `proof-patches/manifest.json` before copying any suggested evidence file.\n")
-	fmt.Fprintf(&b, "4. After evidence is changed or verified, run the after-proof command below.\n")
-	fmt.Fprintf(&b, "5. Run the closure receipt command and use `closure-receipt.txt` as the ticket-ready closure readout. Use `case-compare.html` for richer review.\n")
+	fmt.Fprintf(&b, "1. Run the workspace integrity command before attaching, sharing, or trusting this saved workspace.\n")
+	fmt.Fprintf(&b, "2. Open `runbook.txt` for the action-first workflow.\n")
+	fmt.Fprintf(&b, "3. Open `proof-action.txt` for the exact proof evidence Ariadne expects.\n")
+	fmt.Fprintf(&b, "4. Review `proof-patches/README.md` and `proof-patches/manifest.json` before copying any suggested evidence file.\n")
+	fmt.Fprintf(&b, "5. After evidence is changed or verified, run the after-proof command below.\n")
+	fmt.Fprintf(&b, "6. Run the closure receipt command and use `closure-receipt.txt` as the ticket-ready closure readout. Use `case-compare.html` for richer review.\n")
 	if len(result.ProofLoop) > 0 {
 		fmt.Fprintf(&b, "\n## Proof Loop\n\n")
 		for _, command := range result.ProofLoop {
@@ -1037,6 +1057,9 @@ func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleR
 	fmt.Fprintf(w, "LLM follow-up packet: %s\n", filepath.Join(result.Directory, "llm-follow-up-request.json"))
 	fmt.Fprintf(w, "LLM inventory-blind packet: %s\n", filepath.Join(result.Directory, "llm-inventory-blind-request.json"))
 	fmt.Fprintf(w, "Proof action: %s\n", filepath.Join(result.Directory, "proof-action.txt"))
+	if result.IntegrityCommand != "" {
+		fmt.Fprintf(w, "Verify bundle: %s\n", result.IntegrityCommand)
+	}
 }
 
 func renderClosureWorkspaceSummary(w io.Writer, result closureWorkspaceResult) {
@@ -1057,6 +1080,9 @@ func renderClosureWorkspaceSummary(w io.Writer, result closureWorkspaceResult) {
 		}
 	}
 	fmt.Fprintf(w, "Guide: %s\n", filepath.Join(result.Directory, "README.md"))
+	if result.IntegrityCommand != "" {
+		fmt.Fprintf(w, "Verify workspace: %s\n", result.IntegrityCommand)
+	}
 }
 
 func runBundle(args []string) {
