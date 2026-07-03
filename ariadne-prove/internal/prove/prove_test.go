@@ -3666,7 +3666,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Compare loop:",
 		"before-proof.json",
 		"after-proof.json",
-		"case-compare.html",
+		"closure-receipt.txt",
 		"Done when:",
 		"Evidence model:",
 		"Use `ariadne proofs --case <case-id>`",
@@ -3744,7 +3744,7 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"--patch-dir proof-patches",
 		"Compare loop",
 		"before-proof.json",
-		"case-compare.html",
+		"closure-receipt.txt",
 		"Architecture break paths grouped",
 		"ariadne cases --path",
 	} {
@@ -3783,7 +3783,7 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"Compare loop:",
 		"before-proof.json",
 		"after-proof.json",
-		"case-compare.html",
+		"closure-receipt.txt",
 		"--case case:input-trust-boundary",
 	} {
 		if !strings.Contains(out, want) {
@@ -3838,7 +3838,7 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 		"Export proof files",
 		"--patch-dir proof-patches",
 		"Compare loop",
-		"case-compare.html",
+		"closure-receipt.txt",
 		"Case Queue",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -4123,10 +4123,11 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 	if !proofPlanPatchHasFocusedRerun(decoded.ProofPatches, "control:input-isolation", ".ariadne/input-policy.json", "--case case:input-trust-boundary") {
 		t.Fatalf("proof plan patch should carry focused rerun command: %+v", decoded.ProofPatches)
 	}
-	if len(decoded.CompareCommands) != 3 ||
+	if len(decoded.CompareCommands) != 4 ||
 		!containsString(decoded.CompareCommands, "--out before-proof.json") ||
 		!containsString(decoded.CompareCommands, "--out after-proof.json") ||
-		!containsString(decoded.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") {
+		!containsString(decoded.CompareCommands, "--format receipt --out closure-receipt.txt") ||
+		!containsString(decoded.CompareCommands, "--format html --out case-compare.html") {
 		t.Fatalf("proof plan should carry before/after compare loop commands: %+v", decoded.CompareCommands)
 	}
 	if len(decoded.Workflow) != 4 ||
@@ -4266,7 +4267,7 @@ func TestProofPlanFocusesOperatorPatchLoop(t *testing.T) {
 		"--patch-dir proof-patches",
 		"before-proof.json",
 		"after-proof.json",
-		"case-compare.html",
+		"closure-receipt.txt",
 		"case:input-trust-boundary",
 		"proof-patches/surfaces/.ariadne/input-policy.json",
 		".ariadne/input-policy.json",
@@ -4379,10 +4380,11 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 	if len(decoded.EvidenceReferences) == 0 {
 		t.Fatalf("closed proof plan should keep evidence references: %+v", decoded)
 	}
-	if len(decoded.CompareCommands) != 3 ||
+	if len(decoded.CompareCommands) != 4 ||
 		!containsString(decoded.CompareCommands, "--out before-proof.json") ||
 		!containsString(decoded.CompareCommands, "--out after-proof.json") ||
-		!containsString(decoded.CompareCommands, "ariadne compare --before before-proof.json --after after-proof.json") {
+		!containsString(decoded.CompareCommands, "--format receipt --out closure-receipt.txt") ||
+		!containsString(decoded.CompareCommands, "--format html --out case-compare.html") {
 		t.Fatalf("closed proof plan should carry compare loop commands: %+v", decoded.CompareCommands)
 	}
 	if len(decoded.Workflow) != 4 ||
@@ -4439,7 +4441,7 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 		"Observed hard barriers",
 		"No proof patch is needed",
 		"Compare Loop",
-		"case-compare.html",
+		"closure-receipt.txt",
 		"hard_barriers_observed",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -4589,7 +4591,7 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		".ariadne/input-policy.json",
 		"After rerun:",
 		"After compare loop:",
-		"case-compare.html",
+		"closure-receipt.txt",
 	} {
 		if !strings.Contains(tableOut, want) {
 			t.Fatalf("compare table missing %q:\n%s", want, tableOut)
@@ -4660,7 +4662,7 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		`Copy path</button>`,
 		"After rerun",
 		"After compare loop",
-		"case-compare.html",
+		"closure-receipt.txt",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("compare dashboard missing %q:\n%s", want, rendered)
@@ -4836,7 +4838,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Current state: open",
 		"Current missing control: control:egress-destination-allowlist",
 		"Target controls: control:egress-destination-allowlist; control:network-restricted",
-		"Artifacts: before-proof.json -> after-proof.json -> case-compare.html",
+		"Artifacts: before-proof.json -> after-proof.json -> closure-receipt.txt",
 		"Compare: ariadne compare --before before-proof.json --after after-proof.json",
 		"Case lifecycle:",
 		"Current step: open_proof_action",
@@ -4845,7 +4847,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Review Or Apply Proof [pending]:",
 		"Compare Proof State [pending]:",
 		"Artifact: before-proof.json",
-		"Artifact: case-compare.html",
+		"Artifact: closure-receipt.txt",
 		"Closure plan:",
 		"Why this control:",
 		"What it closes:",
@@ -4875,7 +4877,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Top case proof packet:",
 		"Compare loop:",
 		"before-proof.json",
-		"case-compare.html",
+		"closure-receipt.txt",
 		"Next commands:",
 		"ariadne cases --path",
 	} {
@@ -5078,7 +5080,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.OperatorWorkbench.ProofState.TargetControls, "control:network-restricted") ||
 		decoded.OperatorWorkbench.ProofState.BaselineArtifact != "before-proof.json" ||
 		decoded.OperatorWorkbench.ProofState.AfterArtifact != "after-proof.json" ||
-		decoded.OperatorWorkbench.ProofState.CompareArtifact != "case-compare.html" ||
+		decoded.OperatorWorkbench.ProofState.CompareArtifact != "closure-receipt.txt" ||
 		!strings.Contains(decoded.OperatorWorkbench.ProofState.CompareCommand, "ariadne compare --before before-proof.json --after after-proof.json") ||
 		!strings.Contains(decoded.OperatorWorkbench.ProofState.ClosureCondition, "Rerun must show every target control") ||
 		!containsString(decoded.OperatorWorkbench.Verify.Commands, "ariadne compare --before before-proof.json --after after-proof.json") ||
@@ -5128,7 +5130,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "review_apply", "pending", "", "control:network-restricted", "cp surfaces/.ariadne/output-policy.json", ".ariadne/output-policy.json") ||
 		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "rerun_case", "pending", "", "", "ariadne cases --path", "") ||
 		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "save_after", "pending", "", "", "--out after-proof.json", "after-proof.json") ||
-		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "compare_state", "pending", "", "", "ariadne compare --before before-proof.json --after after-proof.json", "case-compare.html") ||
+		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "compare_state", "pending", "", "", "ariadne compare --before before-proof.json --after after-proof.json", "closure-receipt.txt") ||
 		!hasCaseLifecycleStep(decoded.CaseLifecycle.Steps, "close_or_keep_open", "pending", "", "control:egress-destination-allowlist", "", "") ||
 		!containsString(decoded.CaseLifecycle.Readout, "compare artifact is the lifecycle readout") ||
 		len(decoded.CaseLifecycle.Limitations) == 0 {
@@ -5211,7 +5213,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 	if !containsString(decoded.Triage.ProofLoop, "ariadne compare --before before-proof.json --after after-proof.json") {
 		t.Fatalf("triage should preserve the compare proof loop: %+v", decoded.Triage.ProofLoop)
 	}
-	if len(decoded.Triage.ProofLoop) != 8 ||
+	if len(decoded.Triage.ProofLoop) != 9 ||
 		!containsString(decoded.Triage.ProofLoop, "Open focused proof action: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Save baseline proof before changes: ariadne proofs --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Export suggested proof files: ariadne proofs --path") ||
@@ -5219,7 +5221,8 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.Triage.ProofLoop, "cp surfaces/.ariadne/output-policy.json") ||
 		!containsString(decoded.Triage.ProofLoop, "Rerun after evidence changes: ariadne cases --path") ||
 		!containsString(decoded.Triage.ProofLoop, "Save after proof after rerun: ariadne proofs --path") ||
-		!containsString(decoded.Triage.ProofLoop, "Compare proof state: ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html") {
+		!containsString(decoded.Triage.ProofLoop, "Compare proof state: ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt") ||
+		!containsString(decoded.Triage.ProofLoop, "Additional compare proof state: ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html") {
 		t.Fatalf("triage proof loop should preserve every command needed for proof/rerun/compare: %+v", decoded.Triage.ProofLoop)
 	}
 	if !proofLoopLabelsInOrder(decoded.Triage.ProofLoop,
@@ -5339,11 +5342,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.OperatorPacket.GraphPath, "boundary external destination (reaches)") ||
 		!containsString(decoded.OperatorPacket.MissingControls, "control:egress-destination-allowlist") ||
 		!containsString(decoded.OperatorPacket.TargetControls, "control:network-restricted") ||
-		decoded.OperatorPacket.ProofState.CompareArtifact != "case-compare.html" ||
+		decoded.OperatorPacket.ProofState.CompareArtifact != "closure-receipt.txt" ||
 		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "save_baseline", "before-proof.json", "before-proof.json") ||
 		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "export_proof", "--patch-dir proof-patches", "proof-patches/surfaces/.ariadne/output-policy.json") ||
 		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "rerun_case", "ariadne cases --path", "") ||
-		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "compare_state", "ariadne compare --before before-proof.json --after after-proof.json", "case-compare.html") ||
+		!hasOperatorPacketCommand(decoded.OperatorPacket.Commands, "compare_state", "ariadne compare --before before-proof.json --after after-proof.json", "closure-receipt.txt") ||
 		!containsString(decoded.OperatorPacket.DoneCriteria, "no longer appears in the operator case board") ||
 		!containsString(decoded.OperatorPacket.DecisionRules, "Capability alone is not exposure") {
 		t.Fatalf("assessment should expose a compact operator packet: %+v", decoded.OperatorPacket)
@@ -5387,7 +5390,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Evidence kind: declared_control_evidence",
 		"Recognized indicators: egress_destination_allowlist; external_destination_allowlist",
 		"Proof checkpoint:",
-		"Artifacts: before-proof.json -> after-proof.json -> case-compare.html",
+		"Artifacts: before-proof.json -> after-proof.json -> closure-receipt.txt",
 		"Commands:",
 		"Save baseline proof:",
 		"Export suggested proof files:",
@@ -5431,7 +5434,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		decodedOperator.Mode != "repo" ||
 		decodedOperator.Packet.CaseID != "case:egress-output-boundary" ||
 		decodedOperator.Packet.CurrentControl != "control:egress-destination-allowlist" ||
-		!hasOperatorPacketCommand(decodedOperator.Packet.Commands, "compare_state", "ariadne compare --before before-proof.json --after after-proof.json", "case-compare.html") ||
+		!hasOperatorPacketCommand(decodedOperator.Packet.Commands, "compare_state", "ariadne compare --before before-proof.json --after after-proof.json", "closure-receipt.txt") ||
 		!containsString(decodedOperator.Packet.EvidenceSources, ".claude/settings.json") ||
 		!decodedOperator.SourceReferences.Available ||
 		len(decodedOperator.SourceReferences.Rows) == 0 ||
@@ -5531,7 +5534,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"next action [pending]",
 		"Proof state:",
 		"Current state: open",
-		"Artifacts: before-proof.json -> after-proof.json -> case-compare.html",
+		"Artifacts: before-proof.json -> after-proof.json -> closure-receipt.txt",
 		"Case lifecycle:",
 		"Current step: open_proof_action",
 		"Open Proof Action [current]:",
@@ -5539,7 +5542,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Review Or Apply Proof [pending]:",
 		"Compare Proof State [pending]:",
 		"Artifact: before-proof.json",
-		"Artifact: case-compare.html",
+		"Artifact: closure-receipt.txt",
 		"Current action:",
 		"Control: control:egress-destination-allowlist",
 		"Proof surface: .ariadne/egress-policy.json",
@@ -5611,7 +5614,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Egress controls are strongest when private-data access and arbitrary external communication cannot exist in the same path.",
 		"Baseline artifact: before-proof.json",
 		"After artifact: after-proof.json",
-		"Compare artifact: case-compare.html",
+		"Compare artifact: closure-receipt.txt",
 		"Boundary signal is confirmed without printing sensitive values.",
 		"Signal Contract",
 		"Normal Capability Is Noise Until Correlated",
@@ -5775,7 +5778,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Compare Loop",
 		"before-proof.json",
 		"after-proof.json",
-		"case-compare.html",
+		"closure-receipt.txt",
 		"Accepted evidence",
 		"Done When",
 		"What Was Inspected",
@@ -5831,7 +5834,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"sensitive boundary path exists",
 		"ariadne proofs --path",
 		"ariadne cases --path",
-		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
+		"ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt",
 	} {
 		if !strings.Contains(caseActionBlock, want) {
 			t.Fatalf("case action board should show actionable evidence, proof, rerun, and compare details; missing %q:\n%s", want, caseActionBlock)
@@ -5850,7 +5853,9 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Compare proof state",
 		`data-command="ariadne proofs --path`,
 		`data-command="ariadne cases --path`,
+		`data-command="ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt"`,
 		`data-command="ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html"`,
+		"closure-receipt.txt",
 		"case-compare.html",
 		`>Copy</button>`,
 	} {

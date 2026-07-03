@@ -819,6 +819,7 @@ func proofPlanCompareCommands(catalog model.ControlCatalogReport) []string {
 	return []string{
 		proofCommand(before),
 		proofCommand(after),
+		fmt.Sprintf("%s compare --before %s --after %s --format receipt --out closure-receipt.txt", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
 		fmt.Sprintf("%s compare --before %s --after %s --format html --out case-compare.html", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
 	}
 }
@@ -4615,7 +4616,7 @@ func buildAssessWorkbenchProofState(action model.AssessFirstAction, state model.
 	}
 	compareCommand := current.CompareCommand
 	if compareCommand == "" && len(action.CompareCommands) > 2 {
-		compareCommand = action.CompareCommands[2]
+		compareCommand = assessClosureCompareCommand(action.CompareCommands)
 	}
 	currentState := firstNonEmpty(action.State, "open")
 	closureCondition := "Rerun must show every target control is no longer a missing hard barrier for this case."
@@ -4631,7 +4632,7 @@ func buildAssessWorkbenchProofState(action model.AssessFirstAction, state model.
 		TargetControls:         targetControls,
 		BaselineArtifact:       assessLifecycleOutArtifact(baselineCommand, "before-proof.json"),
 		AfterArtifact:          assessLifecycleOutArtifact(afterCommand, "after-proof.json"),
-		CompareArtifact:        assessLifecycleOutArtifact(compareCommand, "case-compare.html"),
+		CompareArtifact:        assessLifecycleOutArtifact(compareCommand, "closure-receipt.txt"),
 		BaselineCommand:        baselineCommand,
 		AfterCommand:           afterCommand,
 		CompareCommand:         compareCommand,
@@ -5247,7 +5248,7 @@ func buildOpenAssessCaseLifecycleSteps(action model.AssessFirstAction, state mod
 	})
 	compareCommand := ""
 	if len(action.CompareCommands) > 2 {
-		compareCommand = action.CompareCommands[2]
+		compareCommand = assessClosureCompareCommand(action.CompareCommands)
 	}
 	steps = append(steps, model.AssessCaseLifecycleStep{
 		ID:        "compare_state",
@@ -5255,7 +5256,7 @@ func buildOpenAssessCaseLifecycleSteps(action model.AssessFirstAction, state mod
 		Status:    "pending",
 		Summary:   "Compare before and after proof artifacts to determine whether the case closed, stayed open, reopened, or changed.",
 		Commands:  nonEmptyStrings(compareCommand),
-		Artifacts: nonEmptyStrings(assessLifecycleOutArtifact(compareCommand, "case-compare.html")),
+		Artifacts: nonEmptyStrings(assessLifecycleOutArtifact(compareCommand, "closure-receipt.txt")),
 	})
 	steps = append(steps, model.AssessCaseLifecycleStep{
 		ID:              "close_or_keep_open",
@@ -5304,7 +5305,7 @@ func buildClosedAssessCaseLifecycleSteps(action model.AssessFirstAction, state m
 		Status:    "pending",
 		Summary:   "Compare before and after proof artifacts if evidence changes and the closure state needs to be proven again.",
 		Commands:  append([]string{}, action.CompareCommands...),
-		Artifacts: nonEmptyStrings("before-proof.json", "after-proof.json", "case-compare.html"),
+		Artifacts: nonEmptyStrings("before-proof.json", "after-proof.json", "closure-receipt.txt", "case-compare.html"),
 	})
 	steps = append(steps, model.AssessCaseLifecycleStep{
 		ID:              "keep_closed",
@@ -5906,10 +5907,14 @@ func assessTriageProofLoop(action model.AssessFirstAction) []string {
 		out = append(out, "Save after proof after rerun: "+action.CompareCommands[1])
 	}
 	if len(action.CompareCommands) > 2 {
-		out = append(out, "Compare proof state: "+action.CompareCommands[2])
+		out = append(out, "Compare proof state: "+assessClosureCompareCommand(action.CompareCommands))
 	}
 	if len(action.CompareCommands) > 3 {
-		for _, command := range action.CompareCommands[3:] {
+		primary := assessClosureCompareCommand(action.CompareCommands)
+		for _, command := range action.CompareCommands[2:] {
+			if command == primary {
+				continue
+			}
 			out = append(out, "Additional compare proof state: "+command)
 		}
 	}
@@ -6376,8 +6381,17 @@ func operatorSourceLooksPrivateContext(source string) bool {
 }
 
 func assessClosurePlanCompareCommand(commands []string) string {
+	return assessClosureCompareCommand(commands)
+}
+
+func assessClosureCompareCommand(commands []string) string {
 	if len(commands) == 0 {
 		return ""
+	}
+	for _, command := range commands {
+		if strings.Contains(command, "--format receipt") || strings.Contains(command, "closure-receipt.txt") {
+			return command
+		}
 	}
 	return commands[len(commands)-1]
 }
@@ -6452,7 +6466,7 @@ func buildAssessCurrentAction(action model.AssessFirstAction, targetPath string)
 		current.RerunCommand = action.RerunCommands[0]
 	}
 	if len(action.CompareCommands) > 0 {
-		current.CompareCommand = action.CompareCommands[len(action.CompareCommands)-1]
+		current.CompareCommand = assessClosureCompareCommand(action.CompareCommands)
 	}
 	current.PatchExportCommand = action.PatchExportCommand
 	attachAssessCurrentActionApplyStep(&current, targetPath)

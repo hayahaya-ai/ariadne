@@ -436,7 +436,7 @@ func writeClosureWorkspace(dir string, r model.Report, assess model.AssessReport
 			{Name: "proof-plan.html", Path: filepath.Join(absDir, "proof-plan.html"), Description: "Focused proof-plan dashboard for reviewing evidence, patches, commands, and success criteria."},
 			{Name: "proof-patches/README.md", Path: filepath.Join(absDir, "proof-patches", "README.md"), Description: "Review guide for suggested proof evidence files."},
 			{Name: "proof-patches/manifest.json", Path: filepath.Join(absDir, "proof-patches", "manifest.json"), Description: "Structured manifest for suggested proof evidence files."},
-			{Name: "README.md", Path: filepath.Join(absDir, "README.md"), Description: "Closure workspace guide and after/compare commands."},
+			{Name: "README.md", Path: filepath.Join(absDir, "README.md"), Description: "Closure workspace guide and after/receipt/compare commands."},
 			{Name: "manifest.json", Path: filepath.Join(absDir, "manifest.json"), Description: "Machine-readable closure workspace manifest. The manifest entry itself is intentionally not self-hashed."},
 		},
 	}
@@ -600,7 +600,7 @@ func selfAssessmentBundleReviewOrder() []string {
 		"Open `dashboard.html` for the operator dashboard with evidence links, proof bundle rows, lifecycle, and case queue.",
 		"Use `proof-action.txt` to inspect the exact proof evidence Ariadne expects for the focused case.",
 		"Use `proof-plan.json`, `assessment.json`, `inventory.json`, and `cases.json` for automation, ticket metadata, or deeper review.",
-		"Run the proof loop commands below only after reviewing generated proof evidence and deciding what should be applied.",
+		"Run the proof loop commands below only after reviewing generated proof evidence and deciding what should be applied; use `closure-receipt.txt` as the ticket-ready closure readout.",
 	}
 }
 
@@ -629,6 +629,7 @@ func selfAssessmentBundleProofLoop(targetPath string, mode string, agent string,
 		base + " --format json --out before-proof.json",
 		base + " --patch-dir proof-patches",
 		base + " --format json --out after-proof.json",
+		"ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt",
 		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
 	}
 }
@@ -640,6 +641,7 @@ func closureWorkspaceProofLoop(targetPath string, mode string, agent string, sta
 	}
 	beforePath := filepath.Join(dir, "before-proof.json")
 	afterPath := filepath.Join(dir, "after-proof.json")
+	receiptPath := filepath.Join(dir, "closure-receipt.txt")
 	comparePath := filepath.Join(dir, "case-compare.html")
 	patchDir := filepath.Join(dir, "proof-patches")
 	base := fmt.Sprintf("ariadne proofs --path %s --mode %s --agent %s --status %s --case %s",
@@ -653,7 +655,8 @@ func closureWorkspaceProofLoop(targetPath string, mode string, agent string, sta
 		{Step: 1, ID: "save_baseline_proof", Title: "Save baseline proof", Command: base + " --format json --out " + selfBundleShellQuoteArg(beforePath), Output: beforePath, Description: "Already created when this workspace was generated."},
 		{Step: 2, ID: "review_proof_patches", Title: "Review suggested proof files", Command: base + " --patch-dir " + selfBundleShellQuoteArg(patchDir), Output: patchDir, Description: "Already created when this workspace was generated; review before applying anything to the target."},
 		{Step: 3, ID: "save_after_proof", Title: "Save after proof", Command: base + " --format json --out " + selfBundleShellQuoteArg(afterPath), Output: afterPath, Description: "Run after evidence has been changed or verified."},
-		{Step: 4, ID: "compare_state", Title: "Compare before and after", Command: fmt.Sprintf("ariadne compare --before %s --after %s --format html --out %s", selfBundleShellQuoteArg(beforePath), selfBundleShellQuoteArg(afterPath), selfBundleShellQuoteArg(comparePath)), Output: comparePath, Description: "Run after saving after-proof.json; this is the closure readout."},
+		{Step: 4, ID: "closure_receipt", Title: "Create closure receipt", Command: fmt.Sprintf("ariadne compare --before %s --after %s --format receipt --out %s", selfBundleShellQuoteArg(beforePath), selfBundleShellQuoteArg(afterPath), selfBundleShellQuoteArg(receiptPath)), Output: receiptPath, Description: "Run after saving after-proof.json; paste this receipt into the ticket or audit note."},
+		{Step: 5, ID: "compare_state", Title: "Create HTML compare", Command: fmt.Sprintf("ariadne compare --before %s --after %s --format html --out %s", selfBundleShellQuoteArg(beforePath), selfBundleShellQuoteArg(afterPath), selfBundleShellQuoteArg(comparePath)), Output: comparePath, Description: "Optional richer review artifact for the same before/after proof state."},
 	}
 }
 
@@ -661,7 +664,7 @@ func selfAssessmentBundleLimitations() []string {
 	return []string{
 		"The bundle is generated from deterministic local facts, typed parsers, and graph evidence; it does not execute agents, MCP servers, package managers, or tools.",
 		"Proof patches are suggested evidence files for review. Exporting or copying them does not prove live enforcement by itself.",
-		"Treat `case-compare.html` as the closure readout after rerunning Ariadne against the changed target.",
+		"Treat `closure-receipt.txt` as the closure readout after rerunning Ariadne against the changed target; use `case-compare.html` for richer review.",
 		"Private histories, transcripts, paste caches, and sensitive files are summarized or path-modeled; Ariadne does not emit secret values.",
 	}
 }
@@ -671,7 +674,7 @@ func closureWorkspaceLimitations() []string {
 		"The closure workspace is generated from deterministic local facts, graph evidence, and proof-plan contracts.",
 		"Suggested proof files are review-first evidence artifacts. Ariadne does not mutate the scanned target.",
 		"before-proof.json is a baseline from workspace creation time; after-proof.json must be generated after evidence is changed or verified.",
-		"case-compare.html is the closure readout after the after-proof artifact exists.",
+		"closure-receipt.txt is the ticket-ready closure readout after the after-proof artifact exists; case-compare.html is the richer review artifact.",
 	}
 }
 
@@ -729,7 +732,7 @@ func selfAssessmentBundleReadme(result selfAssessmentBundleResult) string {
 	}
 	if len(result.ProofLoop) > 0 {
 		fmt.Fprintf(&b, "\n## Proof Loop Commands\n\n")
-		fmt.Fprintf(&b, "Run these from a working directory where you want `before-proof.json`, `after-proof.json`, `proof-patches/`, and `case-compare.html` written.\n\n")
+		fmt.Fprintf(&b, "Run these from a working directory where you want `before-proof.json`, `after-proof.json`, `proof-patches/`, `closure-receipt.txt`, and `case-compare.html` written.\n\n")
 		for _, command := range result.ProofLoop {
 			fmt.Fprintf(&b, "```bash\n%s\n```\n\n", command)
 		}
@@ -764,7 +767,7 @@ func closureWorkspaceReadme(result closureWorkspaceResult) string {
 	fmt.Fprintf(&b, "2. Open `proof-action.txt` for the exact proof evidence Ariadne expects.\n")
 	fmt.Fprintf(&b, "3. Review `proof-patches/README.md` and `proof-patches/manifest.json` before copying any suggested evidence file.\n")
 	fmt.Fprintf(&b, "4. After evidence is changed or verified, run the after-proof command below.\n")
-	fmt.Fprintf(&b, "5. Run the compare command and use `case-compare.html` as the closure readout.\n")
+	fmt.Fprintf(&b, "5. Run the closure receipt command and use `closure-receipt.txt` as the ticket-ready closure readout. Use `case-compare.html` for richer review.\n")
 	if len(result.ProofLoop) > 0 {
 		fmt.Fprintf(&b, "\n## Proof Loop\n\n")
 		for _, command := range result.ProofLoop {
@@ -829,8 +832,11 @@ func renderClosureWorkspaceSummary(w io.Writer, result closureWorkspaceResult) {
 		if command.ID == "save_after_proof" {
 			fmt.Fprintf(w, "After changes: %s\n", command.Command)
 		}
+		if command.ID == "closure_receipt" {
+			fmt.Fprintf(w, "Closure receipt: %s\n", command.Command)
+		}
 		if command.ID == "compare_state" {
-			fmt.Fprintf(w, "Compare: %s\n", command.Command)
+			fmt.Fprintf(w, "Compare HTML: %s\n", command.Command)
 		}
 	}
 	fmt.Fprintf(w, "Guide: %s\n", filepath.Join(result.Directory, "README.md"))

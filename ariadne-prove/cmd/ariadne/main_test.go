@@ -216,7 +216,7 @@ func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 		"egress_destination_allowlist",
 		"Rerun And Save After Proof",
 		"Compare Before And After",
-		"Compare artifact: case-compare.html",
+		"Compare artifact: closure-receipt.txt",
 		"Signal Contract",
 		"Normal Capability Is Noise Until Correlated",
 		"Signal Trigger",
@@ -560,9 +560,11 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"ariadne closure --path",
 		"before-proof.json",
 		"--patch-dir proof-patches",
+		"ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt",
 		"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html",
 		"Limits And Privacy",
 		"does not execute agents",
+		"closure-receipt.txt",
 		"case-compare.html",
 		"manifest.json",
 		"SHA-256",
@@ -710,7 +712,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"credential_isolation",
 		"Rerun And Save After Proof",
 		"Compare Before And After",
-		"Compare artifact: case-compare.html",
+		"Compare artifact: closure-receipt.txt",
 		"Signal Contract",
 		"Normal Capability Is Noise Until Correlated",
 		"Signal Trigger",
@@ -785,6 +787,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"review_order"`,
 		`"proof_loop"`,
 		`--patch-dir proof-patches`,
+		`"ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt"`,
 		`"ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html"`,
 		`"limitations"`,
 		`"name": "README.md"`,
@@ -898,8 +901,10 @@ func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
 		"before/change/after/compare loop",
 		"case:egress-output-boundary",
 		"Save after proof",
-		"Compare before and after",
+		"Create closure receipt",
+		"Create HTML compare",
 		"after-proof.json",
+		"closure-receipt.txt",
 		"case-compare.html",
 		"proof-patches/manifest.json",
 	} {
@@ -914,6 +919,7 @@ func TestRunClosureExportsProofLoopWorkspace(t *testing.T) {
 		`"case_id": "case:egress-output-boundary"`,
 		`"proof_loop"`,
 		`"save_after_proof"`,
+		`"closure_receipt"`,
 		`"compare_state"`,
 		`"proof-patches/surfaces/.ariadne/egress-policy.json"`,
 		`"proof-patches/surfaces/.ariadne/output-policy.json"`,
@@ -1053,7 +1059,7 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"Added evidence:",
 		".ariadne/input-policy.json",
 		"After compare loop:",
-		"case-compare.html",
+		"closure-receipt.txt",
 	} {
 		if !strings.Contains(table, want) {
 			t.Fatalf("compare table missing %q:\n%s", want, table)
@@ -1107,7 +1113,7 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"open",
 		"closed",
 		".ariadne/input-policy.json",
-		"case-compare.html",
+		"closure-receipt.txt",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("compare HTML missing %q:\n%s", want, html)

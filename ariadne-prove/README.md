@@ -149,8 +149,8 @@ Run the focused proof loop for one case:
 ./bin/ariadne proofs --path . --case case:input-trust-boundary --patch-dir proof-patches
 # Review the suggested files under proof-patches/surfaces/, add or verify real control evidence, then rerun:
 ./bin/ariadne proofs --path . --case case:input-trust-boundary --format json --out after-proof.json
-./bin/ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html
 ./bin/ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt
+./bin/ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html
 ```
 
 Export the graph for review or visualization:
@@ -198,7 +198,7 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 | `ariadne architecture --targets <file>` | Group Zero Trust architecture flaws across many targets and route recurring break paths to fleet cases. |
 | `ariadne cases --path <dir>` | Show the operator case board for architecture break paths and what proof closes them. Use `--case <case-id>` to focus one case. |
 | `ariadne cases --targets <file>` | Group operator cases across many targets. |
-| `ariadne closure --path <dir>` | Create a local before/change/after/compare closure workspace for the top ranked case or `--case <case-id>`. The workspace includes `runbook.txt`, `before-proof.json`, `proof-action.txt`, `proof-plan.html`, `proof-patches/`, README, manifest, and after/compare commands. |
+| `ariadne closure --path <dir>` | Create a local before/change/after/compare closure workspace for the top ranked case or `--case <case-id>`. The workspace includes `runbook.txt`, `before-proof.json`, `proof-action.txt`, `proof-plan.html`, `proof-patches/`, README, manifest, and after/receipt/compare commands. |
 | `ariadne proofs --path <dir> --case <case-id>` | Show the focused proof patches, evidence refs, rerun commands, compare-loop commands, and success criteria for one closure case. Use `--patch-dir <dir>` to export suggested proof evidence files plus a manifest. |
 | `ariadne compare --before <json> --after <json>` | Compare two Ariadne proof, case, or assessment JSON reports and show case state changes across reruns. Use `--format receipt` for a pasteable closure receipt. |
 | `ariadne controls --path <dir>` | Show missing hard-barrier controls, proof surfaces, and the flaws they close. Use `--format html` for the focused operator dashboard. |
