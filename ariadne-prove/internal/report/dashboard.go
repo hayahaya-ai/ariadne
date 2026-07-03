@@ -1190,7 +1190,7 @@ func renderAssessOperatorPacketDashboard(w io.Writer, r model.AssessReport) {
 		return
 	}
 	fmt.Fprintln(w, `<section class="panel">`)
-	fmt.Fprintln(w, `<div class="section-head"><div><h2>Operator Packet</h2><div class="subtle">Smallest source-backed handoff: start here, open these files, apply this proof loop, then compare.</div></div></div>`)
+	fmt.Fprintln(w, `<div class="section-head"><div><h2>Operator Packet</h2><div class="subtle">Smallest source-backed handoff: start here, open the source actions, apply this proof loop, then compare.</div></div></div>`)
 	renderMetricRow(w, []kv{
 		{"Verdict", statusLabel(firstNonEmpty(packet.Status, "unknown"))},
 		{"Case", firstNonEmpty(packet.CaseID, "not recorded")},
@@ -1217,8 +1217,7 @@ func renderAssessOperatorPacketDashboard(w io.Writer, r model.AssessReport) {
 	)))
 	fmt.Fprintln(w, `</div>`)
 	fmt.Fprintln(w, `<div>`)
-	fmt.Fprintln(w, `<h3>Evidence To Open</h3>`)
-	renderAssessEvidenceReferenceTable(w, r.TargetPath, packet.EvidenceToOpen, 6)
+	renderAssessEvidenceSectionsDashboard(w, r.TargetPath, packet.EvidenceToOpen, 6)
 	fmt.Fprintln(w, `<h3>Proof Checkpoint</h3>`)
 	fmt.Fprintln(w, renderSmallList(nonEmptyStrings(
 		"Current state: "+firstNonEmpty(packet.ProofState.CurrentState, "unknown"),
@@ -1271,8 +1270,7 @@ func renderAssessOperatorWorkbenchDashboard(w io.Writer, r model.AssessReport) {
 		workbench.Case.WhyFirst,
 		workbench.Case.NextStep,
 	)))
-	fmt.Fprintln(w, `<h3>2. Evidence To Open</h3>`)
-	renderAssessEvidenceReferenceTable(w, r.TargetPath, workbench.EvidenceToOpen, 10)
+	renderAssessEvidenceSectionsDashboard(w, r.TargetPath, workbench.EvidenceToOpen, 10, "2. ")
 	fmt.Fprintln(w, `<h3>Graph Path</h3>`)
 	fmt.Fprintln(w, renderSmallList(limitStrings(workbench.GraphPath, 8)))
 	fmt.Fprintln(w, `</div>`)
@@ -2601,6 +2599,28 @@ func renderAssessEvidenceReferenceTable(w io.Writer, root string, refs []model.E
 		return
 	}
 	renderAssessSourceReferenceRowTable(w, rows, limit)
+}
+
+func renderAssessEvidenceSectionsDashboard(w io.Writer, root string, refs []model.EvidenceReference, limit int, titlePrefix ...string) {
+	if len(refs) == 0 {
+		fmt.Fprintln(w, `<h3>Evidence To Inspect</h3>`)
+		fmt.Fprintln(w, `<div class="empty">No evidence references were returned for this case.</div>`)
+		return
+	}
+	prefix := ""
+	if len(titlePrefix) > 0 {
+		prefix = titlePrefix[0]
+	}
+	inspectable, metadataOnly := splitOperatorPacketEvidence(refs)
+	if len(inspectable) > 0 {
+		fmt.Fprintf(w, `<h3>%sEvidence To Inspect</h3>`, esc(prefix))
+		renderAssessEvidenceReferenceTable(w, root, inspectable, limit)
+	}
+	if len(metadataOnly) > 0 {
+		fmt.Fprintln(w, `<h3>Metadata-Only Context</h3>`)
+		fmt.Fprintln(w, `<div class="subtle">Private, history, cache, transcript, paste, and session surfaces are summarized; inspect metadata only by default.</div>`)
+		renderAssessEvidenceReferenceTable(w, root, metadataOnly, limit)
+	}
 }
 
 func renderAssessSourceReferenceRowTable(w io.Writer, rows []model.AssessSourceRefRow, limit int) {
