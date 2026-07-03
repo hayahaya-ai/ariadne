@@ -307,6 +307,9 @@ func renderAssessCaseActionBoardDashboard(w io.Writer, r model.AssessReport, act
 	if len(proofCommands) == 0 {
 		proofCommands = nonEmptyStrings(action.PatchExportCommand, firstString(action.ApplyCommands), workbench.Proof.ApplyCommand)
 	}
+	if profileHTML := assessCaseActionBoardProofProfileHTML(control); profileHTML != "" {
+		proofActionHTML += `<div class="subtle">Control Proof Profile</div>` + profileHTML
+	}
 	if len(proofCommands) > 0 {
 		proofActionHTML += `<div class="subtle">Commands</div>` + renderCommandList(firstStrings(proofCommands, 2))
 	}
@@ -411,6 +414,24 @@ func assessCaseActionBoardControlGapHTML(control string, missingControls []strin
 		return esc("Control gap: not recorded")
 	}
 	return renderSmallList([]string{"Control gap: " + strings.Join(limitStrings(values, 4), "; ")})
+}
+
+func assessCaseActionBoardProofProfileHTML(control string) string {
+	control = strings.TrimSpace(control)
+	if control == "" {
+		return ""
+	}
+	familyID, familyTitle := architectureControlFamily(control)
+	lines := []string{
+		"Control family: " + firstNonEmpty(familyTitle, "Unknown") + " (" + firstNonEmpty(familyID, "unknown") + ")",
+		"Evidence kind: " + controlEvidenceKind(control),
+	}
+	if indicators := controlRecognizedIndicators(control); len(indicators) > 0 {
+		lines = append(lines, "Recognized indicators: "+strings.Join(limitStrings(indicators, 6), "; "))
+	}
+	lines = append(lines, controlProofNotes(control)...)
+	lines = append(lines, "Limitation: declared evidence changes Ariadne's deterministic readout only when it is parser-recognized; live enforcement still needs observed runtime evidence.")
+	return renderSmallList(lines)
 }
 
 func assessCaseActionBoardProofSurfaceHTML(root string, surface string, generated string, destination string, suggested string) string {
