@@ -3215,6 +3215,11 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		decoded.Decision.EvidenceGapActions == nil {
 		t.Fatalf("endpoint decision should expose control-state buckets: %+v", decoded.Decision)
 	}
+	configEvidenceIndex := indexEvidenceReferenceSource(decoded.OperatorPacket.EvidenceToOpen, ".aider.conf.yml")
+	privateContextIndex := indexEvidenceReferenceSource(decoded.OperatorPacket.EvidenceToOpen, ".aider.chat.history.md")
+	if configEvidenceIndex < 0 || privateContextIndex < 0 || configEvidenceIndex > privateContextIndex {
+		t.Fatalf("operator packet evidence should rank inspectable config before metadata-only private context: config=%d private=%d refs=%+v", configEvidenceIndex, privateContextIndex, decoded.OperatorPacket.EvidenceToOpen)
+	}
 	proofActionIndex := indexSourceAction(decoded.SourceReferences.ActionBoard, ".ariadne/identity-policy.json")
 	metadataActionIndex := indexSourceAction(decoded.SourceReferences.ActionBoard, ".claude/paste-cache")
 	if proofActionIndex < 0 || metadataActionIndex < 0 || proofActionIndex > metadataActionIndex {
@@ -5289,6 +5294,11 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		if strings.Contains(operatorRendered, unwanted) {
 			t.Fatalf("assessment operator packet should stay compact and omit %q:\n%s", unwanted, operatorRendered)
 		}
+	}
+	sourceActionIndex := strings.Index(operatorRendered, "Source action board:")
+	evidenceOpenIndex := strings.Index(operatorRendered, "Evidence to open:")
+	if sourceActionIndex < 0 || evidenceOpenIndex < 0 || sourceActionIndex > evidenceOpenIndex {
+		t.Fatalf("assessment operator packet should put source actions before raw evidence rows:\n%s", operatorRendered)
 	}
 
 	var operatorJSON bytes.Buffer
@@ -7719,6 +7729,15 @@ func findEvidenceReferenceSource(values []model.EvidenceReference, fragment stri
 		}
 	}
 	return model.EvidenceReference{}, false
+}
+
+func indexEvidenceReferenceSource(values []model.EvidenceReference, fragment string) int {
+	for i, value := range values {
+		if strings.Contains(value.Source, fragment) {
+			return i
+		}
+	}
+	return -1
 }
 
 func findZeroTrustEvidenceSource(values []model.ZeroTrustArchitecture, fragment string) (model.ZeroTrustEvidence, bool) {

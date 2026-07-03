@@ -2158,6 +2158,7 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 	renderAssessOperatorPacketLines(w, "Actionable fact", packet.WhyActionable, 4)
 	renderAssessOperatorPacketLines(w, "Normal context", packet.NormalContext, 3)
 
+	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
 	if len(packet.EvidenceToOpen) > 0 {
 		fmt.Fprintf(w, "\nEvidence to open:\n")
 		for _, ref := range firstOrderedEvidenceReferences(packet.EvidenceToOpen, 5) {
@@ -2165,7 +2166,6 @@ func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
 		}
 		renderEvidenceSourceListBlock(w, packet.EvidenceSources, 12)
 	}
-	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
 	if len(packet.GraphPath) > 0 {
 		fmt.Fprintf(w, "\nPath:\n")
 		for _, line := range firstStrings(packet.GraphPath, 6) {
@@ -6016,14 +6016,14 @@ func operatorEvidenceReferenceRank(value model.EvidenceReference, proofSet map[s
 	if kind == "runtime" {
 		return 6
 	}
+	if operatorSourceLooksPrivateContext(source) || operatorKindLooksPrivateContext(kind) {
+		return 8
+	}
 	if operatorSourceLooksConfig(source) || operatorKindLooksActionable(kind) {
 		return 2
 	}
 	if strings.Contains(id, "credential") || strings.Contains(id, "secret") || operatorSourceLooksSensitiveBoundary(source) {
 		return 3
-	}
-	if operatorSourceLooksPrivateContext(source) || operatorKindLooksPrivateContext(kind) {
-		return 8
 	}
 	if kind == "boundary" {
 		return 4
