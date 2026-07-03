@@ -76,7 +76,7 @@
     },
     "control_operator_case": {
       "type": "object",
-      "required": ["id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "limitations"],
+      "required": ["id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "action_packet", "success_criteria", "limitations"],
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
@@ -108,8 +108,48 @@
         "patch_export_command": { "type": "string" },
         "rerun_commands": { "type": "array", "items": { "type": "string" } },
         "compare_commands": { "type": "array", "items": { "type": "string" } },
+        "action_packet": { "$ref": "#/$defs/control_operator_action_packet" },
         "success_criteria": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_operator_action_packet": {
+      "type": "object",
+      "required": ["available", "open_first", "evidence_sources", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands", "commands", "done_criteria", "limitations"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "status": { "type": "string" },
+        "case_id": { "type": "string" },
+        "case_title": { "type": "string" },
+        "state": { "type": "string" },
+        "current_control": { "type": "string" },
+        "proof_surface": { "type": "string" },
+        "open_first": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "generated_proof_paths": { "type": "array", "items": { "type": "string" } },
+        "suggested_destinations": { "type": "array", "items": { "type": "string" } },
+        "destination_paths": { "type": "array", "items": { "type": "string" } },
+        "apply_commands": { "type": "array", "items": { "type": "string" } },
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_operator_action_command" }
+        },
+        "done_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_operator_action_command": {
+      "type": "object",
+      "required": ["step", "id", "title", "files"],
+      "properties": {
+        "step": { "type": "integer" },
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "command": { "type": "string" },
+        "files": { "type": "array", "items": { "type": "string" } }
       }
     },
     "control_break_path_workstream": {

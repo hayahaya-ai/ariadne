@@ -1008,32 +1008,60 @@ type ControlCatalogSummary struct {
 }
 
 type ControlOperatorCase struct {
-	ID                 string                   `json:"id"`
-	Title              string                   `json:"title"`
-	Severity           string                   `json:"severity"`
-	Rank               int                      `json:"rank"`
-	PriorityReason     string                   `json:"priority_reason"`
-	State              string                   `json:"state"`
-	StateReason        string                   `json:"state_reason"`
-	Question           string                   `json:"question"`
-	Finding            string                   `json:"finding"`
-	NextStep           string                   `json:"next_step"`
-	TargetCount        int                      `json:"target_count"`
-	FlawCount          int                      `json:"flaw_count"`
-	ControlCount       int                      `json:"control_count"`
-	Targets            []string                 `json:"targets"`
-	Flaws              []string                 `json:"flaws"`
-	EvidenceReferences []EvidenceReference      `json:"evidence_refs"`
-	StartingControls   []string                 `json:"starting_controls"`
-	StartingTaskIDs    []string                 `json:"starting_task_ids"`
-	ProofSurfaces      []string                 `json:"proof_surfaces"`
-	EvidenceExamples   []ControlEvidenceExample `json:"evidence_examples"`
-	ProofPatches       []ControlProofPatch      `json:"proof_patches"`
-	PatchExportCommand string                   `json:"patch_export_command,omitempty"`
-	RerunCommands      []string                 `json:"rerun_commands"`
-	CompareCommands    []string                 `json:"compare_commands"`
-	SuccessCriteria    []string                 `json:"success_criteria"`
-	Limitations        []string                 `json:"limitations"`
+	ID                 string                      `json:"id"`
+	Title              string                      `json:"title"`
+	Severity           string                      `json:"severity"`
+	Rank               int                         `json:"rank"`
+	PriorityReason     string                      `json:"priority_reason"`
+	State              string                      `json:"state"`
+	StateReason        string                      `json:"state_reason"`
+	Question           string                      `json:"question"`
+	Finding            string                      `json:"finding"`
+	NextStep           string                      `json:"next_step"`
+	TargetCount        int                         `json:"target_count"`
+	FlawCount          int                         `json:"flaw_count"`
+	ControlCount       int                         `json:"control_count"`
+	Targets            []string                    `json:"targets"`
+	Flaws              []string                    `json:"flaws"`
+	EvidenceReferences []EvidenceReference         `json:"evidence_refs"`
+	StartingControls   []string                    `json:"starting_controls"`
+	StartingTaskIDs    []string                    `json:"starting_task_ids"`
+	ProofSurfaces      []string                    `json:"proof_surfaces"`
+	EvidenceExamples   []ControlEvidenceExample    `json:"evidence_examples"`
+	ProofPatches       []ControlProofPatch         `json:"proof_patches"`
+	PatchExportCommand string                      `json:"patch_export_command,omitempty"`
+	RerunCommands      []string                    `json:"rerun_commands"`
+	CompareCommands    []string                    `json:"compare_commands"`
+	ActionPacket       ControlOperatorActionPacket `json:"action_packet"`
+	SuccessCriteria    []string                    `json:"success_criteria"`
+	Limitations        []string                    `json:"limitations"`
+}
+
+type ControlOperatorActionPacket struct {
+	Available             bool                           `json:"available"`
+	Status                string                         `json:"status,omitempty"`
+	CaseID                string                         `json:"case_id,omitempty"`
+	CaseTitle             string                         `json:"case_title,omitempty"`
+	State                 string                         `json:"state,omitempty"`
+	CurrentControl        string                         `json:"current_control,omitempty"`
+	ProofSurface          string                         `json:"proof_surface,omitempty"`
+	OpenFirst             []EvidenceReference            `json:"open_first"`
+	EvidenceSources       []string                       `json:"evidence_sources"`
+	GeneratedProofPaths   []string                       `json:"generated_proof_paths"`
+	SuggestedDestinations []string                       `json:"suggested_destinations"`
+	DestinationPaths      []string                       `json:"destination_paths"`
+	ApplyCommands         []string                       `json:"apply_commands"`
+	Commands              []ControlOperatorActionCommand `json:"commands"`
+	DoneCriteria          []string                       `json:"done_criteria"`
+	Limitations           []string                       `json:"limitations"`
+}
+
+type ControlOperatorActionCommand struct {
+	Step    int      `json:"step"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Command string   `json:"command,omitempty"`
+	Files   []string `json:"files"`
 }
 
 type ControlBreakPathWorkstream struct {

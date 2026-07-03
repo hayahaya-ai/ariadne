@@ -3650,6 +3650,8 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Priority:",
 		"State:",
 		"Next step:",
+		"Action packet:",
+		"Action commands:",
 		"Evidence references:",
 		"Evidence files:",
 		"Modeled/internal evidence:",
@@ -3721,6 +3723,9 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 	if !operatorCaseHasPatchExport(decoded.OperatorCases, "case:input-trust-boundary", "--case case:input-trust-boundary") {
 		t.Fatalf("case board should include focused proof patch export command: %+v", decoded.OperatorCases)
 	}
+	if !operatorCaseHasActionPacket(decoded.OperatorCases, "case:input-trust-boundary", "control:input-isolation", ".ariadne/input-policy.json") {
+		t.Fatalf("case board should include a compact action packet: %+v", decoded.OperatorCases)
+	}
 
 	var htmlOut bytes.Buffer
 	if err := report.RenderCases(&htmlOut, r, "html", "breaking", ""); err != nil {
@@ -3739,6 +3744,10 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 		"Rerun must show every bundle control is no longer a missing hard barrier for this case.",
 		"Priority",
 		"State / next step",
+		"Action Packet",
+		"Open first:",
+		"Generated proof files",
+		"Verify change",
 		"Export / rerun / done when",
 		"Export proof files",
 		"--patch-dir proof-patches",
@@ -7064,8 +7073,12 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	controlCatalogSummary := schemaMap(t, controlCatalogSchema, "$defs", "control_catalog_summary")
 	assertRequiredKeys(t, controlCatalogSummary, "controls", "critical", "high", "medium", "low", "targets", "flaws")
 	controlOperatorCase := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_case")
-	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "success_criteria", "limitations")
+	assertRequiredKeys(t, controlOperatorCase, "id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "action_packet", "success_criteria", "limitations")
 	assertSchemaProperty(t, controlOperatorCase, "patch_export_command")
+	controlOperatorActionPacket := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_action_packet")
+	assertRequiredKeys(t, controlOperatorActionPacket, "available", "open_first", "evidence_sources", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands", "commands", "done_criteria", "limitations")
+	controlOperatorActionCommand := schemaMap(t, controlCatalogSchema, "$defs", "control_operator_action_command")
+	assertRequiredKeys(t, controlOperatorActionCommand, "step", "id", "title", "files")
 	controlBreakPathWorkstream := schemaMap(t, controlCatalogSchema, "$defs", "control_break_path_workstream")
 	assertRequiredKeys(t, controlBreakPathWorkstream, "id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations")
 	controlProofSpec := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_spec")
@@ -8143,6 +8156,47 @@ func operatorCaseHasPatchExport(items []model.ControlOperatorCase, id string, fr
 		return strings.Contains(item.PatchExportCommand, "ariadne proofs --path") &&
 			strings.Contains(item.PatchExportCommand, "--patch-dir proof-patches") &&
 			strings.Contains(item.PatchExportCommand, fragment)
+	}
+	return false
+}
+
+func operatorCaseHasActionPacket(items []model.ControlOperatorCase, id string, control string, surface string) bool {
+	for _, item := range items {
+		if item.ID != id {
+			continue
+		}
+		packet := item.ActionPacket
+		return packet.Available &&
+			packet.CaseID == id &&
+			packet.CurrentControl == control &&
+			packet.ProofSurface == surface &&
+			containsEvidenceReferenceSource(packet.OpenFirst, "CLAUDE.md") &&
+			containsString(packet.EvidenceSources, "CLAUDE.md") &&
+			containsString(packet.GeneratedProofPaths, "proof-patches/surfaces/.ariadne/input-policy.json") &&
+			containsString(packet.SuggestedDestinations, surface) &&
+			containsString(packet.DestinationPaths, surface) &&
+			containsString(packet.ApplyCommands, "cp surfaces/.ariadne/input-policy.json") &&
+			hasControlOperatorActionCommand(packet.Commands, "open_evidence", "", "CLAUDE.md") &&
+			hasControlOperatorActionCommand(packet.Commands, "export_proof", "--patch-dir proof-patches", "proof-patches/surfaces/.ariadne/input-policy.json") &&
+			hasControlOperatorActionCommand(packet.Commands, "rerun_case", "ariadne cases --path", "") &&
+			hasControlOperatorActionCommand(packet.Commands, "compare_receipt", "ariadne compare --before before-proof.json --after after-proof.json", "closure-receipt.txt") &&
+			containsString(packet.DoneCriteria, "operator case board")
+	}
+	return false
+}
+
+func hasControlOperatorActionCommand(commands []model.ControlOperatorActionCommand, id string, commandFragment string, fileFragment string) bool {
+	for _, command := range commands {
+		if command.ID != id {
+			continue
+		}
+		if commandFragment != "" && !strings.Contains(command.Command, commandFragment) {
+			continue
+		}
+		if fileFragment != "" && !containsString(command.Files, fileFragment) {
+			continue
+		}
+		return true
 	}
 	return false
 }

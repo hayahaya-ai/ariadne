@@ -529,6 +529,8 @@ expect_contains "$exposure_dashboard_html" "Exposure Paths"
 expect_contains "$exposure_dashboard_html" "Facts Dive"
 
 expect_contains "$cases_txt" "Ariadne operator case board:"
+expect_contains "$cases_txt" "Action packet:"
+expect_contains "$cases_txt" "Action commands:"
 expect_contains "$cases_txt" "Evidence files: .claude/settings.json; .codex/config.toml; .env"
 expect_contains "$cases_txt" "Modeled/internal evidence: zt:control-strength"
 expect_contains "$cases_txt" "Prove at: .ariadne/agent-policy.json; .ariadne/egress-policy.json; .ariadne/input-policy.json"
@@ -635,6 +637,7 @@ expect_contains "$self_bundle/assessment.json" '"signal_quality"'
 expect_contains "$self_bundle/assessment.json" '"lethal_trifecta"'
 expect_contains "$self_bundle/assessment.json" '"operator_packet"'
 expect_contains "$self_bundle/assessment.json" '"operator_workbench"'
+expect_contains "$self_bundle/assessment.json" '"action_packet"'
 expect_contains "$self_bundle/assessment.json" '"closure_loop"'
 expect_contains "$self_bundle/assessment.json" '"runbook"'
 expect_contains "$self_bundle/assessment.json" '"open_first"'
@@ -697,6 +700,9 @@ expect_contains "$self_bundle/operator-packet.json" '"run_kind": "operator_packe
 expect_contains "$self_bundle/operator-packet.json" '"source_run_kind": "assess"'
 expect_contains "$self_bundle/operator-packet.json" '"operator_packet"'
 expect_contains "$self_bundle/operator-packet.json" '"source_reference_workbench"'
+expect_contains "$self_bundle/cases.json" '"action_packet"'
+expect_contains "$self_bundle/cases.json" '"open_first"'
+expect_contains "$self_bundle/cases.json" '"compare_receipt"'
 expect_contains "$self_bundle/operator-packet.json" '"source_action_board"'
 expect_contains "$self_bundle/operator-packet.json" '"inspect_command"'
 expect_contains "$self_bundle/operator-packet.json" '"case_id": "case:identity-credentials"'

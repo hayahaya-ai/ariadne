@@ -4228,7 +4228,7 @@ func renderControlOperatorCasesDashboard(w io.Writer, root string, cases []model
 		fmt.Fprintf(w, `<td>%s</td>`, renderDashboardHTMLList(proofPlanEvidenceReferenceHTMLLines(root, item.EvidenceReferences, 4)))
 		fmt.Fprintf(w, `<td>%s</td>`, renderOperatorCaseStartCell(item))
 		fmt.Fprintf(w, `<td><h3>%s</h3>%s%s<h3>Proof patches</h3>%s<h3>%s</h3>%s</td>`, esc(surfaceHeading), renderDashboardPathList(root, limitStrings(surfaces, 6)), controlOperatorCaseClosureBundleHTML(item), renderDashboardHTMLList(controlProofPatchHTMLLines(root, item.ProofPatches, 2)), esc(exampleHeading), renderDashboardHTMLList(controlEvidenceExampleHTMLLines(root, item.EvidenceExamples, 2)))
-		fmt.Fprintf(w, `<td>%s<h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderOperatorCaseExportCommandBlock(item), renderCommandList(limitStrings(item.RerunCommands, 2)), renderCommandList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
+		fmt.Fprintf(w, `<td>%s%s<h3>Rerun</h3>%s<h3>Compare loop</h3>%s<h3>Done when</h3>%s</td>`, renderOperatorCaseExportCommandBlock(item), renderOperatorCaseActionPacketHTML(root, item.ActionPacket), renderCommandList(limitStrings(item.RerunCommands, 2)), renderCommandList(limitStrings(item.CompareCommands, 3)), renderSmallList(limitStrings(item.SuccessCriteria, 3)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	if len(cases) > limit {
@@ -4321,6 +4321,48 @@ func renderControlVerificationTasksDashboard(w io.Writer, root string, tasks []m
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
+}
+
+func renderOperatorCaseActionPacketHTML(root string, packet model.ControlOperatorActionPacket) string {
+	if !packet.Available {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintln(&b, `<h3>Action Packet</h3>`)
+	details := []string{}
+	if packet.CurrentControl != "" {
+		details = append(details, "Control: "+esc(packet.CurrentControl))
+	}
+	if packet.ProofSurface != "" {
+		details = append(details, "Proof surface: "+dashboardFileRefHTML(root, packet.ProofSurface))
+	}
+	if len(packet.OpenFirst) > 0 {
+		details = append(details, fmt.Sprintf("Open first: %d evidence ref(s)", len(packet.OpenFirst)))
+	}
+	fmt.Fprintln(&b, renderDashboardHTMLList(details))
+	if len(packet.GeneratedProofPaths) > 0 {
+		fmt.Fprintln(&b, `<div class="subtle">Generated proof files</div>`)
+		fmt.Fprintln(&b, renderDashboardPathList("", limitStrings(packet.GeneratedProofPaths, 4)))
+	}
+	if len(packet.Commands) > 0 {
+		fmt.Fprintln(&b, `<div class="subtle">Verify change</div>`)
+		fmt.Fprintln(&b, renderCommandList(limitStrings(controlOperatorActionPacketCommandStrings(packet.Commands), 5)))
+	}
+	return b.String()
+}
+
+func controlOperatorActionPacketCommandStrings(commands []model.ControlOperatorActionCommand) []string {
+	out := make([]string, 0, len(commands))
+	for _, command := range commands {
+		if command.Command == "" {
+			continue
+		}
+		out = append(out, command.Command)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func renderControlCatalogFamiliesDashboard(w io.Writer, root string, items []model.ArchitectureClosureFamily) {

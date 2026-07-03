@@ -666,6 +666,7 @@ func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogR
 	}
 	attachOperatorCaseCompareCommands(&catalog)
 	attachOperatorCasePatchExportCommands(&catalog)
+	attachOperatorCaseActionPackets(&catalog)
 	return catalog
 }
 
@@ -941,6 +942,135 @@ func attachOperatorCasePatchExportCommands(catalog *model.ControlCatalogReport) 
 	for i := range catalog.OperatorCases {
 		catalog.OperatorCases[i].PatchExportCommand = operatorCasePatchExportCommand(*catalog, catalog.OperatorCases[i])
 	}
+}
+
+func attachOperatorCaseActionPackets(catalog *model.ControlCatalogReport) {
+	if catalog == nil {
+		return
+	}
+	for i := range catalog.OperatorCases {
+		catalog.OperatorCases[i].ActionPacket = buildControlOperatorActionPacket(*catalog, catalog.OperatorCases[i])
+	}
+}
+
+func buildControlOperatorActionPacket(catalog model.ControlCatalogReport, item model.ControlOperatorCase) model.ControlOperatorActionPacket {
+	if strings.TrimSpace(item.ID) == "" {
+		return normalizeControlOperatorActionPacket(model.ControlOperatorActionPacket{})
+	}
+	generated, suggested, destinations, apply := controlOperatorCaseProofBundle(catalog.TargetPath, item)
+	packet := model.ControlOperatorActionPacket{
+		Available:             true,
+		Status:                controlOperatorActionPacketStatus(item),
+		CaseID:                item.ID,
+		CaseTitle:             item.Title,
+		State:                 item.State,
+		CurrentControl:        firstString(item.StartingControls),
+		ProofSurface:          firstString(firstNonEmptyStrings(proofPatchBundleSurfaces(item.ProofPatches), item.ProofSurfaces)),
+		OpenFirst:             dedupeEvidenceReferences(item.EvidenceReferences),
+		EvidenceSources:       evidenceReferenceSources(item.EvidenceReferences, false),
+		GeneratedProofPaths:   generated,
+		SuggestedDestinations: suggested,
+		DestinationPaths:      destinations,
+		ApplyCommands:         apply,
+		DoneCriteria:          item.SuccessCriteria,
+		Limitations:           item.Limitations,
+	}
+	packet.Commands = buildControlOperatorActionCommands(item, packet)
+	return normalizeControlOperatorActionPacket(packet)
+}
+
+func controlOperatorActionPacketStatus(item model.ControlOperatorCase) string {
+	if controlOperatorCaseIsClosed(item) {
+		return "controlled"
+	}
+	return "action_required"
+}
+
+func controlOperatorCaseProofBundle(targetPath string, item model.ControlOperatorCase) ([]string, []string, []string, []string) {
+	exportDir := proofPatchExportDirFromCommand(item.PatchExportCommand)
+	if exportDir == "" {
+		return []string{}, []string{}, []string{}, []string{}
+	}
+	surfaces := proofPatchBundleSurfaces(item.ProofPatches)
+	if len(surfaces) == 0 {
+		surfaces = append([]string{}, item.ProofSurfaces...)
+	}
+	generated := make([]string, 0, len(surfaces))
+	suggested := make([]string, 0, len(surfaces))
+	destinations := make([]string, 0, len(surfaces))
+	apply := make([]string, 0, len(surfaces))
+	for _, surface := range surfaces {
+		relPath := proofPatchExportSurfaceRelPath(surface)
+		destinationPath := proofPatchSuggestedDestinationPath(targetPath, surface)
+		generated = append(generated, filepath.Clean(filepath.Join(exportDir, relPath)))
+		suggested = append(suggested, surface)
+		destinations = append(destinations, destinationPath)
+		apply = append(apply, proofPatchApplyCommand(exportDir, relPath, destinationPath))
+	}
+	return nonNilStrings(uniqueStrings(generated)), nonNilStrings(uniqueStrings(suggested)), nonNilStrings(uniqueStrings(destinations)), nonNilStrings(uniqueStrings(nonEmptyStrings(apply...)))
+}
+
+func buildControlOperatorActionCommands(item model.ControlOperatorCase, packet model.ControlOperatorActionPacket) []model.ControlOperatorActionCommand {
+	var commands []model.ControlOperatorActionCommand
+	commands = appendControlOperatorActionCommand(commands, "open_evidence", "Open evidence", "", firstStrings(packet.EvidenceSources, 6))
+	if len(item.CompareCommands) > 0 {
+		commands = appendControlOperatorActionCommand(commands, "save_baseline", "Save baseline proof", item.CompareCommands[0], []string{"before-proof.json"})
+	}
+	commands = appendControlOperatorActionCommand(commands, "export_proof", "Export proof files", item.PatchExportCommand, firstNonEmptyStrings(packet.GeneratedProofPaths, packet.SuggestedDestinations))
+	if len(packet.ApplyCommands) > 0 {
+		commands = appendControlOperatorActionCommand(commands, "review_apply", "Review or apply proof", packet.ApplyCommands[0], firstNonEmptyStrings(packet.DestinationPaths, packet.SuggestedDestinations))
+	}
+	if len(item.RerunCommands) > 0 {
+		commands = appendControlOperatorActionCommand(commands, "rerun_case", "Rerun focused case", item.RerunCommands[0], []string{})
+	}
+	if len(item.CompareCommands) > 1 {
+		commands = appendControlOperatorActionCommand(commands, "save_after", "Save after proof", item.CompareCommands[1], []string{"after-proof.json"})
+	}
+	commands = appendControlOperatorActionCommand(commands, "compare_receipt", "Create closure receipt", assessClosureCompareCommand(item.CompareCommands), []string{"closure-receipt.txt"})
+	commands = appendControlOperatorActionCommand(commands, "compare_html", "Create HTML compare", controlOperatorCaseHTMLCompareCommand(item.CompareCommands), []string{"case-compare.html"})
+	if commands == nil {
+		return []model.ControlOperatorActionCommand{}
+	}
+	return commands
+}
+
+func appendControlOperatorActionCommand(commands []model.ControlOperatorActionCommand, id string, title string, command string, files []string) []model.ControlOperatorActionCommand {
+	command = strings.TrimSpace(command)
+	files = nonNilStrings(uniqueStrings(nonEmptyStrings(files...)))
+	if command == "" && len(files) == 0 {
+		return commands
+	}
+	return append(commands, model.ControlOperatorActionCommand{
+		Step:    len(commands) + 1,
+		ID:      id,
+		Title:   title,
+		Command: command,
+		Files:   files,
+	})
+}
+
+func controlOperatorCaseHTMLCompareCommand(commands []string) string {
+	for _, command := range commands {
+		if strings.Contains(command, "--format html") || strings.Contains(command, "case-compare.html") {
+			return command
+		}
+	}
+	return ""
+}
+
+func normalizeControlOperatorActionPacket(packet model.ControlOperatorActionPacket) model.ControlOperatorActionPacket {
+	packet.OpenFirst = dedupeEvidenceReferences(packet.OpenFirst)
+	packet.EvidenceSources = nonNilStrings(uniqueStrings(packet.EvidenceSources))
+	packet.GeneratedProofPaths = nonNilStrings(uniqueStrings(packet.GeneratedProofPaths))
+	packet.SuggestedDestinations = nonNilStrings(uniqueStrings(packet.SuggestedDestinations))
+	packet.DestinationPaths = nonNilStrings(uniqueStrings(packet.DestinationPaths))
+	packet.ApplyCommands = nonNilStrings(uniqueStrings(packet.ApplyCommands))
+	packet.DoneCriteria = nonNilStrings(uniqueStrings(packet.DoneCriteria))
+	packet.Limitations = nonNilStrings(uniqueStrings(packet.Limitations))
+	if packet.Commands == nil {
+		packet.Commands = []model.ControlOperatorActionCommand{}
+	}
+	return packet
 }
 
 func BuildCaseCompareReport(beforeRaw []byte, afterRaw []byte, beforeSource string, afterSource string) (model.CaseCompareReport, error) {
@@ -8829,6 +8959,7 @@ func rewriteControlCatalogAsCaseBoard(catalog *model.ControlCatalogReport) {
 		catalog.OperatorCases[i].CompareCommands = operatorCaseCompareCommands(*catalog, catalog.OperatorCases[i].ID)
 		catalog.OperatorCases[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.OperatorCases[i].SuccessCriteria)
 	}
+	attachOperatorCaseActionPackets(catalog)
 	for i := range catalog.Workstreams {
 		catalog.Workstreams[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.Workstreams[i].SuccessCriteria)
 	}
@@ -9038,6 +9169,7 @@ func focusedClosedCaseCatalog(runID string, generatedAt time.Time, runKind strin
 		Limitations:       append([]string{}, limitations...),
 	}
 	attachOperatorCaseCompareCommands(&catalog)
+	attachOperatorCaseActionPackets(&catalog)
 	return catalog
 }
 
@@ -9640,6 +9772,7 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 		if item.NextStep != "" {
 			fmt.Fprintf(w, "      Next step: %s\n", item.NextStep)
 		}
+		renderControlOperatorActionPacketLine(w, item.ActionPacket)
 		if len(item.EvidenceReferences) > 0 {
 			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 2), "; "))
 			renderEvidenceSourceLines(w, "      ", evidenceReferenceSources(item.EvidenceReferences, false), 8)
@@ -9672,6 +9805,51 @@ func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, 
 	if len(cases) > limit {
 		fmt.Fprintf(w, "    - %d more operator cases in JSON output\n", len(cases)-limit)
 	}
+}
+
+func renderControlOperatorActionPacketLine(w io.Writer, packet model.ControlOperatorActionPacket) {
+	if !packet.Available {
+		return
+	}
+	summary := []string{}
+	if len(packet.OpenFirst) > 0 {
+		summary = append(summary, fmt.Sprintf("open %d evidence ref(s)", len(packet.OpenFirst)))
+	}
+	if packet.CurrentControl != "" {
+		summary = append(summary, "prove "+packet.CurrentControl)
+	}
+	if packet.ProofSurface != "" {
+		summary = append(summary, "at "+packet.ProofSurface)
+	}
+	if len(packet.Commands) > 0 {
+		summary = append(summary, fmt.Sprintf("verify with %d command(s)", len(packet.Commands)))
+	}
+	if len(summary) > 0 {
+		fmt.Fprintf(w, "      Action packet: %s\n", strings.Join(summary, "; "))
+	}
+	if len(packet.Commands) > 0 {
+		fmt.Fprintf(w, "      Action commands: %s\n", strings.Join(controlOperatorActionCommandLines(packet.Commands, 5), "; "))
+	}
+}
+
+func controlOperatorActionCommandLines(commands []model.ControlOperatorActionCommand, limit int) []string {
+	if limit <= 0 || limit > len(commands) {
+		limit = len(commands)
+	}
+	out := make([]string, 0, limit)
+	for _, command := range commands[:limit] {
+		label := firstNonEmpty(command.Title, command.ID)
+		if command.Command != "" {
+			label += ": " + command.Command
+		} else if len(command.Files) > 0 {
+			label += ": " + strings.Join(firstStrings(command.Files, 3), ", ")
+		}
+		out = append(out, label)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 func buildControlOperatorCases(workstreams []model.ControlBreakPathWorkstream, tasks []model.ControlVerificationTask) []model.ControlOperatorCase {

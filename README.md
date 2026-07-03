@@ -54,6 +54,8 @@ Ariadne is meant to be used as an operator workflow, not just a scanner.
 
 The compare output includes closure receipts with evidence references, before/after artifact hashes, and exact verification commands for recreating the text receipt and HTML compare.
 
+`ariadne cases` emits an `action_packet` for each operator case. The packet is a fact-first handoff: evidence to open, the control to prove, proof files to generate or review, rerun commands, compare commands, and done criteria.
+
 On the `combined-risk` fixture, the first action currently starts with `case:egress-output-boundary` because Ariadne connected these facts:
 
 - repo instructions can influence local agent runtimes
