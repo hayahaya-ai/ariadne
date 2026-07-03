@@ -4498,6 +4498,16 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		!containsString(got.CompareCommands, "case-compare.html") {
 		t.Fatalf("compare should expose a source-backed proof verdict: %+v", got)
 	}
+	if len(compare.ClosureReceipts) != 1 ||
+		compare.ClosureReceipts[0].ReceiptID != "closure-receipt:case:input-trust-boundary" ||
+		compare.ClosureReceipts[0].ProofStatus != "proof_closed" ||
+		!containsString(compare.ClosureReceipts[0].ControlEvidence, "control:input-isolation") ||
+		!containsString(compare.ClosureReceipts[0].EvidenceSources, ".ariadne/input-policy.json") ||
+		!containsString(compare.ClosureReceipts[0].ArtifactSources, "before-open.json") ||
+		!containsString(compare.ClosureReceipts[0].ArtifactSources, "after-closed.json") ||
+		!strings.Contains(compare.ClosureReceipts[0].RemainingAction, "No remaining action") {
+		t.Fatalf("compare should expose ticket-ready closure receipt: %+v", compare.ClosureReceipts)
+	}
 	if !containsString(compare.Cases[0].AfterControls, "control:input-isolation") || !containsString(compare.Cases[0].AfterControls, "control:trusted-source-policy") {
 		t.Fatalf("compare should show observed hard barriers in after report: %+v", compare.Cases[0])
 	}
@@ -4562,6 +4572,9 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"Next action: No open case remains",
 		"Closed after rerun:",
 		"CLOSED Input Trust Boundary",
+		"Closure receipts:",
+		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
+		"artifacts: before-open.json -> after-closed.json",
 		"open -> closed",
 		"Missing controls before: control:input-isolation; control:trusted-source-policy",
 		"Observed controls after: control:input-isolation; control:trusted-source-policy",
@@ -4599,6 +4612,10 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"Next Action",
 		"Case Changes",
 		"CLOSED",
+		"Closure Receipts",
+		"Ticket-ready proof summaries",
+		"before-open.json",
+		"after-closed.json",
 		"Proof verdict",
 		"Status: proof closed",
 		"Remaining action: No remaining action for this case",
@@ -7042,6 +7059,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"summary",
 		"decision",
 		"outcome",
+		"closure_receipts",
 		"cases",
 		"limitations",
 	)
@@ -7061,6 +7079,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, caseCompareResult, "id", "title", "severity", "disposition", "proof_verdict", "before_state", "after_state", "before_state_reason", "after_state_reason", "before_controls", "after_controls", "added_controls", "removed_controls", "before_proof_patches", "after_proof_patches", "before_evidence_refs", "after_evidence_refs", "before_evidence_details", "after_evidence_details", "added_evidence_refs", "removed_evidence_refs", "before_targets", "after_targets", "before_flaws", "after_flaws", "before_rerun_commands", "after_rerun_commands", "before_compare_commands", "after_compare_commands", "before_next_step", "after_next_step")
 	caseCompareProofVerdict := schemaMap(t, caseCompareSchema, "$defs", "case_compare_proof_verdict")
 	assertRequiredKeys(t, caseCompareProofVerdict, "status", "summary", "control_evidence", "evidence_sources", "remaining_action", "rerun_commands", "compare_commands", "decision_rules", "limitations")
+	caseCompareClosureReceipt := schemaMap(t, caseCompareSchema, "$defs", "case_compare_closure_receipt")
+	assertRequiredKeys(t, caseCompareClosureReceipt, "receipt_id", "case_id", "case_title", "severity", "disposition", "proof_status", "before_state", "after_state", "summary", "control_evidence", "evidence_sources", "artifact_sources", "remaining_action", "rerun_commands", "compare_commands", "decision_rules", "limitations")
 
 	assessSchema := loadSchema(t, "ariadne-assess-v1.schema.json")
 	assertRequiredKeys(t, assessSchema,

@@ -982,6 +982,7 @@ func BuildCaseCompareReport(beforeRaw []byte, afterRaw []byte, beforeSource stri
 		out.Cases = []model.CaseCompareResult{}
 	}
 	out.Outcome = buildCaseCompareOutcome(out.Cases, out.Summary)
+	out.ClosureReceipts = buildCaseCompareClosureReceipts(out.Cases, beforeSource, afterSource)
 	out.Decision = buildCaseCompareDecision(out.Summary, out.Outcome, out.Cases)
 	return out, nil
 }
@@ -1163,6 +1164,41 @@ func caseCompareProofVerdictRemainingAction(item model.CaseCompareResult, status
 	default:
 		return firstNonEmpty(item.AfterNextStep, "Review the changed case facts, rerun if needed, and compare again.")
 	}
+}
+
+func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSource string, afterSource string) []model.CaseCompareClosureReceipt {
+	if len(cases) == 0 {
+		return []model.CaseCompareClosureReceipt{}
+	}
+	receipts := make([]model.CaseCompareClosureReceipt, 0, len(cases))
+	for _, item := range cases {
+		verdict := item.ProofVerdict
+		caseID := firstNonEmpty(item.ID, "case")
+		receipts = append(receipts, model.CaseCompareClosureReceipt{
+			ReceiptID:       "closure-receipt:" + caseID,
+			CaseID:          item.ID,
+			CaseTitle:       item.Title,
+			Severity:        item.Severity,
+			Disposition:     item.Disposition,
+			ProofStatus:     verdict.Status,
+			BeforeState:     item.BeforeState,
+			AfterState:      item.AfterState,
+			Summary:         firstNonEmpty(verdict.Summary, caseCompareClosureReceiptSummary(item)),
+			ControlEvidence: nonNilStrings(uniqueSortedStrings(verdict.ControlEvidence)),
+			EvidenceSources: nonNilStrings(uniqueSortedStrings(verdict.EvidenceSources)),
+			ArtifactSources: nonNilStrings(nonEmptyStrings(beforeSource, afterSource)),
+			RemainingAction: verdict.RemainingAction,
+			RerunCommands:   nonNilStrings(uniqueStrings(verdict.RerunCommands)),
+			CompareCommands: nonNilStrings(uniqueStrings(verdict.CompareCommands)),
+			DecisionRules:   nonNilStrings(uniqueStrings(verdict.DecisionRules)),
+			Limitations:     nonNilStrings(uniqueStrings(verdict.Limitations)),
+		})
+	}
+	return receipts
+}
+
+func caseCompareClosureReceiptSummary(item model.CaseCompareResult) string {
+	return fmt.Sprintf("%s: %s -> %s (%s)", firstNonEmpty(item.Title, item.ID, "case"), firstNonEmpty(item.BeforeState, "unknown"), firstNonEmpty(item.AfterState, "unknown"), firstNonEmpty(item.Disposition, "changed"))
 }
 
 func caseCompareDisposition(beforeOK bool, beforeState string, before model.ControlOperatorCase, afterOK bool, afterState string, after model.ControlOperatorCase, item model.CaseCompareResult) string {
@@ -1506,6 +1542,7 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 		}
 	}
 	fmt.Fprintln(w)
+	renderCaseCompareClosureReceipts(w, r.ClosureReceipts, 5)
 	if len(r.Cases) == 0 {
 		fmt.Fprintf(w, "Cases:\n  - no comparable cases found\n\n")
 		return nil
@@ -1557,6 +1594,44 @@ func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
 	}
 	fmt.Fprintln(w)
 	return nil
+}
+
+func renderCaseCompareClosureReceipts(w io.Writer, receipts []model.CaseCompareClosureReceipt, limit int) {
+	if len(receipts) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Closure receipts:\n")
+	if limit <= 0 || limit > len(receipts) {
+		limit = len(receipts)
+	}
+	for _, receipt := range receipts[:limit] {
+		fmt.Fprintf(w, "  - %s (%s): %s -> %s / %s\n",
+			firstNonEmpty(receipt.CaseTitle, receipt.CaseID, receipt.ReceiptID),
+			firstNonEmpty(receipt.CaseID, "case"),
+			firstNonEmpty(receipt.BeforeState, "unknown"),
+			firstNonEmpty(receipt.AfterState, "unknown"),
+			readableToken(firstNonEmpty(receipt.ProofStatus, receipt.Disposition, "unknown")),
+		)
+		if receipt.Summary != "" {
+			fmt.Fprintf(w, "    summary: %s\n", receipt.Summary)
+		}
+		if len(receipt.ControlEvidence) > 0 {
+			fmt.Fprintf(w, "    control evidence: %s\n", strings.Join(firstStrings(receipt.ControlEvidence, 5), "; "))
+		}
+		if len(receipt.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "    evidence source: %s\n", strings.Join(firstStrings(receipt.EvidenceSources, 5), "; "))
+		}
+		if len(receipt.ArtifactSources) > 0 {
+			fmt.Fprintf(w, "    artifacts: %s\n", strings.Join(firstStrings(receipt.ArtifactSources, 2), " -> "))
+		}
+		if receipt.RemainingAction != "" {
+			fmt.Fprintf(w, "    remaining action: %s\n", receipt.RemainingAction)
+		}
+	}
+	if len(receipts) > limit {
+		fmt.Fprintf(w, "  - %d more closure receipt(s) in JSON output\n", len(receipts)-limit)
+	}
+	fmt.Fprintln(w)
 }
 
 func renderCaseCompareProofVerdict(w io.Writer, verdict model.CaseCompareProofVerdict) {

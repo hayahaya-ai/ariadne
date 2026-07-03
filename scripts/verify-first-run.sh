@@ -1056,6 +1056,7 @@ expect_contains "$endpoint_after_case" ".ariadne/identity-policy.json"
 
 expect_contains "$endpoint_compare_txt" "Verdict: proof succeeded"
 expect_contains "$endpoint_compare_txt" "open -> closed"
+expect_contains "$endpoint_compare_txt" "Closure receipts:"
 expect_contains "$endpoint_compare_txt" "Missing controls before:"
 expect_contains "$endpoint_compare_txt" "Observed controls after:"
 expect_contains "$endpoint_compare_txt" "Proof verdict: proof closed"
@@ -1107,6 +1108,9 @@ expect_contains "$compare_txt" "Decision:"
 expect_contains "$compare_txt" "Verdict: proof succeeded"
 expect_contains "$compare_txt" "Readout: Proof worked"
 expect_contains "$compare_txt" "open -> closed"
+expect_contains "$compare_txt" "Closure receipts:"
+expect_contains "$compare_txt" "Egress And Output Boundary (case:egress-output-boundary): open -> closed / proof closed"
+expect_contains "$compare_txt" "artifacts:"
 expect_contains "$compare_txt" "Missing controls before:"
 expect_contains "$compare_txt" "Observed controls after:"
 expect_contains "$compare_txt" "Proof verdict: proof closed"
@@ -1121,6 +1125,10 @@ expect_contains "$compare_txt" ".ariadne/output-policy.json"
 expect_contains "$compare_json" '"decision"'
 expect_contains "$compare_json" '"status": "proof_succeeded"'
 expect_contains "$compare_json" '"top_case_id": "case:egress-output-boundary"'
+expect_contains "$compare_json" '"closure_receipts"'
+expect_contains "$compare_json" '"receipt_id": "closure-receipt:case:egress-output-boundary"'
+expect_contains "$compare_json" '"proof_status": "proof_closed"'
+expect_contains "$compare_json" '"artifact_sources"'
 expect_contains "$compare_json" '"proof_patches_before": 5'
 expect_contains "$compare_json" '"proof_patches_after": 0'
 expect_contains "$compare_json" '"added_evidence_sources"'
@@ -1133,6 +1141,8 @@ expect_contains "$compare_json" '"added_evidence_refs"'
 expect_contains "$compare_html" "Compare Decision"
 expect_contains "$compare_html" "PROOF SUCCEEDED"
 expect_contains "$compare_html" "CLOSED"
+expect_contains "$compare_html" "Closure Receipts"
+expect_contains "$compare_html" "Ticket-ready proof summaries"
 expect_contains "$compare_html" "open"
 expect_contains "$compare_html" "closed"
 expect_contains "$compare_html" "Proof verdict"

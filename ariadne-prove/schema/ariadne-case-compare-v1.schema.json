@@ -11,6 +11,7 @@
     "summary",
     "decision",
     "outcome",
+    "closure_receipts",
     "cases",
     "limitations"
   ],
@@ -22,6 +23,10 @@
     "summary": { "$ref": "#/$defs/case_compare_summary" },
     "decision": { "$ref": "#/$defs/case_compare_decision" },
     "outcome": { "$ref": "#/$defs/case_compare_outcome" },
+    "closure_receipts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/case_compare_closure_receipt" }
+    },
     "cases": {
       "type": "array",
       "items": { "$ref": "#/$defs/case_compare_result" }
@@ -242,6 +247,53 @@
         "after_compare_commands": { "type": "array", "items": { "type": "string" } },
         "before_next_step": { "type": "string" },
         "after_next_step": { "type": "string" }
+      }
+    },
+    "case_compare_closure_receipt": {
+      "type": "object",
+      "required": [
+        "receipt_id",
+        "case_id",
+        "case_title",
+        "severity",
+        "disposition",
+        "proof_status",
+        "before_state",
+        "after_state",
+        "summary",
+        "control_evidence",
+        "evidence_sources",
+        "artifact_sources",
+        "remaining_action",
+        "rerun_commands",
+        "compare_commands",
+        "decision_rules",
+        "limitations"
+      ],
+      "properties": {
+        "receipt_id": { "type": "string" },
+        "case_id": { "type": "string" },
+        "case_title": { "type": "string" },
+        "severity": { "type": "string" },
+        "disposition": {
+          "type": "string",
+          "enum": ["closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed"]
+        },
+        "proof_status": {
+          "type": "string",
+          "enum": ["proof_closed", "proof_already_closed", "proof_regressed", "proof_still_open", "proof_added", "proof_removed", "proof_changed"]
+        },
+        "before_state": { "type": "string" },
+        "after_state": { "type": "string" },
+        "summary": { "type": "string" },
+        "control_evidence": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "artifact_sources": { "type": "array", "items": { "type": "string" } },
+        "remaining_action": { "type": "string" },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "compare_commands": { "type": "array", "items": { "type": "string" } },
+        "decision_rules": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },
     "case_compare_proof_verdict": {

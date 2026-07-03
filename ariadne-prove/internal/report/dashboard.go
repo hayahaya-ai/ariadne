@@ -896,6 +896,7 @@ func renderCaseCompareDashboard(w io.Writer, r model.CaseCompareReport) error {
 	renderCaseCompareDecisionDashboard(w, r.Decision)
 	renderCaseCompareSummaryDashboard(w, r)
 	renderCaseCompareOutcomeDashboard(w, r.Outcome)
+	renderCaseCompareClosureReceiptsDashboard(w, r.ClosureReceipts)
 	renderCaseCompareCasesDashboard(w, r.Cases)
 	renderRunNotes(w, nil, r.Limitations)
 	fmt.Fprintln(w, "</main>")
@@ -3644,6 +3645,30 @@ func renderCaseCompareOutcomeDashboard(w io.Writer, outcome model.CaseCompareOut
 		fmt.Fprintln(w, `<h3>Absent After Rerun</h3>`)
 		fmt.Fprintln(w, renderSmallList(caseCompareOutcomeCaseLines(outcome.AbsentCases, 5)))
 	}
+	fmt.Fprintln(w, "</section>")
+}
+
+func renderCaseCompareClosureReceiptsDashboard(w io.Writer, receipts []model.CaseCompareClosureReceipt) {
+	fmt.Fprintln(w, `<section class="panel">`)
+	fmt.Fprintln(w, `<div class="section-head">`)
+	fmt.Fprintln(w, `<div><h2>Closure Receipts</h2><div class="subtle">Ticket-ready proof summaries derived from before and after Ariadne JSON artifacts.</div></div>`)
+	fmt.Fprintln(w, "</div>")
+	if len(receipts) == 0 {
+		fmt.Fprintln(w, `<div class="empty">No closure receipts were generated.</div>`)
+		fmt.Fprintln(w, "</section>")
+		return
+	}
+	fmt.Fprintln(w, `<div class="table-wrap"><table class="compact-table">`)
+	fmt.Fprintln(w, "<thead><tr><th>Case</th><th>Proof</th><th>Evidence</th><th>Artifacts / action</th></tr></thead><tbody>")
+	for _, receipt := range receipts {
+		fmt.Fprintln(w, "<tr>")
+		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s -> %s</div></td>`, esc(firstNonEmpty(receipt.CaseTitle, receipt.CaseID)), esc(receipt.CaseID), esc(firstNonEmpty(receipt.BeforeState, "unknown")), esc(firstNonEmpty(receipt.AfterState, "unknown")))
+		fmt.Fprintf(w, `<td><span class="pill %s">%s</span>%s</td>`, cssClass(receipt.ProofStatus), esc(strings.ToUpper(readableToken(firstNonEmpty(receipt.ProofStatus, receipt.Disposition, "unknown")))), renderSmallList(nonEmptyStrings(receipt.Summary)))
+		fmt.Fprintf(w, `<td><h3>Control evidence</h3>%s<h3>Evidence sources</h3>%s</td>`, renderSmallList(receipt.ControlEvidence), renderSmallList(receipt.EvidenceSources))
+		fmt.Fprintf(w, `<td><h3>Artifacts</h3>%s<h3>Remaining action</h3>%s<h3>Compare commands</h3>%s</td>`, renderSmallList(receipt.ArtifactSources), renderSmallList(nonEmptyStrings(receipt.RemainingAction)), renderCommandList(limitStrings(receipt.CompareCommands, 2)))
+		fmt.Fprintln(w, "</tr>")
+	}
+	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
 }
 

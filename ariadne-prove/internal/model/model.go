@@ -205,15 +205,16 @@ type ProofPlanSummary struct {
 }
 
 type CaseCompareReport struct {
-	SchemaVersion string              `json:"schema_version"`
-	RunKind       string              `json:"run_kind"`
-	BeforeSource  string              `json:"before_source"`
-	AfterSource   string              `json:"after_source"`
-	Summary       CaseCompareSummary  `json:"summary"`
-	Decision      CaseCompareDecision `json:"decision"`
-	Outcome       CaseCompareOutcome  `json:"outcome"`
-	Cases         []CaseCompareResult `json:"cases"`
-	Limitations   []string            `json:"limitations"`
+	SchemaVersion   string                      `json:"schema_version"`
+	RunKind         string                      `json:"run_kind"`
+	BeforeSource    string                      `json:"before_source"`
+	AfterSource     string                      `json:"after_source"`
+	Summary         CaseCompareSummary          `json:"summary"`
+	Decision        CaseCompareDecision         `json:"decision"`
+	Outcome         CaseCompareOutcome          `json:"outcome"`
+	ClosureReceipts []CaseCompareClosureReceipt `json:"closure_receipts"`
+	Cases           []CaseCompareResult         `json:"cases"`
+	Limitations     []string                    `json:"limitations"`
 }
 
 type CaseCompareSummary struct {
@@ -314,6 +315,26 @@ type CaseCompareProofVerdict struct {
 	Summary         string   `json:"summary"`
 	ControlEvidence []string `json:"control_evidence"`
 	EvidenceSources []string `json:"evidence_sources"`
+	RemainingAction string   `json:"remaining_action"`
+	RerunCommands   []string `json:"rerun_commands"`
+	CompareCommands []string `json:"compare_commands"`
+	DecisionRules   []string `json:"decision_rules"`
+	Limitations     []string `json:"limitations"`
+}
+
+type CaseCompareClosureReceipt struct {
+	ReceiptID       string   `json:"receipt_id"`
+	CaseID          string   `json:"case_id"`
+	CaseTitle       string   `json:"case_title"`
+	Severity        string   `json:"severity"`
+	Disposition     string   `json:"disposition"`
+	ProofStatus     string   `json:"proof_status"`
+	BeforeState     string   `json:"before_state"`
+	AfterState      string   `json:"after_state"`
+	Summary         string   `json:"summary"`
+	ControlEvidence []string `json:"control_evidence"`
+	EvidenceSources []string `json:"evidence_sources"`
+	ArtifactSources []string `json:"artifact_sources"`
 	RemainingAction string   `json:"remaining_action"`
 	RerunCommands   []string `json:"rerun_commands"`
 	CompareCommands []string `json:"compare_commands"`
