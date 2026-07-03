@@ -186,6 +186,36 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	}
 }
 
+func TestRunCasesActionFormat(t *testing.T) {
+	root := t.TempDir()
+	actionPath := filepath.Join(root, "case-action.txt")
+	runCases([]string{
+		"--path", filepath.Join("..", "..", "testdata", "realpath", "combined-risk"),
+		"--case", "case:input-trust-boundary",
+		"--format", "action",
+		"--out", actionPath,
+	})
+	action := readTestFile(t, actionPath)
+	for _, want := range []string{
+		"Ariadne Case Action",
+		"Focus: case:input-trust-boundary",
+		"Case: Input Trust Boundary (case:input-trust-boundary)",
+		"Current proof target:",
+		"Open first:",
+		"CLAUDE.md",
+		"Action commands:",
+		"Export proof files",
+		"--patch-dir proof-patches",
+		"Create closure receipt",
+		"closure-receipt.txt",
+		"Done when:",
+	} {
+		if !strings.Contains(action, want) {
+			t.Fatalf("cases action output missing %q:\n%s", want, action)
+		}
+	}
+}
+
 func TestRunDashboardDefaultsToAssessmentView(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")

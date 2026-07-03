@@ -35,6 +35,7 @@ Ariadne is meant to be used as an operator workflow, not just a scanner.
 
 # 2. Focus the prioritized case.
 ./bin/ariadne cases --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary
+./bin/ariadne cases --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --format action
 
 # 3. Save the baseline proof state.
 ./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --format json --out before-proof.json

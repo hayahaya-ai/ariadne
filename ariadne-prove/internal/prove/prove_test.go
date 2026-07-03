@@ -3681,6 +3681,47 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 	if strings.Contains(out, "  Controls:\n") {
 		t.Fatalf("operator case board should not render raw control rows by default:\n%s", out)
 	}
+	var action bytes.Buffer
+	if err := report.RenderCases(&action, r, "action", "breaking", "case:input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	actionOut := action.String()
+	for _, want := range []string{
+		"Ariadne Case Action",
+		"Focus: case:input-trust-boundary",
+		"Case: Input Trust Boundary (case:input-trust-boundary)",
+		"Action status: action required",
+		"Question:",
+		"Why this case exists:",
+		"Next step:",
+		"Current proof target:",
+		"Control: control:input-isolation",
+		"Proof surface: .ariadne/input-policy.json",
+		"Open first:",
+		"CLAUDE.md",
+		"line: 1",
+		"Action commands:",
+		"Save baseline proof",
+		"--out before-proof.json",
+		"Export proof files",
+		"--patch-dir proof-patches",
+		"Review or apply proof",
+		"Rerun focused case",
+		"ariadne cases --path",
+		"Create closure receipt",
+		"closure-receipt.txt",
+		"Create HTML compare",
+		"case-compare.html",
+		"Proof files:",
+		"Generated: proof-patches/surfaces/.ariadne/input-policy.json",
+		"Suggested destination: .ariadne/input-policy.json",
+		"Done when:",
+		"operator case board",
+	} {
+		if !strings.Contains(actionOut, want) {
+			t.Fatalf("operator case action missing %q:\n%s", want, actionOut)
+		}
+	}
 	topCaseBlock := boundedBlock(t, out, "case:egress-output-boundary", "case:least-agency-authority")
 	for _, want := range []string{
 		"Evidence files:",

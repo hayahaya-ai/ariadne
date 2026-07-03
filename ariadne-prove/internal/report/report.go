@@ -8515,6 +8515,8 @@ func renderControlCaseBoard(w io.Writer, r model.ControlCatalogReport, format st
 	switch strings.ToLower(format) {
 	case "", "table":
 		return renderControlCaseBoardTable(w, r)
+	case "action", "case-action":
+		return renderControlCaseBoardAction(w, r)
 	case "json":
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
@@ -8523,6 +8525,115 @@ func renderControlCaseBoard(w io.Writer, r model.ControlCatalogReport, format st
 		return renderControlCaseBoardDashboard(w, r)
 	default:
 		return fmt.Errorf("unknown cases format: %s", format)
+	}
+}
+
+func renderControlCaseBoardAction(w io.Writer, r model.ControlCatalogReport) error {
+	fmt.Fprintf(w, "Ariadne Case Action\n\n")
+	if r.TargetsFile != "" {
+		fmt.Fprintf(w, "Targets file: %s\n", r.TargetsFile)
+	} else if r.TargetPath != "" {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "case_board"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, "Focus: %s\n", r.CaseFilter)
+	} else if len(r.OperatorCases) > 1 {
+		fmt.Fprintf(w, "Selected: highest-ranked case; pass --case <case-id> to focus a different case.\n")
+	}
+	if len(r.OperatorCases) == 0 {
+		fmt.Fprintf(w, "\nNo operator case matched this filter.\n")
+		if len(r.Limitations) > 0 {
+			fmt.Fprintf(w, "\nLimits:\n")
+			renderAssessRunbookStringList(w, r.Limitations)
+		}
+		return nil
+	}
+	item := r.OperatorCases[0]
+	packet := item.ActionPacket
+	fmt.Fprintf(w, "\nCase: %s (%s)\n", firstNonEmpty(item.Title, controlOperatorCaseDisplayTitle(item)), firstNonEmpty(item.ID, "case"))
+	if item.Rank > 0 {
+		fmt.Fprintf(w, "Rank: %d\n", item.Rank)
+	}
+	fmt.Fprintf(w, "Severity: %s\n", strings.ToUpper(firstNonEmpty(item.Severity, "unknown")))
+	fmt.Fprintf(w, "State: %s - %s\n", firstNonEmpty(item.State, "unknown"), firstNonEmpty(item.StateReason, "not recorded"))
+	if packet.Status != "" {
+		fmt.Fprintf(w, "Action status: %s\n", readableToken(packet.Status))
+	}
+	if item.Question != "" {
+		fmt.Fprintf(w, "\nQuestion:\n  - %s\n", item.Question)
+	}
+	if item.Finding != "" {
+		fmt.Fprintf(w, "\nWhy this case exists:\n  - %s\n", item.Finding)
+	}
+	if item.NextStep != "" {
+		fmt.Fprintf(w, "\nNext step:\n  - %s\n", item.NextStep)
+	}
+	if packet.CurrentControl != "" || packet.ProofSurface != "" {
+		fmt.Fprintf(w, "\nCurrent proof target:\n")
+		if packet.CurrentControl != "" {
+			fmt.Fprintf(w, "  - Control: %s\n", packet.CurrentControl)
+		}
+		if packet.ProofSurface != "" {
+			fmt.Fprintf(w, "  - Proof surface: %s\n", packet.ProofSurface)
+		}
+	}
+	renderControlOperatorCaseActionOpenFirst(w, r, item, packet)
+	renderControlOperatorCaseActionCommands(w, packet.Commands)
+	if len(packet.GeneratedProofPaths) > 0 || len(packet.SuggestedDestinations) > 0 || len(packet.DestinationPaths) > 0 {
+		fmt.Fprintf(w, "\nProof files:\n")
+		renderAssessDecisionLines(w, "Generated", packet.GeneratedProofPaths, 6)
+		renderAssessDecisionLines(w, "Suggested destination", packet.SuggestedDestinations, 6)
+		renderAssessDecisionLines(w, "Destination path", packet.DestinationPaths, 6)
+	}
+	if len(packet.DoneCriteria) > 0 {
+		fmt.Fprintf(w, "\nDone when:\n")
+		renderAssessRunbookStringList(w, packet.DoneCriteria)
+	}
+	limitations := firstNonEmptyStrings(packet.Limitations, item.Limitations)
+	if len(limitations) > 0 {
+		fmt.Fprintf(w, "\nLimits:\n")
+		renderAssessRunbookStringList(w, limitStrings(limitations, 3))
+	}
+	if len(r.OperatorCases) > 1 {
+		fmt.Fprintf(w, "\nMore cases: %d additional case(s) in `ariadne cases --format table` and JSON output.\n", len(r.OperatorCases)-1)
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func renderControlOperatorCaseActionOpenFirst(w io.Writer, r model.ControlCatalogReport, item model.ControlOperatorCase, packet model.ControlOperatorActionPacket) {
+	refs := packet.OpenFirst
+	if len(refs) == 0 {
+		refs = item.EvidenceReferences
+	}
+	fmt.Fprintf(w, "\nOpen first:\n")
+	if len(refs) == 0 {
+		fmt.Fprintf(w, "  - no source references recorded\n")
+		return
+	}
+	rows := buildAssessSourceReferenceRows(r.TargetPath, refs)
+	renderAssessSourceReferenceRowList(w, rows, 6, "no source references recorded")
+}
+
+func renderControlOperatorCaseActionCommands(w io.Writer, commands []model.ControlOperatorActionCommand) {
+	if len(commands) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nAction commands:\n")
+	for _, command := range commands {
+		label := firstNonEmpty(command.Title, command.ID, "Command")
+		if command.Step > 0 {
+			fmt.Fprintf(w, "  - %d. %s\n", command.Step, label)
+		} else {
+			fmt.Fprintf(w, "  - %s\n", label)
+		}
+		if command.Command != "" {
+			fmt.Fprintf(w, "    command: %s\n", command.Command)
+		}
+		if len(command.Files) > 0 {
+			fmt.Fprintf(w, "    files: %s\n", strings.Join(limitStrings(command.Files, 6), "; "))
+		}
 	}
 }
 
