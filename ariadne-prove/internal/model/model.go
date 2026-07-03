@@ -323,23 +323,31 @@ type CaseCompareProofVerdict struct {
 }
 
 type CaseCompareClosureReceipt struct {
-	ReceiptID       string   `json:"receipt_id"`
-	CaseID          string   `json:"case_id"`
-	CaseTitle       string   `json:"case_title"`
-	Severity        string   `json:"severity"`
-	Disposition     string   `json:"disposition"`
-	ProofStatus     string   `json:"proof_status"`
-	BeforeState     string   `json:"before_state"`
-	AfterState      string   `json:"after_state"`
-	Summary         string   `json:"summary"`
-	ControlEvidence []string `json:"control_evidence"`
-	EvidenceSources []string `json:"evidence_sources"`
-	ArtifactSources []string `json:"artifact_sources"`
-	RemainingAction string   `json:"remaining_action"`
-	RerunCommands   []string `json:"rerun_commands"`
-	CompareCommands []string `json:"compare_commands"`
-	DecisionRules   []string `json:"decision_rules"`
-	Limitations     []string `json:"limitations"`
+	ReceiptID       string                    `json:"receipt_id"`
+	CaseID          string                    `json:"case_id"`
+	CaseTitle       string                    `json:"case_title"`
+	Severity        string                    `json:"severity"`
+	Disposition     string                    `json:"disposition"`
+	ProofStatus     string                    `json:"proof_status"`
+	BeforeState     string                    `json:"before_state"`
+	AfterState      string                    `json:"after_state"`
+	Summary         string                    `json:"summary"`
+	ControlEvidence []string                  `json:"control_evidence"`
+	EvidenceSources []string                  `json:"evidence_sources"`
+	ArtifactSources []string                  `json:"artifact_sources"`
+	ArtifactHashes  []CaseCompareArtifactHash `json:"artifact_hashes"`
+	RemainingAction string                    `json:"remaining_action"`
+	RerunCommands   []string                  `json:"rerun_commands"`
+	CompareCommands []string                  `json:"compare_commands"`
+	DecisionRules   []string                  `json:"decision_rules"`
+	Limitations     []string                  `json:"limitations"`
+}
+
+type CaseCompareArtifactHash struct {
+	Role      string `json:"role"`
+	Source    string `json:"source"`
+	SHA256    string `json:"sha256"`
+	SizeBytes int    `json:"size_bytes"`
 }
 
 type AssessReport struct {

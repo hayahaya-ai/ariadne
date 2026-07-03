@@ -264,6 +264,7 @@
         "control_evidence",
         "evidence_sources",
         "artifact_sources",
+        "artifact_hashes",
         "remaining_action",
         "rerun_commands",
         "compare_commands",
@@ -289,11 +290,22 @@
         "control_evidence": { "type": "array", "items": { "type": "string" } },
         "evidence_sources": { "type": "array", "items": { "type": "string" } },
         "artifact_sources": { "type": "array", "items": { "type": "string" } },
+        "artifact_hashes": { "type": "array", "items": { "$ref": "#/$defs/case_compare_artifact_hash" } },
         "remaining_action": { "type": "string" },
         "rerun_commands": { "type": "array", "items": { "type": "string" } },
         "compare_commands": { "type": "array", "items": { "type": "string" } },
         "decision_rules": { "type": "array", "items": { "type": "string" } },
         "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "case_compare_artifact_hash": {
+      "type": "object",
+      "required": ["role", "source", "sha256", "size_bytes"],
+      "properties": {
+        "role": { "type": "string", "enum": ["before", "after"] },
+        "source": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
       }
     },
     "case_compare_proof_verdict": {

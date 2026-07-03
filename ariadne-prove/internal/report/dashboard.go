@@ -3665,11 +3665,27 @@ func renderCaseCompareClosureReceiptsDashboard(w io.Writer, receipts []model.Cas
 		fmt.Fprintf(w, `<td><strong>%s</strong><div class="mono">%s</div><div class="subtle">%s -> %s</div></td>`, esc(firstNonEmpty(receipt.CaseTitle, receipt.CaseID)), esc(receipt.CaseID), esc(firstNonEmpty(receipt.BeforeState, "unknown")), esc(firstNonEmpty(receipt.AfterState, "unknown")))
 		fmt.Fprintf(w, `<td><span class="pill %s">%s</span>%s</td>`, cssClass(receipt.ProofStatus), esc(strings.ToUpper(readableToken(firstNonEmpty(receipt.ProofStatus, receipt.Disposition, "unknown")))), renderSmallList(nonEmptyStrings(receipt.Summary)))
 		fmt.Fprintf(w, `<td><h3>Control evidence</h3>%s<h3>Evidence sources</h3>%s</td>`, renderSmallList(receipt.ControlEvidence), renderSmallList(receipt.EvidenceSources))
-		fmt.Fprintf(w, `<td><h3>Artifacts</h3>%s<h3>Remaining action</h3>%s<h3>Compare commands</h3>%s</td>`, renderSmallList(receipt.ArtifactSources), renderSmallList(nonEmptyStrings(receipt.RemainingAction)), renderCommandList(limitStrings(receipt.CompareCommands, 2)))
+		fmt.Fprintf(w, `<td><h3>Artifacts</h3>%s<h3>Artifact hashes</h3>%s<h3>Remaining action</h3>%s<h3>Compare commands</h3>%s</td>`, renderSmallList(receipt.ArtifactSources), renderSmallList(caseCompareArtifactHashLines(receipt.ArtifactHashes)), renderSmallList(nonEmptyStrings(receipt.RemainingAction)), renderCommandList(limitStrings(receipt.CompareCommands, 2)))
 		fmt.Fprintln(w, "</tr>")
 	}
 	fmt.Fprintln(w, "</tbody></table></div>")
 	fmt.Fprintln(w, "</section>")
+}
+
+func caseCompareArtifactHashLines(items []model.CaseCompareArtifactHash) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("%s %s sha256:%s bytes:%d",
+			firstNonEmpty(item.Role, "artifact"),
+			firstNonEmpty(item.Source, "<source>"),
+			item.SHA256,
+			item.SizeBytes,
+		))
+	}
+	return lines
 }
 
 func renderCaseCompareCasesDashboard(w io.Writer, cases []model.CaseCompareResult) {

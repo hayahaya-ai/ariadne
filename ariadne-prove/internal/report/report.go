@@ -1,6 +1,7 @@
 package report
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -983,7 +984,7 @@ func BuildCaseCompareReport(beforeRaw []byte, afterRaw []byte, beforeSource stri
 		out.Cases = []model.CaseCompareResult{}
 	}
 	out.Outcome = buildCaseCompareOutcome(out.Cases, out.Summary)
-	out.ClosureReceipts = buildCaseCompareClosureReceipts(out.Cases, beforeSource, afterSource)
+	out.ClosureReceipts = buildCaseCompareClosureReceipts(out.Cases, beforeSource, afterSource, caseCompareArtifactHashes(beforeRaw, afterRaw, beforeSource, afterSource))
 	out.Decision = buildCaseCompareDecision(out.Summary, out.Outcome, out.Cases)
 	return out, nil
 }
@@ -1169,7 +1170,7 @@ func caseCompareProofVerdictRemainingAction(item model.CaseCompareResult, status
 	}
 }
 
-func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSource string, afterSource string) []model.CaseCompareClosureReceipt {
+func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSource string, afterSource string, artifactHashes []model.CaseCompareArtifactHash) []model.CaseCompareClosureReceipt {
 	if len(cases) == 0 {
 		return []model.CaseCompareClosureReceipt{}
 	}
@@ -1190,6 +1191,7 @@ func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSour
 			ControlEvidence: nonNilStrings(uniqueSortedStrings(verdict.ControlEvidence)),
 			EvidenceSources: nonNilStrings(uniqueSortedStrings(verdict.EvidenceSources)),
 			ArtifactSources: nonNilStrings(nonEmptyStrings(beforeSource, afterSource)),
+			ArtifactHashes:  nonNilCaseCompareArtifactHashes(artifactHashes),
 			RemainingAction: verdict.RemainingAction,
 			RerunCommands:   nonNilStrings(uniqueStrings(verdict.RerunCommands)),
 			CompareCommands: nonNilStrings(uniqueStrings(verdict.CompareCommands)),
@@ -1198,6 +1200,41 @@ func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSour
 		})
 	}
 	return receipts
+}
+
+func caseCompareArtifactHashes(beforeRaw []byte, afterRaw []byte, beforeSource string, afterSource string) []model.CaseCompareArtifactHash {
+	hashes := []model.CaseCompareArtifactHash{
+		caseCompareArtifactHash("before", beforeSource, beforeRaw),
+		caseCompareArtifactHash("after", afterSource, afterRaw),
+	}
+	return nonNilCaseCompareArtifactHashes(hashes)
+}
+
+func caseCompareArtifactHash(role string, source string, contents []byte) model.CaseCompareArtifactHash {
+	sum := sha256.Sum256(contents)
+	return model.CaseCompareArtifactHash{
+		Role:      role,
+		Source:    source,
+		SHA256:    fmt.Sprintf("%x", sum[:]),
+		SizeBytes: len(contents),
+	}
+}
+
+func nonNilCaseCompareArtifactHashes(items []model.CaseCompareArtifactHash) []model.CaseCompareArtifactHash {
+	if items == nil {
+		return []model.CaseCompareArtifactHash{}
+	}
+	out := make([]model.CaseCompareArtifactHash, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Role) == "" && strings.TrimSpace(item.Source) == "" && strings.TrimSpace(item.SHA256) == "" && item.SizeBytes == 0 {
+			continue
+		}
+		out = append(out, item)
+	}
+	if out == nil {
+		return []model.CaseCompareArtifactHash{}
+	}
+	return out
 }
 
 func caseCompareClosureReceiptSummary(item model.CaseCompareResult) string {
@@ -1648,6 +1685,16 @@ func renderCaseCompareClosureReceipts(w io.Writer, receipts []model.CaseCompareC
 		}
 		if len(receipt.ArtifactSources) > 0 {
 			fmt.Fprintf(w, "    artifacts: %s\n", strings.Join(firstStrings(receipt.ArtifactSources, 2), " -> "))
+		}
+		if len(receipt.ArtifactHashes) > 0 {
+			for _, artifact := range receipt.ArtifactHashes {
+				fmt.Fprintf(w, "    artifact hash: %s %s sha256:%s bytes:%d\n",
+					firstNonEmpty(artifact.Role, "artifact"),
+					firstNonEmpty(artifact.Source, "<source>"),
+					artifact.SHA256,
+					artifact.SizeBytes,
+				)
+			}
 		}
 		if receipt.RemainingAction != "" {
 			fmt.Fprintf(w, "    remaining action: %s\n", receipt.RemainingAction)

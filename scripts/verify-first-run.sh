@@ -1135,6 +1135,8 @@ expect_contains "$compare_receipt" "Closure receipts:"
 expect_contains "$compare_receipt" "Egress And Output Boundary (case:egress-output-boundary): open -> closed / proof closed"
 expect_contains "$compare_receipt" "control evidence:"
 expect_contains "$compare_receipt" "evidence source:"
+expect_contains "$compare_receipt" "artifact hash:"
+expect_contains "$compare_receipt" "sha256:"
 expect_contains "$compare_receipt" "remaining action: No remaining action for this case"
 expect_contains "$compare_receipt" "Limits:"
 
@@ -1145,6 +1147,9 @@ expect_contains "$compare_json" '"closure_receipts"'
 expect_contains "$compare_json" '"receipt_id": "closure-receipt:case:egress-output-boundary"'
 expect_contains "$compare_json" '"proof_status": "proof_closed"'
 expect_contains "$compare_json" '"artifact_sources"'
+expect_contains "$compare_json" '"artifact_hashes"'
+expect_contains "$compare_json" '"sha256"'
+expect_contains "$compare_json" '"size_bytes"'
 expect_contains "$compare_json" '"proof_patches_before": 5'
 expect_contains "$compare_json" '"proof_patches_after": 0'
 expect_contains "$compare_json" '"added_evidence_sources"'

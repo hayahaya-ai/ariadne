@@ -1074,6 +1074,9 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
 		"control evidence: control:input-isolation; control:trusted-source-policy",
 		"evidence source: .ariadne/input-policy.json",
+		"artifact hash: before",
+		"artifact hash: after",
+		"sha256:",
 		"remaining action: No remaining action for this case",
 		"Limits:",
 	} {
@@ -1089,6 +1092,9 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		`"closure_receipts"`,
 		`"receipt_id": "closure-receipt:case:input-trust-boundary"`,
 		`"proof_status": "proof_closed"`,
+		`"artifact_hashes"`,
+		`"sha256"`,
+		`"size_bytes"`,
 		`"proof_verdict"`,
 		`"status": "proof_closed"`,
 		`"remaining_action": "No remaining action for this case`,
@@ -1114,6 +1120,8 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"closed",
 		".ariadne/input-policy.json",
 		"closure-receipt.txt",
+		"Artifact hashes",
+		"sha256:",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("compare HTML missing %q:\n%s", want, html)
