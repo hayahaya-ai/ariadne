@@ -628,7 +628,7 @@ expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
 
-for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json dashboard.html inventory-coverage.txt inventory.json cases.txt cases.json case-action.txt case-action.json proof-action.txt proof-plan.json README.md manifest.json; do
+for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json dashboard.html inventory-coverage.txt inventory.json llm-follow-up-request.txt llm-follow-up-request.json llm-inventory-blind-request.txt llm-inventory-blind-request.json cases.txt cases.json case-action.txt case-action.json proof-action.txt proof-plan.json README.md manifest.json; do
   if [ ! -f "$self_bundle/$bundle_file" ]; then
     echo "missing self bundle file: $self_bundle/$bundle_file" >&2
     echo "artifacts left in: $workdir" >&2
@@ -647,6 +647,10 @@ expect_contains "$self_bundle/README.md" "operator-packet.json"
 expect_contains "$self_bundle/README.md" "case-action.txt"
 expect_contains "$self_bundle/README.md" "case-action.json"
 expect_contains "$self_bundle/README.md" "inventory-coverage.txt"
+expect_contains "$self_bundle/README.md" "llm-follow-up-request.txt"
+expect_contains "$self_bundle/README.md" "llm-follow-up-request.json"
+expect_contains "$self_bundle/README.md" "llm-inventory-blind-request.txt"
+expect_contains "$self_bundle/README.md" "llm-inventory-blind-request.json"
 expect_contains "$self_bundle/README.md" "dashboard.html"
 expect_contains "$self_bundle/README.md" "proof-action.txt"
 expect_contains "$self_bundle/README.md" "--patch-dir proof-patches"
@@ -654,6 +658,8 @@ expect_contains "$self_bundle/README.md" "ariadne compare --before before-proof.
 expect_contains "$self_bundle/README.md" "ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html"
 expect_contains "$self_bundle/README.md" "Limits And Privacy"
 expect_contains "$self_bundle/README.md" "does not execute agents"
+expect_contains "$self_bundle/README.md" "optional reviewer follow-up"
+expect_contains "$self_bundle/README.md" "lower-bias hypothesis"
 expect_contains "$self_bundle/README.md" "case:identity-credentials"
 expect_contains "$self_bundle/assessment.json" '"run_kind": "assess"'
 expect_contains "$self_bundle/assessment.json" '"signal_quality"'
@@ -749,6 +755,46 @@ expect_contains "$self_bundle/inventory-coverage.txt" "copilot"
 expect_contains "$self_bundle/inventory-coverage.txt" "gemini"
 expect_contains "$self_bundle/inventory-coverage.txt" "roo"
 expect_contains "$self_bundle/inventory-coverage.txt" "coverage is inventory only; it does not classify exposure"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "Ariadne Review Packet"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "Profile: follow_up"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "Packet JSON:"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "llm-follow-up-request.json"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "Ingestible as findings: yes"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "Evidence available:"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "Reviewer tasks:"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "review_top_exposures"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "Forbidden claims:"
+expect_contains "$self_bundle/llm-follow-up-request.txt" "ariadne prove --interpret llm --llm-review <file>"
+expect_contains "$self_bundle/llm-follow-up-request.json" '"schema_version": "ariadne.llm_review_request/v1"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"review_profile": "follow_up"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"review_contract"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"reviewer_tasks"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"citation_catalog"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"required_citations"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"exposure_ids"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"source_refs"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"graph_edges"'
+expect_contains "$self_bundle/llm-follow-up-request.json" '"canary_values_included": false'
+expect_not_contains "$self_bundle/llm-follow-up-request.json" "DO_NOT_LEAK"
+expect_not_contains "$self_bundle/llm-follow-up-request.json" "FAKE_SECRET"
+expect_contains "$self_bundle/llm-inventory-blind-request.txt" "Ariadne Review Packet"
+expect_contains "$self_bundle/llm-inventory-blind-request.txt" "Profile: inventory_blind"
+expect_contains "$self_bundle/llm-inventory-blind-request.txt" "Packet JSON:"
+expect_contains "$self_bundle/llm-inventory-blind-request.txt" "llm-inventory-blind-request.json"
+expect_contains "$self_bundle/llm-inventory-blind-request.txt" "Ingestible as findings: no; request-only"
+expect_contains "$self_bundle/llm-inventory-blind-request.txt" "Map any hypothesis back"
+expect_contains "$self_bundle/llm-inventory-blind-request.txt" "Rerun deterministic Ariadne commands"
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"schema_version": "ariadne.llm_review_request/v1"'
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"review_profile": "inventory_blind"'
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"exposures": []'
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"mode": "not_included"'
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"issues": []'
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"exposure_ids": []'
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"fact_ids"'
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"Final Ariadne findings, accepted issue priorities, or exposure classifications."'
+expect_contains "$self_bundle/llm-inventory-blind-request.json" '"canary_values_included": false'
+expect_not_contains "$self_bundle/llm-inventory-blind-request.json" "DO_NOT_LEAK"
+expect_not_contains "$self_bundle/llm-inventory-blind-request.json" "FAKE_SECRET"
 expect_contains "$managed_inventory" '.github/workflows/ai-review.yml'
 expect_contains "$managed_inventory" '.gitlab-ci.yml'
 expect_contains "$managed_inventory" '"gitlab-ci"'
@@ -829,6 +875,10 @@ expect_contains "$self_bundle/manifest.json" '"name": "runbook.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "inventory-coverage.txt"'
+expect_contains "$self_bundle/manifest.json" '"name": "llm-follow-up-request.txt"'
+expect_contains "$self_bundle/manifest.json" '"name": "llm-follow-up-request.json"'
+expect_contains "$self_bundle/manifest.json" '"name": "llm-inventory-blind-request.txt"'
+expect_contains "$self_bundle/manifest.json" '"name": "llm-inventory-blind-request.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "case-action.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "case-action.json"'
 expect_contains "$self_bundle/manifest.json" '"size_bytes"'

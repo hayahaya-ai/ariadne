@@ -619,6 +619,10 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"dashboard.html",
 		"inventory-coverage.txt",
 		"inventory.json",
+		"llm-follow-up-request.txt",
+		"llm-follow-up-request.json",
+		"llm-inventory-blind-request.txt",
+		"llm-inventory-blind-request.json",
 		"cases.txt",
 		"cases.json",
 		"case-action.txt",
@@ -661,6 +665,10 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"case-action.txt",
 		"case-action.json",
 		"inventory-coverage.txt",
+		"llm-follow-up-request.txt",
+		"llm-follow-up-request.json",
+		"llm-inventory-blind-request.txt",
+		"llm-inventory-blind-request.json",
 		"dashboard.html",
 		"proof-action.txt",
 		"What This Bundle Answers",
@@ -674,6 +682,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"does not execute agents",
 		"closure-receipt.txt",
 		"case-compare.html",
+		"optional reviewer follow-up",
+		"lower-bias hypothesis",
 		"manifest.json",
 		"SHA-256",
 		"case:identity-credentials",
@@ -855,6 +865,80 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		}
 	}
 
+	llmFollowUpSummary := readTestFile(t, filepath.Join(bundleDir, "llm-follow-up-request.txt"))
+	for _, want := range []string{
+		"Ariadne Review Packet",
+		"Profile: follow_up",
+		"Packet JSON:",
+		"llm-follow-up-request.json",
+		"Ingestible as findings: yes",
+		"Evidence available:",
+		"Reviewer tasks:",
+		"review_top_exposures",
+		"Forbidden claims:",
+		"ariadne prove --interpret llm --llm-review <file>",
+	} {
+		if !strings.Contains(llmFollowUpSummary, want) {
+			t.Fatalf("self bundle follow-up LLM summary missing %q:\n%s", want, llmFollowUpSummary)
+		}
+	}
+
+	llmFollowUpJSON := readTestFile(t, filepath.Join(bundleDir, "llm-follow-up-request.json"))
+	for _, want := range []string{
+		`"schema_version": "ariadne.llm_review_request/v1"`,
+		`"review_profile": "follow_up"`,
+		`"review_contract"`,
+		`"reviewer_tasks"`,
+		`"citation_catalog"`,
+		`"required_citations"`,
+		`"exposure_ids"`,
+		`"source_refs"`,
+		`"graph_edges"`,
+		`"canary_values_included": false`,
+	} {
+		if !strings.Contains(llmFollowUpJSON, want) {
+			t.Fatalf("self bundle follow-up LLM JSON missing %q:\n%s", want, llmFollowUpJSON)
+		}
+	}
+	if strings.Contains(llmFollowUpJSON, "DO_NOT_LEAK") || strings.Contains(llmFollowUpJSON, "FAKE_SECRET") {
+		t.Fatalf("self bundle follow-up LLM JSON leaked fake sensitive value:\n%s", llmFollowUpJSON)
+	}
+
+	llmBlindSummary := readTestFile(t, filepath.Join(bundleDir, "llm-inventory-blind-request.txt"))
+	for _, want := range []string{
+		"Ariadne Review Packet",
+		"Profile: inventory_blind",
+		"Packet JSON:",
+		"llm-inventory-blind-request.json",
+		"Ingestible as findings: no; request-only",
+		"Map any hypothesis back",
+		"Rerun deterministic Ariadne commands",
+	} {
+		if !strings.Contains(llmBlindSummary, want) {
+			t.Fatalf("self bundle inventory-blind LLM summary missing %q:\n%s", want, llmBlindSummary)
+		}
+	}
+
+	llmBlindJSON := readTestFile(t, filepath.Join(bundleDir, "llm-inventory-blind-request.json"))
+	for _, want := range []string{
+		`"schema_version": "ariadne.llm_review_request/v1"`,
+		`"review_profile": "inventory_blind"`,
+		`"exposures": []`,
+		`"mode": "not_included"`,
+		`"issues": []`,
+		`"exposure_ids": []`,
+		`"fact_ids"`,
+		`"Final Ariadne findings, accepted issue priorities, or exposure classifications."`,
+		`"canary_values_included": false`,
+	} {
+		if !strings.Contains(llmBlindJSON, want) {
+			t.Fatalf("self bundle inventory-blind LLM JSON missing %q:\n%s", want, llmBlindJSON)
+		}
+	}
+	if strings.Contains(llmBlindJSON, "DO_NOT_LEAK") || strings.Contains(llmBlindJSON, "FAKE_SECRET") {
+		t.Fatalf("self bundle inventory-blind LLM JSON leaked fake sensitive value:\n%s", llmBlindJSON)
+	}
+
 	dashboard := readTestFile(t, filepath.Join(bundleDir, "dashboard.html"))
 	for _, want := range []string{
 		"Ariadne Assessment",
@@ -954,6 +1038,10 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"name": "operator-packet.txt"`,
 		`"name": "operator-packet.json"`,
 		`"name": "inventory-coverage.txt"`,
+		`"name": "llm-follow-up-request.txt"`,
+		`"name": "llm-follow-up-request.json"`,
+		`"name": "llm-inventory-blind-request.txt"`,
+		`"name": "llm-inventory-blind-request.json"`,
 		`"name": "case-action.txt"`,
 		`"name": "case-action.json"`,
 		`"name": "proof-action.txt"`,
@@ -973,6 +1061,15 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	operatorPacketJSONHash := fmt.Sprintf("%x", operatorPacketJSONSum[:])
 	if !strings.Contains(manifest, operatorPacketJSONHash) {
 		t.Fatalf("self bundle manifest missing operator-packet.json hash %q:\n%s", operatorPacketJSONHash, manifest)
+	}
+	llmFollowUpJSONBytes, err := os.ReadFile(filepath.Join(bundleDir, "llm-follow-up-request.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	llmFollowUpJSONSum := sha256.Sum256(llmFollowUpJSONBytes)
+	llmFollowUpJSONHash := fmt.Sprintf("%x", llmFollowUpJSONSum[:])
+	if !strings.Contains(manifest, llmFollowUpJSONHash) {
+		t.Fatalf("self bundle manifest missing llm-follow-up-request.json hash %q:\n%s", llmFollowUpJSONHash, manifest)
 	}
 }
 

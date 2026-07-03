@@ -193,7 +193,7 @@ func runSelf(args []string) {
 	}
 	focus := report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID}
 	if *bundleDir != "" {
-		exported, err := writeSelfAssessmentBundle(*bundleDir, inventory, r, *status, focus)
+		exported, err := writeSelfAssessmentBundle(*bundleDir, inventory, r, *status, focus, *rulesPath, *includeSensitive)
 		if err != nil {
 			fatal(err)
 		}
@@ -225,6 +225,15 @@ type selfAssessmentBundleFile struct {
 	Description string `json:"description"`
 	SizeBytes   int64  `json:"size_bytes,omitempty"`
 	SHA256      string `json:"sha256,omitempty"`
+}
+
+type selfAssessmentLLMReviewPackets struct {
+	FollowUp        model.LLMReviewRequest
+	FollowUpPayload []byte
+	FollowUpDigest  string
+	Blind           model.LLMReviewRequest
+	BlindPayload    []byte
+	BlindDigest     string
 }
 
 type closureWorkspaceResult struct {
@@ -264,7 +273,7 @@ type closureWorkspacePatchFile struct {
 	PatchCount           int      `json:"patch_count"`
 }
 
-func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r model.Report, status string, focus report.AssessFocus) (selfAssessmentBundleResult, error) {
+func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r model.Report, status string, focus report.AssessFocus, rulesPath string, includeSensitive bool) (selfAssessmentBundleResult, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		return selfAssessmentBundleResult{}, fmt.Errorf("--bundle-dir requires a directory")
@@ -281,6 +290,10 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		return selfAssessmentBundleResult{}, err
 	}
 	topCaseID := selfAssessmentBundleCaseID(assess, focus)
+	reviewPackets, err := buildSelfAssessmentLLMReviewPackets(r.TargetPath, r.Story.Mode, r.Story.Runtime, rulesPath, includeSensitive)
+	if err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
 	result := selfAssessmentBundleResult{
 		Directory:     absDir,
 		TargetPath:    r.TargetPath,
@@ -303,6 +316,10 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 			{Name: "dashboard.html", Path: filepath.Join(absDir, "dashboard.html"), Description: "Local operator dashboard with the same assessment evidence."},
 			{Name: "inventory-coverage.txt", Path: filepath.Join(absDir, "inventory-coverage.txt"), Description: "Compact fact-only AI runtime coverage matrix."},
 			{Name: "inventory.json", Path: filepath.Join(absDir, "inventory.json"), Description: "Deterministic AI surface inventory facts without exposure classification."},
+			{Name: "llm-follow-up-request.txt", Path: filepath.Join(absDir, "llm-follow-up-request.txt"), Description: "Fact-bound optional reviewer packet summary for Ariadne exposure IDs and graph evidence."},
+			{Name: "llm-follow-up-request.json", Path: filepath.Join(absDir, "llm-follow-up-request.json"), Description: "Redacted optional reviewer packet; ingestible only after review-check validates returned findings against Ariadne evidence."},
+			{Name: "llm-inventory-blind-request.txt", Path: filepath.Join(absDir, "llm-inventory-blind-request.txt"), Description: "Lower-bias optional reviewer packet summary for hypotheses and collector-gap review."},
+			{Name: "llm-inventory-blind-request.json", Path: filepath.Join(absDir, "llm-inventory-blind-request.json"), Description: "Request-only blind inventory packet; hypotheses must be mapped back to deterministic facts before becoming findings."},
 			{Name: "cases.txt", Path: filepath.Join(absDir, "cases.txt"), Description: "Operator case board showing the prioritized closure work."},
 			{Name: "cases.json", Path: filepath.Join(absDir, "cases.json"), Description: "Structured operator case board."},
 			{Name: "case-action.txt", Path: filepath.Join(absDir, "case-action.txt"), Description: "Focused first-case action handoff for the current operator case."},
@@ -372,6 +389,26 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
+	if err := add("llm-follow-up-request.txt", true, func(w io.Writer) error {
+		return report.RenderLLMReviewRequestSummary(w, reviewPackets.FollowUp, reviewPackets.FollowUpDigest, filepath.Join(absDir, "llm-follow-up-request.json"))
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("llm-follow-up-request.json", true, func(w io.Writer) error {
+		return writeJSONPayload(w, reviewPackets.FollowUpPayload)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("llm-inventory-blind-request.txt", true, func(w io.Writer) error {
+		return report.RenderLLMReviewRequestSummary(w, reviewPackets.Blind, reviewPackets.BlindDigest, filepath.Join(absDir, "llm-inventory-blind-request.json"))
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("llm-inventory-blind-request.json", true, func(w io.Writer) error {
+		return writeJSONPayload(w, reviewPackets.BlindPayload)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
 	if err := add("cases.txt", true, func(w io.Writer) error {
 		return report.RenderCases(w, r, "table", status, focus.CaseFilter)
 	}); err != nil {
@@ -416,6 +453,36 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 		return selfAssessmentBundleResult{}, err
 	}
 	return result, nil
+}
+
+func buildSelfAssessmentLLMReviewPackets(targetPath string, mode string, agent string, rulesPath string, includeSensitive bool) (selfAssessmentLLMReviewPackets, error) {
+	opts := prove.Options{
+		Path:                  targetPath,
+		Agent:                 selfBundleFirstNonEmpty(agent, "all"),
+		Mode:                  selfBundleFirstNonEmpty(mode, "endpoint"),
+		RulesPath:             rulesPath,
+		IncludeSensitivePaths: includeSensitive,
+	}
+	followUpOpts := opts
+	followUpOpts.LLMReviewProfile = "follow-up"
+	followUp, followUpPayload, followUpDigest, err := prove.RunReviewPacket(followUpOpts)
+	if err != nil {
+		return selfAssessmentLLMReviewPackets{}, err
+	}
+	blindOpts := opts
+	blindOpts.LLMReviewProfile = "inventory-blind"
+	blind, blindPayload, blindDigest, err := prove.RunReviewPacket(blindOpts)
+	if err != nil {
+		return selfAssessmentLLMReviewPackets{}, err
+	}
+	return selfAssessmentLLMReviewPackets{
+		FollowUp:        followUp,
+		FollowUpPayload: followUpPayload,
+		FollowUpDigest:  followUpDigest,
+		Blind:           blind,
+		BlindPayload:    blindPayload,
+		BlindDigest:     blindDigest,
+	}, nil
 }
 
 func writeClosureWorkspace(dir string, r model.Report, assess model.AssessReport, plan model.ProofPlanReport, status string, caseID string) (closureWorkspaceResult, error) {
@@ -618,6 +685,8 @@ func selfAssessmentBundleReviewOrder() []string {
 		"Use `case-action.txt` for the focused first-case handoff and `case-action.json` for the same case action in a compact automation contract.",
 		"Open `dashboard.html` for the operator dashboard with evidence links, proof bundle rows, lifecycle, and case queue.",
 		"Use `inventory-coverage.txt` to see which AI runtimes and managed-agent surfaces were discovered, parsed, summarized, or skipped.",
+		"Use `llm-follow-up-request.json` for optional reviewer follow-up over Ariadne exposure IDs; validate any returned review with `ariadne review-check` before ingesting it.",
+		"Use `llm-inventory-blind-request.json` for lower-bias hypothesis or collector-gap review; it is request-only until hypotheses are mapped back to deterministic facts, source refs, and graph edges.",
 		"Use `proof-action.txt` to inspect the exact proof evidence Ariadne expects for the focused case.",
 		"Use `proof-plan.json`, `assessment.json`, `inventory.json`, and `cases.json` for broader automation, ticket metadata, or deeper review.",
 		"Run the proof loop commands below only after reviewing generated proof evidence and deciding what should be applied; use `closure-receipt.txt` as the ticket-ready closure readout.",
@@ -733,6 +802,14 @@ func writeRenderedFile(path string, render func(io.Writer) error) error {
 	return render(file)
 }
 
+func writeJSONPayload(w io.Writer, payload []byte) error {
+	if _, err := w.Write(payload); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, "\n")
+	return err
+}
+
 func selfAssessmentBundleReadme(result selfAssessmentBundleResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Ariadne Self-Assessment Bundle\n\n")
@@ -839,6 +916,8 @@ func renderSelfAssessmentBundleSummary(w io.Writer, result selfAssessmentBundleR
 	fmt.Fprintf(w, "Operator packet: %s\n", filepath.Join(result.Directory, "operator-packet.txt"))
 	fmt.Fprintf(w, "Operator packet JSON: %s\n", filepath.Join(result.Directory, "operator-packet.json"))
 	fmt.Fprintf(w, "Dashboard: %s\n", filepath.Join(result.Directory, "dashboard.html"))
+	fmt.Fprintf(w, "LLM follow-up packet: %s\n", filepath.Join(result.Directory, "llm-follow-up-request.json"))
+	fmt.Fprintf(w, "LLM inventory-blind packet: %s\n", filepath.Join(result.Directory, "llm-inventory-blind-request.json"))
 	fmt.Fprintf(w, "Proof action: %s\n", filepath.Join(result.Directory, "proof-action.txt"))
 }
 
