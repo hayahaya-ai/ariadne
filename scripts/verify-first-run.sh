@@ -92,6 +92,7 @@ cases_txt="$workdir/cases.txt"
 cases_action="$workdir/cases-action.txt"
 proofs_action="$workdir/proofs-action.txt"
 closure_dir="$workdir/ariadne-closure"
+closure_verify="$workdir/closure-bundle-verify.txt"
 llm_request="$workdir/llm-request.json"
 llm_request_summary="$workdir/llm-request-summary.txt"
 llm_blind_request="$workdir/llm-request-inventory-blind.json"
@@ -119,6 +120,7 @@ chmod +x "$llm_reviewer"
 "$bin" cases --path "$fixture" --case case:input-trust-boundary --format action --out "$cases_action"
 "$bin" proofs --path "$fixture" --case case:input-trust-boundary --format action --out "$proofs_action"
 "$bin" closure --path "$fixture" --case case:egress-output-boundary --dir "$closure_dir"
+"$bin" bundle verify --dir "$closure_dir" --out "$closure_verify"
 "$bin" review-packet --path "$fixture" --profile follow-up --packet-out "$llm_request" --out "$llm_request_summary"
 "$bin" review-packet --path "$fixture" --profile inventory-blind --format json --out "$llm_blind_request"
 "$bin" review-check --packet "$llm_request" --review "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" --out "$llm_review_check"
@@ -581,6 +583,11 @@ expect_contains "$closure_dir/before-proof.json" '"run_kind": "proof_plan"'
 expect_contains "$closure_dir/before-proof.json" '"case_filter": "case:egress-output-boundary"'
 expect_contains "$closure_dir/runbook.txt" "Ariadne Operator Runbook"
 expect_contains "$closure_dir/proof-plan.html" "Ariadne Proof Plan"
+expect_contains "$closure_verify" "Ariadne Bundle Verify"
+expect_contains "$closure_verify" "Status: ok"
+expect_contains "$closure_verify" "Failed: 0"
+expect_contains "$closure_verify" "proof-patches/manifest.json"
+expect_contains "$closure_verify" "SKIPPED manifest.json: no sha256 recorded in manifest"
 
 expect_contains "$proofs_action" "Ariadne Proof Action"
 expect_contains "$proofs_action" "Evidence files:"
@@ -599,8 +606,12 @@ managed_inventory="$workdir/managed-workflow-inventory.json"
 self_summary="$workdir/self-summary.txt"
 self_html="$workdir/self.html"
 self_bundle="$workdir/ariadne-self"
+self_bundle_verify="$workdir/self-bundle-verify.txt"
+self_bundle_verify_json="$workdir/self-bundle-verify.json"
 
 "$bin" self --path "$endpoint_fixture" --bundle-dir "$self_bundle" --out "$self_summary"
+"$bin" bundle verify --dir "$self_bundle" --out "$self_bundle_verify"
+"$bin" bundle verify --dir "$self_bundle" --format json --out "$self_bundle_verify_json"
 "$bin" self --path "$endpoint_fixture" --format html --out "$self_html"
 "$bin" assess --path "$endpoint_fixture" --mode endpoint --format action --out "$endpoint_action"
 "$bin" assess --path "$endpoint_fixture" --mode endpoint --format operator --out "$endpoint_operator"
@@ -908,6 +919,18 @@ expect_contains "$self_bundle/manifest.json" '"review_order"'
 expect_contains "$self_bundle/manifest.json" '"proof_loop"'
 expect_contains "$self_bundle/manifest.json" "--patch-dir proof-patches"
 expect_contains "$self_bundle/manifest.json" '"limitations"'
+expect_contains "$self_bundle_verify" "Ariadne Bundle Verify"
+expect_contains "$self_bundle_verify" "Status: ok"
+expect_contains "$self_bundle_verify" "Files checked:"
+expect_contains "$self_bundle_verify" "Failed: 0"
+expect_contains "$self_bundle_verify" "llm-follow-up-request.json"
+expect_contains "$self_bundle_verify" "SKIPPED manifest.json: no sha256 recorded in manifest"
+expect_contains "$self_bundle_verify_json" '"run_kind": "bundle_verify"'
+expect_contains "$self_bundle_verify_json" '"status": "ok"'
+expect_contains "$self_bundle_verify_json" '"failed": 0'
+expect_contains "$self_bundle_verify_json" '"name": "assessment.txt"'
+expect_contains "$self_bundle_verify_json" '"name": "manifest.json"'
+expect_contains "$self_bundle_verify_json" '"status": "skipped"'
 
 expect_contains "$endpoint_action" "What was inspected:"
 expect_contains "$endpoint_action" "Decision:"

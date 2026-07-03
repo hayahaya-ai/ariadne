@@ -43,6 +43,8 @@ func main() {
 		runCompare(os.Args[2:])
 	case "closure":
 		runClosure(os.Args[2:])
+	case "bundle":
+		runBundle(os.Args[2:])
 	case "inventory":
 		runInventory(os.Args[2:])
 	case "review-packet":
@@ -225,6 +227,37 @@ type selfAssessmentBundleFile struct {
 	Description string `json:"description"`
 	SizeBytes   int64  `json:"size_bytes,omitempty"`
 	SHA256      string `json:"sha256,omitempty"`
+}
+
+type bundleVerifyManifest struct {
+	Directory string                     `json:"directory"`
+	Files     []selfAssessmentBundleFile `json:"files"`
+}
+
+type bundleVerifyReport struct {
+	SchemaVersion string                   `json:"schema_version"`
+	RunKind       string                   `json:"run_kind"`
+	GeneratedAt   time.Time                `json:"generated_at"`
+	ManifestPath  string                   `json:"manifest_path"`
+	Directory     string                   `json:"directory"`
+	Status        string                   `json:"status"`
+	FilesChecked  int                      `json:"files_checked"`
+	Passed        int                      `json:"passed"`
+	Failed        int                      `json:"failed"`
+	Skipped       int                      `json:"skipped"`
+	Results       []bundleVerifyFileResult `json:"results"`
+	Limitations   []string                 `json:"limitations"`
+}
+
+type bundleVerifyFileResult struct {
+	Name              string `json:"name"`
+	Path              string `json:"path,omitempty"`
+	Status            string `json:"status"`
+	Reason            string `json:"reason,omitempty"`
+	ExpectedSizeBytes int64  `json:"expected_size_bytes,omitempty"`
+	ActualSizeBytes   int64  `json:"actual_size_bytes,omitempty"`
+	ExpectedSHA256    string `json:"expected_sha256,omitempty"`
+	ActualSHA256      string `json:"actual_sha256,omitempty"`
 }
 
 type selfAssessmentLLMReviewPackets struct {
@@ -1026,6 +1059,228 @@ func renderClosureWorkspaceSummary(w io.Writer, result closureWorkspaceResult) {
 	fmt.Fprintf(w, "Guide: %s\n", filepath.Join(result.Directory, "README.md"))
 }
 
+func runBundle(args []string) {
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		bundleUsage(os.Stdout)
+		return
+	}
+	switch args[0] {
+	case "verify":
+		runBundleVerify(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown bundle command: %s\n\n", args[0])
+		bundleUsage(os.Stderr)
+		os.Exit(2)
+	}
+}
+
+func runBundleVerify(args []string) {
+	fs := flag.NewFlagSet("bundle verify", flag.ExitOnError)
+	dir := fs.String("dir", ".", "bundle directory containing manifest.json")
+	manifestPath := fs.String("manifest", "", "explicit bundle manifest path")
+	format := fs.String("format", "summary", "output format: summary, json")
+	outPath := fs.String("out", "", "write output to file")
+	fs.Parse(args)
+	verify, err := buildBundleVerifyReport(*manifestPath, *dir)
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	if err := renderBundleVerifyReport(writer, verify, *format); err != nil {
+		closeFn()
+		fatal(err)
+	}
+	closeFn()
+	if verify.Status != "ok" {
+		os.Exit(1)
+	}
+}
+
+func bundleUsage(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  ariadne bundle verify --dir ariadne-self
+  ariadne bundle verify --manifest ariadne-self/manifest.json --format json`)
+}
+
+func buildBundleVerifyReport(manifestPath string, dir string) (bundleVerifyReport, error) {
+	manifestPath = strings.TrimSpace(manifestPath)
+	dir = strings.TrimSpace(dir)
+	if manifestPath == "" {
+		if dir == "" {
+			dir = "."
+		}
+		manifestPath = filepath.Join(dir, "manifest.json")
+	}
+	absManifest, err := filepath.Abs(manifestPath)
+	if err != nil {
+		absManifest = manifestPath
+	}
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return bundleVerifyReport{}, err
+	}
+	var manifest bundleVerifyManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return bundleVerifyReport{}, err
+	}
+	baseDir := strings.TrimSpace(dir)
+	if baseDir == "" || baseDir == "." {
+		baseDir = filepath.Dir(absManifest)
+	}
+	if absBaseDir, err := filepath.Abs(baseDir); err == nil {
+		baseDir = absBaseDir
+	}
+	report := bundleVerifyReport{
+		SchemaVersion: model.SchemaVersion,
+		RunKind:       "bundle_verify",
+		GeneratedAt:   time.Now().UTC(),
+		ManifestPath:  absManifest,
+		Directory:     baseDir,
+		Status:        "ok",
+		Limitations: []string{
+			"Bundle verification checks generated artifact sizes and SHA-256 hashes recorded in manifest.json.",
+			"Files without a manifest hash are skipped; manifest.json is intentionally not self-hashed by generated bundles.",
+			"Verification does not inspect original target files or prove live runtime enforcement.",
+		},
+	}
+	for _, file := range manifest.Files {
+		result := verifyBundleManifestFile(baseDir, file)
+		report.Results = append(report.Results, result)
+		switch result.Status {
+		case "ok":
+			report.Passed++
+			report.FilesChecked++
+		case "skipped":
+			report.Skipped++
+		default:
+			report.Failed++
+			report.FilesChecked++
+		}
+	}
+	if report.Failed > 0 {
+		report.Status = "failed"
+	}
+	return report, nil
+}
+
+func verifyBundleManifestFile(baseDir string, file selfAssessmentBundleFile) bundleVerifyFileResult {
+	result := bundleVerifyFileResult{
+		Name:              file.Name,
+		Path:              bundleVerifyResolveFilePath(baseDir, file),
+		ExpectedSizeBytes: file.SizeBytes,
+		ExpectedSHA256:    file.SHA256,
+	}
+	if strings.TrimSpace(file.SHA256) == "" {
+		result.Status = "skipped"
+		result.Reason = "no sha256 recorded in manifest"
+		return result
+	}
+	info, err := os.Stat(result.Path)
+	if err != nil {
+		result.Status = "missing"
+		result.Reason = err.Error()
+		return result
+	}
+	if info.IsDir() {
+		result.Status = "failed"
+		result.Reason = "expected file but found directory"
+		return result
+	}
+	contents, err := os.ReadFile(result.Path)
+	if err != nil {
+		result.Status = "failed"
+		result.Reason = err.Error()
+		return result
+	}
+	result.ActualSizeBytes = info.Size()
+	sum := sha256.Sum256(contents)
+	result.ActualSHA256 = fmt.Sprintf("%x", sum[:])
+	var reasons []string
+	if file.SizeBytes != 0 && info.Size() != file.SizeBytes {
+		reasons = append(reasons, "size mismatch")
+	}
+	if !strings.EqualFold(result.ActualSHA256, strings.TrimSpace(file.SHA256)) {
+		reasons = append(reasons, "sha256 mismatch")
+	}
+	if len(reasons) > 0 {
+		result.Status = "failed"
+		result.Reason = strings.Join(reasons, "; ")
+		return result
+	}
+	result.Status = "ok"
+	return result
+}
+
+func bundleVerifyResolveFilePath(baseDir string, file selfAssessmentBundleFile) string {
+	name := filepath.FromSlash(strings.TrimSpace(file.Name))
+	if name != "" {
+		candidate := filepath.Join(baseDir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	if strings.TrimSpace(file.Path) != "" {
+		return file.Path
+	}
+	return filepath.Join(baseDir, name)
+}
+
+func renderBundleVerifyReport(w io.Writer, report bundleVerifyReport, format string) error {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "summary", "table":
+		renderBundleVerifySummary(w, report)
+		return nil
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(report)
+	default:
+		return fmt.Errorf("unknown bundle verify format: %s", format)
+	}
+}
+
+func renderBundleVerifySummary(w io.Writer, report bundleVerifyReport) {
+	fmt.Fprintln(w, "Ariadne Bundle Verify")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Manifest: %s\n", report.ManifestPath)
+	fmt.Fprintf(w, "Directory: %s\n", report.Directory)
+	fmt.Fprintf(w, "Status: %s\n", report.Status)
+	fmt.Fprintf(w, "Files checked: %d\n", report.FilesChecked)
+	fmt.Fprintf(w, "Passed: %d\n", report.Passed)
+	fmt.Fprintf(w, "Failed: %d\n", report.Failed)
+	fmt.Fprintf(w, "Skipped: %d\n", report.Skipped)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Results:")
+	for _, result := range report.Results {
+		line := fmt.Sprintf("  - %s %s", strings.ToUpper(result.Status), result.Name)
+		if result.Reason != "" {
+			line += ": " + result.Reason
+		}
+		if result.ActualSHA256 != "" {
+			line += " sha256:" + shortBundleDigest(result.ActualSHA256)
+		}
+		fmt.Fprintln(w, line)
+	}
+	if len(report.Limitations) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Limitations:")
+		for _, limitation := range report.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+}
+
+func shortBundleDigest(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 12 {
+		return value
+	}
+	return value[:12]
+}
+
 func runCases(args []string) {
 	fs := flag.NewFlagSet("cases", flag.ExitOnError)
 	targetsFile := fs.String("targets", "", "file of operator case targets, one path per line or id,path")
@@ -1753,6 +2008,7 @@ Commands:
   controls       Show missing hard-barrier controls and where to prove them
   compare        Compare two Ariadne JSON reports and show case state changes
   closure        Create a local before/change/after/compare closure workspace
+  bundle         Verify generated bundle manifests and file hashes
   inventory      Collect deterministic AI surface facts without classifying exposure
   review-packet  Create a fact-bound review packet for human or LLM inspection
   review-check   Validate a reviewer response against an exact review packet
@@ -1792,6 +2048,8 @@ Examples:
   ariadne proofs --path . --case case:input-trust-boundary --format html --out proof-plan.html
   ariadne proofs --path . --case case:input-trust-boundary --patch-dir proof-patches
   ariadne closure --path . --case case:input-trust-boundary --dir ariadne-closure
+  ariadne bundle verify --dir ariadne-self
+  ariadne bundle verify --manifest ariadne-closure/manifest.json --format json
   ariadne compare --before before-proof.json --after after-proof.json
   ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt
   ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html

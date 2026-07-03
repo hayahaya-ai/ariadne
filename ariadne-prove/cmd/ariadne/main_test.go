@@ -1091,6 +1091,61 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	if !strings.Contains(manifest, llmFollowUpJSONHash) {
 		t.Fatalf("self bundle manifest missing llm-follow-up-request.json hash %q:\n%s", llmFollowUpJSONHash, manifest)
 	}
+
+	verifySummaryPath := filepath.Join(root, "bundle-verify.txt")
+	verifyJSONPath := filepath.Join(root, "bundle-verify.json")
+	runBundle([]string{"verify", "--dir", bundleDir, "--out", verifySummaryPath})
+	runBundle([]string{"verify", "--dir", bundleDir, "--format", "json", "--out", verifyJSONPath})
+	verifySummary := readTestFile(t, verifySummaryPath)
+	for _, want := range []string{
+		"Ariadne Bundle Verify",
+		"Status: ok",
+		"Files checked:",
+		"Failed: 0",
+		"SKIPPED manifest.json: no sha256 recorded in manifest",
+		"Limitations:",
+	} {
+		if !strings.Contains(verifySummary, want) {
+			t.Fatalf("bundle verify summary missing %q:\n%s", want, verifySummary)
+		}
+	}
+	verifyJSON := readTestFile(t, verifyJSONPath)
+	for _, want := range []string{
+		`"run_kind": "bundle_verify"`,
+		`"status": "ok"`,
+		`"failed": 0`,
+		`"name": "assessment.txt"`,
+		`"status": "ok"`,
+		`"name": "manifest.json"`,
+		`"status": "skipped"`,
+	} {
+		if !strings.Contains(verifyJSON, want) {
+			t.Fatalf("bundle verify JSON missing %q:\n%s", want, verifyJSON)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(bundleDir, "assessment.txt"), []byte("tampered\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tampered, err := buildBundleVerifyReport(filepath.Join(bundleDir, "manifest.json"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tampered.Status != "failed" || tampered.Failed == 0 {
+		t.Fatalf("tampered bundle status = %s failed=%d, want failed with at least one failed file", tampered.Status, tampered.Failed)
+	}
+	foundTamperedAssessment := false
+	for _, result := range tampered.Results {
+		if result.Name == "assessment.txt" {
+			foundTamperedAssessment = true
+			if result.Status != "failed" || !strings.Contains(result.Reason, "sha256 mismatch") {
+				t.Fatalf("tampered assessment result = %+v, want sha256 mismatch", result)
+			}
+		}
+	}
+	if !foundTamperedAssessment {
+		t.Fatalf("tampered bundle verify did not include assessment.txt result: %+v", tampered.Results)
+	}
 }
 
 func TestRunProofsPatchDirExportsSuggestedFiles(t *testing.T) {

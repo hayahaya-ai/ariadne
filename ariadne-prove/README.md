@@ -106,6 +106,7 @@ Inspect the current repository:
 ```bash
 ./bin/ariadne self
 ./bin/ariadne self --bundle-dir ariadne-self
+./bin/ariadne bundle verify --dir ariadne-self
 ./bin/ariadne self --format html --out ariadne-self.html
 ./bin/ariadne assess --path .
 ./bin/ariadne assess --path . --format runbook
@@ -151,6 +152,7 @@ Run the focused proof loop for one case:
 ./bin/ariadne proofs --path . --case case:input-trust-boundary --format json --out after-proof.json
 ./bin/ariadne compare --before before-proof.json --after after-proof.json --format receipt --out closure-receipt.txt
 ./bin/ariadne compare --before before-proof.json --after after-proof.json --format html --out case-compare.html
+./bin/ariadne bundle verify --dir ariadne-closure
 ```
 
 Export the graph for review or visualization:
@@ -187,6 +189,7 @@ Fleet JSON and next-step readouts preserve the concrete `targets_file` path when
 | Command | Purpose |
 | --- | --- |
 | `ariadne self` | Primary local developer-machine readout. Inspects the current `HOME` in endpoint mode and shows the first operator action. Use `--bundle-dir ariadne-self` to save the durable first-run folder with summary, `runbook.txt`, `runbook.json`, `operator-packet.txt`, `operator-packet.json`, dashboard, inventory, LLM follow-up and inventory-blind review packets, cases, proof action, proof plan, README, and manifest with byte size and SHA-256 metadata for generated payload files. The follow-up packet can be reviewed and then validated with `ariadne review-check`; the inventory-blind packet is request-only until hypotheses are mapped back to deterministic facts, source refs, and graph edges. The bundle dashboard includes an Optional Reviewer Handoff with packet links, validation commands, ingestion guardrails, and done criteria. Use `--format html --out ariadne-self.html` for only the local dashboard; the dashboard includes an Operator Runbook plus a Source Reference Workbench with exact files, lines, facts, copyable paths, and metadata-safe commands for private/history/cache surfaces. |
+| `ariadne bundle verify --dir <bundle>` | Verify a generated self-assessment or closure bundle against its `manifest.json` by recomputing recorded file sizes and SHA-256 hashes. Emits `summary` or `json` and exits non-zero when hashed files are missing or changed. |
 | `ariadne assess --path <dir>` | Primary first-run readout: inspected surfaces, exposure posture, Zero Trust architecture breaks, top operator cases, evidence refs, and next commands. Use `--format runbook` for the action-first operator runbook, `--format runbook-json` for the same runbook with run metadata, `--format operator` for the compact ticket-style handoff, `--format operator-json` for the same packet with run metadata, `--format action` for the fuller current-action workflow, and `--format table` for the full terminal audit trail. |
 | `ariadne assess --targets <file>` | Fleet first-run readout across local or mounted targets, with recurring break paths grouped into operator cases. |
 | `ariadne inventory --path <dir>` | Collect deterministic facts and graph evidence without exposure classification. |
