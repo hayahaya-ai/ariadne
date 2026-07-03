@@ -3722,6 +3722,26 @@ func TestOperatorCaseBoardIsCaseFirst(t *testing.T) {
 			t.Fatalf("operator case action missing %q:\n%s", want, actionOut)
 		}
 	}
+	var actionJSON bytes.Buffer
+	if err := report.RenderCases(&actionJSON, r, "action-json", "breaking", "case:input-trust-boundary"); err != nil {
+		t.Fatal(err)
+	}
+	var decodedAction model.ControlCaseActionReport
+	if err := json.Unmarshal(actionJSON.Bytes(), &decodedAction); err != nil {
+		t.Fatal(err)
+	}
+	if decodedAction.RunKind != "case_action" || decodedAction.SourceRunKind != "case_board" {
+		t.Fatalf("unexpected case action run kind: %+v", decodedAction)
+	}
+	if decodedAction.Case.ID != "case:input-trust-boundary" {
+		t.Fatalf("case action should focus input trust case: %+v", decodedAction.Case)
+	}
+	if decodedAction.ActionPacket.CurrentControl != "control:input-isolation" || decodedAction.ActionPacket.ProofSurface != ".ariadne/input-policy.json" {
+		t.Fatalf("case action should expose current proof target: %+v", decodedAction.ActionPacket)
+	}
+	if len(decodedAction.ActionPacket.OpenFirst) == 0 || len(decodedAction.ActionPacket.Commands) == 0 {
+		t.Fatalf("case action should include open-first refs and commands: %+v", decodedAction.ActionPacket)
+	}
 	topCaseBlock := boundedBlock(t, out, "case:egress-output-boundary", "case:least-agency-authority")
 	for _, want := range []string{
 		"Evidence files:",
@@ -7133,6 +7153,12 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	controlProofPatchField := schemaMap(t, controlCatalogSchema, "$defs", "control_proof_patch_field")
 	assertRequiredKeys(t, controlProofPatchField, "indicator", "name", "value_json")
 
+	caseActionSchema := loadSchema(t, "ariadne-case-action-v1.schema.json")
+	assertRequiredKeys(t, caseActionSchema, "schema_version", "run_id", "generated_at", "run_kind", "source_run_kind", "mode", "agent", "status_filter", "case", "action_packet", "redaction", "limitations")
+	assertSchemaProperty(t, caseActionSchema, "target_path")
+	assertSchemaProperty(t, caseActionSchema, "targets_file")
+	assertSchemaProperty(t, caseActionSchema, "case_filter")
+
 	proofPlanSchema := loadSchema(t, "ariadne-proof-plan-v1.schema.json")
 	assertRequiredKeys(t, proofPlanSchema,
 		"schema_version",
@@ -7340,6 +7366,8 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-v1.schema.json", architecture)
 	controlCatalog := report.BuildControlCatalogReport(architecture)
 	assertJSONHasSchemaRequiredFields(t, "ariadne-control-catalog-v1.schema.json", controlCatalog)
+	caseBoard := report.BuildControlCaseBoardReport(architecture)
+	assertJSONHasSchemaRequiredFields(t, "ariadne-case-action-v1.schema.json", report.BuildControlCaseActionReport(caseBoard))
 	closedRun, err := RunPath(Options{Path: realPathFixture(t, "input-controls")})
 	if err != nil {
 		t.Fatal(err)
@@ -7373,6 +7401,8 @@ func TestArchitectureJSONContainsSchemaRequiredTopLevelFields(t *testing.T) {
 	assertJSONHasSchemaRequiredFields(t, "ariadne-architecture-scan-v1.schema.json", architectureScan)
 	controlCatalogScan := report.BuildControlCatalogScanReport(architectureScan)
 	assertJSONHasSchemaRequiredFields(t, "ariadne-control-catalog-v1.schema.json", controlCatalogScan)
+	caseBoardScan := report.BuildControlCaseBoardScanReport(architectureScan)
+	assertJSONHasSchemaRequiredFields(t, "ariadne-case-action-v1.schema.json", report.BuildControlCaseActionReport(caseBoardScan))
 	assessmentScan, err := report.BuildAssessScanReport(scan, "breaking")
 	if err != nil {
 		t.Fatal(err)

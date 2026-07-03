@@ -677,6 +677,48 @@ func BuildControlCaseBoardReport(r model.ArchitectureReport) model.ControlCatalo
 	return catalog
 }
 
+func BuildControlCaseActionReport(catalog model.ControlCatalogReport) model.ControlCaseActionReport {
+	out := model.ControlCaseActionReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         catalog.RunID,
+		GeneratedAt:   catalog.GeneratedAt,
+		RunKind:       "case_action",
+		SourceRunKind: firstNonEmpty(catalog.RunKind, "case_board"),
+		TargetPath:    catalog.TargetPath,
+		TargetsFile:   catalog.TargetsFile,
+		Mode:          catalog.Mode,
+		Agent:         catalog.Agent,
+		StatusFilter:  catalog.StatusFilter,
+		CaseFilter:    catalog.CaseFilter,
+		Redaction:     catalog.Redaction,
+		Limitations:   nonNilStrings(catalog.Limitations),
+	}
+	if len(catalog.OperatorCases) == 0 {
+		out.ActionPacket = normalizeControlOperatorActionPacket(model.ControlOperatorActionPacket{
+			Available: false,
+			Status:    "no_case",
+			Limitations: []string{
+				"No operator case matched the requested filters.",
+			},
+		})
+		out.Limitations = nonNilStrings(uniqueStrings(append(out.Limitations, out.ActionPacket.Limitations...)))
+		return out
+	}
+	item := catalog.OperatorCases[0]
+	packet := item.ActionPacket
+	if !packet.Available && item.ID != "" {
+		packet = buildControlOperatorActionPacket(catalog, item)
+		item.ActionPacket = packet
+	}
+	out.Case = item
+	out.ActionPacket = normalizeControlOperatorActionPacket(packet)
+	if out.CaseFilter == "" {
+		out.CaseFilter = item.ID
+	}
+	out.Limitations = nonNilStrings(uniqueStrings(append(out.Limitations, out.ActionPacket.Limitations...)))
+	return out
+}
+
 func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanReport {
 	var patches []model.ControlProofPatch
 	var evidenceRefs []model.EvidenceReference
@@ -8517,6 +8559,10 @@ func renderControlCaseBoard(w io.Writer, r model.ControlCatalogReport, format st
 		return renderControlCaseBoardTable(w, r)
 	case "action", "case-action":
 		return renderControlCaseBoardAction(w, r)
+	case "action-json", "case-action-json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(BuildControlCaseActionReport(r))
 	case "json":
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")

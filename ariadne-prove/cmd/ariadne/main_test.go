@@ -189,11 +189,18 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 func TestRunCasesActionFormat(t *testing.T) {
 	root := t.TempDir()
 	actionPath := filepath.Join(root, "case-action.txt")
+	actionJSONPath := filepath.Join(root, "case-action.json")
 	runCases([]string{
 		"--path", filepath.Join("..", "..", "testdata", "realpath", "combined-risk"),
 		"--case", "case:input-trust-boundary",
 		"--format", "action",
 		"--out", actionPath,
+	})
+	runCases([]string{
+		"--path", filepath.Join("..", "..", "testdata", "realpath", "combined-risk"),
+		"--case", "case:input-trust-boundary",
+		"--format", "action-json",
+		"--out", actionJSONPath,
 	})
 	action := readTestFile(t, actionPath)
 	for _, want := range []string{
@@ -212,6 +219,23 @@ func TestRunCasesActionFormat(t *testing.T) {
 	} {
 		if !strings.Contains(action, want) {
 			t.Fatalf("cases action output missing %q:\n%s", want, action)
+		}
+	}
+	actionJSON := readTestFile(t, actionJSONPath)
+	for _, want := range []string{
+		`"run_kind": "case_action"`,
+		`"source_run_kind": "case_board"`,
+		`"case_filter": "case:input-trust-boundary"`,
+		`"case":`,
+		`"id": "case:input-trust-boundary"`,
+		`"action_packet"`,
+		`"current_control": "control:input-isolation"`,
+		`"proof_surface": ".ariadne/input-policy.json"`,
+		`"open_first"`,
+		`"commands"`,
+	} {
+		if !strings.Contains(actionJSON, want) {
+			t.Fatalf("cases action JSON missing %q:\n%s", want, actionJSON)
 		}
 	}
 }
@@ -548,6 +572,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"inventory.json",
 		"cases.txt",
 		"cases.json",
+		"case-action.txt",
+		"case-action.json",
 		"proof-action.txt",
 		"proof-plan.json",
 		"README.md",
@@ -583,6 +609,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		"runbook.json",
 		"operator-packet.txt",
 		"operator-packet.json",
+		"case-action.txt",
+		"case-action.json",
 		"dashboard.html",
 		"proof-action.txt",
 		"What This Bundle Answers",
@@ -716,6 +744,37 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		}
 	}
 
+	caseAction := readTestFile(t, filepath.Join(bundleDir, "case-action.txt"))
+	for _, want := range []string{
+		"Ariadne Case Action",
+		"case:identity-credentials",
+		"Current proof target:",
+		"Open first:",
+		"Action commands:",
+		"Done when:",
+	} {
+		if !strings.Contains(caseAction, want) {
+			t.Fatalf("self bundle case action missing %q:\n%s", want, caseAction)
+		}
+	}
+
+	caseActionJSON := readTestFile(t, filepath.Join(bundleDir, "case-action.json"))
+	for _, want := range []string{
+		`"run_kind": "case_action"`,
+		`"source_run_kind": "case_board"`,
+		`"case_filter": "case:identity-credentials"`,
+		`"case"`,
+		`"id": "case:identity-credentials"`,
+		`"action_packet"`,
+		`"current_control": "control:credential-isolation"`,
+		`"open_first"`,
+		`"commands"`,
+	} {
+		if !strings.Contains(caseActionJSON, want) {
+			t.Fatalf("self bundle case action JSON missing %q:\n%s", want, caseActionJSON)
+		}
+	}
+
 	inventoryJSON := readTestFile(t, filepath.Join(bundleDir, "inventory.json"))
 	for _, want := range []string{
 		`"run_kind": "inventory"`,
@@ -826,6 +885,8 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 		`"name": "runbook.json"`,
 		`"name": "operator-packet.txt"`,
 		`"name": "operator-packet.json"`,
+		`"name": "case-action.txt"`,
+		`"name": "case-action.json"`,
 		`"name": "proof-action.txt"`,
 		`"size_bytes"`,
 		`"sha256"`,

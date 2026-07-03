@@ -304,6 +304,8 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 			{Name: "inventory.json", Path: filepath.Join(absDir, "inventory.json"), Description: "Deterministic AI surface inventory facts without exposure classification."},
 			{Name: "cases.txt", Path: filepath.Join(absDir, "cases.txt"), Description: "Operator case board showing the prioritized closure work."},
 			{Name: "cases.json", Path: filepath.Join(absDir, "cases.json"), Description: "Structured operator case board."},
+			{Name: "case-action.txt", Path: filepath.Join(absDir, "case-action.txt"), Description: "Focused first-case action handoff for the current operator case."},
+			{Name: "case-action.json", Path: filepath.Join(absDir, "case-action.json"), Description: "Structured first-case action handoff for automation and workflow systems."},
 			{Name: "proof-action.txt", Path: filepath.Join(absDir, "proof-action.txt"), Description: "Focused proof action for the top case or selected case."},
 			{Name: "proof-plan.json", Path: filepath.Join(absDir, "proof-plan.json"), Description: "Structured proof plan for the top case or selected case."},
 			{Name: "README.md", Path: filepath.Join(absDir, "README.md"), Description: "Bundle guide with suggested review order."},
@@ -371,6 +373,16 @@ func writeSelfAssessmentBundle(dir string, inventory model.InventoryReport, r mo
 	}
 	if err := add("cases.json", true, func(w io.Writer) error {
 		return report.RenderCases(w, r, "json", status, focus.CaseFilter)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("case-action.txt", true, func(w io.Writer) error {
+		return report.RenderCases(w, r, "action", status, focus.CaseFilter)
+	}); err != nil {
+		return selfAssessmentBundleResult{}, err
+	}
+	if err := add("case-action.json", true, func(w io.Writer) error {
+		return report.RenderCases(w, r, "action-json", status, focus.CaseFilter)
 	}); err != nil {
 		return selfAssessmentBundleResult{}, err
 	}
@@ -597,9 +609,10 @@ func selfAssessmentBundleReviewOrder() []string {
 		"Read `assessment.txt` for the executive readout, decision, signal/noise boundary, and first action.",
 		"Use `runbook.txt` as the action-first operator workflow: open-first evidence, current step, commands, artifacts, and closure workflow. Use `runbook.json` for UI clients and workflow automation.",
 		"Use `operator-packet.txt` as the compact ticket or handoff: source refs, graph path, controls, proof checkpoint, commands, and done criteria. Use `operator-packet.json` for automation.",
+		"Use `case-action.txt` for the focused first-case handoff and `case-action.json` for the same case action in a compact automation contract.",
 		"Open `dashboard.html` for the operator dashboard with evidence links, proof bundle rows, lifecycle, and case queue.",
 		"Use `proof-action.txt` to inspect the exact proof evidence Ariadne expects for the focused case.",
-		"Use `proof-plan.json`, `assessment.json`, `inventory.json`, and `cases.json` for automation, ticket metadata, or deeper review.",
+		"Use `proof-plan.json`, `assessment.json`, `inventory.json`, and `cases.json` for broader automation, ticket metadata, or deeper review.",
 		"Run the proof loop commands below only after reviewing generated proof evidence and deciding what should be applied; use `closure-receipt.txt` as the ticket-ready closure readout.",
 	}
 }
@@ -850,7 +863,7 @@ func runCases(args []string) {
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
-	format := fs.String("format", "table", "output format: table, action, json, html")
+	format := fs.String("format", "table", "output format: table, action, action-json, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	fs.Parse(args)

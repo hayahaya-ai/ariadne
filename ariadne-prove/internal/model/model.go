@@ -160,6 +160,24 @@ type ControlCatalogReport struct {
 	Limitations       []string                     `json:"limitations"`
 }
 
+type ControlCaseActionReport struct {
+	SchemaVersion string                      `json:"schema_version"`
+	RunID         string                      `json:"run_id"`
+	GeneratedAt   time.Time                   `json:"generated_at"`
+	RunKind       string                      `json:"run_kind"`
+	SourceRunKind string                      `json:"source_run_kind"`
+	TargetPath    string                      `json:"target_path,omitempty"`
+	TargetsFile   string                      `json:"targets_file,omitempty"`
+	Mode          string                      `json:"mode"`
+	Agent         string                      `json:"agent"`
+	StatusFilter  string                      `json:"status_filter"`
+	CaseFilter    string                      `json:"case_filter,omitempty"`
+	Case          ControlOperatorCase         `json:"case"`
+	ActionPacket  ControlOperatorActionPacket `json:"action_packet"`
+	Redaction     RedactionInfo               `json:"redaction"`
+	Limitations   []string                    `json:"limitations"`
+}
+
 type ProofPlanReport struct {
 	SchemaVersion      string                `json:"schema_version"`
 	RunID              string                `json:"run_id"`

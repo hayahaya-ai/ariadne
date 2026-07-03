@@ -622,7 +622,7 @@ expect_contains "$self_html" "--mode endpoint"
 expect_contains "$self_html" "Operator Cases"
 expect_contains "$self_html" "Export proof files"
 
-for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json dashboard.html inventory.json cases.txt cases.json proof-action.txt proof-plan.json README.md manifest.json; do
+for bundle_file in assessment.txt assessment.json runbook.txt runbook.json operator-packet.txt operator-packet.json dashboard.html inventory.json cases.txt cases.json case-action.txt case-action.json proof-action.txt proof-plan.json README.md manifest.json; do
   if [ ! -f "$self_bundle/$bundle_file" ]; then
     echo "missing self bundle file: $self_bundle/$bundle_file" >&2
     echo "artifacts left in: $workdir" >&2
@@ -638,6 +638,8 @@ expect_contains "$self_bundle/README.md" "runbook.txt"
 expect_contains "$self_bundle/README.md" "runbook.json"
 expect_contains "$self_bundle/README.md" "operator-packet.txt"
 expect_contains "$self_bundle/README.md" "operator-packet.json"
+expect_contains "$self_bundle/README.md" "case-action.txt"
+expect_contains "$self_bundle/README.md" "case-action.json"
 expect_contains "$self_bundle/README.md" "dashboard.html"
 expect_contains "$self_bundle/README.md" "proof-action.txt"
 expect_contains "$self_bundle/README.md" "--patch-dir proof-patches"
@@ -717,6 +719,14 @@ expect_contains "$self_bundle/operator-packet.json" '"source_reference_workbench
 expect_contains "$self_bundle/cases.json" '"action_packet"'
 expect_contains "$self_bundle/cases.json" '"open_first"'
 expect_contains "$self_bundle/cases.json" '"compare_receipt"'
+expect_contains "$self_bundle/case-action.txt" "Ariadne Case Action"
+expect_contains "$self_bundle/case-action.txt" "case:identity-credentials"
+expect_contains "$self_bundle/case-action.txt" "Action commands:"
+expect_contains "$self_bundle/case-action.json" '"run_kind": "case_action"'
+expect_contains "$self_bundle/case-action.json" '"case_filter": "case:identity-credentials"'
+expect_contains "$self_bundle/case-action.json" '"action_packet"'
+expect_contains "$self_bundle/case-action.json" '"open_first"'
+expect_contains "$self_bundle/case-action.json" '"commands"'
 expect_contains "$self_bundle/operator-packet.json" '"source_action_board"'
 expect_contains "$self_bundle/operator-packet.json" '"inspect_command"'
 expect_contains "$self_bundle/operator-packet.json" '"case_id": "case:identity-credentials"'
@@ -796,6 +806,8 @@ expect_contains "$self_bundle/manifest.json" '"name": "runbook.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "runbook.json"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.txt"'
 expect_contains "$self_bundle/manifest.json" '"name": "operator-packet.json"'
+expect_contains "$self_bundle/manifest.json" '"name": "case-action.txt"'
+expect_contains "$self_bundle/manifest.json" '"name": "case-action.json"'
 expect_contains "$self_bundle/manifest.json" '"size_bytes"'
 expect_contains "$self_bundle/manifest.json" '"sha256"'
 expect_contains "$self_bundle/manifest.json" "intentionally not self-hashed"
