@@ -81,6 +81,100 @@ func TestMCPProtectedStoryControlBreaksPath(t *testing.T) {
 	}
 }
 
+// The following four tests are the adversarial fixtures required by
+// docs/parser-spec.md ("Adversarial fixtures"). Each one is graded
+// incorrectly by the old keyword/substring detector and correctly by the
+// structured agentconfig-based parser (docs/parser-spec.md "Grading
+// semantics"). See ariadne-prove/testdata/realpath/<name> for the fixture
+// content.
+
+// TestClaudeDenyNotAllowIsNotBroadAuthority covers spec fixture #1:
+// {"permissions":{"defaultMode":"default","deny":["Bash(*)","Read(~/.aws/**)","WebFetch"]}}.
+// The old keyword scanner matched the raw substring "bash(*)" regardless of
+// allow/deny placement and graded this hardening config as broad-local
+// authority plus external communication -- the exact opposite of the truth.
+// The structured parser must never grant authority from a deny-only rule.
+func TestClaudeDenyNotAllowIsNotBroadAuthority(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "claude-deny-not-allow")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Graph.HasNode("authority:broad-local") {
+		t.Fatalf("deny-only Bash(*) must not grant authority:broad-local")
+	}
+	if r.Graph.HasNode("authority:external-communication") {
+		t.Fatalf("deny-only WebFetch must not grant authority:external-communication")
+	}
+	if !r.Graph.HasNode("control:deny-secret-read") {
+		t.Fatalf("expected control:deny-secret-read from deny Read(~/.aws/**)")
+	}
+	if !r.Graph.HasNode("control:network-restricted") {
+		t.Fatalf("expected control:network-restricted from deny WebFetch")
+	}
+}
+
+// TestCodexCommentedNetworkAccessIsIgnored covers spec fixture #2: a
+// config.toml with a commented-out "# network_access = true" line and a
+// live "network_access = false". The old substring-based networkEnabled
+// check read the commented line as live configuration and granted external
+// communication authority. The structured TOML reader must strip
+// commented-out lines before they ever become key/value pairs.
+func TestCodexCommentedNetworkAccessIsIgnored(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "codex-commented-network")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Graph.HasNode("authority:external-communication") {
+		t.Fatalf("commented-out network_access = true must not grant authority:external-communication")
+	}
+	if !r.Graph.HasNode("control:network-restricted") {
+		t.Fatalf("expected control:network-restricted from the live network_access = false")
+	}
+}
+
+// TestClaudeSecretInAllowIsFileReadNotDenySecretRead covers spec fixture #3:
+// {"permissions":{"allow":["Read(.env)"],"deny":["Bash(*)"]}}. The old
+// declaresSecretDeny check matched on the raw substrings "deny" and ".env"
+// independently anywhere in the text -- an unrelated Bash(*) deny rule
+// supplies "deny", and the allow-only Read(.env) rule supplies ".env", so
+// the pair together tripped a deny-secret-read false positive even though
+// no deny rule ever mentioned a secret-like Read path. The structured
+// parser must grade the allowed secret-like path as file-read authority
+// over that path, and must only match "deny" against an actual Deny Read
+// rule with a secret-like scope, never as a substring anywhere in the file.
+func TestClaudeSecretInAllowIsFileReadNotDenySecretRead(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "claude-secret-in-allow")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Graph.HasNode("authority:file-read") {
+		t.Fatalf("expected authority:file-read from allow Read(.env)")
+	}
+	if r.Graph.HasNode("control:deny-secret-read") {
+		t.Fatalf("a secret path in allow must not create control:deny-secret-read")
+	}
+}
+
+// TestCodexKeywordInStringIsNotBroadAuthority covers spec fixture #4: a
+// config.toml where the substring "bypass" appears inside an unrelated
+// string value (a project name, name = "bypass-network-checks") rather
+// than in sandbox_mode or approval_policy. The old substring scanner
+// matched "bypass" anywhere in the file and graded this as broad-local
+// authority. The structured TOML reader only reads sandbox_mode as a named
+// key, never as a substring anywhere in the file.
+func TestCodexKeywordInStringIsNotBroadAuthority(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "codex-keyword-in-string")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Graph.HasNode("authority:broad-local") {
+		t.Fatalf("a \"bypass\" substring inside an unrelated string value must not grant authority:broad-local")
+	}
+	if !r.Graph.HasNode("authority:file-read") {
+		t.Fatalf("expected normal authority:file-read from sandbox_mode = \"workspace-write\"")
+	}
+}
+
 func TestRedactionDoesNotLeakCanaries(t *testing.T) {
 	ids := []string{"local-agent-secret-exposed", "local-agent-secret-protected", "repo-risk-runtime-unknown", "data-egress-chain-exposed", "data-egress-chain-protected", "data-egress-chain-inconclusive"}
 	for _, id := range ids {
@@ -1705,7 +1799,6 @@ func TestZeroTrustMaturitySafeControlsFoundationRequiresEnforcedEvidence(t *test
 	}
 }
 
-
 func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
 	if err != nil {
@@ -1784,9 +1877,18 @@ api_key = "ZERO_TRUST_INLINE_CREDENTIAL_DO_NOT_LEAK"
 	if err != nil {
 		t.Fatal(err)
 	}
+	// agentconfig.ParseCodexConfig (docs/parser-spec.md) only models
+	// sandbox_mode, approval_policy, network_access, deny_read, and
+	// mcp_servers as named fields, but it also structurally inspects every
+	// key/value line for a credential-shaped key name (isCredentialKeyName)
+	// carrying a non-empty quoted string literal (house rule #2: structural
+	// key inspection, never raw-text keyword scanning). api_key matches
+	// that pattern, so this file trips both zt:identity-boundary and the
+	// inline credential-material boundary. The credential value must still
+	// never leak into the report.
 	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustBreaking)
 	if !r.Graph.HasNode("boundary:credential-material") {
-		t.Fatalf("expected credential material boundary node")
+		t.Fatalf("expected credential material boundary node from structurally detected api_key field")
 	}
 	blob, err := json.Marshal(r)
 	if err != nil {
@@ -1848,21 +1950,33 @@ func TestZeroTrustHighRiskCredentialHelperStillBreaksIdentityBoundary(t *testing
 		t.Fatal(err)
 	}
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustBreaking)
-	if !containsString(check.Controls, "control:credential-helper") {
-		t.Fatalf("identity boundary should cite helper evidence: %+v", check.Controls)
+	// apiKeyHelper is not part of agentconfig.ClaudeSettings' named fields
+	// (docs/parser-spec.md only models defaultMode/allow/deny/ask), and
+	// Claude no longer falls back to raw-text keyword scanning for
+	// control:credential-helper (house rule #2), so no such control is
+	// synthesized here. But apiKeyHelper's key name is structurally
+	// detected as credential-shaped (isCredentialKeyName) with a non-empty
+	// string value, so ParseClaudeSettings sets HasInlineCredential and the
+	// adapter emits boundary:credential-material. That boundary now
+	// dominates the identity-boundary finding and forces both identity
+	// requirements to "broken_static_credential" — a strictly stronger
+	// signal than the broad-local-authority-only path this test used to
+	// exercise, and still breaking either way.
+	if containsString(check.Controls, "control:credential-helper") {
+		t.Fatalf("unexpected credential-helper control from an unparsed apiKeyHelper field: %+v", check.Controls)
 	}
-	if !strings.Contains(strings.ToLower(check.Finding), "inherited local user authority") {
-		t.Fatalf("identity boundary should explain inherited authority risk: %q", check.Finding)
+	if !strings.Contains(strings.ToLower(check.Finding), "inline credential material") {
+		t.Fatalf("identity boundary should explain the inline credential material break: %q", check.Finding)
 	}
 	if !containsString(check.GraphEdges, "runtime:claude|has_authority|authority:broad-local") {
 		t.Fatalf("identity boundary should cite high-risk authority edge: %+v", check.GraphEdges)
 	}
 	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustBreaking)
-	if req.ControlQuality != "missing_hard_barrier" {
+	if req.ControlQuality != "broken_static_credential" {
 		t.Fatalf("cryptographic identity requirement quality = %q", req.ControlQuality)
 	}
 	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustBreaking)
-	if req.ControlQuality != "missing_hard_barrier" {
+	if req.ControlQuality != "broken_static_credential" {
 		t.Fatalf("short-lived credential requirement quality = %q", req.ControlQuality)
 	}
 }
@@ -1886,19 +2000,34 @@ func TestZeroTrustCredentialHelperAloneDoesNotControlIdentityBoundary(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:credential-helper") {
-		t.Fatalf("identity boundary should cite helper control: %+v", check.Controls)
+	// apiKeyHelper is not part of agentconfig.ClaudeSettings' named fields
+	// (docs/parser-spec.md only models defaultMode/allow/deny/ask), so it
+	// still does not produce control:credential-helper now that Claude
+	// settings are graded strictly off the parsed struct (house rule #2
+	// removed the raw-text keyword fallback for that control). But the key
+	// name "apiKeyHelper" is itself structurally credential-shaped
+	// (isCredentialKeyName) with a non-empty string value, so
+	// ParseClaudeSettings sets HasInlineCredential and the adapter emits
+	// boundary:credential-material regardless of the narrow, undenied
+	// Read(./src/**) allow. That boundary — not a helper-specific control —
+	// is what now breaks the identity boundary and both identity
+	// requirements.
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustBreaking)
+	if containsString(check.Controls, "control:credential-helper") {
+		t.Fatalf("unexpected credential-helper control from an unparsed apiKeyHelper field: %+v", check.Controls)
 	}
-	if !strings.Contains(strings.ToLower(check.Finding), "not cryptographic") {
-		t.Fatalf("identity boundary should explain missing strong identity: %q", check.Finding)
+	if !strings.Contains(strings.ToLower(check.Finding), "inline credential material") {
+		t.Fatalf("identity boundary should explain the inline credential material break: %q", check.Finding)
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustUnknown)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustBreaking)
 	if containsString(req.Controls, "control:credential-helper") {
 		t.Fatalf("credential helper should not satisfy cryptographic identity requirement: %+v", req.Controls)
 	}
-	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustUnknown)
-	if req.ControlQuality != "partial_declared" {
+	if req.ControlQuality != "broken_static_credential" {
+		t.Fatalf("cryptographic identity requirement quality = %q", req.ControlQuality)
+	}
+	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustBreaking)
+	if req.ControlQuality != "broken_static_credential" {
 		t.Fatalf("helper-only short-lived requirement quality = %q", req.ControlQuality)
 	}
 }
@@ -2000,7 +2129,13 @@ func TestZeroTrustHighRiskInfluenceBreaksWithoutSensitiveBoundary(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusInconclusive)
+	// A broad Bash(*) allow now correctly implies authority:file-read
+	// (docs/parser-spec.md: broad-local implies file-read — shell access can
+	// read any file), where the old keyword scanner missed it because the
+	// text contained no literal "read(" substring. With file-read authority
+	// established, the influence-to-secret path is a complete supported
+	// path, not merely inconclusive.
+	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusExposed)
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustBreaking)
 	if !strings.Contains(strings.ToLower(check.Finding), "high-risk") {
 		t.Fatalf("influence boundary should explain high-risk authority: %q", check.Finding)
@@ -2068,11 +2203,32 @@ func TestZeroTrustHighRiskSandboxNetworkStillBreaksWorkloadAuthorization(t *test
 		t.Fatal(err)
 	}
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:workload-authorization-boundary", model.ZeroTrustBreaking)
-	if !containsString(check.Controls, "control:sandbox-isolation") || !containsString(check.Controls, "control:network-restricted") {
-		t.Fatalf("workload boundary should cite sandbox/network partial controls: %+v", check.Controls)
+	// The fixture is defaultMode=="default" with allow:["Read(*)","Bash(*)"]
+	// and no deny at all. Per docs/parser-spec.md, an undenied broad Bash
+	// allow grants authority:broad-local AND authority:external-communication
+	// (shell -> curl/wget egress), so it must NOT also be credited
+	// control:network-restricted — crediting both from one config would
+	// launder a real data-egress exposure to "protected" (house rule #1, no
+	// gameable verdicts). control:sandbox-isolation is likewise absent:
+	// it is no longer emitted for Claude/Codex at all (it was previously a
+	// raw-text keyword match on a non-schema "sandbox_required" field, and
+	// Claude settings no longer fall back to keyword scanning; house rule
+	// #2). So this fixture demonstrates the true high-risk-and-uncontrolled
+	// case: broad authority with no offsetting control at all.
+	if containsString(check.Controls, "control:network-restricted") {
+		t.Fatalf("broad undenied Bash(*) allow must not be credited control:network-restricted (house rule #1): %+v", check.Controls)
+	}
+	if containsString(check.Controls, "control:sandbox-isolation") {
+		t.Fatalf("control:sandbox-isolation should never be emitted for Claude settings: %+v", check.Controls)
+	}
+	if len(check.Controls) != 0 {
+		t.Fatalf("workload boundary should cite no offsetting controls for this uncontrolled high-risk config: %+v", check.Controls)
 	}
 	if !strings.Contains(strings.ToLower(check.Finding), "identity-aware workload authorization") {
 		t.Fatalf("workload boundary should explain missing identity-aware authorization: %q", check.Finding)
+	}
+	if !strings.Contains(strings.ToLower(check.Finding), "without identity-aware") {
+		t.Fatalf("workload boundary should describe outright missing authorization, not partial control: %q", check.Finding)
 	}
 	if !containsString(check.GraphEdges, "runtime:claude|has_authority|authority:broad-local") {
 		t.Fatalf("workload boundary should cite high-risk authority edge: %+v", check.GraphEdges)
@@ -6083,8 +6239,8 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	for _, want := range []string{
 		"Closure evidence observed:",
 		"Signal triage:",
-		"Controlled architecture flaws: 3",
-		"Partial/friction-only architecture flaws: 2",
+		"Controlled architecture flaws: 4",
+		"Partial/friction-only architecture flaws: 1",
 		"CONTROLLED Agent has broad standing authority instead of least agency",
 		"control:deny-by-default-permissions",
 		"control:scoped-permissions",
@@ -6103,7 +6259,11 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClosureEvidence.ControlledArchitectureFlaws != 3 || decoded.ClosureEvidence.PartialArchitectureFlaws != 2 || decoded.ClosureEvidence.ProtectedExposurePaths != 2 {
+	// safe-controls' .claude/settings.json declares defaultMode=="default"
+	// with no WebFetch/WebSearch in allow, which is now a real, structurally
+	// parsed control:network-restricted signal (docs/parser-spec.md); that
+	// moves the egress boundary from partial/friction-only to controlled.
+	if decoded.ClosureEvidence.ControlledArchitectureFlaws != 4 || decoded.ClosureEvidence.PartialArchitectureFlaws != 1 || decoded.ClosureEvidence.ProtectedExposurePaths != 2 {
 		t.Fatalf("assessment should summarize controlled, partial, and protected evidence: %+v", decoded.ClosureEvidence)
 	}
 	if !containsString(decoded.ClosureEvidence.HardBarriersObserved, "control:deny-by-default-permissions") {
@@ -6120,7 +6280,21 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	if !containsString(decoded.Triage.PresentHardBarriers, "control:deny-by-default-permissions") {
 		t.Fatalf("triage should separate present hard barriers: %+v", decoded.Triage)
 	}
-	if !containsString(decoded.Triage.PartialOrFrictionControls, "control:approval-required") {
+	// safe-controls previously carried two control:approval-required
+	// entries: an attested one from .ariadne/agent-policy.json and an
+	// enforced one from raw-text keyword scanning of .codex/config.toml's
+	// approval_policy = "on-request" (via collectRuntimeSecurityControls).
+	// docs/parser-spec.md's Codex grading semantics do not derive
+	// control:approval-required from parsed CodexConfig fields at all, and
+	// Codex no longer falls back to keyword scanning (house rule #2), so
+	// only the attested .ariadne declaration remains.
+	if !containsString(decoded.Triage.AttestedControls, "control:approval-required") {
+		t.Fatalf("triage should surface the attested approval-required declaration: %+v", decoded.Triage)
+	}
+	if containsString(decoded.Triage.PartialOrFrictionControls, "control:approval-required") {
+		t.Fatalf("approval-required should no longer be sourced from codex keyword scanning: %+v", decoded.Triage)
+	}
+	if !containsString(decoded.Triage.PartialOrFrictionControls, "control:mcp-reviewed-pinned") {
 		t.Fatalf("triage should separate partial/friction controls: %+v", decoded.Triage)
 	}
 	// Attested declarations surface separately and never count as observed

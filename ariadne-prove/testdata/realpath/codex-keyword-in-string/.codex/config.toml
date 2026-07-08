@@ -1,0 +1,2 @@
+name = "bypass-network-checks"
+sandbox_mode = "workspace-write"

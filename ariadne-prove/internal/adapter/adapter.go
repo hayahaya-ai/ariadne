@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/agentconfig"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/surface"
 )
@@ -288,6 +289,10 @@ func runtimeForTrustInput(s model.Surface) string {
 	return ""
 }
 
+// collectCodexConfig parses .codex/config.toml (or requirements.toml) with
+// agentconfig.ParseCodexConfig and grades authorities/controls/tools
+// strictly off the parsed struct fields — no keyword scanning of raw text.
+// See docs/parser-spec.md "Codex -> authorities / controls / tool".
 func collectCodexConfig(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -303,30 +308,65 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 	})
 	configID := "config:codex-" + s.Scope
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", "Codex config source was collected."))
-	text := strings.ToLower(string(data))
-	if strings.Contains(text, "danger-full-access") || strings.Contains(text, "approval_policy = \"never\"") || strings.Contains(text, "bypass") || strings.Contains(text, "dangerously-bypass") {
+
+	cfg, ok := agentconfig.ParseCodexConfig(data)
+	if !ok {
+		return
+	}
+	cfg.IsRequirements = s.Kind == "codex-requirements"
+
+	broadLocal := cfg.SandboxMode == "danger-full-access" || cfg.ApprovalPolicy == "never"
+	if broadLocal {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: "codex", Source: source, Summary: "Codex config declares broad local authority or bypass posture."})
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "codex", Source: source, Summary: "Codex can read files in the configured workspace."})
-	} else if strings.Contains(text, "sandbox_mode") || strings.Contains(text, "allowed_sandbox_modes") || s.Kind == "codex-requirements" {
+	} else if cfg.SandboxMode == "read-only" || cfg.SandboxMode == "workspace-write" || cfg.IsRequirements {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "codex", Source: source, Summary: "Codex has normal file-read authority in the configured workspace."})
 	}
-	collectRuntimeSecurityControls(c, "codex", source, text)
-	if networkEnabled(text) {
+
+	if cfg.NetworkAccess != nil && *cfg.NetworkAccess {
 		addExternalCommunication(c, "codex", source, "Codex config declares external network access.")
 	}
-	if networkRestricted(text) {
-		c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:network-restricted", Kind: "network-restricted", Runtime: "codex", Source: source, Summary: "Codex config restricts external network communication."})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:control:network-restricted", "control", source, "declared", "Network restriction control was collected."))
+	if cfg.NetworkAccess != nil && !*cfg.NetworkAccess {
+		addControl(c, "control:network-restricted", "network-restricted", "codex", source, "Codex config restricts external network communication.")
 	}
-	if declaresSecretDeny(text) {
-		c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:deny-secret-read", Kind: "deny-secret-read", Runtime: "codex", Source: source, Summary: "Codex deny-read policy covers secret-like paths."})
+	if codexDeniesSecretPath(cfg) {
+		addControl(c, "control:deny-secret-read", "deny-secret-read", "codex", source, "Codex deny-read policy covers secret-like paths.")
 	}
-	if strings.Contains(text, "mcp_servers") || strings.Contains(text, "[mcp") {
+	scopedSandbox := cfg.SandboxMode == "read-only" || cfg.SandboxMode == "workspace-write"
+	scopedApproval := cfg.ApprovalPolicy == "on-request" || cfg.ApprovalPolicy == "on-failure" || cfg.ApprovalPolicy == "untrusted"
+	if scopedSandbox || scopedApproval {
+		addControl(c, "control:scoped-permissions", "scoped-permissions", "codex", source, "Codex config declares scoped sandbox or approval permissions.")
+	}
+	if cfg.HasMCPServers {
 		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:mcp-configured", Kind: "mcp-configured", Runtime: "codex", Source: source, Summary: "Codex config includes MCP/tool configuration."})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:mcp-configured", "tool", source, "declared", "Codex MCP configuration surface was collected."))
 	}
+	if cfg.HasInlineCredential {
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:credential-material",
+			Kind:     "credential-material",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Codex config contains an inline credential-named field; values are not emitted.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values."))
+	}
 }
 
+func codexDeniesSecretPath(cfg agentconfig.CodexConfig) bool {
+	for _, path := range cfg.DenyRead {
+		if agentconfig.IsSecretLikePath(path) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectClaudeSettings parses .claude/settings.json (or settings.local.json)
+// with agentconfig.ParseClaudeSettings and grades authorities/boundaries/
+// controls/external-communication strictly off the parsed struct fields —
+// no keyword scanning of raw text. See docs/parser-spec.md "Claude ->
+// authorities / boundaries / controls / external-communication".
 func collectClaudeSettings(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -342,28 +382,125 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 	})
 	configID := "config:claude-" + s.Scope
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", "Claude Code config source was collected."))
-	text := strings.ToLower(string(data))
-	if strings.Contains(text, "bypasspermissions") || strings.Contains(text, "dontask") || strings.Contains(text, "bash(*)") {
+
+	cfg, ok := agentconfig.ParseClaudeSettings(data)
+	if !ok {
+		return
+	}
+
+	broadLocal := cfg.DefaultMode == "bypassPermissions" || (cfg.HasBroadBashAllow() && !cfg.HasBroadBashDeny())
+	if broadLocal {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: "claude", Source: source, Summary: "Claude Code settings declare broad local authority or bypass posture."})
 	}
-	if strings.Contains(text, "read(") || strings.Contains(text, "bypasspermissions") || strings.Contains(text, "acceptedits") {
+
+	if broadLocal || cfg.DefaultMode == "acceptEdits" || claudeHasUndeniedAllowTool(cfg, "Read") {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "claude", Source: source, Summary: "Claude Code can read files in the configured workspace."})
 	}
-	if strings.Contains(text, "bash(") || strings.Contains(text, "bypasspermissions") {
+
+	if broadLocal || claudeHasUndeniedAllowTool(cfg, "Bash") {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: "claude", Source: source, Summary: "Claude Code settings allow broad shell or local execution posture."})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
 	}
-	collectRuntimeSecurityControls(c, "claude", source, text)
-	if containsAny(text, []string{"webfetch", "websearch", "bash(*)", "curl", "wget", "http://"}) {
+
+	if claudeAllowsExternalCommunication(cfg) {
 		addExternalCommunication(c, "claude", source, "Claude Code settings allow web, shell, or external communication posture.")
 	}
-	if networkRestricted(text) || (strings.Contains(text, "deny") && (strings.Contains(text, "webfetch") || strings.Contains(text, "websearch") || strings.Contains(text, "curl") || strings.Contains(text, "wget"))) {
-		c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:network-restricted", Kind: "network-restricted", Runtime: "claude", Source: source, Summary: "Claude Code settings restrict web or external network communication."})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:control:network-restricted", "control", source, "declared", "Network restriction control was collected."))
+
+	if claudeNetworkRestricted(cfg) {
+		addControl(c, "control:network-restricted", "network-restricted", "claude", source, "Claude Code settings restrict web or external network communication.")
 	}
-	if declaresSecretDeny(text) {
-		c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:deny-secret-read", Kind: "deny-secret-read", Runtime: "claude", Source: source, Summary: "Claude Code deny/disallow policy covers secret-like paths."})
+	if cfg.HasSecretReadDeny() {
+		addControl(c, "control:deny-secret-read", "deny-secret-read", "claude", source, "Claude Code deny/disallow policy covers secret-like paths.")
 	}
+	if (cfg.DefaultMode == "default" && len(cfg.Allow) > 0) || len(cfg.Deny) > 0 {
+		addControl(c, "control:scoped-permissions", "scoped-permissions", "claude", source, "Claude Code settings declare scoped default-mode permissions.")
+	}
+	if cfg.DefaultMode == "default" && !cfg.HasBroadBashAllow() {
+		addControl(c, "control:deny-by-default-permissions", "deny-by-default-permissions", "claude", source, "Claude Code settings run nothing without a prompt under default-mode permissions.")
+	}
+	if cfg.HasInlineCredential {
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+			ID:       "boundary:credential-material",
+			Kind:     "credential-material",
+			Source:   source,
+			Abstract: false,
+			Summary:  "Claude Code settings contain an inline credential-named field; values are not emitted.",
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values."))
+	}
+}
+
+// claudeHasUndeniedAllowTool reports whether allow contains a rule for tool
+// that is not cancelled by a deny rule for the same tool (see
+// claudeAllowRuleDenied for the cancellation semantics).
+func claudeHasUndeniedAllowTool(cfg agentconfig.ClaudeSettings, tool string) bool {
+	if !cfg.HasAllowTool(tool) {
+		return false
+	}
+	for _, allow := range cfg.Allow {
+		if !strings.EqualFold(allow.Tool, tool) {
+			continue
+		}
+		if !claudeAllowRuleDenied(cfg, allow) {
+			return true
+		}
+	}
+	return false
+}
+
+// claudeAllowRuleDenied reports whether allow is cancelled by some deny rule
+// for the same tool. Cancellation is bidirectional-aware but not symmetric:
+// a deny rule cancels an allow rule for the same tool when the deny's scope
+// is equal to the allow's scope, OR when the deny's scope is broad (*/empty)
+// — a broad deny cancels any narrower allow of that tool. A narrow deny
+// (e.g. Bash(git)) must NEVER cancel a broader allow (e.g. Bash(*)).
+func claudeAllowRuleDenied(cfg agentconfig.ClaudeSettings, allow agentconfig.PermRule) bool {
+	for _, deny := range cfg.Deny {
+		if !strings.EqualFold(deny.Tool, allow.Tool) {
+			continue
+		}
+		if deny.Scope == allow.Scope || agentconfig.IsBroadScope(deny.Scope) {
+			return true
+		}
+	}
+	return false
+}
+
+// claudeAllowsExternalCommunication reports whether Allow grants a
+// WebFetch/WebSearch rule, or a broad Bash rule (shell -> curl/wget), that
+// is not contradicted by a deny of the same tool/scope. Tools present only
+// in Deny must never trigger external-communication authority.
+func claudeAllowsExternalCommunication(cfg agentconfig.ClaudeSettings) bool {
+	if claudeHasUndeniedAllowTool(cfg, "WebFetch") || claudeHasUndeniedAllowTool(cfg, "WebSearch") {
+		return true
+	}
+	return cfg.HasBroadBashAllow() && !cfg.HasBroadBashDeny()
+}
+
+// claudeNetworkRestricted reports the control:network-restricted signal:
+// an explicit deny of a network tool (with no offsetting allow of the same
+// tool) is the strong signal. The conservative fallback signal is
+// DefaultMode=="default" AND the config grants no external-communication
+// authority at all.
+//
+// House rule #1 (no gameable verdicts): the fallback is defined as the
+// literal negation of claudeAllowsExternalCommunication, not as "no
+// WebFetch/WebSearch in allow" — a config with allow:["Bash(*)"] grants
+// shell-mediated network egress (curl/wget) even though it names no web
+// tool, and must not be credited with network-restricted merely because
+// WebFetch/WebSearch are unlisted. This makes it structurally impossible
+// for a single config to produce both authority:external-communication and
+// control:network-restricted.
+func claudeNetworkRestricted(cfg agentconfig.ClaudeSettings) bool {
+	deniedWebFetch := cfg.HasDenyTool("WebFetch") && !cfg.HasAllowTool("WebFetch")
+	deniedWebSearch := cfg.HasDenyTool("WebSearch") && !cfg.HasAllowTool("WebSearch")
+	if deniedWebFetch || deniedWebSearch {
+		return true
+	}
+	if cfg.DefaultMode == "default" && !claudeAllowsExternalCommunication(cfg) {
+		return true
+	}
+	return false
 }
 
 func collectGenericAgentConfig(c *model.Collection, s model.Surface) {

@@ -13,6 +13,19 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 - maps exposure and control evidence to Zero Trust architecture flaws and boundary checks
 - exports the same graph as JSON, Graphviz DOT, or Mermaid when requested
 
+## Structured config parsing (Claude Code and Codex)
+
+For the two flagship runtimes, control and authority detection reads the real
+configuration structure, not substrings of the file text. `.claude/settings.json`
+permissions (`defaultMode`, `allow`/`deny`/`ask` rule lists split into tool and path
+scope) are parsed as JSON, and `.codex/config.toml` / `requirements.toml`
+(`sandbox_mode`, `approval_policy`, `network_access`, `deny_read`) are parsed by a
+zero-dependency minimal TOML reader, both in `internal/agentconfig`. This distinguishes
+an `allow` rule from a `deny` rule, ignores keywords that appear only inside comments or
+string values, and never treats a commented-out line as live configuration — see
+[../../docs/parser-spec.md](../../docs/parser-spec.md) for the full semantics and the
+adversarial fixtures that would fail under substring matching.
+
 ## What Ariadne Does Not Do
 
 - execute agent runtimes
