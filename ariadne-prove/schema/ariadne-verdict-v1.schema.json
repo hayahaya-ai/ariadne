@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json",
+  "title": "Ariadne Verdict v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "target",
+    "mode",
+    "verdict",
+    "scanned",
+    "reckless",
+    "tradeoffs",
+    "hardened",
+    "inconclusive",
+    "next_action",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.verdict/v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "target": { "type": "string" },
+    "mode": { "type": "string", "enum": ["repo", "endpoint"] },
+    "verdict": { "type": "string", "enum": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"] },
+    "scanned": { "$ref": "#/$defs/scanned" },
+    "reckless": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/reckless_finding" }
+    },
+    "tradeoffs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/tradeoff_line" }
+    },
+    "hardened": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/hardened_line" }
+    },
+    "inconclusive": { "type": "integer", "minimum": 0 },
+    "next_action": { "type": "string" },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "scanned": {
+      "type": "object",
+      "required": ["runtimes", "surfaces", "executed"],
+      "properties": {
+        "runtimes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "surfaces": { "type": "integer", "minimum": 0 },
+        "executed": { "const": false }
+      }
+    },
+    "evidence_location": {
+      "type": "object",
+      "required": ["source", "line"],
+      "properties": {
+        "source": { "type": "string" },
+        "line": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "evidence_reference": {
+      "type": "object",
+      "required": ["id", "kind", "summary"],
+      "properties": {
+        "target": { "type": "string" },
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "line_start": { "type": "integer", "minimum": 0 },
+        "line_end": { "type": "integer", "minimum": 0 },
+        "summary": { "type": "string" }
+      }
+    },
+    "reckless_finding": {
+      "type": "object",
+      "required": ["id", "exposure_id", "title", "where", "evidence_refs", "why", "fix", "attested_only"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^reckless:[0-9]+$" },
+        "exposure_id": {
+          "type": "string",
+          "enum": ["data-egress-chain", "prompt-injection-to-secret-canary", "mutable-tool-launch-execution"]
+        },
+        "title": { "type": "string" },
+        "where": { "$ref": "#/$defs/evidence_location" },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence_reference" }
+        },
+        "why": { "type": "string" },
+        "fix": { "type": "string" },
+        "attested_only": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "tradeoff_line": {
+      "type": "object",
+      "required": ["id", "summary", "source"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^tradeoff:[0-9]+$" },
+        "summary": { "type": "string" },
+        "source": { "type": "string" }
+      }
+    },
+    "hardened_line": {
+      "type": "object",
+      "required": ["id", "control", "summary", "source"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^hardened:[0-9]+$" },
+        "control": { "type": "string" },
+        "summary": { "type": "string" },
+        "source": { "type": "string" }
+      }
+    }
+  }
+}

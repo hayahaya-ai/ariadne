@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/report"
@@ -29,7 +32,7 @@ func TestResolveDefaultStoryRootFindsRepoSubdir(t *testing.T) {
 	}
 }
 
-func TestRunAssessDefaultsToSummary(t *testing.T) {
+func TestRunAssessFormatSummary(t *testing.T) {
 	root := t.TempDir()
 	summaryPath := filepath.Join(root, "assess-summary.txt")
 	operatorPath := filepath.Join(root, "assess-operator.txt")
@@ -41,8 +44,11 @@ func TestRunAssessDefaultsToSummary(t *testing.T) {
 	tablePath := filepath.Join(root, "assess-table.txt")
 	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
 
+	// --format summary is where the previous (pre-readout) default behavior
+	// now lives; see docs/cli-contract.md.
 	runAssess([]string{
 		"--path", target,
+		"--format", "summary",
 		"--out", summaryPath,
 	})
 	runAssess([]string{
@@ -589,7 +595,7 @@ func TestRunReviewRunWritesArtifactsSummaryAndJSON(t *testing.T) {
 	}
 }
 
-func TestRunSelfDefaultsToEndpointAssessment(t *testing.T) {
+func TestRunSelfFormatSummaryIsEndpointAssessment(t *testing.T) {
 	root := t.TempDir()
 	target, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "messy-ai-surfaces"))
 	if err != nil {
@@ -599,7 +605,10 @@ func TestRunSelfDefaultsToEndpointAssessment(t *testing.T) {
 	summaryPath := filepath.Join(root, "self-summary.txt")
 	htmlPath := filepath.Join(root, "self-dashboard.html")
 
+	// --format summary is where the previous (pre-readout) default behavior
+	// now lives; see docs/cli-contract.md and TestSelfDefaultIsReadout.
 	runSelf([]string{
+		"--format", "summary",
 		"--out", summaryPath,
 	})
 	runSelf([]string{
@@ -649,6 +658,7 @@ func TestRunSelfBundleExportsFirstRunArtifacts(t *testing.T) {
 	runSelf([]string{
 		"--path", target,
 		"--bundle-dir", bundleDir,
+		"--format", "summary",
 		"--out", summaryPath,
 	})
 
@@ -1463,13 +1473,13 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 	htmlPath := filepath.Join(root, "case-compare.html")
 	runProofs([]string{
 		"--path", filepath.Join("..", "..", "testdata", "realpath", "combined-risk"),
-		"--case", "case:input-trust-boundary",
+		"--case", "case:least-agency-authority",
 		"--format", "json",
 		"--out", beforePath,
 	})
 	runProofs([]string{
-		"--path", filepath.Join("..", "..", "testdata", "realpath", "input-controls"),
-		"--case", "case:input-trust-boundary",
+		"--path", filepath.Join("..", "..", "testdata", "realpath", "safe-controls"),
+		"--case", "case:least-agency-authority",
 		"--format", "json",
 		"--out", afterPath,
 	})
@@ -1501,18 +1511,18 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"Ariadne case compare:",
 		"1 case(s) compared: 0 open after rerun, 1 closed after rerun",
 		"Next action: No open case remains",
-		"CLOSED Input Trust Boundary",
+		"CLOSED Least Agency And Authority Scope",
 		"Closure receipts:",
-		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
+		"Least Agency And Authority Scope (case:least-agency-authority): open -> closed / proof closed",
 		"open -> closed",
-		"Missing controls before: control:input-isolation; control:trusted-source-policy",
-		"Observed controls after: control:input-isolation; control:trusted-source-policy",
+		"Missing controls before: control:deny-by-default; control:deny-secret-read; control:scoped-permissions",
+		"Observed controls after: control:deny-by-default-permissions; control:scoped-permissions",
 		"Proof verdict: proof closed",
-		"Control evidence: control:input-isolation; control:trusted-source-policy",
+		"control evidence: control:deny-by-default-permissions",
 		"Remaining action: No remaining action for this case",
-		"Proof patches: 2 -> 0",
+		"Proof patches: 3 -> 0",
 		"Added evidence:",
-		".ariadne/input-policy.json",
+		".ariadne/agent-policy.json",
 		"After compare loop:",
 		"closure-receipt.txt",
 	} {
@@ -1526,10 +1536,10 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"Verdict: proof succeeded",
 		"Outcome: 1 case(s) compared: 0 open after rerun, 1 closed after rerun",
 		"Closure receipts:",
-		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
-		"control evidence: control:input-isolation; control:trusted-source-policy",
-		"evidence source: .ariadne/input-policy.json",
-		"evidence ref: target: .ariadne/input-policy.json",
+		"Least Agency And Authority Scope (case:least-agency-authority): open -> closed / proof closed",
+		"control evidence: control:deny-by-default-permissions",
+		"evidence source: .ariadne/agent-policy.json",
+		"evidence ref: target: .ariadne/agent-policy.json",
 		"artifact hash: before",
 		"artifact hash: after",
 		"sha256:",
@@ -1548,7 +1558,7 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		`"before_state": "open"`,
 		`"after_state": "closed"`,
 		`"closure_receipts"`,
-		`"receipt_id": "closure-receipt:case:input-trust-boundary"`,
+		`"receipt_id": "closure-receipt:case:least-agency-authority"`,
 		`"proof_status": "proof_closed"`,
 		`"evidence_refs"`,
 		`"line_start"`,
@@ -1559,8 +1569,8 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		`"proof_verdict"`,
 		`"status": "proof_closed"`,
 		`"remaining_action": "No remaining action for this case`,
-		`"control:input-isolation"`,
-		`".ariadne/input-policy.json"`,
+		`"control:deny-by-default-permissions"`,
+		`".ariadne/agent-policy.json"`,
 		`"added_evidence_refs"`,
 	} {
 		if !strings.Contains(blob, want) {
@@ -1571,7 +1581,7 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 	for _, want := range []string{
 		"Ariadne Case Compare",
 		"CLOSED",
-		"Input Trust Boundary",
+		"Least Agency And Authority Scope",
 		"Closure Receipts",
 		"Ticket-ready proof summaries",
 		"Proof verdict",
@@ -1579,7 +1589,7 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 		"Remaining action: No remaining action for this case",
 		"open",
 		"closed",
-		".ariadne/input-policy.json",
+		".ariadne/agent-policy.json",
 		"closure-receipt.txt",
 		"Evidence refs",
 		"Artifact hashes",
@@ -1590,8 +1600,178 @@ func TestRunCompareShowsOpenToClosedProofLoop(t *testing.T) {
 			t.Fatalf("compare HTML missing %q:\n%s", want, html)
 		}
 	}
-	if strings.Contains(html, "STAYED OPEN Input Trust Boundary") {
+	if strings.Contains(html, "STAYED OPEN Least Agency And Authority Scope") {
 		t.Fatalf("compare HTML should show input trust as closed, not stayed open:\n%s", html)
+	}
+}
+
+func TestRunVerdictJSONOnCombinedRisk(t *testing.T) {
+	root := t.TempDir()
+	outPath := filepath.Join(root, "verdict.json")
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+
+	runVerdict([]string{
+		"--path", target,
+		"--mode", "repo",
+		"--json",
+		"--out", outPath,
+	})
+
+	blob := readTestFile(t, outPath)
+	if !strings.Contains(blob, `"verdict": "reckless"`) {
+		t.Fatalf("verdict json missing reckless verdict word:\n%s", blob)
+	}
+	var decoded struct {
+		Reckless []json.RawMessage `json:"reckless"`
+	}
+	if err := json.Unmarshal([]byte(blob), &decoded); err != nil {
+		t.Fatalf("verdict json did not decode: %v\n%s", err, blob)
+	}
+	if len(decoded.Reckless) == 0 {
+		t.Fatalf("expected non-empty reckless array:\n%s", blob)
+	}
+	if strings.Contains(blob, ".ariadne") {
+		t.Fatalf("verdict json must never mention .ariadne:\n%s", blob)
+	}
+}
+
+// TestRunVerdictGateExitCode exercises `ariadne verdict --gate` as a real
+// subprocess (runVerdict calls os.Exit(3) on a reckless verdict, which the
+// in-process test harness cannot observe directly). It builds the CLI once
+// and reuses the binary across this test's cases.
+func TestRunVerdictGateExitCode(t *testing.T) {
+	bin := buildAriadneBinary(t)
+
+	recklessTarget, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "combined-risk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	safeTarget, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "safe-controls"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("reckless exits 3", func(t *testing.T) {
+		cmd := exec.Command(bin, "verdict", "--path", recklessTarget, "--mode", "repo", "--gate")
+		err := cmd.Run()
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("expected *exec.ExitError, got %v (err=%v)", cmd.ProcessState, err)
+		}
+		if got := exitErr.ExitCode(); got != 3 {
+			t.Fatalf("exit code = %d, want 3", got)
+		}
+	})
+
+	t.Run("non-reckless exits 0", func(t *testing.T) {
+		cmd := exec.Command(bin, "verdict", "--path", safeTarget, "--mode", "repo", "--gate")
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("expected exit 0, got error: %v", err)
+		}
+	})
+
+	t.Run("reckless without --gate exits 0", func(t *testing.T) {
+		cmd := exec.Command(bin, "verdict", "--path", recklessTarget, "--mode", "repo")
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("expected exit 0 without --gate, got error: %v", err)
+		}
+	})
+}
+
+var (
+	ariadneBinaryOnce sync.Once
+	ariadneBinaryPath string
+	ariadneBinaryErr  error
+)
+
+// buildAriadneBinary builds ./cmd/ariadne once per test run and returns the
+// path to the resulting binary, for tests that need to observe os.Exit
+// codes the in-process harness cannot see.
+func buildAriadneBinary(t *testing.T) string {
+	t.Helper()
+	ariadneBinaryOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "ariadne-cli-test-bin")
+		if err != nil {
+			ariadneBinaryErr = err
+			return
+		}
+		binPath := filepath.Join(dir, "ariadne")
+		cmd := exec.Command("go", "build", "-o", binPath, ".")
+		cmd.Env = os.Environ()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			ariadneBinaryErr = fmt.Errorf("go build: %v\n%s", err, out)
+			return
+		}
+		ariadneBinaryPath = binPath
+	})
+	if ariadneBinaryErr != nil {
+		t.Fatal(ariadneBinaryErr)
+	}
+	return ariadneBinaryPath
+}
+
+func TestRunLsFindings(t *testing.T) {
+	root := t.TempDir()
+	outPath := filepath.Join(root, "ls-findings.txt")
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+
+	runLs([]string{
+		"findings",
+		"--path", target,
+		"--mode", "repo",
+		"--out", outPath,
+	})
+
+	out := readTestFile(t, outPath)
+	if !strings.Contains(out, "reckless:1") {
+		t.Fatalf("ls findings missing reckless:1:\n%s", out)
+	}
+}
+
+func TestRunShowReckless(t *testing.T) {
+	root := t.TempDir()
+	outPath := filepath.Join(root, "show-reckless.txt")
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+
+	runShow([]string{
+		"reckless:1",
+		"--path", target,
+		"--mode", "repo",
+		"--out", outPath,
+	})
+
+	out := readTestFile(t, outPath)
+	if !strings.Contains(out, "CLAUDE.md") && !strings.Contains(out, "mcp.json") {
+		t.Fatalf("show reckless:1 missing a file source:\n%s", out)
+	}
+	if !strings.Contains(strings.ToLower(out), "fix") {
+		t.Fatalf("show reckless:1 missing fix content:\n%s", out)
+	}
+}
+
+func TestSelfDefaultIsReadout(t *testing.T) {
+	root := t.TempDir()
+	selfOutPath := filepath.Join(root, "self-readout.txt")
+	assessOutPath := filepath.Join(root, "assess-readout.txt")
+	target := filepath.Join("..", "..", "testdata", "realpath", "combined-risk")
+
+	runSelf([]string{
+		"--path", target,
+		"--mode", "repo",
+		"--out", selfOutPath,
+	})
+	runAssess([]string{
+		"--path", target,
+		"--out", assessOutPath,
+	})
+
+	selfOut := readTestFile(t, selfOutPath)
+	if !strings.Contains(selfOut, "VERDICT:") {
+		t.Fatalf("self default output missing VERDICT: (expected readout):\n%s", selfOut)
+	}
+	assessOut := readTestFile(t, assessOutPath)
+	if !strings.Contains(assessOut, "VERDICT:") {
+		t.Fatalf("assess default output missing VERDICT: (expected readout):\n%s", assessOut)
 	}
 }
 

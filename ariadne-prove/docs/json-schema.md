@@ -99,7 +99,7 @@ Each check includes:
 - `finding`: fact-backed result text
 - `evidence`: source references and summaries
 - `graph_edges`: graph evidence supporting the check
-- `controls`: controls that break or restrict the path
+- `controls`: controls that break or restrict the path. Every control carries an `enforcement` value: `enforced` (runtime/platform-applied configuration) or `attested` (self-declared `.ariadne/*.json` policy). Only enforced controls can protect a path, control a boundary, or close a case; attested controls surface separately as `attested_controls` on control tests, triage, and decisions.
 - `actions`: concrete next steps
 - `limitations`
 
@@ -252,6 +252,23 @@ An exposure path includes:
 - `controls_break_path`
 - `limitations`
 
+### Verdict (`ariadne verdict --json`)
+
+The compact agent-native verdict (`ariadne.verdict/v1`) grades the target as
+`reckless`, `tradeoffs_only`, `hardened`, or `no_agents_found`:
+
+- `verdict` — the graded word; `reckless` findings are the only action items
+- `scanned` — runtimes found, config surfaces read, `executed: false` always
+- `reckless[]` — `id` (`reckless:N`), `exposure_id`, `title`, `where` (source + line),
+  `evidence_refs`, `why`, `fix` (enforced-surface fix, never an `.ariadne/*` declaration),
+  and `attested_only` (declared-but-unenforced controls surfaced for transparency)
+- `tradeoffs[]` / `hardened[]` — accepted capabilities and enforced controls
+- `next_action`, `inconclusive`, `limitations`
+
+With `--gate`, the command exits 3 when the verdict is `reckless` (0 otherwise),
+so agents and CI can gate on it in one line. Only enforced configuration can
+produce `hardened` entries or keep a finding out of `reckless`.
+
 ## Machine-Readable Draft Schemas
 
 Draft schemas are available in:
@@ -263,3 +280,4 @@ Draft schemas are available in:
 - [schema/ariadne-architecture-scan-v1.schema.json](../schema/ariadne-architecture-scan-v1.schema.json)
 - [schema/ariadne-control-catalog-v1.schema.json](../schema/ariadne-control-catalog-v1.schema.json)
 - [schema/ariadne-operator-packet-v1.schema.json](../schema/ariadne-operator-packet-v1.schema.json)
+- [schema/ariadne-verdict-v1.schema.json](../schema/ariadne-verdict-v1.schema.json)

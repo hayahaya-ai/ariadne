@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/prove"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/report"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/storylab"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/verdict"
 )
 
 const agentHelp = "agent runtime to inspect: all, claude, codex, cursor, windsurf, continue, aider, gemini, opencode, github-actions, gitlab-ci"
@@ -59,6 +61,12 @@ func main() {
 		runDashboard(os.Args[2:])
 	case "stories":
 		runStories(os.Args[2:])
+	case "verdict":
+		runVerdict(os.Args[2:])
+	case "ls":
+		runLs(os.Args[2:])
+	case "show":
+		runShow(os.Args[2:])
 	case "help", "-h", "--help":
 		usage(os.Stdout)
 	default:
@@ -77,7 +85,7 @@ func runAssess(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:input-trust-boundary")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:input-isolation")
-	format := fs.String("format", "summary", "output format: summary, source-inspection, source-inspection-json, runbook, runbook-json, operator, operator-json, table, action, json, html")
+	format := fs.String("format", "readout", "output format: readout, summary, source-inspection, source-inspection-json, runbook, runbook-json, operator, operator-json, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -136,8 +144,23 @@ func runAssess(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	if err := report.RenderAssessFocused(writer, inventory, r, *format, *status, report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID}); err != nil {
+	if err := renderAssessOrReadout(writer, inventory, r, *format, *status, report.AssessFocus{CaseFilter: *caseID, ControlFilter: *controlID}); err != nil {
 		fatal(err)
+	}
+}
+
+// renderAssessOrReadout dispatches "readout" (the new self/assess default) to
+// the compact one-screen verdict.RenderReadout, and everything else
+// (including the previous default, now reachable via --format summary) to
+// the existing report.RenderAssessFocused switch. It does not hijack
+// --format json, which keeps rendering the full model.AssessReport.
+func renderAssessOrReadout(w io.Writer, inventory model.InventoryReport, r model.Report, format string, statusFilter string, focus report.AssessFocus) error {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "readout":
+		v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
+		return verdict.RenderReadout(w, v)
+	default:
+		return report.RenderAssessFocused(w, inventory, r, format, statusFilter, focus)
 	}
 }
 
@@ -149,7 +172,7 @@ func runSelf(args []string) {
 	status := fs.String("status", "breaking", "architecture flaw status filter: breaking, controlled, unknown, not_observed, observed, all")
 	caseID := fs.String("case", "", "operator case id to focus, e.g. case:identity-credentials")
 	controlID := fs.String("control", "", "missing hard-barrier control to focus, e.g. control:credential-isolation")
-	format := fs.String("format", "summary", "output format: summary, source-inspection, source-inspection-json, runbook, runbook-json, operator, operator-json, table, action, json, html")
+	format := fs.String("format", "readout", "output format: readout, summary, source-inspection, source-inspection-json, runbook, runbook-json, operator, operator-json, table, action, json, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -201,9 +224,444 @@ func runSelf(args []string) {
 		}
 		renderSelfAssessmentBundleSummary(os.Stderr, exported)
 	}
-	if err := report.RenderAssessFocused(writer, inventory, r, *format, *status, focus); err != nil {
+	if err := renderAssessOrReadout(writer, inventory, r, *format, *status, focus); err != nil {
 		fatal(err)
 	}
+}
+
+// verdictTargetPath resolves --path the same way runSelf does: explicit
+// --path wins, otherwise fall back to HOME (endpoint mode's natural
+// default). Repo-mode callers are expected to pass --path explicitly; if
+// they don't and HOME is also unset, this returns an error.
+func verdictTargetPath(path string) (string, error) {
+	targetPath := strings.TrimSpace(path)
+	if targetPath == "" {
+		targetPath = os.Getenv("HOME")
+	}
+	if targetPath == "" {
+		return "", fmt.Errorf("--path is required (or set HOME for endpoint mode)")
+	}
+	return targetPath, nil
+}
+
+func runVerdict(args []string) {
+	fs := flag.NewFlagSet("verdict", flag.ExitOnError)
+	path := fs.String("path", "", "repo, workspace, or mounted endpoint home path to assess; defaults to HOME in endpoint mode")
+	agent := fs.String("agent", "all", agentHelp)
+	mode := fs.String("mode", "endpoint", "collection mode: endpoint, repo")
+	jsonOut := fs.Bool("json", false, "emit the compact verdict JSON instead of text")
+	gate := fs.Bool("gate", false, "exit 3 if the verdict is reckless")
+	outPath := fs.String("out", "", "write output to file")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	targetPath, err := verdictTargetPath(*path)
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	inventory, err := prove.RunInventory(prove.Options{Path: targetPath, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	r, err := prove.RunPath(prove.Options{Path: targetPath, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
+	if *jsonOut {
+		if err := verdict.RenderJSON(writer, v); err != nil {
+			fatal(err)
+		}
+	} else {
+		if err := verdict.RenderText(writer, v); err != nil {
+			fatal(err)
+		}
+	}
+	if *gate && v.VerdictWord == verdict.WordReckless {
+		os.Exit(3)
+	}
+}
+
+var lsResourceKinds = []string{"findings", "agents", "surfaces", "controls", "facts", "cases"}
+
+type lsRow struct {
+	ID      string `json:"id"`
+	Summary string `json:"summary"`
+}
+
+func runLs(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "ariadne: usage: ariadne ls <findings|agents|surfaces|controls|facts|cases> [--path P] [--mode M] [--json]")
+		os.Exit(2)
+	}
+	resource := args[0]
+	rest := args[1:]
+	fs := flag.NewFlagSet("ls "+resource, flag.ExitOnError)
+	path := fs.String("path", "", "repo, workspace, or mounted endpoint home path to assess; defaults to HOME in endpoint mode")
+	agent := fs.String("agent", "all", agentHelp)
+	mode := fs.String("mode", "endpoint", "collection mode: endpoint, repo")
+	jsonOut := fs.Bool("json", false, "emit a JSON array of {id, summary} instead of tab-separated lines")
+	outPath := fs.String("out", "", "write output to file")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(rest)
+
+	if !stringInSlice(resource, lsResourceKinds) {
+		fmt.Fprintf(os.Stderr, "ariadne: unknown ls resource: %s; valid: %s\n", resource, strings.Join(lsResourceKinds, ", "))
+		os.Exit(2)
+	}
+
+	targetPath, err := verdictTargetPath(*path)
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	inventory, err := prove.RunInventory(prove.Options{Path: targetPath, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	r, err := prove.RunPath(prove.Options{Path: targetPath, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
+
+	rows := lsRows(resource, inventory, r, v)
+	if *jsonOut {
+		enc := json.NewEncoder(writer)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(rows); err != nil {
+			fatal(err)
+		}
+		return
+	}
+	for _, row := range rows {
+		fmt.Fprintf(writer, "%s\t%s\n", row.ID, row.Summary)
+	}
+}
+
+func lsRows(resource string, inventory model.InventoryReport, r model.Report, v verdict.Verdict) []lsRow {
+	collection := inventory.Collection
+	rows := make([]lsRow, 0)
+	switch resource {
+	case "findings":
+		for _, f := range v.Reckless {
+			rows = append(rows, lsRow{ID: f.ID, Summary: f.Title})
+		}
+		for _, t := range v.Tradeoffs {
+			rows = append(rows, lsRow{ID: t.ID, Summary: t.Summary})
+		}
+		for _, h := range v.Hardened {
+			rows = append(rows, lsRow{ID: h.ID, Summary: h.Summary})
+		}
+	case "agents":
+		for _, rt := range collection.Runtimes {
+			rows = append(rows, lsRow{ID: "runtime:" + rt.Kind, Summary: rt.Summary})
+		}
+	case "surfaces":
+		for _, s := range collection.Surfaces {
+			rows = append(rows, lsRow{ID: s.Source, Summary: s.Kind})
+		}
+	case "controls":
+		for _, c := range collection.Controls {
+			rows = append(rows, lsRow{ID: c.ID, Summary: fmt.Sprintf("%s — %s", c.Enforcement, c.Summary)})
+		}
+	case "facts":
+		for _, f := range collection.Facts {
+			rows = append(rows, lsRow{ID: f.ID, Summary: f.Summary})
+		}
+	case "cases":
+		for _, flaw := range r.ZeroTrust.ArchitectureFlaws {
+			rows = append(rows, lsRow{ID: flaw.ID, Summary: flaw.Title})
+		}
+	}
+	return rows
+}
+
+func stringInSlice(value string, values []string) bool {
+	for _, v := range values {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+func runShow(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "ariadne: usage: ariadne show <id> [--path P] [--mode M] [--json]")
+		os.Exit(2)
+	}
+	id := args[0]
+	rest := args[1:]
+	fs := flag.NewFlagSet("show "+id, flag.ExitOnError)
+	path := fs.String("path", "", "repo, workspace, or mounted endpoint home path to assess; defaults to HOME in endpoint mode")
+	agent := fs.String("agent", "all", agentHelp)
+	mode := fs.String("mode", "endpoint", "collection mode: endpoint, repo")
+	jsonOut := fs.Bool("json", false, "emit the resolved object as JSON instead of human lines")
+	outPath := fs.String("out", "", "write output to file")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(rest)
+
+	targetPath, err := verdictTargetPath(*path)
+	if err != nil {
+		fatal(err)
+	}
+	writer, closeFn, err := outputWriter(*outPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer closeFn()
+	inventory, err := prove.RunInventory(prove.Options{Path: targetPath, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	r, err := prove.RunPath(prove.Options{Path: targetPath, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
+	if err != nil {
+		fatal(err)
+	}
+	v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
+
+	if !renderShow(writer, id, inventory, r, v, *jsonOut) {
+		fmt.Fprintf(os.Stderr, "ariadne: unknown id %s; valid prefixes: reckless: tradeoff: hardened: control: fact: runtime: case: or a surface path\n", id)
+		os.Exit(1)
+	}
+}
+
+// renderShow resolves id against the verdict/inventory/report data and
+// writes it to w. It returns false if id did not resolve to anything.
+func renderShow(w io.Writer, id string, inventory model.InventoryReport, r model.Report, v verdict.Verdict, jsonOut bool) bool {
+	collection := inventory.Collection
+
+	switch {
+	case strings.HasPrefix(id, "reckless:"):
+		for _, f := range v.Reckless {
+			if f.ID == id {
+				return showJSONOrLines(w, jsonOut, f, []string{
+					"id: " + f.ID,
+					"exposure_id: " + f.ExposureID,
+					"title: " + f.Title,
+					fmt.Sprintf("where: %s:%d", f.Where.Source, f.Where.Line),
+					"why: " + f.Why,
+					"fix: " + f.Fix,
+					"attested_only: " + strings.Join(f.AttestedOnly, ", "),
+					"evidence_refs: " + evidenceRefsSummary(f.EvidenceRefs),
+				})
+			}
+		}
+		return false
+	case strings.HasPrefix(id, "tradeoff:"):
+		for _, t := range v.Tradeoffs {
+			if t.ID == id {
+				return showJSONOrLines(w, jsonOut, t, []string{
+					"id: " + t.ID,
+					"summary: " + t.Summary,
+					"source: " + t.Source,
+				})
+			}
+		}
+		return false
+	case strings.HasPrefix(id, "hardened:"):
+		for _, h := range v.Hardened {
+			if h.ID == id {
+				return showJSONOrLines(w, jsonOut, h, []string{
+					"id: " + h.ID,
+					"control: " + h.Control,
+					"summary: " + h.Summary,
+					"source: " + h.Source,
+				})
+			}
+		}
+		return false
+	case strings.HasPrefix(id, "control:"):
+		// The same control ID can be observed on multiple surfaces with
+		// different enforcement (e.g. enforced in .claude/settings.json and
+		// attested in an .ariadne policy). Show every entry so the reader
+		// never mistakes an attested copy for the enforced one.
+		var matches []model.Control
+		for _, c := range collection.Controls {
+			if c.ID == id {
+				matches = append(matches, c)
+			}
+		}
+		if len(matches) == 0 {
+			return false
+		}
+		sort.Slice(matches, func(i, j int) bool {
+			if matches[i].Enforcement != matches[j].Enforcement {
+				return matches[i].Enforcement == model.EnforcementEnforced
+			}
+			return matches[i].Source < matches[j].Source
+		})
+		var lines []string
+		for i, c := range matches {
+			if i > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines,
+				"id: "+c.ID,
+				"kind: "+c.Kind,
+				"enforcement: "+c.Enforcement,
+				"source: "+c.Source,
+				"summary: "+c.Summary,
+			)
+		}
+		return showJSONOrLines(w, jsonOut, matches, lines)
+	case strings.HasPrefix(id, "fact:"):
+		for _, f := range collection.Facts {
+			if f.ID == id {
+				return showJSONOrLines(w, jsonOut, f, []string{
+					"id: " + f.ID,
+					"type: " + f.Type,
+					"source: " + f.Source,
+					"summary: " + f.Summary,
+				})
+			}
+		}
+		return false
+	case strings.HasPrefix(id, "runtime:"):
+		kind := strings.TrimPrefix(id, "runtime:")
+		for _, rt := range collection.Runtimes {
+			if rt.Kind == kind || rt.ID == id {
+				return showJSONOrLines(w, jsonOut, rt, []string{
+					"id: " + rt.ID,
+					"kind: " + rt.Kind,
+					"source: " + rt.Source,
+					"summary: " + rt.Summary,
+				})
+			}
+		}
+		return false
+	case strings.HasPrefix(id, "case:"), strings.HasPrefix(id, "ztaf:"), strings.HasPrefix(id, "zt:"):
+		want := id
+		if strings.HasPrefix(id, "case:") {
+			want = "ztaf:" + strings.TrimPrefix(id, "case:")
+		} else if strings.HasPrefix(id, "zt:") {
+			want = "ztaf:" + strings.TrimPrefix(id, "zt:")
+		}
+		for _, flaw := range r.ZeroTrust.ArchitectureFlaws {
+			if flaw.ID == want || flaw.ID == id {
+				return showJSONOrLines(w, jsonOut, flaw, []string{
+					"id: " + flaw.ID,
+					"title: " + flaw.Title,
+					"status: " + string(flaw.Status),
+					"severity: " + flaw.Severity,
+					"finding: " + flaw.Finding,
+					"why_it_matters: " + flaw.WhyItMatters,
+				})
+			}
+		}
+		return false
+	default:
+		return showSurface(w, id, inventory, jsonOut)
+	}
+}
+
+// showSurface resolves id as a surface Source path, listing everything
+// derived from that surface: controls, authorities, boundaries, and facts
+// whose Source matches.
+func showSurface(w io.Writer, id string, inventory model.InventoryReport, jsonOut bool) bool {
+	collection := inventory.Collection
+	var surface model.Surface
+	found := false
+	for _, s := range collection.Surfaces {
+		if s.Source == id {
+			surface = s
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false
+	}
+
+	type surfaceDetail struct {
+		Surface     model.Surface     `json:"surface"`
+		Controls    []model.Control   `json:"controls"`
+		Authorities []model.Authority `json:"authorities"`
+		Boundaries  []model.Boundary  `json:"boundaries"`
+		Facts       []model.Fact      `json:"facts"`
+	}
+	detail := surfaceDetail{Surface: surface}
+	for _, c := range collection.Controls {
+		if c.Source == id {
+			detail.Controls = append(detail.Controls, c)
+		}
+	}
+	for _, a := range collection.Authorities {
+		if a.Source == id {
+			detail.Authorities = append(detail.Authorities, a)
+		}
+	}
+	for _, b := range collection.Boundaries {
+		if b.Source == id {
+			detail.Boundaries = append(detail.Boundaries, b)
+		}
+	}
+	for _, f := range collection.Facts {
+		if f.Source == id {
+			detail.Facts = append(detail.Facts, f)
+		}
+	}
+
+	if jsonOut {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(detail) == nil
+	}
+	fmt.Fprintf(w, "source: %s\n", surface.Source)
+	fmt.Fprintf(w, "kind: %s\n", surface.Kind)
+	fmt.Fprintf(w, "summary: %s\n", surface.Summary)
+	fmt.Fprintf(w, "controls: %d\n", len(detail.Controls))
+	for _, c := range detail.Controls {
+		fmt.Fprintf(w, "  %s (%s) — %s\n", c.ID, c.Enforcement, c.Summary)
+	}
+	fmt.Fprintf(w, "authorities: %d\n", len(detail.Authorities))
+	for _, a := range detail.Authorities {
+		fmt.Fprintf(w, "  %s — %s\n", a.ID, a.Summary)
+	}
+	fmt.Fprintf(w, "boundaries: %d\n", len(detail.Boundaries))
+	for _, b := range detail.Boundaries {
+		fmt.Fprintf(w, "  %s — %s\n", b.ID, b.Summary)
+	}
+	fmt.Fprintf(w, "facts: %d\n", len(detail.Facts))
+	for _, f := range detail.Facts {
+		fmt.Fprintf(w, "  %s — %s\n", f.ID, f.Summary)
+	}
+	return true
+}
+
+func evidenceRefsSummary(refs []model.EvidenceReference) string {
+	if len(refs) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		parts = append(parts, fmt.Sprintf("%s:%d", ref.Source, ref.LineStart))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// showJSONOrLines writes v as indented JSON when jsonOut is set, otherwise
+// writes the precomputed human-readable lines. Always returns true (the
+// caller already confirmed a match before calling this).
+func showJSONOrLines(w io.Writer, jsonOut bool, v interface{}, lines []string) bool {
+	if jsonOut {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(v) == nil
+	}
+	for _, line := range lines {
+		fmt.Fprintln(w, line)
+	}
+	return true
 }
 
 type selfAssessmentBundleResult struct {

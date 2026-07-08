@@ -108,7 +108,9 @@ llm_reviewer="$workdir/fixture-reviewer.sh"
 printf '#!/usr/bin/env bash\ncat >/dev/null\ncat "%s"\n' "$repo_root/ariadne-prove/testdata/llm-review/combined-risk-review.json" > "$llm_reviewer"
 chmod +x "$llm_reviewer"
 
-"$bin" assess --path "$fixture" --out "$assess_summary"
+"$bin" assess --path "$fixture" --format summary --out "$assess_summary"
+assess_readout="$workdir/assess-readout.txt"
+"$bin" assess --path "$fixture" --out "$assess_readout"
 "$bin" assess --path "$fixture" --format table --out "$assess_txt"
 "$bin" assess --path "$fixture" --format json --out "$assess_json"
 "$bin" assess --path "$fixture" --format runbook --out "$assess_runbook"
@@ -138,6 +140,51 @@ if [ "$summary_lines" -gt 90 ]; then
   echo "assessment summary is too long: $summary_lines lines" >&2
   echo "artifacts left in: $workdir" >&2
   exit 1
+fi
+
+# One-screen readout is the default assess/self format and the agent-native
+# front door. It grades reckless vs trade-off vs hardened and must fit one
+# screen (<=40 lines for the combined-risk fixture), with no .ariadne fix.
+readout_lines="$(wc -l < "$assess_readout" | tr -d '[:space:]')"
+if [ "$readout_lines" -gt 40 ]; then
+  echo "readout is too long: $readout_lines lines" >&2
+  echo "artifacts left in: $workdir" >&2
+  exit 1
+fi
+expect_contains "$assess_readout" "VERDICT: RECKLESS"
+expect_contains "$assess_readout" "RECKLESS"
+expect_contains "$assess_readout" "nothing executed"
+expect_contains "$assess_readout" "Next:"
+expect_not_contains "$assess_readout" ".ariadne"
+
+verdict_json="$workdir/verdict.json"
+"$bin" verdict --path "$fixture" --mode repo --json --out "$verdict_json"
+expect_contains "$verdict_json" '"verdict": "reckless"'
+expect_contains "$verdict_json" '"schema_version": "ariadne.verdict/v1"'
+expect_contains "$verdict_json" '"reckless"'
+expect_not_contains "$verdict_json" '.ariadne'
+
+ls_findings="$workdir/ls-findings.txt"
+"$bin" ls findings --path "$fixture" --mode repo --out "$ls_findings"
+expect_contains "$ls_findings" "reckless:1"
+
+show_finding="$workdir/show-reckless.txt"
+"$bin" show reckless:1 --path "$fixture" --mode repo --out "$show_finding"
+expect_contains "$show_finding" "fix:"
+expect_not_contains "$show_finding" ".ariadne"
+
+# Gate exit code: reckless target with --gate must exit 3.
+if "$bin" verdict --path "$fixture" --mode repo --gate >/dev/null 2>&1; then
+  echo "verdict --gate should exit non-zero on reckless target" >&2
+  echo "artifacts left in: $workdir" >&2
+  exit 1
+else
+  gate_code=$?
+  if [ "$gate_code" -ne 3 ]; then
+    echo "verdict --gate exit code = $gate_code, want 3" >&2
+    echo "artifacts left in: $workdir" >&2
+    exit 1
+  fi
 fi
 expect_contains "$assess_summary" "Ariadne Summary"
 expect_contains "$assess_summary" "Decision:"
@@ -624,7 +671,9 @@ self_bundle="$workdir/ariadne-self"
 self_bundle_verify="$workdir/self-bundle-verify.txt"
 self_bundle_verify_json="$workdir/self-bundle-verify.json"
 
-"$bin" self --path "$endpoint_fixture" --bundle-dir "$self_bundle" --out "$self_summary"
+"$bin" self --path "$endpoint_fixture" --format summary --bundle-dir "$self_bundle" --out "$self_summary"
+self_readout="$workdir/self-readout.txt"
+"$bin" self --path "$endpoint_fixture" --out "$self_readout"
 "$bin" bundle verify --dir "$self_bundle" --out "$self_bundle_verify"
 "$bin" bundle verify --dir "$self_bundle" --format json --out "$self_bundle_verify_json"
 "$bin" self --path "$endpoint_fixture" --format html --out "$self_html"
@@ -644,6 +693,12 @@ expect_contains "$self_summary" "file:"
 expect_contains "$self_summary" "line:"
 expect_contains "$self_summary" "inspect:"
 expect_contains "$self_summary" "Next action:"
+
+# The default self output is the one-screen readout: verdict word, graded
+# sections, drill-down hints, and no .ariadne fix suggestions.
+expect_contains "$self_readout" "VERDICT:"
+expect_contains "$self_readout" "nothing executed"
+expect_contains "$self_readout" "Next:"
 expect_contains "$self_html" "Ariadne Assessment"
 expect_contains "$self_html" "Operator Runbook"
 expect_contains "$self_html" "Artifact: before-proof.json"
@@ -1241,20 +1296,15 @@ cp "$endpoint_export_dir/surfaces/.ariadne/identity-policy.json" "$endpoint_loop
 "$bin" compare --before "$endpoint_before_json" --after "$endpoint_after_json" --out "$endpoint_compare_txt"
 "$bin" inventory --path "$endpoint_loop" --mode endpoint --format json --out "$endpoint_inventory_after"
 
-expect_contains "$endpoint_after_case" "State: closed"
-expect_contains "$endpoint_after_case" "0 missing hard-barrier controls"
+# Anti-gaming: a self-declared .ariadne identity policy is attested evidence
+# only. The case must stay open and the compare must not report proof success.
+expect_contains "$endpoint_after_case" "State: open"
+expect_contains "$endpoint_after_case" "attested evidence only"
 expect_contains "$endpoint_after_case" ".ariadne/identity-policy.json"
+expect_not_contains "$endpoint_after_case" "State: closed"
 
-expect_contains "$endpoint_compare_txt" "Verdict: proof succeeded"
-expect_contains "$endpoint_compare_txt" "open -> closed"
-expect_contains "$endpoint_compare_txt" "Closure receipts:"
-expect_contains "$endpoint_compare_txt" "Missing controls before:"
-expect_contains "$endpoint_compare_txt" "Observed controls after:"
-expect_contains "$endpoint_compare_txt" "Proof verdict: proof closed"
-expect_contains "$endpoint_compare_txt" "Control evidence:"
-expect_contains "$endpoint_compare_txt" "Remaining action: No remaining action for this case"
-expect_contains "$endpoint_compare_txt" "Proof patches: 5 -> 0"
-expect_contains "$endpoint_compare_txt" ".ariadne/identity-policy.json"
+expect_contains "$endpoint_compare_txt" "stayed open"
+expect_not_contains "$endpoint_compare_txt" "Verdict: proof succeeded"
 
 expect_contains "$endpoint_inventory_after" '"control:credential-isolation"'
 expect_contains "$endpoint_inventory_after" '"control:cryptographic-identity"'
@@ -1292,81 +1342,71 @@ cp "$export_dir/surfaces/.ariadne/output-policy.json" "$loop_target/.ariadne/out
 "$bin" compare --before "$before_json" --after "$after_json" --format json --out "$compare_json"
 "$bin" compare --before "$before_json" --after "$after_json" --format html --out "$compare_html"
 
-expect_contains "$after_case" "State: closed"
-expect_contains "$after_case" "0 missing hard-barrier controls"
-expect_contains "$after_case" ".ariadne/egress-policy.json"
-expect_contains "$after_case" ".ariadne/output-policy.json"
+# Anti-gaming: applying Ariadne's own generated .ariadne proof bundle is a
+# self-declaration. The egress case must stay open.
+expect_contains "$after_case" "State: open"
+expect_contains "$after_case" "attested evidence only"
+expect_not_contains "$after_case" "State: closed"
 
 expect_contains "$compare_txt" "Decision:"
-expect_contains "$compare_txt" "Verdict: proof succeeded"
-expect_contains "$compare_txt" "Readout: Proof worked"
-expect_contains "$compare_txt" "open -> closed"
-expect_contains "$compare_txt" "Closure receipts:"
-expect_contains "$compare_txt" "Egress And Output Boundary (case:egress-output-boundary): open -> closed / proof closed"
-expect_contains "$compare_txt" "artifacts:"
-expect_contains "$compare_txt" "Missing controls before:"
-expect_contains "$compare_txt" "Observed controls after:"
-expect_contains "$compare_txt" "Proof verdict: proof closed"
-expect_contains "$compare_txt" "Control evidence:"
-expect_contains "$compare_txt" "Evidence source:"
-expect_contains "$compare_txt" "Remaining action: No remaining action for this case"
-expect_contains "$compare_txt" "Proof patches: 5 -> 0"
-expect_contains "$compare_txt" "Added evidence:"
-expect_contains "$compare_txt" ".ariadne/egress-policy.json"
-expect_contains "$compare_txt" ".ariadne/output-policy.json"
+expect_contains "$compare_txt" "stayed open"
+expect_not_contains "$compare_txt" "Verdict: proof succeeded"
 
 expect_contains "$compare_receipt" "Ariadne closure receipts"
-expect_contains "$compare_receipt" "Verdict: proof succeeded"
-expect_contains "$compare_receipt" "Closure receipts:"
-expect_contains "$compare_receipt" "Egress And Output Boundary (case:egress-output-boundary): open -> closed / proof closed"
-expect_contains "$compare_receipt" "control evidence:"
-expect_contains "$compare_receipt" "evidence source:"
-expect_contains "$compare_receipt" "evidence ref:"
 expect_contains "$compare_receipt" "artifact hash:"
 expect_contains "$compare_receipt" "sha256:"
-expect_contains "$compare_receipt" "verification command:"
-expect_contains "$compare_receipt" "--format receipt --out closure-receipt.txt"
-expect_contains "$compare_receipt" "remaining action: No remaining action for this case"
-expect_contains "$compare_receipt" "Limits:"
+expect_not_contains "$compare_receipt" "Verdict: proof succeeded"
 
+# Enforced closure: real runtime configuration changes still close a case
+# end to end (least-agency case via Claude/Codex permission semantics).
+enforced_target="$workdir/combined-risk-enforced"
+cp -R "$fixture" "$enforced_target"
+enforced_before_json="$workdir/enforced-before-proof.json"
+enforced_after_json="$workdir/enforced-after-proof.json"
+enforced_compare_txt="$workdir/enforced-compare.txt"
+
+"$bin" proofs --path "$enforced_target" --case case:least-agency-authority --format json --out "$enforced_before_json"
+cat > "$enforced_target/.claude/settings.json" <<'SETTINGS'
+{
+  "permissions": {
+    "defaultMode": "default",
+    "deny_by_default": true,
+    "least_privilege": true,
+    "scoped_permissions": true,
+    "allow": ["Read(src/**)"],
+    "deny": ["Read(.env)", "Read(**/.env)"]
+  }
+}
+SETTINGS
+cat > "$enforced_target/.codex/config.toml" <<'CODEX'
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+CODEX
+"$bin" proofs --path "$enforced_target" --case case:least-agency-authority --format json --out "$enforced_after_json"
+"$bin" compare --before "$enforced_before_json" --after "$enforced_after_json" --out "$enforced_compare_txt"
+
+expect_contains "$enforced_compare_txt" "Verdict: proof succeeded"
+
+# The declaration-only compare artifacts must report the case as still open.
 expect_contains "$compare_json" '"decision"'
-expect_contains "$compare_json" '"status": "proof_succeeded"'
 expect_contains "$compare_json" '"top_case_id": "case:egress-output-boundary"'
 expect_contains "$compare_json" '"closure_receipts"'
 expect_contains "$compare_json" '"receipt_id": "closure-receipt:case:egress-output-boundary"'
-expect_contains "$compare_json" '"proof_status": "proof_closed"'
+expect_contains "$compare_json" '"proof_status": "proof_still_open"'
 expect_contains "$compare_json" '"evidence_refs"'
 expect_contains "$compare_json" '"artifact_sources"'
 expect_contains "$compare_json" '"artifact_hashes"'
 expect_contains "$compare_json" '"sha256"'
 expect_contains "$compare_json" '"size_bytes"'
 expect_contains "$compare_json" '"verification_commands"'
-expect_contains "$compare_json" '"proof_patches_before": 5'
-expect_contains "$compare_json" '"proof_patches_after": 0'
-expect_contains "$compare_json" '"added_evidence_sources"'
 expect_contains "$compare_json" '"before_state": "open"'
-expect_contains "$compare_json" '"after_state": "closed"'
+expect_contains "$compare_json" '"after_state": "open"'
 expect_contains "$compare_json" '"proof_verdict"'
-expect_contains "$compare_json" '"status": "proof_closed"'
-expect_contains "$compare_json" '"remaining_action": "No remaining action for this case'
-expect_contains "$compare_json" '"added_evidence_refs"'
+expect_not_contains "$compare_json" '"status": "proof_succeeded"'
 expect_contains "$compare_html" "Compare Decision"
-expect_contains "$compare_html" "PROOF SUCCEEDED"
-expect_contains "$compare_html" "CLOSED"
 expect_contains "$compare_html" "Closure Receipts"
-expect_contains "$compare_html" "Ticket-ready proof summaries"
 expect_contains "$compare_html" "open"
-expect_contains "$compare_html" "closed"
-expect_contains "$compare_html" "Proof verdict"
-expect_contains "$compare_html" "Status: proof closed"
-expect_contains "$compare_html" "Remaining action: No remaining action for this case"
-expect_contains "$compare_html" "Missing controls before"
-expect_contains "$compare_html" "Observed controls after"
-expect_contains "$compare_html" ".ariadne/egress-policy.json"
-expect_contains "$compare_html" ".ariadne/output-policy.json"
-expect_contains "$compare_html" 'data-copy-value=".ariadne/egress-policy.json"'
-expect_contains "$compare_html" 'data-copy-value=".ariadne/output-policy.json"'
-expect_contains "$compare_html" "Copy path</button>"
+expect_not_contains "$compare_html" "PROOF SUCCEEDED"
 
 echo "First-run verification passed"
 echo "  artifacts: $workdir"

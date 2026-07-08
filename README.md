@@ -10,6 +10,32 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 
 The active implementation is in [`ariadne-prove/`](ariadne-prove/).
 
+## The 60-second readout
+
+`ariadne self` (or `ariadne assess --path <repo>`) prints one screen: which agents were
+found, the **reckless** configurations that need action (each with file:line, why, and a
+one-line fix), the **trade-offs** you're accepting as the normal cost of using agents,
+and the **hardened** controls already working for you. The verdict is a word —
+`reckless`, `tradeoffs_only`, or `hardened` — not a score.
+
+It is designed to be driven by other AI agents as much as by people. Every line carries
+a stable ID, and the CLI is a navigable resource tree with progressive disclosure:
+
+```bash
+ariadne self                       # one-screen graded readout (default format)
+ariadne verdict --json             # compact machine verdict (schema: ariadne.verdict/v1)
+ariadne verdict --gate             # exit 3 if reckless — one-line CI/pipeline gate
+ariadne ls findings                # list resources: findings | agents | surfaces | controls | facts | cases
+ariadne show reckless:1            # drill into one finding: evidence, why, fix
+ariadne show .claude/settings.json # everything Ariadne concluded from one file
+```
+
+Fix suggestions are printed, never applied — Ariadne only reads. An agent applies the
+edit with its own tools, then reruns `ariadne self` to confirm the verdict dropped.
+Because only enforced configuration counts (a self-declared `.ariadne/*.json` file can
+never turn the screen green), the verdict is trustworthy enough to gate on. Older
+report formats remain available via `--format summary|table|json|html`.
+
 ## Quick Start
 
 ```bash
@@ -95,8 +121,9 @@ Ariadne separates facts from interpretation:
 - **Observed fact:** a file, config, instruction, cache, MCP, tool, authority, control, or boundary was discovered.
 - **Declared fact:** a config or policy says a control exists.
 - **Inferred fact:** Ariadne can model authority or reachability from deterministic evidence.
+- **Enforced vs attested controls:** a control parsed from configuration a runtime or platform actually applies (Claude/Codex permission semantics, pinned launchers, CI gates, managed settings) is `enforced`; a self-declared `.ariadne/*.json` policy flag is `attested`. Attested controls never flip a path to `protected`, never count as proven hard barriers, and never close a case — they are reported separately as `attested_controls`.
 - **Classification:** Ariadne connects facts into a graph path and labels the path `exposed`, `protected`, or `inconclusive`.
-- **Operator case:** Ariadne ranks missing hard barriers that would break a supported path.
+- **Operator case:** Ariadne ranks missing hard barriers that would break a supported path. Cases close only on enforced evidence.
 
 If Ariadne cannot cite facts, evidence references, graph edges, controls, and limitations, it should not present a conclusion as more than unknown or inconclusive.
 
