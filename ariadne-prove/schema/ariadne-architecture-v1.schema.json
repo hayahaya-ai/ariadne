@@ -238,14 +238,15 @@
     },
     "architecture_control_test": {
       "type": "object",
-      "required": ["question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers"],
+      "required": ["question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers", "attested_controls"],
       "properties": {
         "question": { "type": "string" },
         "result": { "type": "string", "enum": ["hard_barrier_observed", "missing_hard_barrier", "partial_or_friction_only", "evidence_gap", "not_observed"] },
         "summary": { "type": "string" },
         "hard_barriers_observed": { "type": "array", "items": { "type": "string" } },
         "partial_or_friction_controls": { "type": "array", "items": { "type": "string" } },
-        "missing_hard_barriers": { "type": "array", "items": { "type": "string" } }
+        "missing_hard_barriers": { "type": "array", "items": { "type": "string" } },
+        "attested_controls": { "type": "array", "items": { "type": "string" } }
       }
     },
     "architecture_closure": {

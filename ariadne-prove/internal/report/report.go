@@ -282,9 +282,9 @@ func assessFocusedControlNextStep(control string, proofSurfaces []string, exampl
 		surface = examples[0].Surface
 	}
 	if surface != "" {
-		return fmt.Sprintf("Add or verify %s evidence at %s, then rerun this case.", control, surface)
+		return fmt.Sprintf("Add or verify %s evidence at %s, then rerun this case. Declarations under .ariadne/ are recorded as attested evidence only; closing the case requires enforced evidence such as runtime permission semantics or managed configuration.", control, surface)
 	}
-	return fmt.Sprintf("Add or verify %s evidence, then rerun this case.", control)
+	return fmt.Sprintf("Add or verify %s evidence, then rerun this case. Declarations under .ariadne/ are recorded as attested evidence only; closing the case requires enforced evidence such as runtime permission semantics or managed configuration.", control)
 }
 
 func containsReportString(values []string, target string) bool {
@@ -2873,6 +2873,9 @@ func renderAssessSummary(w io.Writer, r model.AssessReport) error {
 	fmt.Fprintf(w, "\nControls:\n")
 	renderAssessSummaryBucketLines(w, "Missing hard barrier", r.Decision.MissingHardBarriers, 5, "none for the current case")
 	renderAssessSummaryBucketLines(w, "Present hard barrier", r.Decision.PresentHardBarriers, 4, "none observed for the current case")
+	if len(r.Decision.AttestedControls) > 0 {
+		renderAssessSummaryBucketLines(w, "Attested only (declared, not enforced; does not close the case)", r.Decision.AttestedControls, 5, "")
+	}
 	renderAssessSummaryBucketLines(w, "Partial/friction control", r.Decision.PartialOrFrictionControls, 4, "none observed for the current case")
 	renderAssessSummaryBucketLines(w, "Unknown evidence", r.Decision.UnknownEvidence, 4, "none for the current case")
 
@@ -4088,6 +4091,7 @@ func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInvent
 		HardRiskSignals:           []string{},
 		NormalCapabilities:        []string{},
 		MissingHardBarriers:       []string{},
+		AttestedControls:          []string{},
 		PartialOrFrictionControls: []string{},
 		PresentHardBarriers:       []string{},
 		UnknownEvidence:           []string{},
@@ -4135,6 +4139,10 @@ func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInvent
 		triage.MissingHardBarriers = append(triage.MissingHardBarriers, closure.RemainingMissingHardBarriers...)
 	}
 	triage.MissingHardBarriers = uniqueStrings(triage.MissingHardBarriers)
+	for _, flaw := range flaws {
+		triage.AttestedControls = append(triage.AttestedControls, flaw.ControlTest.AttestedControls...)
+	}
+	triage.AttestedControls = uniqueStrings(triage.AttestedControls)
 	triage.PartialOrFrictionControls = uniqueStrings(closure.PartialOrFrictionControls)
 	triage.PresentHardBarriers = uniqueStrings(append(triage.PresentHardBarriers, closure.HardBarriersObserved...))
 	if !closedAction && summary.UnknownArchitectureFlaws > 0 {
@@ -4164,6 +4172,7 @@ func buildAssessControlState(action model.AssessFirstAction, triage model.Assess
 		Scope:                     "top_case",
 		MissingHardBarriers:       nonNilStrings(uniqueStrings(triage.MissingHardBarriers)),
 		PresentHardBarriers:       nonNilStrings(uniqueStrings(triage.PresentHardBarriers)),
+		AttestedControls:          nonNilStrings(uniqueStrings(triage.AttestedControls)),
 		PartialOrFrictionControls: nonNilStrings(uniqueStrings(triage.PartialOrFrictionControls)),
 		UnknownEvidence:           nonNilStrings(uniqueStrings(triage.UnknownEvidence)),
 		ProofSurfaces:             []string{},
@@ -4633,6 +4642,7 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 		PathSummary:               firstStrings(uniqueStrings(state.PathSummary), 6),
 		MissingHardBarriers:       firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
 		PresentHardBarriers:       firstStrings(uniqueStrings(state.PresentHardBarriers), 5),
+		AttestedControls:          firstStrings(uniqueStrings(state.AttestedControls), 5),
 		PartialOrFrictionControls: firstStrings(uniqueStrings(state.PartialOrFrictionControls), 5),
 		UnknownEvidence:           firstStrings(uniqueStrings(state.UnknownEvidence), 4),
 		EvidenceGapActions:        firstStrings(uniqueStrings(triage.EvidenceGapActions), 4),
@@ -4711,6 +4721,7 @@ func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInve
 	decision.PathSummary = nonNilStrings(decision.PathSummary)
 	decision.MissingHardBarriers = nonNilStrings(decision.MissingHardBarriers)
 	decision.PresentHardBarriers = nonNilStrings(decision.PresentHardBarriers)
+	decision.AttestedControls = nonNilStrings(decision.AttestedControls)
 	decision.PartialOrFrictionControls = nonNilStrings(decision.PartialOrFrictionControls)
 	decision.UnknownEvidence = nonNilStrings(decision.UnknownEvidence)
 	decision.EvidenceGapActions = nonNilStrings(decision.EvidenceGapActions)
@@ -7349,6 +7360,9 @@ func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
 	renderAssessDecisionLines(w, "Path", decision.PathSummary, 6)
 	renderAssessDecisionBucketLines(w, "Missing hard barrier", decision.MissingHardBarriers, 5, "none for the current case")
 	renderAssessDecisionBucketLines(w, "Present hard barrier", decision.PresentHardBarriers, 5, "none observed for the current case")
+	if len(decision.AttestedControls) > 0 {
+		renderAssessDecisionBucketLines(w, "Attested only (declared, not enforced; does not close the case)", decision.AttestedControls, 5, "")
+	}
 	renderAssessDecisionBucketLines(w, "Partial/friction control", decision.PartialOrFrictionControls, 5, "none observed for the current case")
 	renderAssessDecisionBucketLines(w, "Unknown evidence", decision.UnknownEvidence, 4, "none for the current case")
 	renderAssessDecisionLines(w, "Evidence gap action", decision.EvidenceGapActions, 4)
@@ -10269,10 +10283,10 @@ func controlOperatorCaseNextStep(tasks []model.ControlVerificationTask, workstre
 			surface = task.EvidenceExamples[0].Surface
 		}
 		if task.Control != "" && surface != "" {
-			return fmt.Sprintf("Add or verify %s evidence at %s, then rerun this case.", task.Control, surface)
+			return fmt.Sprintf("Add or verify %s evidence at %s, then rerun this case. Declarations under .ariadne/ are recorded as attested evidence only; closing the case requires enforced evidence such as runtime permission semantics or managed configuration.", task.Control, surface)
 		}
 		if task.Control != "" {
-			return fmt.Sprintf("Add or verify %s evidence, then rerun this case.", task.Control)
+			return fmt.Sprintf("Add or verify %s evidence, then rerun this case. Declarations under .ariadne/ are recorded as attested evidence only; closing the case requires enforced evidence such as runtime permission semantics or managed configuration.", task.Control)
 		}
 	}
 	if len(workstream.StartingControls) > 0 {

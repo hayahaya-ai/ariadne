@@ -189,12 +189,13 @@
     },
     "control": {
       "type": "object",
-      "required": ["id", "kind", "source", "summary"],
+      "required": ["id", "kind", "source", "enforcement", "summary"],
       "properties": {
         "id": { "type": "string" },
         "kind": { "type": "string" },
         "runtime": { "type": "string" },
         "source": { "type": "string" },
+        "enforcement": { "type": "string", "enum": ["enforced", "attested"] },
         "summary": { "type": "string" }
       }
     },

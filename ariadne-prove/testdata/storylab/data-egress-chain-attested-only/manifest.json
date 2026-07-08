@@ -1,0 +1,33 @@
+{
+  "id": "data-egress-chain-attested-only",
+  "title": "Self-declared network policy does not break the data egress chain",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does a self-declared .ariadne network policy count as a proven egress barrier?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "world/repo"
+  },
+  "expected": {
+    "status": "exposed",
+    "proof_mode": "simulated",
+    "required_nodes": [
+      "trustinput:repo-instruction",
+      "runtime:codex",
+      "authority:file-read",
+      "authority:external-communication",
+      "boundary:secret-like-file",
+      "boundary:external-destination",
+      "control:network-restricted"
+    ],
+    "required_edges": [
+      "trustinput:repo-instruction|influences|runtime:codex",
+      "runtime:codex|has_authority|authority:file-read",
+      "runtime:codex|has_authority|authority:external-communication",
+      "authority:file-read|reaches|boundary:secret-like-file",
+      "authority:external-communication|reaches|boundary:external-destination"
+    ],
+    "controls_break_path": [],
+    "redaction_must_not_contain": ["DATA_EGRESS_FAKE_SECRET_DO_NOT_LEAK_ATTESTED"]
+  }
+}

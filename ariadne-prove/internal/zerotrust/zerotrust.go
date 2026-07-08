@@ -9,7 +9,13 @@ import (
 
 const FrameworkVersion = "ariadne.zero_trust_agent/v1"
 
-func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrust {
+func Assess(full model.Collection, g model.Graph, exposures []model.ExposureResult) model.ZeroTrust {
+	// Boundary checks decide proven hard barriers, so they only see enforced
+	// controls. Attested (self-declared) controls are annotated on control
+	// tests afterwards; they can never satisfy a hard-barrier requirement.
+	attested := attestedControlIDs(full.Controls)
+	c := full
+	c.Controls = enforcedControls(full.Controls)
 	checks := []model.ZeroTrustCheck{
 		influenceBoundary(c, g, exposures),
 		authorityBoundary(c, g, exposures),
@@ -36,6 +42,9 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		checks[i] = normalizeCheck(checks[i])
 	}
 	architecture := architectureFlaws(checks)
+	for i := range architecture {
+		architecture[i].ControlTest.AttestedControls = intersectControls(architecture[i].ControlTest.MissingHardBarriers, attested)
+	}
 	return model.ZeroTrust{
 		FrameworkVersion:    FrameworkVersion,
 		Summary:             summarize(checks),
@@ -45,6 +54,43 @@ func Assess(c model.Collection, g model.Graph, exposures []model.ExposureResult)
 		Maturity:            maturity(c),
 		Checks:              checks,
 	}
+}
+
+func enforcedControls(controls []model.Control) []model.Control {
+	var out []model.Control
+	for _, control := range controls {
+		if control.Enforcement == model.EnforcementEnforced {
+			out = append(out, control)
+		}
+	}
+	return out
+}
+
+func attestedControlIDs(controls []model.Control) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, control := range controls {
+		if control.Enforcement == model.EnforcementAttested && !seen[control.ID] {
+			seen[control.ID] = true
+			out = append(out, control.ID)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func intersectControls(required []string, available []string) []string {
+	set := map[string]bool{}
+	for _, id := range available {
+		set[id] = true
+	}
+	out := []string{}
+	for _, id := range required {
+		if set[id] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 type architectureDefinition struct {
@@ -147,6 +193,9 @@ func normalizeArchitectureFlaw(flaw model.ZeroTrustArchitecture) model.ZeroTrust
 	}
 	if flaw.ControlTest.MissingHardBarriers == nil {
 		flaw.ControlTest.MissingHardBarriers = []string{}
+	}
+	if flaw.ControlTest.AttestedControls == nil {
+		flaw.ControlTest.AttestedControls = []string{}
 	}
 	return flaw
 }

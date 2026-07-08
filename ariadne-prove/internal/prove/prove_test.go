@@ -718,7 +718,7 @@ func TestDataEgressChainProtectedStoryControlBreaksPath(t *testing.T) {
 	}
 }
 
-func TestZeroTrustEgressPolicyControlsExternalDestination(t *testing.T) {
+func TestZeroTrustEgressPolicyIsAttestedOnlyAndDoesNotProtect(t *testing.T) {
 	path := realPathFixture(t, "egress-controls")
 	inventory, err := RunInventory(Options{Path: path})
 	if err != nil {
@@ -730,8 +730,11 @@ func TestZeroTrustEgressPolicyControlsExternalDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertExposure(t, r, "data-egress-chain", model.StatusProtected)
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustControlled)
+	// A self-declared .ariadne egress policy is attested evidence only: it can
+	// never protect the path or close the case. The controls stay visible in
+	// the graph and are annotated as attested on the affected flaws.
+	assertExposure(t, r, "data-egress-chain", model.StatusExposed)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:egress-destination-allowlist",
 		"control:webhook-allowlist",
@@ -739,27 +742,18 @@ func TestZeroTrustEgressPolicyControlsExternalDestination(t *testing.T) {
 		"control:egress-content-filter",
 		"control:egress-audit",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("egress boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing egress control node %s", id)
 		}
 	}
-	for _, edge := range []string{
-		"control:egress-destination-allowlist|restricts|boundary:external-destination",
-		"control:webhook-allowlist|restricts|boundary:external-destination",
-		"control:per-tool-network-scope|restricts|boundary:external-destination",
-	} {
-		if !r.Graph.HasEdge(edge) {
-			t.Fatalf("missing egress control graph edge %s", edge)
-		}
-	}
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws,
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+	)
 	exposure := findExposure(t, r, "data-egress-chain")
-	if !containsString(exposure.ControlsBreakPath, "allowlist external destinations") ||
-		!containsString(exposure.ControlsBreakPath, "allowlist webhook destinations") ||
-		!containsString(exposure.ControlsBreakPath, "scope per-tool network access") {
-		t.Fatalf("data egress break path missing hard egress controls: %+v", exposure.ControlsBreakPath)
+	if len(exposure.ControlsBreakPath) != 0 {
+		t.Fatalf("attested-only egress policy must not break the path: %+v", exposure.ControlsBreakPath)
 	}
 	blob, err := json.Marshal(r)
 	if err != nil {
@@ -809,8 +803,8 @@ func TestZeroTrustEgressAuditFilterAloneDoesNotBreakDataEgressPath(t *testing.T)
 	}
 	assertExposure(t, r, "data-egress-chain", model.StatusExposed)
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:egress-boundary", model.ZeroTrustBreaking)
-	if !containsString(check.Controls, "control:egress-content-filter") || !containsString(check.Controls, "control:egress-audit") {
-		t.Fatalf("egress boundary should cite soft egress controls: %+v", check.Controls)
+	if !r.Graph.HasNode("control:egress-content-filter") || !r.Graph.HasNode("control:egress-audit") {
+		t.Fatalf("graph should retain declared soft egress controls")
 	}
 	for _, id := range []string{
 		"control:egress-destination-allowlist",
@@ -872,7 +866,9 @@ func TestZeroTrustOutputPolicyControlsSensitiveOutputBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustControlled)
+	// Self-declared output policy is attested only: it stays visible in the
+	// graph but cannot control the output boundary.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:output-sensitive-data-filter",
 		"control:output-redaction",
@@ -880,24 +876,16 @@ func TestZeroTrustOutputPolicyControlsSensitiveOutputBoundary(t *testing.T) {
 		"control:semantic-output-analysis",
 		"control:high-risk-output-review",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("output boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing output control node %s", id)
 		}
 	}
-	for _, edge := range []string{
-		"control:output-sensitive-data-filter|filters|boundary:secret-like-file",
-		"control:output-redaction|filters|boundary:developer-secret-boundary",
-		"control:output-filter-logging|filters|boundary:secret-like-file",
-	} {
-		if !r.Graph.HasEdge(edge) {
-			t.Fatalf("missing output graph edge %s", edge)
-		}
-	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:output-controls", model.ZeroTrustControlled)
-	if req.ControlQuality != "hard_barrier" {
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws,
+		"control:output-sensitive-data-filter",
+		"control:output-redaction",
+	)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:output-controls", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
 		t.Fatalf("output controls requirement quality = %q", req.ControlQuality)
 	}
 }
@@ -936,15 +924,15 @@ func TestZeroTrustOutputFilterWithoutLoggingIsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:output-sensitive-data-filter") || !containsString(check.Controls, "control:output-redaction") {
-		t.Fatalf("partial output boundary should cite filter and redaction controls: %+v", check.Controls)
-	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustBreaking)
 	if containsString(check.Controls, "control:output-filter-logging") {
 		t.Fatalf("partial output boundary should not invent output logging: %+v", check.Controls)
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:output-controls", model.ZeroTrustUnknown)
-	if req.ControlQuality != "partial_declared" {
+	if !r.Graph.HasNode("control:output-sensitive-data-filter") || !r.Graph.HasNode("control:output-redaction") {
+		t.Fatalf("graph should retain declared output controls")
+	}
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:output-controls", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
 		t.Fatalf("partial output controls requirement quality = %q", req.ControlQuality)
 	}
 	blob, err := json.Marshal(r)
@@ -983,7 +971,9 @@ func TestZeroTrustIntegrityPolicyControlsRiskyConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
+	// Integrity declarations from a self-declared .ariadne policy are attested
+	// only; they stay in the graph but do not control the boundary.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:config-version-control",
 		"control:config-review-required",
@@ -994,13 +984,14 @@ func TestZeroTrustIntegrityPolicyControlsRiskyConfig(t *testing.T) {
 		"control:config-rollback-procedure",
 		"control:automated-config-rollback",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("config integrity boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing config integrity control node %s", id)
 		}
 	}
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws,
+		"control:config-review-required",
+		"control:managed-settings-enforced",
+	)
 	for _, edge := range []string{
 		"control:config-version-control|restricts|config:claude-repo",
 		"control:signed-config|restricts|config:claude-repo",
@@ -1052,7 +1043,9 @@ func TestZeroTrustToolPolicyControlsToolIntegrity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
+	// Tool-policy declarations from .ariadne are attested only. The boundary
+	// is not controlled by them; declared controls stay visible in the graph.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustUnknown)
 	for _, id := range []string{
 		"control:tool-allowlist",
 		"control:mcp-reviewed-pinned",
@@ -1064,9 +1057,6 @@ func TestZeroTrustToolPolicyControlsToolIntegrity(t *testing.T) {
 		"control:tool-sandbox-execution",
 		"control:tool-circuit-breaker",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("tool integrity boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing tool integrity control node %s", id)
 		}
@@ -1130,7 +1120,8 @@ func TestZeroTrustSupplyChainPolicyControlsBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustControlled)
+	// AI-BOM and supply-chain declarations under .ariadne are attested only.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:ai-bom",
 		"control:model-provenance",
@@ -1141,9 +1132,6 @@ func TestZeroTrustSupplyChainPolicyControlsBoundary(t *testing.T) {
 		"control:runtime-component-validation",
 		"control:dependency-reachability-analysis",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("supply-chain boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing supply-chain control node %s", id)
 		}
@@ -1158,8 +1146,8 @@ func TestZeroTrustSupplyChainPolicyControlsBoundary(t *testing.T) {
 			t.Fatalf("missing supply-chain graph edge %s", edge)
 		}
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:supply-chain-provenance", model.ZeroTrustControlled)
-	if req.ControlQuality != "hard_barrier" {
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:supply-chain-provenance", model.ZeroTrustBreaking)
+	if req.ControlQuality != "missing_hard_barrier" {
 		t.Fatalf("supply-chain requirement quality = %q", req.ControlQuality)
 	}
 }
@@ -1231,17 +1219,13 @@ func TestZeroTrustAIBOMWithoutValidationIsUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:ai-bom") {
-		t.Fatalf("partial AI-BOM should cite observed BOM control: %+v", check.Controls)
+	if !r.Graph.HasNode("control:ai-bom") {
+		t.Fatalf("graph should retain declared AI-BOM control node")
 	}
 	for _, id := range []string{"control:signed-ai-artifacts", "control:runtime-component-validation"} {
 		if containsString(check.Controls, id) {
 			t.Fatalf("partial AI-BOM should not invent validation control %s: %+v", id, check.Controls)
 		}
-	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:supply-chain-provenance", model.ZeroTrustUnknown)
-	if req.ControlQuality != "partial_declared" {
-		t.Fatalf("partial AI-BOM requirement quality = %q", req.ControlQuality)
 	}
 }
 
@@ -1258,7 +1242,9 @@ func TestZeroTrustDelegationPolicyControlsDelegationBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustControlled)
+	// Delegation policy under .ariadne is attested only and does not control
+	// the delegation boundary.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:delegation-scope",
 		"control:delegation-allowlist",
@@ -1268,13 +1254,11 @@ func TestZeroTrustDelegationPolicyControlsDelegationBoundary(t *testing.T) {
 		"control:subagent-context-isolation",
 		"control:delegation-audit",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("delegation boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing delegation control node %s", id)
 		}
 	}
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws, "control:delegation-scope")
 	for _, edge := range []string{
 		"runtime:claude|can_call|tool:agent-delegation",
 		"tool:agent-delegation|grants|authority:delegated-agent-authority",
@@ -1371,7 +1355,9 @@ func TestZeroTrustResponsePolicyControlsContainmentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
+	// Response policy under .ariadne is attested only; containment is not
+	// proven by declaration.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustUnknown)
 	for _, id := range []string{
 		"control:automated-triage",
 		"control:behavioral-monitoring",
@@ -1381,9 +1367,6 @@ func TestZeroTrustResponsePolicyControlsContainmentBoundary(t *testing.T) {
 		"control:dynamic-access-reduction",
 		"control:response-escalation",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("response boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing response control node %s", id)
 		}
@@ -1433,8 +1416,8 @@ func TestZeroTrustTriageWithoutContainmentIsNotControlled(t *testing.T) {
 	if containsString(check.Controls, "control:session-termination") || containsString(check.Controls, "control:credential-revocation") {
 		t.Fatalf("triage-only response should not invent containment controls: %+v", check.Controls)
 	}
-	if !strings.Contains(strings.ToLower(check.Finding), "not enough") {
-		t.Fatalf("triage-only finding should explain partial evidence: %q", check.Finding)
+	if !strings.Contains(strings.ToLower(check.Finding), "did not observe") {
+		t.Fatalf("triage-only finding should explain missing containment evidence: %q", check.Finding)
 	}
 }
 
@@ -1450,7 +1433,9 @@ func TestZeroTrustGovernancePolicyControlsDeploymentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
+	// Governance declarations under .ariadne are attested only; a deployment
+	// is not governed by self-attestation.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:agent-inventory",
 		"control:deployment-owner",
@@ -1459,9 +1444,6 @@ func TestZeroTrustGovernancePolicyControlsDeploymentBoundary(t *testing.T) {
 		"control:governance-audit",
 		"control:shadow-ai-discovery",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("governance boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing governance control node %s", id)
 		}
@@ -1538,8 +1520,8 @@ func TestZeroTrustPartialGovernanceIsUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:agent-inventory") || !containsString(check.Controls, "control:deployment-owner") {
-		t.Fatalf("partial governance should cite observed controls: %+v", check.Controls)
+	if !r.Graph.HasNode("control:agent-inventory") || !r.Graph.HasNode("control:deployment-owner") {
+		t.Fatalf("graph should retain declared partial governance controls")
 	}
 	if containsString(check.Controls, "control:deployment-approval") || containsString(check.Controls, "control:risk-assessment") {
 		t.Fatalf("partial governance should not invent approval or risk controls: %+v", check.Controls)
@@ -1679,161 +1661,50 @@ func TestZeroTrustSafeControlsUsesIdentityAndAuditControls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:output-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:config-integrity-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:tool-integrity-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:supply-chain-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:delegation-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:governance-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustControlled)
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustControlled)
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:identity-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:observability-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:output-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:config-integrity-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:tool-integrity-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:supply-chain-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:delegation-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:response-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:governance-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:continuous-authorization-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:approval-boundary")
-	assertNoZeroTrustGap(t, r.ZeroTrust.Coverage.GapDetails, "zt:resource-exhaustion-boundary")
-	identityFlaw := assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:weak-agent-identity", model.ZeroTrustControlled)
-	if identityFlaw.ControlTest.Result != "hard_barrier_observed" || len(identityFlaw.ControlTest.HardBarriersObserved) == 0 {
-		t.Fatalf("controlled identity architecture flaw should carry hard barrier control test: %+v", identityFlaw.ControlTest)
-	}
-	assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:missing-request-action-observability", model.ZeroTrustControlled)
-	assertZeroTrustArchitecture(t, r.ZeroTrust.ArchitectureFlaws, "ztaf:sensitive-output-leakage", model.ZeroTrustControlled)
-	for _, id := range []string{
-		"control:approval-required",
-		"control:sandbox-isolation",
-		"control:credential-helper",
-		"control:short-lived-credential",
-		"control:audit-logging",
-		"control:context-retention",
-		"control:cryptographic-identity",
-		"control:least-agency-policy",
-		"control:identity-based-isolation",
-		"control:named-caller-allowlist",
-		"control:abac-policy",
-		"control:network-segmentation",
-		"control:tool-scope-policy",
-		"control:input-isolation",
-		"control:trusted-source-policy",
-		"control:instruction-provenance",
-		"control:untrusted-input-delimiting",
-		"control:prompt-injection-filter",
-		"control:request-traceability",
-		"control:input-validation",
-		"control:output-sensitive-data-filter",
-		"control:output-redaction",
-		"control:output-filter-logging",
-		"control:semantic-output-analysis",
-		"control:high-risk-output-review",
-		"control:automated-triage",
-		"control:config-version-control",
-		"control:config-review-required",
-		"control:signed-config",
-		"control:config-deployment-verification",
-		"control:managed-settings-enforced",
-		"control:immutable-agent-runtime",
-		"control:config-rollback-procedure",
-		"control:automated-config-rollback",
-		"control:tool-allowlist",
-		"control:mcp-reviewed-pinned",
-		"control:tool-descriptor-integrity",
-		"control:tool-argument-validation",
-		"control:tool-auth-required",
-		"control:signed-tool-artifacts",
-		"control:tool-deployment-verification",
-		"control:tool-sandbox-execution",
-		"control:tool-circuit-breaker",
-		"control:ai-bom",
-		"control:model-provenance",
-		"control:training-data-lineage",
-		"control:dependency-health-scan",
-		"control:provider-risk-review",
-		"control:signed-ai-artifacts",
-		"control:runtime-component-validation",
-		"control:dependency-reachability-analysis",
-		"control:delegation-scope",
-		"control:delegation-allowlist",
-		"control:agent-to-agent-authorization",
-		"control:origin-intent-verification",
-		"control:delegated-credential-scope",
-		"control:subagent-context-isolation",
-		"control:delegation-audit",
-		"control:behavioral-monitoring",
-		"control:session-termination",
-		"control:credential-revocation",
-		"control:containment-quarantine",
-		"control:dynamic-access-reduction",
-		"control:response-escalation",
-		"control:agent-inventory",
-		"control:deployment-owner",
-		"control:deployment-approval",
-		"control:risk-assessment",
-		"control:governance-audit",
-		"control:shadow-ai-discovery",
-		"control:per-action-authorization",
-		"control:continuous-authorization",
-		"control:dynamic-privilege-scoping",
-		"control:jit-elevation",
-		"control:standing-access-denied",
-		"control:automatic-access-revocation",
-		"control:tool-rate-limit",
-		"control:spend-limit",
-		"control:loop-guard",
-		"control:tool-timeout",
-		"control:concurrency-limit",
-		"control:resource-usage-audit",
-	} {
-		if !r.Graph.HasNode(id) {
-			t.Fatalf("missing zero trust control node %s", id)
+	// Enforced runtime evidence (Claude/Codex config, pinned MCP launcher)
+	// protects the exposure paths. The .ariadne policy declarations in this
+	// fixture are attested-only: they stay visible in the graph and are
+	// annotated on flaws, but they cannot control architecture boundaries.
+	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusProtected)
+	assertExposure(t, r, "mutable-tool-launch-execution", model.StatusProtected)
+	for _, check := range r.ZeroTrust.Checks {
+		switch check.ID {
+		case "zt:identity-boundary", "zt:governance-boundary", "zt:delegation-boundary", "zt:supply-chain-boundary", "zt:response-boundary", "zt:continuous-authorization-boundary":
+			if check.Status == model.ZeroTrustControlled {
+				t.Fatalf("attested-only policies must not control %s", check.ID)
+			}
 		}
 	}
+	for _, id := range []string{
+		"control:cryptographic-identity",
+		"control:delegation-scope",
+		"control:agent-inventory",
+		"control:ai-bom",
+		"control:session-termination",
+		"control:per-action-authorization",
+		"control:tool-rate-limit",
+	} {
+		if !r.Graph.HasNode(id) {
+			t.Fatalf("missing declared control node %s", id)
+		}
+	}
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws, "control:cryptographic-identity")
 }
 
-func TestZeroTrustMaturitySafeControlsMeetFoundation(t *testing.T) {
+func TestZeroTrustMaturitySafeControlsFoundationRequiresEnforcedEvidence(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ZeroTrust.Maturity.TargetTier != "foundation" {
-		t.Fatalf("target tier = %q", r.ZeroTrust.Maturity.TargetTier)
+	// Foundation maturity cannot be met by .ariadne self-attestation alone.
+	if r.ZeroTrust.Maturity.Summary.Gaps == 0 {
+		t.Fatalf("attested-only foundation should keep gaps open: %+v", r.ZeroTrust.Maturity.Summary)
 	}
-	if r.ZeroTrust.Maturity.Summary.Total == 0 {
-		t.Fatalf("expected maturity requirements")
-	}
-	if r.ZeroTrust.Maturity.Summary.Met != r.ZeroTrust.Maturity.Summary.Total {
-		t.Fatalf("expected safe controls to meet foundation requirements: %+v", r.ZeroTrust.Maturity.Summary)
-	}
-	for _, id := range []string{
-		"ztf:cryptographic-agent-identity",
-		"ztf:short-lived-credentials",
-		"ztf:least-agency-permissions",
-		"ztf:tool-integrity",
-		"ztf:supply-chain-provenance",
-		"ztf:identity-based-isolation",
-		"ztf:comprehensive-agent-logs",
-		"ztf:input-validation",
-		"ztf:output-controls",
-		"ztf:approval-escalation",
-		"ztf:context-retention",
-		"ztf:automated-first-pass-triage",
-		"ztf:deployment-governance",
-	} {
-		req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, id, model.ZeroTrustControlled)
-		if req.ControlQuality != "hard_barrier" {
-			t.Fatalf("%s control quality = %q, want hard_barrier", id, req.ControlQuality)
-		}
+	if r.ZeroTrust.Maturity.Summary.Met >= r.ZeroTrust.Maturity.Summary.Total {
+		t.Fatalf("attested-only controls must not meet all requirements: %+v", r.ZeroTrust.Maturity.Summary)
 	}
 }
+
 
 func TestZeroTrustMaturityCombinedRiskShowsFoundationGaps(t *testing.T) {
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
@@ -1938,7 +1809,9 @@ func TestZeroTrustIdentityPolicyControlsStrongScopedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustControlled)
+	// Identity policy under .ariadne is attested only: declared identity
+	// controls stay visible in the graph but do not control the boundary.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:identity-boundary", model.ZeroTrustUnknown)
 	for _, id := range []string{
 		"control:cryptographic-identity",
 		"control:credential-isolation",
@@ -1949,9 +1822,6 @@ func TestZeroTrustIdentityPolicyControlsStrongScopedIdentity(t *testing.T) {
 		"control:hardware-bound-credential",
 		"control:identity-lifecycle",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("identity boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing identity control node %s", id)
 		}
@@ -1965,17 +1835,10 @@ func TestZeroTrustIdentityPolicyControlsStrongScopedIdentity(t *testing.T) {
 		if !r.Graph.HasEdge(edge) {
 			t.Fatalf("missing identity graph edge %s", edge)
 		}
-		if !containsString(check.GraphEdges, edge) {
-			t.Fatalf("identity boundary does not cite graph edge %s: %+v", edge, check.GraphEdges)
-		}
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustControlled)
-	if !containsString(req.Controls, "control:credential-isolation") || !containsString(req.Controls, "control:hardware-bound-credential") {
-		t.Fatalf("cryptographic identity requirement missing strong identity controls: %+v", req.Controls)
-	}
-	req = assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:short-lived-credentials", model.ZeroTrustControlled)
-	if !containsString(req.Controls, "control:jit-access") || !containsString(req.Controls, "control:token-lifetime-policy") {
-		t.Fatalf("short-lived requirement missing JIT/token lifetime controls: %+v", req.Controls)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:cryptographic-agent-identity", model.ZeroTrustUnknown)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested identity declarations must not count as hard barrier: %+v", req)
 	}
 }
 
@@ -2052,8 +1915,10 @@ func TestZeroTrustInputPolicyControlsInfluenceBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusProtected)
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustControlled)
+	// Input policy under .ariadne is attested only: it cannot trust-gate the
+	// influence path or protect the exposure.
+	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusExposed)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:input-isolation",
 		"control:trusted-source-policy",
@@ -2062,9 +1927,6 @@ func TestZeroTrustInputPolicyControlsInfluenceBoundary(t *testing.T) {
 		"control:prompt-injection-filter",
 		"control:input-validation",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("influence boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing input control node %s", id)
 		}
@@ -2072,12 +1934,10 @@ func TestZeroTrustInputPolicyControlsInfluenceBoundary(t *testing.T) {
 	if !r.Graph.HasEdge("control:input-isolation|restricts|trustinput:repo-instruction") {
 		t.Fatalf("missing input isolation graph edge")
 	}
-	if !r.Graph.HasEdge("control:trusted-source-policy|restricts|trustinput:repo-instruction") {
-		t.Fatalf("missing trusted source graph edge")
-	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:input-validation", model.ZeroTrustControlled)
-	if req.ControlQuality != "hard_barrier" {
-		t.Fatalf("input policy requirement quality = %q", req.ControlQuality)
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws, "control:input-isolation", "control:trusted-source-policy")
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:input-validation", model.ZeroTrustBreaking)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested input policy must not count as hard barrier: %+v", req)
 	}
 }
 
@@ -2122,9 +1982,9 @@ func TestZeroTrustInputValidationAloneDoesNotBreakInfluencePath(t *testing.T) {
 	if containsString(check.Controls, "control:input-isolation") || containsString(check.Controls, "control:trusted-source-policy") {
 		t.Fatalf("filter-only fixture should not include hard input controls: %+v", check.Controls)
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:input-validation", model.ZeroTrustUnknown)
-	if req.ControlQuality != "partial_declared" {
-		t.Fatalf("input validation-only quality = %q", req.ControlQuality)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:input-validation", model.ZeroTrustBreaking)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested input filters must not count as hard barrier: %+v", req)
 	}
 	blob, err := json.Marshal(r)
 	if err != nil {
@@ -2171,7 +2031,9 @@ func TestZeroTrustWorkloadPolicyControlsAuthorizationBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:workload-authorization-boundary", model.ZeroTrustControlled)
+	// Workload policy under .ariadne is attested only and cannot authorize
+	// the workload boundary.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:workload-authorization-boundary", model.ZeroTrustUnknown)
 	for _, id := range []string{
 		"control:identity-based-isolation",
 		"control:named-caller-allowlist",
@@ -2179,9 +2041,6 @@ func TestZeroTrustWorkloadPolicyControlsAuthorizationBoundary(t *testing.T) {
 		"control:network-segmentation",
 		"control:tool-scope-policy",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("workload boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing workload control node %s", id)
 		}
@@ -2196,13 +2055,10 @@ func TestZeroTrustWorkloadPolicyControlsAuthorizationBoundary(t *testing.T) {
 		if !r.Graph.HasEdge(edge) {
 			t.Fatalf("missing workload authorization graph edge %s", edge)
 		}
-		if !containsString(check.GraphEdges, edge) {
-			t.Fatalf("workload boundary does not cite graph edge %s: %+v", edge, check.GraphEdges)
-		}
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:identity-based-isolation", model.ZeroTrustControlled)
-	if !containsString(req.Controls, "control:abac-policy") || !containsString(req.Controls, "control:named-caller-allowlist") {
-		t.Fatalf("workload isolation requirement missing ABAC/named caller controls: %+v", req.Controls)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:identity-based-isolation", model.ZeroTrustUnknown)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested workload policy must not count as hard barrier: %+v", req)
 	}
 }
 
@@ -2271,7 +2127,9 @@ func TestZeroTrustAuthorizationPolicyControlsContinuousAuthorization(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustControlled)
+	// Authorization policy under .ariadne is attested only; standing
+	// authority is not re-authorized by declaration.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:per-action-authorization",
 		"control:continuous-authorization",
@@ -2280,9 +2138,6 @@ func TestZeroTrustAuthorizationPolicyControlsContinuousAuthorization(t *testing.
 		"control:standing-access-denied",
 		"control:automatic-access-revocation",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("continuous authorization boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing continuous authorization control node %s", id)
 		}
@@ -2328,8 +2183,8 @@ func TestZeroTrustPartialAuthorizationEvidenceIsUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:continuous-authorization-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:per-action-authorization") || !containsString(check.Controls, "control:dynamic-privilege-scoping") {
-		t.Fatalf("partial authorization should cite observed controls: %+v", check.Controls)
+	if !r.Graph.HasNode("control:per-action-authorization") || !r.Graph.HasNode("control:dynamic-privilege-scoping") {
+		t.Fatalf("graph should retain declared partial authorization controls")
 	}
 	if containsString(check.Controls, "control:automatic-access-revocation") {
 		t.Fatalf("partial authorization should not invent revocation: %+v", check.Controls)
@@ -2362,7 +2217,9 @@ func TestZeroTrustResourcePolicyControlsResourceExhaustionBoundary(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustControlled)
+	// Resource policy under .ariadne is attested only.
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustBreaking)
+	_ = check
 	for _, id := range []string{
 		"control:tool-rate-limit",
 		"control:spend-limit",
@@ -2372,9 +2229,6 @@ func TestZeroTrustResourcePolicyControlsResourceExhaustionBoundary(t *testing.T)
 		"control:resource-usage-audit",
 		"control:tool-circuit-breaker",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("resource boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing resource control node %s", id)
 		}
@@ -2419,8 +2273,8 @@ sandbox_mode = "workspace-write"
 		t.Fatal(err)
 	}
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:resource-exhaustion-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:tool-rate-limit") {
-		t.Fatalf("partial resource boundary should cite rate-limit control: %+v", check.Controls)
+	if !r.Graph.HasNode("control:tool-rate-limit") {
+		t.Fatalf("graph should retain declared rate-limit control")
 	}
 	if containsString(check.Controls, "control:loop-guard") || containsString(check.Controls, "control:resource-usage-audit") {
 		t.Fatalf("partial resource boundary should not invent stop/audit controls: %+v", check.Controls)
@@ -2446,11 +2300,10 @@ func TestZeroTrustApprovalPolicyControlsHighRiskActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustControlled)
+	// Approval declarations from a self-declared .ariadne agent policy are
+	// attested only; approval gating is not proven by declaration.
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{"control:approval-required", "control:audit-logging"} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("approval boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing approval control node %s", id)
 		}
@@ -2462,13 +2315,11 @@ func TestZeroTrustApprovalPolicyControlsHighRiskActions(t *testing.T) {
 		if !r.Graph.HasEdge(edge) {
 			t.Fatalf("missing approval graph edge %s", edge)
 		}
-		if !containsString(check.GraphEdges, edge) {
-			t.Fatalf("approval boundary check does not cite graph edge %s: %+v", edge, check.GraphEdges)
-		}
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:approval-escalation", model.ZeroTrustControlled)
-	if req.ControlQuality != "hard_barrier" {
-		t.Fatalf("approval escalation quality = %q", req.ControlQuality)
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws, "control:approval-required")
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:approval-escalation", model.ZeroTrustBreaking)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested approval policy must not count as hard barrier: %+v", req)
 	}
 }
 
@@ -2477,16 +2328,16 @@ func TestZeroTrustApprovalPromptWithoutLogIsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:approval-required") {
-		t.Fatalf("partial approval boundary should cite approval-required: %+v", check.Controls)
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:approval-boundary", model.ZeroTrustBreaking)
+	if !r.Graph.HasNode("control:approval-required") {
+		t.Fatalf("graph should retain declared approval control")
 	}
 	if containsString(check.Controls, "control:audit-logging") || containsString(check.Controls, "control:approval-log-evidence") {
 		t.Fatalf("partial approval boundary should not invent approval logging: %+v", check.Controls)
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:approval-escalation", model.ZeroTrustUnknown)
-	if req.ControlQuality != "friction_only" {
-		t.Fatalf("approval prompt-only quality = %q", req.ControlQuality)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:approval-escalation", model.ZeroTrustBreaking)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested approval prompt must not count as hard barrier: %+v", req)
 	}
 }
 
@@ -2524,16 +2375,15 @@ func TestZeroTrustMemoryPolicyControlsPrivateContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:memory-boundary", model.ZeroTrustControlled)
+	// Memory policy under .ariadne is attested only.
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:memory-boundary", model.ZeroTrustBreaking)
+	_ = check
 	for _, id := range []string{
 		"control:context-retention",
 		"control:memory-isolation",
 		"control:context-integrity",
 		"control:context-provenance",
 	} {
-		if !containsString(check.Controls, id) {
-			t.Fatalf("memory boundary missing control %s: %+v", id, check.Controls)
-		}
 		if !r.Graph.HasNode(id) {
 			t.Fatalf("missing memory control node %s", id)
 		}
@@ -2541,9 +2391,12 @@ func TestZeroTrustMemoryPolicyControlsPrivateContext(t *testing.T) {
 	if !r.Graph.HasEdge("control:memory-isolation|restricts|boundary:agent-private-context") {
 		t.Fatalf("missing memory isolation graph edge")
 	}
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:context-retention", model.ZeroTrustControlled)
-	if !containsString(req.Controls, "control:context-integrity") || !containsString(req.Controls, "control:context-provenance") {
-		t.Fatalf("context retention requirement missing integrity/provenance evidence: %+v", req.Controls)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:context-retention", model.ZeroTrustUnknown)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested memory policy must not count as hard barrier: %+v", req)
+	}
+	if !r.Graph.HasNode("control:context-integrity") || !r.Graph.HasNode("control:context-provenance") {
+		t.Fatalf("graph should retain declared integrity and provenance controls")
 	}
 	blob, err := json.Marshal(r)
 	if err != nil {
@@ -2602,8 +2455,8 @@ func TestZeroTrustPartialMemoryControlsAreUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:memory-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:context-retention") || !containsString(check.Controls, "control:memory-isolation") {
-		t.Fatalf("partial memory boundary should cite observed retention and isolation controls: %+v", check.Controls)
+	if !r.Graph.HasNode("control:context-retention") || !r.Graph.HasNode("control:memory-isolation") {
+		t.Fatalf("graph should retain declared retention and isolation controls")
 	}
 	if containsString(check.Controls, "control:context-integrity") || containsString(check.Controls, "control:context-provenance") {
 		t.Fatalf("partial memory boundary should not invent integrity or provenance controls: %+v", check.Controls)
@@ -2662,10 +2515,12 @@ func TestZeroTrustTelemetryConfigControlsObservability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustControlled)
-	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:comprehensive-agent-logs", model.ZeroTrustControlled)
-	if !containsString(req.Controls, "control:telemetry-export") {
-		t.Fatalf("expected telemetry export control in comprehensive logs requirement: %+v", req.Controls)
+	// The fixture telemetry config lives under .ariadne/, so it is attested
+	// only and cannot control the observability boundary.
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustUnknown)
+	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:comprehensive-agent-logs", model.ZeroTrustUnknown)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested telemetry config must not count as hard barrier: %+v", req)
 	}
 	for _, id := range []string{
 		"control:telemetry-export",
@@ -2686,16 +2541,16 @@ func TestZeroTrustAuditWithoutTraceabilityIsUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustUnknown)
-	if !containsString(check.Controls, "control:audit-logging") {
-		t.Fatalf("partial observability should cite audit logging: %+v", check.Controls)
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:observability-boundary", model.ZeroTrustBreaking)
+	if !r.Graph.HasNode("control:audit-logging") {
+		t.Fatalf("graph should retain declared audit logging control")
 	}
 	if containsString(check.Controls, "control:request-traceability") || containsString(check.Controls, "control:observed-request-traceability") {
 		t.Fatalf("partial observability should not invent traceability controls: %+v", check.Controls)
 	}
 	req := assertZeroTrustRequirement(t, r.ZeroTrust.Maturity.Requirements, "ztf:comprehensive-agent-logs", model.ZeroTrustUnknown)
-	if req.ControlQuality != "partial_declared" {
-		t.Fatalf("audit-only comprehensive logs quality = %q", req.ControlQuality)
+	if req.ControlQuality == "hard_barrier" {
+		t.Fatalf("attested audit declaration must not count as hard barrier: %+v", req)
 	}
 }
 
@@ -3958,7 +3813,11 @@ func TestOperatorCaseBoardCanFocusOneCase(t *testing.T) {
 	}
 }
 
-func TestProofPatchCanCloseInputTrustCase(t *testing.T) {
+func TestProofPatchAloneCannotCloseInputTrustCase(t *testing.T) {
+	// Anti-gaming regression: exporting and applying Ariadne's own suggested
+	// .ariadne proof patch is a self-declaration. It must be recorded as
+	// attested evidence and must NOT close the case, flip the boundary to
+	// controlled, or remove the case from the breaking board.
 	path := copyRealPathFixture(t, "combined-risk")
 
 	beforeRun, err := RunPath(Options{Path: path})
@@ -3985,16 +3844,6 @@ func TestProofPatchCanCloseInputTrustCase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
-		`"input_isolation": true`,
-		`"instruction_isolation": true`,
-		`"trusted_instruction_sources": true`,
-		`"trusted_sources": true`,
-	} {
-		if !strings.Contains(string(policy), want) {
-			t.Fatalf("exported proof policy missing %q:\n%s", want, policy)
-		}
-	}
 	policyDir := filepath.Join(path, ".ariadne")
 	if err := os.MkdirAll(policyDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -4012,15 +3861,19 @@ func TestProofPatchCanCloseInputTrustCase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compare.Summary.Closed != 1 || len(compare.Cases) != 1 || compare.Cases[0].Disposition != "closed" || compare.Cases[0].BeforeState != "open" || compare.Cases[0].AfterState != "closed" {
-		t.Fatalf("exported proof patch should compare open -> closed: %+v", compare)
+	if compare.Summary.Closed != 0 || len(compare.Cases) != 1 || compare.Cases[0].Disposition != "stayed_open" || compare.Cases[0].AfterState != "closed" && compare.Cases[0].AfterState != "open" && false {
+		t.Fatalf("declaration-only proof patch must not close the case: %+v", compare.Summary)
 	}
-	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustControlled)
+	if compare.Cases[0].AfterState != "open" {
+		t.Fatalf("declaration-only proof patch must leave the case open: %+v", compare.Cases[0])
+	}
+	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustBreaking)
 	for _, control := range []string{"control:input-isolation", "control:trusted-source-policy"} {
-		if !containsString(check.Controls, control) {
-			t.Fatalf("input trust check missing proof-patch control %s: %+v", control, check.Controls)
+		if containsString(check.Controls, control) {
+			t.Fatalf("attested control %s must not count for the influence boundary: %+v", control, check.Controls)
 		}
 	}
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws, "control:input-isolation", "control:trusted-source-policy")
 
 	var jsonOut bytes.Buffer
 	if err := report.RenderCases(&jsonOut, r, "json", "breaking", ""); err != nil {
@@ -4030,12 +3883,16 @@ func TestProofPatchCanCloseInputTrustCase(t *testing.T) {
 	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if hasControlOperatorCaseID(decoded.OperatorCases, "case:input-trust-boundary") {
-		t.Fatalf("proof patch should remove input trust from breaking case board: %+v", decoded.OperatorCases)
+	if !hasControlOperatorCaseID(decoded.OperatorCases, "case:input-trust-boundary") {
+		t.Fatalf("declaration-only proof patch must keep input trust on the breaking case board: %+v", decoded.OperatorCases)
 	}
 }
 
-func TestProofBundleCanCloseTopEgressCase(t *testing.T) {
+func TestProofBundleAloneCannotCloseTopEgressCase(t *testing.T) {
+	// Anti-gaming regression: applying the full generated .ariadne proof
+	// bundle for the top egress case must not close it. Closure requires
+	// enforced evidence (for example Codex requirements or Claude permission
+	// semantics), not Ariadne's own declaration vocabulary.
 	path := copyRealPathFixture(t, "combined-risk")
 	const caseID = "case:egress-output-boundary"
 
@@ -4058,10 +3915,6 @@ func TestProofBundleCanCloseTopEgressCase(t *testing.T) {
 	if exported.PatchCount != 5 || len(exported.Files) != 2 {
 		t.Fatalf("proof export should group five patches into two suggested surface files: %+v", exported)
 	}
-	if !containsString(exported.Files, filepath.Join("surfaces", ".ariadne", "egress-policy.json")) ||
-		!containsString(exported.Files, filepath.Join("surfaces", ".ariadne", "output-policy.json")) {
-		t.Fatalf("proof export should include egress and output policy files: %+v", exported.Files)
-	}
 
 	applyExportedProofFiles(t, path, exported.Directory, exported.Files)
 
@@ -4074,31 +3927,17 @@ func TestProofBundleCanCloseTopEgressCase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compare.Summary.Closed != 1 || len(compare.Cases) != 1 {
-		t.Fatalf("egress proof bundle should compare one closed case: %+v", compare)
+	if compare.Summary.Closed != 0 || len(compare.Cases) != 1 {
+		t.Fatalf("declaration-only egress bundle must not close the case: %+v", compare.Summary)
 	}
 	got := compare.Cases[0]
-	if got.ID != caseID || got.Disposition != "closed" || got.BeforeState != "open" || got.AfterState != "closed" {
-		t.Fatalf("egress proof bundle should compare open -> closed: %+v", got)
+	if got.ID != caseID || got.Disposition != "stayed_open" || got.BeforeState != "open" || got.AfterState != "open" {
+		t.Fatalf("egress case must stay open after declaration-only bundle: %+v", got)
 	}
-	if got.BeforeProofPatches != 5 || got.AfterProofPatches != 0 {
-		t.Fatalf("egress proof bundle should reduce proof patches from five to zero: %+v", got)
-	}
-	if !containsEvidenceReferenceSource(got.AddedEvidence, ".ariadne/egress-policy.json") ||
-		!containsEvidenceReferenceSource(got.AddedEvidence, ".ariadne/output-policy.json") {
-		t.Fatalf("compare should include added egress and output evidence refs: %+v", got.AddedEvidence)
-	}
-	for _, control := range []string{
+	assertAttestedControls(t, r.ZeroTrust.ArchitectureFlaws,
 		"control:egress-destination-allowlist",
-		"control:network-restricted",
-		"control:output-filter-logging",
-		"control:output-redaction",
 		"control:output-sensitive-data-filter",
-	} {
-		if !containsString(got.AfterControls, control) {
-			t.Fatalf("closed egress case missing observed control %s: %+v", control, got.AfterControls)
-		}
-	}
+	)
 
 	var jsonOut bytes.Buffer
 	if err := report.RenderCases(&jsonOut, r, "json", "breaking", ""); err != nil {
@@ -4108,8 +3947,53 @@ func TestProofBundleCanCloseTopEgressCase(t *testing.T) {
 	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if hasControlOperatorCaseID(decoded.OperatorCases, caseID) {
-		t.Fatalf("proof bundle should remove egress case from breaking case board: %+v", decoded.OperatorCases)
+	if !hasControlOperatorCaseID(decoded.OperatorCases, caseID) {
+		t.Fatalf("declaration-only bundle must keep egress case on the breaking case board: %+v", decoded.OperatorCases)
+	}
+}
+
+func TestEnforcedRuntimeEvidenceClosesLeastAgencyCase(t *testing.T) {
+	// Positive closure path: real runtime configuration changes (enforced
+	// evidence) can still close a case end to end.
+	path := copyRealPathFixture(t, "combined-risk")
+	const caseID = "case:least-agency-authority"
+
+	beforeRun, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeProof := renderProofPlanJSON(t, beforeRun, caseID)
+
+	settings := `{
+  "permissions": {
+    "defaultMode": "default",
+    "deny_by_default": true,
+    "least_privilege": true,
+    "scoped_permissions": true,
+    "allow": ["Read(src/**)"],
+    "deny": ["Read(.env)", "Read(**/.env)"]
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(path, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codexConfig := "approval_policy = \"on-request\"\nsandbox_mode = \"workspace-write\"\n"
+	if err := os.WriteFile(filepath.Join(path, ".codex", "config.toml"), []byte(codexConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := RunPath(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterProof := renderProofPlanJSON(t, r, caseID)
+	compare, err := report.BuildCaseCompareReport(beforeProof, afterProof, "before-proof.json", "after-proof.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compare.Summary.Closed+compare.Summary.Removed != 1 || compare.Decision.Status != "proof_succeeded" {
+		t.Fatalf("enforced runtime evidence should close or remove the least-agency case: %+v", compare.Summary)
 	}
 }
 
@@ -4444,21 +4328,21 @@ func TestProofPatchExamplesDeduplicateNormalizedFieldNames(t *testing.T) {
 }
 
 func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
-	r, err := RunPath(Options{Path: realPathFixture(t, "input-controls")})
+	r, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var caseBoard bytes.Buffer
-	if err := report.RenderCases(&caseBoard, r, "table", "breaking", "input-trust-boundary"); err != nil {
+	if err := report.RenderCases(&caseBoard, r, "table", "breaking", "least-agency-authority"); err != nil {
 		t.Fatal(err)
 	}
 	caseOut := caseBoard.String()
 	for _, want := range []string{
-		"Case: case:input-trust-boundary",
+		"Case: case:least-agency-authority",
 		"State: closed",
 		"0 missing hard-barrier controls",
-		"control:input-isolation",
-		"control:trusted-source-policy",
+		"control:deny-by-default-permissions",
+		"control:scoped-permissions",
 	} {
 		if !strings.Contains(caseOut, want) {
 			t.Fatalf("closed case board missing %q:\n%s", want, caseOut)
@@ -4466,20 +4350,20 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 	}
 
 	var jsonOut bytes.Buffer
-	if err := report.RenderProofs(&jsonOut, r, "json", "breaking", "input-trust-boundary"); err != nil {
+	if err := report.RenderProofs(&jsonOut, r, "json", "breaking", "least-agency-authority"); err != nil {
 		t.Fatal(err)
 	}
 	var decoded model.ProofPlanReport
 	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.CaseFilter != "case:input-trust-boundary" || decoded.Summary.Cases != 1 || len(decoded.Cases) != 1 {
+	if decoded.CaseFilter != "case:least-agency-authority" || decoded.Summary.Cases != 1 || len(decoded.Cases) != 1 {
 		t.Fatalf("closed proof plan should retain focused case metadata: %+v", decoded)
 	}
 	if decoded.Cases[0].State != "closed" || decoded.Summary.ProofPatches != 0 || len(decoded.ProofPatches) != 0 {
 		t.Fatalf("closed proof plan should return closed state with no proof patches: %+v", decoded)
 	}
-	if !containsString(decoded.Cases[0].StartingControls, "control:input-isolation") || !containsString(decoded.Cases[0].StartingControls, "control:trusted-source-policy") {
+	if !containsString(decoded.Cases[0].StartingControls, "control:deny-by-default-permissions") || !containsString(decoded.Cases[0].StartingControls, "control:scoped-permissions") {
 		t.Fatalf("closed proof plan should show observed hard barriers: %+v", decoded.Cases[0].StartingControls)
 	}
 	if len(decoded.EvidenceReferences) == 0 {
@@ -4500,19 +4384,19 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 	}
 
 	var actionOut bytes.Buffer
-	if err := report.RenderProofs(&actionOut, r, "action", "breaking", "input-trust-boundary"); err != nil {
+	if err := report.RenderProofs(&actionOut, r, "action", "breaking", "least-agency-authority"); err != nil {
 		t.Fatal(err)
 	}
 	actionRendered := actionOut.String()
 	for _, want := range []string{
 		"Ariadne Proof Action",
-		"Case filter: case:input-trust-boundary",
+		"Case filter: case:least-agency-authority",
 		"Proof queue: 1 case(s); 0 proof patch(es)",
 		"State: closed",
 		"No proof patch is needed for this case.",
-		"Observed controls: control:input-isolation; control:trusted-source-policy",
+		"Observed controls: control:deny-by-default-permissions; control:scoped-permissions",
 		"Evidence to inspect:",
-		".ariadne/input-policy.json",
+		".ariadne/agent-policy.json",
 		"Rerun:",
 		"Compare loop:",
 		"Done when:",
@@ -4532,7 +4416,7 @@ func TestFocusedProofPlanShowsClosedCaseAfterControls(t *testing.T) {
 	}
 
 	var htmlOut bytes.Buffer
-	if err := report.RenderProofs(&htmlOut, r, "html", "breaking", "input-trust-boundary"); err != nil {
+	if err := report.RenderProofs(&htmlOut, r, "html", "breaking", "least-agency-authority"); err != nil {
 		t.Fatal(err)
 	}
 	rendered := htmlOut.String()
@@ -4560,12 +4444,12 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	closedRun, err := RunPath(Options{Path: realPathFixture(t, "input-controls")})
+	closedRun, err := RunPath(Options{Path: realPathFixture(t, "safe-controls")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	openProof := renderProofPlanJSON(t, openRun, "input-trust-boundary")
-	closedProof := renderProofPlanJSON(t, closedRun, "input-trust-boundary")
+	openProof := renderProofPlanJSON(t, openRun, "least-agency-authority")
+	closedProof := renderProofPlanJSON(t, closedRun, "least-agency-authority")
 
 	compare, err := report.BuildCaseCompareReport(openProof, closedProof, "before-open.json", "after-closed.json")
 	if err != nil {
@@ -4581,16 +4465,16 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		t.Fatalf("compare outcome should show the case closed with no remaining action: %+v", compare.Outcome)
 	}
 	if compare.Decision.Status != "proof_succeeded" ||
-		compare.Decision.TopCaseID != "case:input-trust-boundary" ||
+		compare.Decision.TopCaseID != "case:least-agency-authority" ||
 		compare.Decision.TopCaseDisposition != "closed" ||
 		compare.Decision.BeforeState != "open" ||
 		compare.Decision.AfterState != "closed" ||
 		compare.Decision.AfterOpen != 0 ||
 		compare.Decision.AfterClosed != 1 ||
-		compare.Decision.ProofPatchesBefore != 2 ||
+		compare.Decision.ProofPatchesBefore != 3 ||
 		compare.Decision.ProofPatchesAfter != 0 ||
-		!containsString(compare.Decision.AddedEvidenceSources, ".ariadne/input-policy.json") ||
-		!containsString(compare.Decision.ClosedCases, "case:input-trust-boundary") ||
+		!containsString(compare.Decision.AddedEvidenceSources, ".ariadne/agent-policy.json") ||
+		!containsString(compare.Decision.ClosedCases, "case:least-agency-authority") ||
 		!strings.Contains(compare.Decision.NextAction, "No open case remains") {
 		t.Fatalf("compare decision should summarize proof success: %+v", compare.Decision)
 	}
@@ -4598,19 +4482,19 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		t.Fatalf("compare should show open -> closed: %+v", got)
 	}
 	if got := compare.Cases[0].ProofVerdict; got.Status != "proof_closed" ||
-		!strings.Contains(got.Summary, "Input Trust Boundary closed") ||
-		!containsString(got.ControlEvidence, "control:input-isolation") ||
-		!containsString(got.EvidenceSources, ".ariadne/input-policy.json") ||
+		!strings.Contains(got.Summary, "Least Agency And Authority Scope closed") ||
+		!containsString(got.ControlEvidence, "control:deny-by-default-permissions") ||
+		!containsString(got.EvidenceSources, ".ariadne/agent-policy.json") ||
 		!strings.Contains(got.RemainingAction, "No remaining action") ||
 		!containsString(got.CompareCommands, "case-compare.html") {
 		t.Fatalf("compare should expose a source-backed proof verdict: %+v", got)
 	}
 	if len(compare.ClosureReceipts) != 1 ||
-		compare.ClosureReceipts[0].ReceiptID != "closure-receipt:case:input-trust-boundary" ||
+		compare.ClosureReceipts[0].ReceiptID != "closure-receipt:case:least-agency-authority" ||
 		compare.ClosureReceipts[0].ProofStatus != "proof_closed" ||
-		!containsString(compare.ClosureReceipts[0].ControlEvidence, "control:input-isolation") ||
-		!containsString(compare.ClosureReceipts[0].EvidenceSources, ".ariadne/input-policy.json") ||
-		!containsEvidenceReferenceSource(compare.ClosureReceipts[0].EvidenceRefs, ".ariadne/input-policy.json") ||
+		!containsString(compare.ClosureReceipts[0].ControlEvidence, "control:deny-by-default-permissions") ||
+		!containsString(compare.ClosureReceipts[0].EvidenceSources, ".ariadne/agent-policy.json") ||
+		!containsEvidenceReferenceSource(compare.ClosureReceipts[0].EvidenceRefs, ".ariadne/agent-policy.json") ||
 		!containsString(compare.ClosureReceipts[0].ArtifactSources, "before-open.json") ||
 		!containsString(compare.ClosureReceipts[0].ArtifactSources, "after-closed.json") ||
 		len(compare.ClosureReceipts[0].ArtifactHashes) != 2 ||
@@ -4627,16 +4511,16 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		!strings.Contains(compare.ClosureReceipts[0].RemainingAction, "No remaining action") {
 		t.Fatalf("compare should expose ticket-ready closure receipt: %+v", compare.ClosureReceipts)
 	}
-	if !containsString(compare.Cases[0].AfterControls, "control:input-isolation") || !containsString(compare.Cases[0].AfterControls, "control:trusted-source-policy") {
+	if !containsString(compare.Cases[0].AfterControls, "control:deny-by-default-permissions") || !containsString(compare.Cases[0].AfterControls, "control:scoped-permissions") {
 		t.Fatalf("compare should show observed hard barriers in after report: %+v", compare.Cases[0])
 	}
-	if compare.Cases[0].BeforeProofPatches != 2 || compare.Cases[0].AfterProofPatches != 0 {
+	if compare.Cases[0].BeforeProofPatches != 3 || compare.Cases[0].AfterProofPatches != 0 {
 		t.Fatalf("compare should show proof patches going to zero: %+v", compare.Cases[0])
 	}
-	if len(compare.Cases[0].AfterEvidence) == 0 || !containsEvidenceReferenceSource(compare.Cases[0].AfterEvidence, ".ariadne/input-policy.json") {
+	if len(compare.Cases[0].AfterEvidence) == 0 || !containsEvidenceReferenceSource(compare.Cases[0].AfterEvidence, ".ariadne/agent-policy.json") {
 		t.Fatalf("compare should include source-backed after evidence details: %+v", compare.Cases[0].AfterEvidence)
 	}
-	if len(compare.Cases[0].AddedEvidence) == 0 || !containsEvidenceReferenceSource(compare.Cases[0].AddedEvidence, ".ariadne/input-policy.json") {
+	if len(compare.Cases[0].AddedEvidence) == 0 || !containsEvidenceReferenceSource(compare.Cases[0].AddedEvidence, ".ariadne/agent-policy.json") {
 		t.Fatalf("compare should include added evidence refs for the closed case: %+v", compare.Cases[0].AddedEvidence)
 	}
 	if !containsString(compare.Cases[0].AfterRerunCommands, "ariadne cases --path") ||
@@ -4649,7 +4533,7 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 	if err := json.Unmarshal(closedProof, &absentProof); err != nil {
 		t.Fatal(err)
 	}
-	absentProof.CaseFilter = "case:input-trust-boundary"
+	absentProof.CaseFilter = "case:least-agency-authority"
 	absentProof.Summary = model.ProofPlanSummary{}
 	absentProof.Cases = []model.ControlOperatorCase{}
 	absentProof.ProofPatches = []model.ControlProofPatch{}
@@ -4682,30 +4566,30 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"Decision:",
 		"Verdict: proof succeeded",
 		"Readout: Proof worked",
-		"Top case: Input Trust Boundary (case:input-trust-boundary)",
+		"Top case: Least Agency And Authority Scope (case:least-agency-authority)",
 		"Case transition: open -> closed (closed)",
 		"After rerun: 0 open; 1 closed; 1 material change(s)",
-		"Added evidence: .ariadne/input-policy.json",
+		"Added evidence: .ariadne/agent-policy.json",
 		"Outcome:",
 		"1 case(s) compared: 0 open after rerun, 1 closed after rerun, 0 absent after rerun, 1 material change(s).",
 		"Next action: No open case remains",
 		"Closed after rerun:",
-		"CLOSED Input Trust Boundary",
+		"CLOSED Least Agency And Authority Scope",
 		"Closure receipts:",
-		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
+		"Least Agency And Authority Scope (case:least-agency-authority): open -> closed / proof closed",
 		"artifacts: before-open.json -> after-closed.json",
 		"open -> closed",
-		"Missing controls before: control:input-isolation; control:trusted-source-policy",
-		"Observed controls after: control:input-isolation; control:trusted-source-policy",
+		"Missing controls before: control:deny-by-default; control:deny-secret-read; control:scoped-permissions",
+		"Observed controls after: control:deny-by-default-permissions; control:scoped-permissions",
 		"Proof verdict: proof closed",
-		"Summary: Input Trust Boundary closed",
-		"Control evidence: control:input-isolation; control:trusted-source-policy",
-		"Evidence source: .ariadne/input-policy.json",
+		"Summary: Least Agency And Authority Scope closed",
+		"control evidence: control:deny-by-default-permissions",
+		"Evidence source: .ariadne/agent-policy.json",
 		"Remaining action: No remaining action for this case",
-		"Proof patches: 2 -> 0",
+		"Proof patches: 3 -> 0",
 		"After evidence:",
 		"Added evidence:",
-		".ariadne/input-policy.json",
+		".claude/settings.json",
 		"After rerun:",
 		"After compare loop:",
 		"closure-receipt.txt",
@@ -4726,10 +4610,10 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"After: after-closed.json",
 		"Verdict: proof succeeded",
 		"Closure receipts:",
-		"Input Trust Boundary (case:input-trust-boundary): open -> closed / proof closed",
-		"control evidence: control:input-isolation; control:trusted-source-policy",
-		"evidence source: .ariadne/input-policy.json",
-		"evidence ref: target: .ariadne/input-policy.json",
+		"Least Agency And Authority Scope (case:least-agency-authority): open -> closed / proof closed",
+		"control evidence: control:deny-by-default-permissions",
+		"evidence source: .ariadne/agent-policy.json",
+		"evidence ref: target: .ariadne/agent-policy.json",
 		"artifact hash: before before-open.json sha256:",
 		"artifact hash: after after-closed.json sha256:",
 		"verification command: ariadne compare --before before-open.json --after after-closed.json --format receipt --out closure-receipt.txt",
@@ -4774,13 +4658,13 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		"Remaining action: No remaining action for this case",
 		"Missing controls before",
 		"Observed controls after",
-		"control:input-isolation",
-		"2 -> 0",
+		"control:deny-by-default-permissions",
+		"3 -> 0",
 		"After evidence",
 		"Added evidence",
-		".ariadne/input-policy.json",
+		".claude/settings.json",
 		`class="file-ref"`,
-		`data-copy-value=".ariadne/input-policy.json"`,
+		`data-copy-value=".claude/settings.json"`,
 		`Copy path</button>`,
 		"After rerun",
 		"After compare loop",
@@ -4806,10 +4690,10 @@ func TestCaseCompareShowsClosedAndReopenedTransitions(t *testing.T) {
 		t.Fatalf("reverse compare should expose regression proof verdict: %+v", reopened.Cases[0].ProofVerdict)
 	}
 	if reopened.Decision.Status != "regression" ||
-		reopened.Decision.TopCaseID != "case:input-trust-boundary" ||
+		reopened.Decision.TopCaseID != "case:least-agency-authority" ||
 		reopened.Decision.TopCaseDisposition != "reopened" ||
 		reopened.Decision.AfterOpen != 1 ||
-		!containsString(reopened.Decision.OpenCases, "case:input-trust-boundary") {
+		!containsString(reopened.Decision.OpenCases, "case:least-agency-authority") {
 		t.Fatalf("reverse compare decision should call out the reopened case: %+v", reopened.Decision)
 	}
 	if reopened.Outcome.AfterOpen != 1 || len(reopened.Outcome.ActionCases) != 1 || !strings.Contains(reopened.Outcome.NextAction, reopened.Cases[0].ID) {
@@ -6182,7 +6066,7 @@ func TestAssessCommandsHonorCommandEnvironment(t *testing.T) {
 }
 
 func TestAssessReportShowsClosureEvidence(t *testing.T) {
-	path := realPathFixture(t, "egress-controls")
+	path := realPathFixture(t, "safe-controls")
 	inventory, err := RunInventory(Options{Path: path})
 	if err != nil {
 		t.Fatal(err)
@@ -6199,13 +6083,12 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	for _, want := range []string{
 		"Closure evidence observed:",
 		"Signal triage:",
-		"Controlled architecture flaws: 1",
-		"Partial/friction-only architecture flaws: 1",
-		"CONTROLLED Data or agent actions can leave through arbitrary external destinations",
-		"PARTIAL Sensitive data can leak through agent output",
-		"control:egress-destination-allowlist",
-		"control:output-sensitive-data-filter",
-		".ariadne/egress-policy.json",
+		"Controlled architecture flaws: 3",
+		"Partial/friction-only architecture flaws: 2",
+		"CONTROLLED Agent has broad standing authority instead of least agency",
+		"control:deny-by-default-permissions",
+		"control:scoped-permissions",
+		"review and pin MCP servers",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("assessment closure table missing %q:\n%s", want, out)
@@ -6220,25 +6103,33 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClosureEvidence.ControlledArchitectureFlaws != 1 || decoded.ClosureEvidence.PartialArchitectureFlaws != 1 || decoded.ClosureEvidence.ProtectedExposurePaths == 0 {
+	if decoded.ClosureEvidence.ControlledArchitectureFlaws != 3 || decoded.ClosureEvidence.PartialArchitectureFlaws != 2 || decoded.ClosureEvidence.ProtectedExposurePaths != 2 {
 		t.Fatalf("assessment should summarize controlled, partial, and protected evidence: %+v", decoded.ClosureEvidence)
 	}
-	if !containsString(decoded.ClosureEvidence.HardBarriersObserved, "control:egress-destination-allowlist") {
-		t.Fatalf("assessment closure evidence should include observed egress hard barrier: %+v", decoded.ClosureEvidence)
+	if !containsString(decoded.ClosureEvidence.HardBarriersObserved, "control:deny-by-default-permissions") {
+		t.Fatalf("assessment closure evidence should include enforced hard barrier: %+v", decoded.ClosureEvidence)
 	}
-	if !containsString(decoded.ClosureEvidence.RemainingMissingHardBarriers, "control:output-sensitive-data-filter") {
-		t.Fatalf("assessment closure evidence should retain remaining output hard barrier: %+v", decoded.ClosureEvidence)
+	if !containsString(decoded.ClosureEvidence.RemainingMissingHardBarriers, "control:tool-allowlist") {
+		t.Fatalf("assessment closure evidence should retain remaining hard barrier: %+v", decoded.ClosureEvidence)
 	}
 	if len(decoded.ClosureEvidence.ControlledPaths) == 0 ||
 		len(decoded.ClosureEvidence.ControlledPaths[0].EvidenceReferences) == 0 ||
 		len(decoded.ClosureEvidence.ControlledPaths[0].GraphEdges) == 0 {
 		t.Fatalf("assessment closure paths should retain evidence refs and graph edges: %+v", decoded.ClosureEvidence.ControlledPaths)
 	}
-	if !containsString(decoded.Triage.PresentHardBarriers, "control:egress-destination-allowlist") {
+	if !containsString(decoded.Triage.PresentHardBarriers, "control:deny-by-default-permissions") {
 		t.Fatalf("triage should separate present hard barriers: %+v", decoded.Triage)
 	}
-	if !containsString(decoded.Triage.PartialOrFrictionControls, "control:output-redaction") {
+	if !containsString(decoded.Triage.PartialOrFrictionControls, "control:approval-required") {
 		t.Fatalf("triage should separate partial/friction controls: %+v", decoded.Triage)
+	}
+	// Attested declarations surface separately and never count as observed
+	// hard barriers.
+	if !containsString(decoded.Triage.AttestedControls, "control:input-isolation") {
+		t.Fatalf("triage should annotate attested controls: %+v", decoded.Triage.AttestedControls)
+	}
+	if containsString(decoded.ClosureEvidence.HardBarriersObserved, "control:input-isolation") {
+		t.Fatalf("attested input policy must not appear as observed hard barrier: %+v", decoded.ClosureEvidence.HardBarriersObserved)
 	}
 
 	var htmlOut bytes.Buffer
@@ -6249,14 +6140,11 @@ func TestAssessReportShowsClosureEvidence(t *testing.T) {
 	for _, want := range []string{
 		"Closure Evidence",
 		"Signal Triage",
-		"Closed By Hard Barrier",
-		"Partial Evidence",
 		"Hard barriers observed",
-		"Still missing",
-		".ariadne/egress-policy.json",
+		"control:deny-by-default-permissions",
 	} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("assessment closure dashboard missing %q:\n%s", want, rendered)
+			t.Fatalf("assessment closure dashboard missing %q", want)
 		}
 	}
 }
@@ -6367,7 +6255,7 @@ func TestAssessReportSupportsFocusedCaseAndControl(t *testing.T) {
 }
 
 func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
-	path := realPathFixture(t, "input-controls")
+	path := realPathFixture(t, "safe-controls")
 	inventory, err := RunInventory(Options{Path: path})
 	if err != nil {
 		t.Fatal(err)
@@ -6378,21 +6266,21 @@ func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
 	}
 
 	var actionOut bytes.Buffer
-	if err := report.RenderAssessFocused(&actionOut, inventory, r, "action", "breaking", report.AssessFocus{CaseFilter: "case:input-trust-boundary"}); err != nil {
+	if err := report.RenderAssessFocused(&actionOut, inventory, r, "action", "breaking", report.AssessFocus{CaseFilter: "case:least-agency-authority"}); err != nil {
 		t.Fatal(err)
 	}
 	actionRendered := actionOut.String()
 	for _, want := range []string{
 		"Focused cases: 1; missing hard barriers: 0; exposed paths: 0",
 		"Status: controlled",
-		"Readout: Input Trust Boundary is closed because Ariadne observed hard-barrier evidence.",
+		"Readout: Least Agency And Authority Scope is closed because Ariadne observed hard-barrier evidence.",
 		"signal:top-operator-case [present control/breaks path]",
-		"Present hard barrier: control:input-isolation",
-		"Present hard barrier: control:trusted-source-policy",
-		"Prove at: .ariadne/input-policy.json",
+		"Present hard barrier: control:deny-by-default-permissions",
+		"Present hard barrier: control:scoped-permissions",
+		"Prove at: .ariadne/agent-policy.json",
 		"Step: Inspect Evidence",
-		"Control: control:input-isolation",
-		"Proof surface: .ariadne/input-policy.json",
+		"Control: control:deny-by-default-permissions",
+		"Proof surface: .ariadne/agent-policy.json",
 		"No proof patch is needed for this case.",
 	} {
 		if !strings.Contains(actionRendered, want) {
@@ -6403,9 +6291,8 @@ func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
 		"Status: action required",
 		"highest-ranked open operator case",
 		"signal:missing-hard-barriers",
-		"Missing hard barrier: control:input-isolation",
-		"Missing hard barrier: control:trusted-source-policy",
-		"Prove at: .ariadne/agent-policy.json",
+		"Missing hard barrier: control:deny-by-default-permissions",
+		"Missing hard barrier: control:scoped-permissions",
 	} {
 		if strings.Contains(actionRendered, unwanted) {
 			t.Fatalf("focused closed assessment action output should not include %q:\n%s", unwanted, actionRendered)
@@ -6413,22 +6300,22 @@ func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
 	}
 
 	var jsonOut bytes.Buffer
-	if err := report.RenderAssessFocused(&jsonOut, inventory, r, "json", "breaking", report.AssessFocus{CaseFilter: "case:input-trust-boundary"}); err != nil {
+	if err := report.RenderAssessFocused(&jsonOut, inventory, r, "json", "breaking", report.AssessFocus{CaseFilter: "case:least-agency-authority"}); err != nil {
 		t.Fatal(err)
 	}
 	var decoded model.AssessReport
 	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.CaseFilter != "case:input-trust-boundary" || decoded.Triage.Status != "controlled" || decoded.FirstAction.State != "closed" {
+	if decoded.CaseFilter != "case:least-agency-authority" || decoded.Triage.Status != "controlled" || decoded.FirstAction.State != "closed" {
 		t.Fatalf("focused closed assessment should keep controlled state: case=%q triage=%+v action=%+v", decoded.CaseFilter, decoded.Triage, decoded.FirstAction)
 	}
 	if len(decoded.Triage.MissingHardBarriers) != 0 ||
-		!containsExactString(decoded.Triage.PresentHardBarriers, "control:input-isolation") ||
-		!containsExactString(decoded.Triage.PresentHardBarriers, "control:trusted-source-policy") {
+		!containsExactString(decoded.Triage.PresentHardBarriers, "control:deny-by-default-permissions") ||
+		!containsExactString(decoded.Triage.PresentHardBarriers, "control:scoped-permissions") {
 		t.Fatalf("focused closed assessment should move controls from missing to present: %+v", decoded.Triage)
 	}
-	if !hasAssessSignal(decoded.Triage.SignalDetails, "present_control", "breaks_path", "case:input-trust-boundary") ||
+	if !hasAssessSignal(decoded.Triage.SignalDetails, "present_control", "breaks_path", "case:least-agency-authority") ||
 		hasAssessSignal(decoded.Triage.SignalDetails, "missing_control", "missing_hard_barrier", "hard-barrier control") {
 		t.Fatalf("focused closed assessment should use present-control signals only for the focused case: %+v", decoded.Triage.SignalDetails)
 	}
@@ -6437,33 +6324,30 @@ func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
 	}
 	if !decoded.FirstAction.CurrentAction.Available ||
 		decoded.FirstAction.CurrentAction.WorkflowStepID != "inspect_evidence" ||
-		decoded.FirstAction.CurrentAction.Control != "control:input-isolation" ||
-		decoded.FirstAction.CurrentAction.Surface != ".ariadne/input-policy.json" ||
+		decoded.FirstAction.CurrentAction.Control != "control:deny-by-default-permissions" ||
+		decoded.FirstAction.CurrentAction.Surface != ".ariadne/agent-policy.json" ||
 		decoded.FirstAction.CurrentAction.ProofPatch != nil ||
 		decoded.FirstAction.CurrentAction.ProofPatchIndex != -1 {
 		t.Fatalf("focused closed assessment current action should inspect existing evidence with no patch: %+v", decoded.FirstAction.CurrentAction)
 	}
 	if len(decoded.ClosurePlan) != 1 ||
 		decoded.ClosurePlan[0].State != "closed" ||
-		decoded.ClosurePlan[0].ProofSurface != ".ariadne/input-policy.json" ||
+		decoded.ClosurePlan[0].ProofSurface != ".ariadne/agent-policy.json" ||
 		decoded.ClosurePlan[0].ProofPatch != nil ||
 		!strings.Contains(decoded.ClosurePlan[0].WhatItCloses, "no proof patch is needed") {
 		t.Fatalf("focused closed assessment should present closure evidence rather than a proof patch: %+v", decoded.ClosurePlan)
 	}
-	if !containsExactString(decoded.FirstAction.ProofSurfaces, ".ariadne/input-policy.json") ||
-		containsExactString(decoded.FirstAction.ProofSurfaces, ".ariadne/agent-policy.json") ||
-		!containsExactString(decoded.TopCases[0].ProofSurfaces, ".ariadne/input-policy.json") ||
-		containsExactString(decoded.TopCases[0].ProofSurfaces, ".ariadne/agent-policy.json") {
-		t.Fatalf("focused closed assessment should expose observed evidence surfaces, not generic proof surfaces: action=%+v top=%+v", decoded.FirstAction.ProofSurfaces, decoded.TopCases[0].ProofSurfaces)
+	if !containsExactString(decoded.FirstAction.ProofSurfaces, ".ariadne/agent-policy.json") ||
+		!containsExactString(decoded.TopCases[0].ProofSurfaces, ".ariadne/agent-policy.json") {
+		t.Fatalf("focused closed assessment should expose observed evidence surfaces: action=%+v top=%+v", decoded.FirstAction.ProofSurfaces, decoded.TopCases[0].ProofSurfaces)
 	}
 	if decoded.FirstAction.Workflow[0].ID != "inspect_evidence" ||
-		!containsExactString(decoded.FirstAction.Workflow[0].ProofSurfaces, ".ariadne/input-policy.json") ||
-		containsExactString(decoded.FirstAction.Workflow[0].ProofSurfaces, ".ariadne/agent-policy.json") {
+		!containsExactString(decoded.FirstAction.Workflow[0].ProofSurfaces, ".ariadne/agent-policy.json") {
 		t.Fatalf("focused closed workflow should point at observed evidence surfaces: %+v", decoded.FirstAction.Workflow)
 	}
 
 	var htmlOut bytes.Buffer
-	if err := report.RenderAssessFocused(&htmlOut, inventory, r, "html", "breaking", report.AssessFocus{CaseFilter: "case:input-trust-boundary"}); err != nil {
+	if err := report.RenderAssessFocused(&htmlOut, inventory, r, "html", "breaking", report.AssessFocus{CaseFilter: "case:least-agency-authority"}); err != nil {
 		t.Fatal(err)
 	}
 	htmlRendered := htmlOut.String()
@@ -6478,8 +6362,8 @@ func TestAssessFocusedClosedCaseShowsControlledState(t *testing.T) {
 		"Closed Case Workbench",
 		"Control Evidence",
 		"Evidence / proof",
-		"Input Trust Boundary is closed because Ariadne observed hard-barrier evidence.",
-		".ariadne/input-policy.json",
+		"Least Agency And Authority Scope is closed because Ariadne observed hard-barrier evidence.",
+		".ariadne/agent-policy.json",
 		"No proof patch is needed for this case.",
 		"Inspect Evidence",
 	} {
@@ -7630,6 +7514,19 @@ func assertIssue(t *testing.T, issues []model.Issue, id string, severity model.S
 		t.Fatalf("missing issue %s in %+v", id, issues)
 	}
 	return model.Issue{}
+}
+
+func assertAttestedControls(t *testing.T, flaws []model.ZeroTrustArchitecture, ids ...string) {
+	t.Helper()
+	var all []string
+	for _, flaw := range flaws {
+		all = append(all, flaw.ControlTest.AttestedControls...)
+	}
+	for _, id := range ids {
+		if !containsString(all, id) {
+			t.Fatalf("attested controls missing %s: %+v", id, all)
+		}
+	}
 }
 
 func assertZeroTrustCheck(t *testing.T, checks []model.ZeroTrustCheck, id string, status model.ZeroTrustStatus) model.ZeroTrustCheck {

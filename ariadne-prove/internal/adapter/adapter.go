@@ -3314,9 +3314,27 @@ func appendUniqueAuthority(in []model.Authority, next model.Authority) []model.A
 	return append(in, next)
 }
 
+// controlEnforcement classifies control provenance by source surface.
+// Ariadne's own .ariadne/ policy vocabulary is self-declared: nothing executes
+// it, so it is attestation at most. Controls parsed from real runtime,
+// launcher, or CI platform configuration are treated as enforced.
+func controlEnforcement(source string) string {
+	normalized := strings.ReplaceAll(source, "\\", "/")
+	if strings.HasPrefix(normalized, ".ariadne/") || strings.Contains(normalized, "/.ariadne/") {
+		return model.EnforcementAttested
+	}
+	return model.EnforcementEnforced
+}
+
 func appendUniqueControl(in []model.Control, next model.Control) []model.Control {
-	for _, item := range in {
+	if next.Enforcement == "" {
+		next.Enforcement = controlEnforcement(next.Source)
+	}
+	for i, item := range in {
 		if item.ID == next.ID && item.Runtime == next.Runtime {
+			if item.Enforcement == model.EnforcementAttested && next.Enforcement == model.EnforcementEnforced {
+				in[i] = next
+			}
 			return in
 		}
 	}

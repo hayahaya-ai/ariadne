@@ -532,6 +532,7 @@ type AssessDecision struct {
 	PathSummary               []string            `json:"path_summary"`
 	MissingHardBarriers       []string            `json:"missing_hard_barriers"`
 	PresentHardBarriers       []string            `json:"present_hard_barriers"`
+	AttestedControls          []string            `json:"attested_controls"`
 	PartialOrFrictionControls []string            `json:"partial_or_friction_controls"`
 	UnknownEvidence           []string            `json:"unknown_evidence"`
 	EvidenceGapActions        []string            `json:"evidence_gap_actions"`
@@ -563,6 +564,7 @@ type AssessControlState struct {
 	CurrentProofSurface       string   `json:"current_proof_surface,omitempty"`
 	MissingHardBarriers       []string `json:"missing_hard_barriers"`
 	PresentHardBarriers       []string `json:"present_hard_barriers"`
+	AttestedControls          []string `json:"attested_controls"`
 	PartialOrFrictionControls []string `json:"partial_or_friction_controls"`
 	UnknownEvidence           []string `json:"unknown_evidence"`
 	ProofSurfaces             []string `json:"proof_surfaces"`
@@ -877,6 +879,7 @@ type AssessTriage struct {
 	HardRiskSignals           []string            `json:"hard_risk_signals"`
 	NormalCapabilities        []string            `json:"normal_capabilities"`
 	MissingHardBarriers       []string            `json:"missing_hard_barriers"`
+	AttestedControls          []string            `json:"attested_controls"`
 	PartialOrFrictionControls []string            `json:"partial_or_friction_controls"`
 	PresentHardBarriers       []string            `json:"present_hard_barriers"`
 	UnknownEvidence           []string            `json:"unknown_evidence"`
@@ -1219,6 +1222,7 @@ type ArchitectureControlTest struct {
 	HardBarriersObserved      []string `json:"hard_barriers_observed"`
 	PartialOrFrictionControls []string `json:"partial_or_friction_controls"`
 	MissingHardBarriers       []string `json:"missing_hard_barriers"`
+	AttestedControls          []string `json:"attested_controls"`
 }
 
 type ArchitectureClosure struct {
@@ -1856,12 +1860,23 @@ type Authority struct {
 	Summary string `json:"summary"`
 }
 
+// Control enforcement provenance. Enforced controls come from configuration a
+// runtime or platform actually applies (Claude/Codex permission semantics,
+// pinned launchers, CI platform gates). Attested controls are self-declared
+// policy statements (for example .ariadne/*.json) that nothing enforces;
+// they can never close a case or count as a proven hard barrier.
+const (
+	EnforcementEnforced = "enforced"
+	EnforcementAttested = "attested"
+)
+
 type Control struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Runtime string `json:"runtime,omitempty"`
-	Source  string `json:"source"`
-	Summary string `json:"summary"`
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	Runtime     string `json:"runtime,omitempty"`
+	Source      string `json:"source"`
+	Enforcement string `json:"enforcement"`
+	Summary     string `json:"summary"`
 }
 
 type Boundary struct {

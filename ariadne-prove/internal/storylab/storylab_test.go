@@ -14,8 +14,8 @@ func TestListStories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(stories) != 9 {
-		t.Fatalf("story count = %d, want 9", len(stories))
+	if len(stories) != 10 {
+		t.Fatalf("story count = %d, want 10", len(stories))
 	}
 	seen := map[string]bool{}
 	for _, story := range stories {

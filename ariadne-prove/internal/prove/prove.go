@@ -1847,7 +1847,7 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 	hasFileRead := hasAuthority(c, "authority:file-read")
 	hasBroadLocal := hasAuthority(c, "authority:broad-local")
 	hasBoundary := len(c.Boundaries) > 0
-	hasDeny := hasControl(c, "control:deny-secret-read")
+	hasDeny := hasEnforcedControl(c, "control:deny-secret-read")
 	hasInputBreak := hasHardInputBreak(c)
 
 	result := model.ExposureResult{
@@ -1903,7 +1903,7 @@ func evaluateMCP(c model.Collection, g model.Graph) model.ExposureResult {
 	hasRiskyMCPPackageLaunch := hasRiskyTool(c, "tool:mcp-package-launch")
 	hasLocalCodeExecution := hasAuthority(c, "authority:local-code-execution")
 	hasExecutionBoundary := hasBoundary(c, "boundary:developer-execution-boundary")
-	hasReviewedPinnedControl := hasControl(c, "control:mcp-reviewed-pinned")
+	hasReviewedPinnedControl := hasEnforcedControl(c, "control:mcp-reviewed-pinned")
 	result := model.ExposureResult{
 		ID:            "mutable-tool-launch-execution",
 		Title:         "MCP package launch to local code execution",
@@ -1948,7 +1948,7 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	hasExternalCommunication := hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local")
 	hasExternalDestination := hasBoundary(c, "boundary:external-destination")
 	hasHardEgressControl := hasHardEgressBreak(c)
-	hasDenyRead := hasControl(c, "control:deny-secret-read")
+	hasDenyRead := hasEnforcedControl(c, "control:deny-secret-read")
 	hasInputBreak := hasHardInputBreak(c)
 
 	result := model.ExposureResult{
@@ -2091,8 +2091,29 @@ func hasAnyControl(c model.Collection, ids ...string) bool {
 	return false
 }
 
+// hasEnforcedControl is the gate for protected verdicts and hard barriers.
+// Attested (self-declared) controls never satisfy it; unknown enforcement
+// fails closed.
+func hasEnforcedControl(c model.Collection, id string) bool {
+	for _, control := range c.Controls {
+		if control.ID == id && control.Enforcement == model.EnforcementEnforced {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyEnforcedControl(c model.Collection, ids ...string) bool {
+	for _, id := range ids {
+		if hasEnforcedControl(c, id) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasHardInputBreak(c model.Collection) bool {
-	return hasAnyControl(c, "control:input-isolation", "control:trusted-source-policy")
+	return hasAnyEnforcedControl(c, "control:input-isolation", "control:trusted-source-policy")
 }
 
 func secretPathEdges(g model.Graph, mode string) []string {
@@ -2208,21 +2229,21 @@ func hardEgressControlIDs() []string {
 }
 
 func hasHardEgressBreak(c model.Collection) bool {
-	return hasAnyControl(c, hardEgressControlIDs()...)
+	return hasAnyEnforcedControl(c, hardEgressControlIDs()...)
 }
 
 func egressBreakDescriptions(c model.Collection) []string {
 	var out []string
-	if hasControl(c, "control:network-restricted") {
+	if hasEnforcedControl(c, "control:network-restricted") {
 		out = append(out, "restrict external network communication")
 	}
-	if hasControl(c, "control:egress-destination-allowlist") {
+	if hasEnforcedControl(c, "control:egress-destination-allowlist") {
 		out = append(out, "allowlist external destinations")
 	}
-	if hasControl(c, "control:webhook-allowlist") {
+	if hasEnforcedControl(c, "control:webhook-allowlist") {
 		out = append(out, "allowlist webhook destinations")
 	}
-	if hasControl(c, "control:per-tool-network-scope") {
+	if hasEnforcedControl(c, "control:per-tool-network-scope") {
 		out = append(out, "scope per-tool network access")
 	}
 	return out

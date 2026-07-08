@@ -32,12 +32,28 @@ Ariadne's default mode is deterministic. It observes local files and config, emi
 | `inferred` | Ariadne modeled a fact from deterministic evidence. |
 | `skipped` | Ariadne intentionally skipped a noisy or private surface. |
 
+## Control Enforcement
+
+Every control additionally carries an `enforcement` value:
+
+| Enforcement | Meaning |
+| --- | --- |
+| `enforced` | The control comes from configuration a runtime or platform actually applies: Claude/Codex permission semantics, pinned tool launchers, CI platform gates, or managed settings surfaces. |
+| `attested` | The control is a self-declaration, such as an `.ariadne/*.json` policy flag. Nothing executes it. |
+
+Attested controls never satisfy a hard-barrier requirement: they cannot flip an
+exposure path to `protected`, mark an architecture boundary `controlled`, or
+close an operator case. They stay visible in the graph and are reported
+separately as `attested_controls` so an operator can see what has been declared
+but not proven. Exported proof patches under `.ariadne/` therefore record
+attested progress only; closing a case requires enforced evidence.
+
 ## Status Semantics
 
 | Status | Meaning |
 | --- | --- |
 | `exposed` | Ariadne found a supported graph path from influence or tool authority to a sensitive boundary without a breaking control. |
-| `protected` | Ariadne found a supported path attempt and a control that breaks it. |
+| `protected` | Ariadne found a supported path attempt and an enforced control that breaks it. Attested declarations do not qualify. |
 | `inconclusive` | Ariadne did not collect enough evidence to prove exposure or protection. |
 
 ## Zero Trust Control Evidence
