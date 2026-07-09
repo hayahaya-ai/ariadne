@@ -1,0 +1,21 @@
+{
+  "name": "ariadne",
+  "owner": {
+    "name": "Ariadne"
+  },
+  "metadata": {
+    "description": "Consume Ariadne's deterministic AI-agent risk readout from Claude Code.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "ariadne",
+      "description": "Read and act on Ariadne's graded agent-risk verdict: facts are deterministic, judgments are labeled defaults you can override, fixes are applied by you and re-verified.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Ariadne"
+      },
+      "source": "./integrations/claude-plugin"
+    }
+  ]
+}
