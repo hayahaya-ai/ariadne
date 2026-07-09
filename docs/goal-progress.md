@@ -1,0 +1,14 @@
+# Goal progress
+
+One line per /goal iteration: date · work item · scorecard delta · outcome.
+
+2026-07-08 · Phase 0: build `make eval` (Story Lab verdict expectations + scorer, calibration profiles, 4 defect families encoded) · harness: 14 fixtures, 8 mismatches (verdict-word 13/14; egress precision 3/4; secret precision 4/5) · verified — Phase 0 bar PASSED
+2026-07-08 · Phase 1: influence provenance fact + labeled home-scope default judgment (verdict JSON `influence_provenance`/`default_judgments`, schema + cli-contract updated, adversarial twin repo-checkout-instructions-under-home) · 8 → 5 mismatches; verdict-word 15/15; all families P/R 100% · verified
+2026-07-08 · Phase 1: evidence-derived fixes replace canonical-per-family strings (per-(family,runtime) vocabulary from finding's own evidence surface; cli-contract updated; mixed-runtime twin claude-fix-with-gemini-present) · 5 → 3 mismatches; verdict-word 16/16 · verified
+2026-07-08 · Phase 1: honest line anchors (structural parser line tracking via json.Decoder/TOML offsets; metadata-only refs get anchor:"file", never :0 or fabricated lines; anti-line-stamping twin mcp-anchor-not-line-one; expectation semantics sharpened) · 3 → 1 mismatch; verdict-word 17/17 · verified
+2026-07-08 · Phase 1: bucket completeness (graph-derived capability consumption; related_capabilities in verdict JSON; max_tradeoffs anti-double-count guard on combined-risk; cli-contract + schema updated) · 1 → 0 mismatches; make eval exits 0 — Phase 1 eval bar PASSED · verified
+2026-07-09 · Readout polish: trade-off dedupe by rendered summary (sources merged, anti-overdedupe twin) + plain-English default-judgment wording · eval stays PASS (17/17) · verified. Note: codex config drift broke one run (gpt-5.6-sol unsupported, effort silently at medium); /goal-iteration now pins -m gpt-5.5 -c model_reasoning_effort=xhigh
+2026-07-09 · Phase 2 determinism: TestRealPathGateOutputsAreDeterministic (double-run byte equality over verdict JSON/readout/assess JSON, run_id+generated_at normalized structurally, -count=20) · found+fixed real bug: MCP server map iteration order could swap representative finding (adapter.go:777) · verified, eval stays PASS
+2026-07-09 · Phase 2 perf + exit codes: synthetic 2,000-file endpoint benchmark ~470ms (5s bar holds, 15s tripwire in go test) · exit codes 0/1/2/3 each contract-tested; fixed verdict runtime-error mapping (bad --path now exit 1 per contract) · verified empirically, eval stays PASS
+2026-07-09 · Phase 2 ops docs: docs/operations.md (CI gate + fleet-wide MDM scan, verified-behavior-only) · written directly, linked from README
+2026-07-09 · Phase 3 fleet rollup: scan --targets emits verdict/v1 JSONL per target + fleet summary (verdict counts, reckless-by-family, worst-first) in consolidated scan schema · attested-only twin proves declarations don't move fleet numbers; determinism verified across double runs · verified, eval stays PASS

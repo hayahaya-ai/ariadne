@@ -2,7 +2,8 @@
 
 Deterministic exposure analysis for local AI agent runtimes. Active implementation is in
 `ariadne-prove/`. Product direction and the quality bar live in `docs/northstar.md` —
-read it before making product decisions.
+read it before making product decisions. Autonomous work sessions follow the phased
+goal and loop guardrails in `docs/goal-ciso-grade.md`.
 
 ## Build and verify
 
