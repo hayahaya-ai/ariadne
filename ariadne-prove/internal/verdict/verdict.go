@@ -157,15 +157,7 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 		}
 	}
 
-	word := WordNoAgentsFound
-	switch {
-	case len(reckless) > 0:
-		word = WordReckless
-	case len(tradeoffs) > 0:
-		word = WordTradeoffsOnly
-	case len(hardened) > 0 || len(collection.Runtimes) > 0:
-		word = WordHardened
-	}
+	word := computeVerdictWord(len(reckless), len(tradeoffs), len(hardened), len(collection.Runtimes))
 
 	nextAction := "no action needed — rerun after config changes"
 	if word == WordReckless {
@@ -189,6 +181,21 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 		Limitations: []string{
 			"Verdict is derived from configuration evidence only; nothing was executed.",
 		},
+	}
+}
+
+func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, runtimeCount int) string {
+	switch {
+	case recklessCount > 0:
+		return WordReckless
+	case tradeoffCount > 0:
+		return WordTradeoffsOnly
+	case runtimeCount > 0:
+		return WordHardened
+	default:
+		// Enforced controls remain reported, but cannot harden an absent runtime.
+		_ = hardenedCount
+		return WordNoAgentsFound
 	}
 }
 

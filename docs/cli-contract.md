@@ -144,8 +144,10 @@ ID, id `hardened:N`, rendered `✓ <control summary> (enforced) — <source>`.
 Cap at 6 on screen; full list in JSON.
 
 **Verdict word**: any reckless → `reckless`; else any tradeoffs → `tradeoffs_only`;
-else any hardened or any runtime found → `hardened`; no runtimes discovered →
-`no_agents_found`. Inconclusive exposures add one line under the readout:
+else any runtime found → `hardened` (with or without enforced controls); else →
+`no_agents_found`. Enforced controls observed without a runtime remain listed under
+HARDENED but do not supply the verdict word. Inconclusive exposures add one line
+under the readout:
 "Couldn't verify: <n> path(s) lacked evidence — see ariadne ls cases."
 
 ## Verdict JSON (`schema/ariadne-verdict-v1.schema.json`)

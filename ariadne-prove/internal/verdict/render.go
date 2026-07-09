@@ -137,6 +137,12 @@ func recklessNumber(id string) int {
 }
 
 func countsSentence(v Verdict) string {
+	if v.VerdictWord == WordNoAgentsFound {
+		if len(v.Hardened) > 0 {
+			return fmt.Sprintf("no agent runtimes found · %d enforced control(s) present", len(v.Hardened))
+		}
+		return "no agent runtimes found"
+	}
 	parts := make([]string, 0, 3)
 	if len(v.Reckless) > 0 {
 		parts = append(parts, fmt.Sprintf("%d finding(s) need action", len(v.Reckless)))
@@ -147,8 +153,8 @@ func countsSentence(v Verdict) string {
 	if len(v.Hardened) > 0 {
 		parts = append(parts, fmt.Sprintf("%d control(s) working for you", len(v.Hardened)))
 	}
-	if len(parts) == 0 {
-		return "no agent runtimes found"
+	if len(parts) == 0 && len(v.Scanned.Runtimes) > 0 {
+		return fmt.Sprintf("%d agent runtime(s) found", len(v.Scanned.Runtimes))
 	}
 	return strings.Join(parts, ", ")
 }

@@ -1,0 +1,18 @@
+{
+  "id": "controls-without-runtime",
+  "title": "Enforced observability controls without an agent runtime",
+  "persona": "developer / IT",
+  "user_question": "Do real enforced controls avoid implying that an absent agent is hardened?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "no_agents_found",
+      "min_hardened": 3,
+      "findings": []
+    }
+  }
+}

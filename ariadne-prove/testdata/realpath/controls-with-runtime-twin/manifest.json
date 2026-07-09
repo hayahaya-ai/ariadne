@@ -1,0 +1,18 @@
+{
+  "id": "controls-with-runtime-twin",
+  "title": "The same enforced controls with a hardened agent runtime",
+  "persona": "developer / IT",
+  "user_question": "Does adding a hardened runtime preserve the hardened verdict?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "hardened",
+      "min_hardened": 3,
+      "findings": []
+    }
+  }
+}

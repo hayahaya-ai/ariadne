@@ -30,6 +30,7 @@ func TestLoadParsesVerdictExpectation(t *testing.T) {
       "word": "reckless",
       "min_tradeoffs": 1,
       "max_tradeoffs": 2,
+      "min_hardened": 3,
       "default_judgment_rules": ["nested_instructions_scoped_by_default"],
       "require_evidence_line_anchors": true,
       "findings": [
@@ -55,7 +56,7 @@ func TestLoadParsesVerdictExpectation(t *testing.T) {
 		t.Fatalf("expected verdict expectation to parse")
 	}
 	got := story.Manifest.Expected.Verdict
-	if got.Word != verdict.WordReckless || got.MinTradeoffs != 1 || got.MaxTradeoffs != 2 || !got.RequireEvidenceLineAnchors {
+	if got.Word != verdict.WordReckless || got.MinTradeoffs != 1 || got.MaxTradeoffs != 2 || got.MinHardened != 3 || !got.RequireEvidenceLineAnchors {
 		t.Fatalf("parsed verdict expectation = %+v", got)
 	}
 	if len(got.Findings) != 1 || got.Findings[0].FixSurface != ".gemini/settings.json" {
@@ -73,6 +74,7 @@ func TestScoreVerdictsClean(t *testing.T) {
 			Word:                 verdict.WordReckless,
 			MinTradeoffs:         1,
 			MaxTradeoffs:         1,
+			MinHardened:          1,
 			DefaultJudgmentRules: []string{"nested_instructions_scoped_by_default"},
 			Findings: []model.ExpectedVerdictFinding{{
 				Family:     verdict.FamilyEgress,
@@ -92,6 +94,7 @@ func TestScoreVerdictsClean(t *testing.T) {
 				Fix:        "deny WebFetch/WebSearch in .claude/settings.json",
 			}},
 			Tradeoffs: []verdict.TradeoffLine{{ID: "tradeoff:1"}},
+			Hardened:  []verdict.HardenedLine{{ID: "hardened:1"}},
 		},
 	}})
 
@@ -113,6 +116,7 @@ func TestScoreVerdictsReportsMismatches(t *testing.T) {
 			Word:                       verdict.WordTradeoffsOnly,
 			MinTradeoffs:               1,
 			MaxTradeoffs:               1,
+			MinHardened:                1,
 			DefaultJudgmentRules:       []string{"nested_instructions_scoped_by_default"},
 			RequireEvidenceLineAnchors: true,
 			Findings: []model.ExpectedVerdictFinding{{
@@ -156,6 +160,7 @@ func TestScoreVerdictsReportsMismatches(t *testing.T) {
 		"testdata/storylab/mismatch [fix_surface]",
 		"testdata/storylab/mismatch [false_positive]",
 		"testdata/storylab/mismatch [tradeoffs]",
+		"testdata/storylab/mismatch [hardened] got 0 hardened control(s), expected at least 1",
 		"testdata/storylab/mismatch [default_judgment] missing default judgment rule nested_instructions_scoped_by_default",
 		"expected at most 1",
 		"testdata/storylab/mismatch [line_anchor]",

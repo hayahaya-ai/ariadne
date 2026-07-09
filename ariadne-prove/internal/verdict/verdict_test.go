@@ -103,6 +103,47 @@ func TestBuildTradeoffsOnlyFixtureIsNotReckless(t *testing.T) {
 	}
 }
 
+func TestBuildControlsWithoutRuntimeIsNoAgentsFound(t *testing.T) {
+	v := buildVerdict(t, "controls-without-runtime")
+
+	if v.VerdictWord != verdict.WordNoAgentsFound {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordNoAgentsFound)
+	}
+	if len(v.Scanned.Runtimes) != 0 {
+		t.Fatalf("runtimes = %+v, want none", v.Scanned.Runtimes)
+	}
+	if len(v.Hardened) < 3 {
+		t.Fatalf("hardened controls = %d, want at least 3: %+v", len(v.Hardened), v.Hardened)
+	}
+
+	var buf bytes.Buffer
+	if err := verdict.RenderText(&buf, v); err != nil {
+		t.Fatal(err)
+	}
+	headline := strings.SplitN(buf.String(), "\n", 2)[0]
+	want := "VERDICT: NO_AGENTS_FOUND — no agent runtimes found · 3 enforced control(s) present"
+	if headline != want {
+		t.Fatalf("headline = %q, want %q", headline, want)
+	}
+	if strings.Contains(headline, "VERDICT: HARDENED") {
+		t.Fatalf("headline pairs HARDENED with no runtimes: %q", headline)
+	}
+}
+
+func TestBuildControlsWithRuntimeTwinIsHardened(t *testing.T) {
+	v := buildVerdict(t, "controls-with-runtime-twin")
+
+	if v.VerdictWord != verdict.WordHardened {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordHardened)
+	}
+	if len(v.Scanned.Runtimes) != 1 || v.Scanned.Runtimes[0] != "claude" {
+		t.Fatalf("runtimes = %+v, want [claude]", v.Scanned.Runtimes)
+	}
+	if len(v.Hardened) < 3 {
+		t.Fatalf("hardened controls = %d, want at least 3: %+v", len(v.Hardened), v.Hardened)
+	}
+}
+
 func TestBuildBucketsConsumedAndUnconsumedCapabilities(t *testing.T) {
 	inventory := model.InventoryReport{Collection: model.Collection{
 		Runtimes: []model.RuntimeEvidence{{ID: "runtime:claude", Kind: "claude"}},

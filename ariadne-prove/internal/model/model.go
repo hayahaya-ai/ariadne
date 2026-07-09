@@ -66,6 +66,7 @@ type ExpectedVerdict struct {
 	DefaultJudgmentRules       []string                 `json:"default_judgment_rules,omitempty"`
 	MinTradeoffs               int                      `json:"min_tradeoffs,omitempty"`
 	MaxTradeoffs               int                      `json:"max_tradeoffs,omitempty"`
+	MinHardened                int                      `json:"min_hardened,omitempty"`
 	RequireEvidenceLineAnchors bool                     `json:"require_evidence_line_anchors,omitempty"`
 }
 

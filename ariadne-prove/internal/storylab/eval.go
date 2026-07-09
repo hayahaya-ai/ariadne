@@ -110,6 +110,13 @@ func ScoreVerdicts(cases []EvalCaseResult) EvalScorecard {
 				Message:     fmt.Sprintf("got %d trade-off(s), expected at most %d", len(c.Actual.Tradeoffs), c.Expected.MaxTradeoffs),
 			})
 		}
+		if c.Expected.MinHardened > 0 && len(c.Actual.Hardened) < c.Expected.MinHardened {
+			score.Mismatches = append(score.Mismatches, EvalMismatch{
+				FixturePath: c.FixturePath,
+				Kind:        "hardened",
+				Message:     fmt.Sprintf("got %d hardened control(s), expected at least %d", len(c.Actual.Hardened), c.Expected.MinHardened),
+			})
+		}
 		for _, rule := range c.Expected.DefaultJudgmentRules {
 			if !hasDefaultJudgmentRule(c.Actual.DefaultJudgments, rule) {
 				score.Mismatches = append(score.Mismatches, EvalMismatch{
