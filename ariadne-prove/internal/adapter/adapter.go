@@ -2,13 +2,16 @@ package adapter
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/agentconfig"
@@ -71,7 +74,7 @@ func hasBoundary(c *model.Collection, id string) bool {
 }
 
 func collectSurface(c *model.Collection, opts Options, s model.Surface) {
-	c.Facts = appendUniqueFact(c.Facts, model.Fact{
+	fact := model.Fact{
 		ID:            "fact:" + trimPrefix(s.ID, "surface:"),
 		Type:          s.Category,
 		Runtime:       s.Runtime,
@@ -82,7 +85,11 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		Redaction:     redactionForSurface(s),
 		Summary:       s.Summary,
 		Limitations:   limitationsForSurface(s),
-	})
+	}
+	if surfaceCanEmitTrustInput(s) {
+		fact.Provenance = trustInputProvenance(s)
+	}
+	c.Facts = appendUniqueFact(c.Facts, fact)
 	collectRuntimeSurfaceEvidence(c, s)
 
 	switch s.HandlingMode {
@@ -190,6 +197,10 @@ func collectInstruction(c *model.Collection, s model.Surface) {
 		return
 	}
 	risky := riskyInstructionPattern.Match(data)
+	line := firstMatchingLine(data, riskyInstructionPattern)
+	if line <= 0 {
+		line = firstContentLine(data)
+	}
 	id := "trustinput:repo-instruction"
 	kind := "repo-instruction"
 	summary := "Agent instruction surface can influence local coding-agent behavior."
@@ -207,21 +218,24 @@ func collectInstruction(c *model.Collection, s model.Surface) {
 		summary = "Agent instruction surface contains secret-seeking or permission-bypass guidance."
 	}
 	c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
-		ID:      id,
-		Kind:    kind,
-		Runtime: runtimeForTrustInput(s),
-		Source:  s.Source,
-		Risky:   risky,
-		Summary: summary,
+		ID:         id,
+		Kind:       kind,
+		Runtime:    runtimeForTrustInput(s),
+		Source:     s.Source,
+		Provenance: trustInputProvenance(s),
+		Risky:      risky,
+		Summary:    summary,
+		LineStart:  line,
+		LineEnd:    line,
 	})
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+id, "trust-input", s.Source, "declared", "Agent instruction surface was parsed without emitting raw content."))
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+id, "trust-input", s.Source, "declared", "Agent instruction surface was parsed without emitting raw content.", line))
 	lower := strings.ToLower(string(data))
 	if s.Category == "command-hook" && containsAny(lower, []string{"bash", "shell", "exec", "npm ", "npx ", "python "}) {
 		runtime := runtimeForTrustInput(s)
-		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-command-shell", Kind: "agent-command-shell", Runtime: runtime, Source: s.Source, Risky: true, Summary: displayRuntime(runtime) + " command surface appears able to steer shell or command execution."})
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: runtime, Source: s.Source, Summary: "Command surface can steer local command execution when invoked by the agent."})
+		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-command-shell", Kind: "agent-command-shell", Runtime: runtime, Source: s.Source, Risky: true, Summary: displayRuntime(runtime) + " command surface appears able to steer shell or command execution.", LineStart: line, LineEnd: line})
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: runtime, Source: s.Source, Summary: "Command surface can steer local command execution when invoked by the agent.", LineStart: line, LineEnd: line})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:agent-command-shell", "tool", s.Source, "declared", "Agent command content was inspected for command-execution indicators."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:tool:agent-command-shell", "tool", s.Source, "declared", "Agent command content was inspected for command-execution indicators.", line))
 	}
 	if s.Category == "command-hook" && containsExternalCommunication(lower) {
 		runtime := runtimeForTrustInput(s)
@@ -237,37 +251,53 @@ func collectDelegationSurface(c *model.Collection, s model.Surface) {
 	if err != nil {
 		return
 	}
+	line := firstMatchingLine(data, riskyInstructionPattern)
+	if line <= 0 {
+		line = firstContentLine(data)
+	}
 	summary := "Claude subagent definition can receive delegated work from the parent agent context."
 	if riskyInstructionPattern.Match(data) {
 		summary = "Claude subagent definition contains secret-seeking or permission-bypass guidance."
 	}
-	addDelegationSurface(c, "claude", s.Source, summary)
+	addDelegationSurfaceAt(c, "claude", s.Source, summary, line)
 	c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
-		ID:      "trustinput:agent-delegation",
-		Kind:    "agent-delegation",
-		Runtime: "claude",
-		Source:  s.Source,
-		Risky:   riskyInstructionPattern.Match(data),
-		Summary: "Subagent definition can influence delegated agent behavior.",
+		ID:         "trustinput:agent-delegation",
+		Kind:       "agent-delegation",
+		Runtime:    "claude",
+		Source:     s.Source,
+		Provenance: trustInputProvenance(s),
+		Risky:      riskyInstructionPattern.Match(data),
+		Summary:    "Subagent definition can influence delegated agent behavior.",
+		LineStart:  line,
+		LineEnd:    line,
 	})
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:agent-delegation", "trust-input", s.Source, "declared", "Subagent definition was parsed without emitting raw content."))
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:trustinput:agent-delegation", "trust-input", s.Source, "declared", "Subagent definition was parsed without emitting raw content.", line))
 }
 
 func addDelegationSurface(c *model.Collection, runtime, source, summary string) {
+	addDelegationSurfaceAt(c, runtime, source, summary, 0)
+}
+
+func addDelegationSurfaceAt(c *model.Collection, runtime, source, summary string, line int) {
+	lineStart, lineEnd := lineRange(line)
 	c.Tools = appendUniqueTool(c.Tools, model.Tool{
-		ID:      "tool:agent-delegation",
-		Kind:    "agent-delegation",
-		Runtime: runtime,
-		Source:  source,
-		Risky:   true,
-		Summary: summary,
+		ID:        "tool:agent-delegation",
+		Kind:      "agent-delegation",
+		Runtime:   runtime,
+		Source:    source,
+		Risky:     true,
+		Summary:   summary,
+		LineStart: lineStart,
+		LineEnd:   lineEnd,
 	})
 	c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-		ID:      "authority:delegated-agent-authority",
-		Kind:    "delegated-agent-authority",
-		Runtime: runtime,
-		Source:  source,
-		Summary: "Delegated or sub-agent work can inherit parent agent authority unless scoped.",
+		ID:        "authority:delegated-agent-authority",
+		Kind:      "delegated-agent-authority",
+		Runtime:   runtime,
+		Source:    source,
+		Summary:   "Delegated or sub-agent work can inherit parent agent authority unless scoped.",
+		LineStart: lineStart,
+		LineEnd:   lineEnd,
 	})
 	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 		ID:       "boundary:agent-delegation-boundary",
@@ -276,7 +306,7 @@ func addDelegationSurface(c *model.Collection, runtime, source, summary string) 
 		Abstract: true,
 		Summary:  "Trust boundary between initiating agent, delegated agent, and original user intent.",
 	})
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:agent-delegation", "tool", source, "declared", "Agent delegation surface was collected without invoking delegated agents."))
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:tool:agent-delegation", "tool", source, "declared", "Agent delegation surface was collected without invoking delegated agents.", line))
 }
 
 func runtimeForTrustInput(s model.Surface) string {
@@ -289,6 +319,28 @@ func runtimeForTrustInput(s model.Surface) string {
 	return ""
 }
 
+func surfaceCanEmitTrustInput(s model.Surface) bool {
+	switch s.Category {
+	case "trust-input", "command-hook", "agent-delegation", "managed-agent-workflow":
+		return true
+	default:
+		return false
+	}
+}
+
+func trustInputProvenance(s model.Surface) string {
+	switch s.Scope {
+	case "endpoint":
+		return model.TrustInputProvenanceHomeScope
+	case "repo":
+		return model.TrustInputProvenanceRepoCheckout
+	}
+	if s.Runtime == "mcp" || s.Category == "mcp-tool-config" || s.Category == "plugin-skill" {
+		return model.TrustInputProvenanceThirdParty
+	}
+	return model.TrustInputProvenanceUnknown
+}
+
 // collectCodexConfig parses .codex/config.toml (or requirements.toml) with
 // agentconfig.ParseCodexConfig and grades authorities/controls/tools
 // strictly off the parsed struct fields — no keyword scanning of raw text.
@@ -299,15 +351,19 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 		return
 	}
 	source := s.Source
+	configLine := firstContentLine(data)
+	configLineStart, configLineEnd := lineRange(configLine)
 	c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{
-		ID:      "runtime:codex",
-		Kind:    "codex",
-		Source:  source,
-		Scope:   s.Scope,
-		Summary: "Codex configuration evidence was found.",
+		ID:        "runtime:codex",
+		Kind:      "codex",
+		Source:    source,
+		Scope:     s.Scope,
+		Summary:   "Codex configuration evidence was found.",
+		LineStart: configLineStart,
+		LineEnd:   configLineEnd,
 	})
 	configID := "config:codex-" + s.Scope
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", "Codex config source was collected."))
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+configID, "config", source, "declared", "Codex config source was collected.", configLine))
 
 	cfg, ok := agentconfig.ParseCodexConfig(data)
 	if !ok {
@@ -316,30 +372,34 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 	cfg.IsRequirements = s.Kind == "codex-requirements"
 
 	broadLocal := cfg.SandboxMode == "danger-full-access" || cfg.ApprovalPolicy == "never"
+	broadLocalLine := codexBroadLocalLine(cfg)
 	if broadLocal {
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: "codex", Source: source, Summary: "Codex config declares broad local authority or bypass posture."})
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "codex", Source: source, Summary: "Codex can read files in the configured workspace."})
+		lineStart, lineEnd := lineRange(broadLocalLine)
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: "codex", Source: source, Summary: "Codex config declares broad local authority or bypass posture.", LineStart: lineStart, LineEnd: lineEnd})
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "codex", Source: source, Summary: "Codex can read files in the configured workspace.", LineStart: lineStart, LineEnd: lineEnd})
 	} else if cfg.SandboxMode == "read-only" || cfg.SandboxMode == "workspace-write" || cfg.IsRequirements {
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "codex", Source: source, Summary: "Codex has normal file-read authority in the configured workspace."})
+		lineStart, lineEnd := lineRange(cfg.SandboxModeLine)
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "codex", Source: source, Summary: "Codex has normal file-read authority in the configured workspace.", LineStart: lineStart, LineEnd: lineEnd})
 	}
 
 	if cfg.NetworkAccess != nil && *cfg.NetworkAccess {
-		addExternalCommunication(c, "codex", source, "Codex config declares external network access.")
+		addExternalCommunicationAt(c, "codex", source, "Codex config declares external network access.", cfg.NetworkAccessLine)
 	}
 	if cfg.NetworkAccess != nil && !*cfg.NetworkAccess {
-		addControl(c, "control:network-restricted", "network-restricted", "codex", source, "Codex config restricts external network communication.")
+		addControlAt(c, "control:network-restricted", "network-restricted", "codex", source, "Codex config restricts external network communication.", cfg.NetworkAccessLine)
 	}
 	if codexDeniesSecretPath(cfg) {
-		addControl(c, "control:deny-secret-read", "deny-secret-read", "codex", source, "Codex deny-read policy covers secret-like paths.")
+		addControlAt(c, "control:deny-secret-read", "deny-secret-read", "codex", source, "Codex deny-read policy covers secret-like paths.", codexDenySecretPathLine(cfg))
 	}
 	scopedSandbox := cfg.SandboxMode == "read-only" || cfg.SandboxMode == "workspace-write"
 	scopedApproval := cfg.ApprovalPolicy == "on-request" || cfg.ApprovalPolicy == "on-failure" || cfg.ApprovalPolicy == "untrusted"
 	if scopedSandbox || scopedApproval {
-		addControl(c, "control:scoped-permissions", "scoped-permissions", "codex", source, "Codex config declares scoped sandbox or approval permissions.")
+		addControlAt(c, "control:scoped-permissions", "scoped-permissions", "codex", source, "Codex config declares scoped sandbox or approval permissions.", firstPositive(cfg.SandboxModeLine, cfg.ApprovalPolicyLine))
 	}
 	if cfg.HasMCPServers {
-		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:mcp-configured", Kind: "mcp-configured", Runtime: "codex", Source: source, Summary: "Codex config includes MCP/tool configuration."})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:mcp-configured", "tool", source, "declared", "Codex MCP configuration surface was collected."))
+		lineStart, lineEnd := lineRange(cfg.MCPServersLine)
+		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:mcp-configured", Kind: "mcp-configured", Runtime: "codex", Source: source, Summary: "Codex config includes MCP/tool configuration.", LineStart: lineStart, LineEnd: lineEnd})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:tool:mcp-configured", "tool", source, "declared", "Codex MCP configuration surface was collected.", cfg.MCPServersLine))
 	}
 	if cfg.HasInlineCredential {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
@@ -354,12 +414,31 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 }
 
 func codexDeniesSecretPath(cfg agentconfig.CodexConfig) bool {
+	return codexDenySecretPathLine(cfg) > 0
+}
+
+func codexDenySecretPathLine(cfg agentconfig.CodexConfig) int {
 	for _, path := range cfg.DenyRead {
 		if agentconfig.IsSecretLikePath(path) {
-			return true
+			for idx, candidate := range cfg.DenyRead {
+				if candidate == path && idx < len(cfg.DenyReadLines) {
+					return cfg.DenyReadLines[idx]
+				}
+			}
+			return 0
 		}
 	}
-	return false
+	return 0
+}
+
+func codexBroadLocalLine(cfg agentconfig.CodexConfig) int {
+	if cfg.SandboxMode == "danger-full-access" {
+		return cfg.SandboxModeLine
+	}
+	if cfg.ApprovalPolicy == "never" {
+		return cfg.ApprovalPolicyLine
+	}
+	return 0
 }
 
 // collectClaudeSettings parses .claude/settings.json (or settings.local.json)
@@ -373,15 +452,19 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 		return
 	}
 	source := s.Source
+	configLine := firstContentLine(data)
+	configLineStart, configLineEnd := lineRange(configLine)
 	c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{
-		ID:      "runtime:claude",
-		Kind:    "claude",
-		Source:  source,
-		Scope:   s.Scope,
-		Summary: "Claude Code settings evidence was found.",
+		ID:        "runtime:claude",
+		Kind:      "claude",
+		Source:    source,
+		Scope:     s.Scope,
+		Summary:   "Claude Code settings evidence was found.",
+		LineStart: configLineStart,
+		LineEnd:   configLineEnd,
 	})
 	configID := "config:claude-" + s.Scope
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", "Claude Code config source was collected."))
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+configID, "config", source, "declared", "Claude Code config source was collected.", configLine))
 
 	cfg, ok := agentconfig.ParseClaudeSettings(data)
 	if !ok {
@@ -389,34 +472,40 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 	}
 
 	broadLocal := cfg.DefaultMode == "bypassPermissions" || (cfg.HasBroadBashAllow() && !cfg.HasBroadBashDeny())
+	broadLocalLine := claudeBroadLocalLine(cfg)
 	if broadLocal {
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: "claude", Source: source, Summary: "Claude Code settings declare broad local authority or bypass posture."})
+		lineStart, lineEnd := lineRange(broadLocalLine)
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: "claude", Source: source, Summary: "Claude Code settings declare broad local authority or bypass posture.", LineStart: lineStart, LineEnd: lineEnd})
 	}
 
 	if broadLocal || cfg.DefaultMode == "acceptEdits" || claudeHasUndeniedAllowTool(cfg, "Read") {
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "claude", Source: source, Summary: "Claude Code can read files in the configured workspace."})
+		line := firstPositive(broadLocalLine, lineIfEqual(cfg.DefaultMode, "acceptEdits", cfg.DefaultModeLine), claudeUndeniedAllowToolLine(cfg, "Read"))
+		lineStart, lineEnd := lineRange(line)
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "claude", Source: source, Summary: "Claude Code can read files in the configured workspace.", LineStart: lineStart, LineEnd: lineEnd})
 	}
 
 	if broadLocal || claudeHasUndeniedAllowTool(cfg, "Bash") {
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: "claude", Source: source, Summary: "Claude Code settings allow broad shell or local execution posture."})
+		line := firstPositive(broadLocalLine, claudeUndeniedAllowToolLine(cfg, "Bash"))
+		lineStart, lineEnd := lineRange(line)
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: "claude", Source: source, Summary: "Claude Code settings allow broad shell or local execution posture.", LineStart: lineStart, LineEnd: lineEnd})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
 	}
 
 	if claudeAllowsExternalCommunication(cfg) {
-		addExternalCommunication(c, "claude", source, "Claude Code settings allow web, shell, or external communication posture.")
+		addExternalCommunicationAt(c, "claude", source, "Claude Code settings allow web, shell, or external communication posture.", claudeExternalCommunicationLine(cfg))
 	}
 
 	if claudeNetworkRestricted(cfg) {
-		addControl(c, "control:network-restricted", "network-restricted", "claude", source, "Claude Code settings restrict web or external network communication.")
+		addControlAt(c, "control:network-restricted", "network-restricted", "claude", source, "Claude Code settings restrict web or external network communication.", claudeNetworkRestrictedLine(cfg))
 	}
 	if cfg.HasSecretReadDeny() {
-		addControl(c, "control:deny-secret-read", "deny-secret-read", "claude", source, "Claude Code deny/disallow policy covers secret-like paths.")
+		addControlAt(c, "control:deny-secret-read", "deny-secret-read", "claude", source, "Claude Code deny/disallow policy covers secret-like paths.", claudeSecretReadDenyLine(cfg))
 	}
 	if (cfg.DefaultMode == "default" && len(cfg.Allow) > 0) || len(cfg.Deny) > 0 {
-		addControl(c, "control:scoped-permissions", "scoped-permissions", "claude", source, "Claude Code settings declare scoped default-mode permissions.")
+		addControlAt(c, "control:scoped-permissions", "scoped-permissions", "claude", source, "Claude Code settings declare scoped default-mode permissions.", firstPositive(lineIfEqual(cfg.DefaultMode, "default", cfg.DefaultModeLine), firstPermRuleLine(cfg.Allow), firstPermRuleLine(cfg.Deny)))
 	}
 	if cfg.DefaultMode == "default" && !cfg.HasBroadBashAllow() {
-		addControl(c, "control:deny-by-default-permissions", "deny-by-default-permissions", "claude", source, "Claude Code settings run nothing without a prompt under default-mode permissions.")
+		addControlAt(c, "control:deny-by-default-permissions", "deny-by-default-permissions", "claude", source, "Claude Code settings run nothing without a prompt under default-mode permissions.", cfg.DefaultModeLine)
 	}
 	if cfg.HasInlineCredential {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
@@ -503,6 +592,99 @@ func claudeNetworkRestricted(cfg agentconfig.ClaudeSettings) bool {
 	return false
 }
 
+func claudeBroadLocalLine(cfg agentconfig.ClaudeSettings) int {
+	if cfg.DefaultMode == "bypassPermissions" {
+		return cfg.DefaultModeLine
+	}
+	if cfg.HasBroadBashAllow() && !cfg.HasBroadBashDeny() {
+		return firstBroadToolRuleLine(cfg.Allow, "Bash")
+	}
+	return 0
+}
+
+func claudeUndeniedAllowToolLine(cfg agentconfig.ClaudeSettings, tool string) int {
+	for _, allow := range cfg.Allow {
+		if !strings.EqualFold(allow.Tool, tool) {
+			continue
+		}
+		if !claudeAllowRuleDenied(cfg, allow) {
+			return allow.Line
+		}
+	}
+	return 0
+}
+
+func claudeExternalCommunicationLine(cfg agentconfig.ClaudeSettings) int {
+	return firstPositive(
+		claudeUndeniedAllowToolLine(cfg, "WebFetch"),
+		claudeUndeniedAllowToolLine(cfg, "WebSearch"),
+		lineIfTrue(cfg.HasBroadBashAllow() && !cfg.HasBroadBashDeny(), firstBroadToolRuleLine(cfg.Allow, "Bash")),
+	)
+}
+
+func claudeNetworkRestrictedLine(cfg agentconfig.ClaudeSettings) int {
+	if cfg.HasDenyTool("WebFetch") && !cfg.HasAllowTool("WebFetch") {
+		return firstToolRuleLine(cfg.Deny, "WebFetch")
+	}
+	if cfg.HasDenyTool("WebSearch") && !cfg.HasAllowTool("WebSearch") {
+		return firstToolRuleLine(cfg.Deny, "WebSearch")
+	}
+	if cfg.DefaultMode == "default" && !claudeAllowsExternalCommunication(cfg) {
+		return cfg.DefaultModeLine
+	}
+	return 0
+}
+
+func claudeSecretReadDenyLine(cfg agentconfig.ClaudeSettings) int {
+	for _, deny := range cfg.Deny {
+		if strings.EqualFold(deny.Tool, "Read") && agentconfig.IsSecretLikePath(deny.Scope) {
+			return deny.Line
+		}
+	}
+	return 0
+}
+
+func firstPermRuleLine(rules []agentconfig.PermRule) int {
+	for _, rule := range rules {
+		if rule.Line > 0 {
+			return rule.Line
+		}
+	}
+	return 0
+}
+
+func firstToolRuleLine(rules []agentconfig.PermRule, tool string) int {
+	for _, rule := range rules {
+		if strings.EqualFold(rule.Tool, tool) {
+			return rule.Line
+		}
+	}
+	return 0
+}
+
+func firstBroadToolRuleLine(rules []agentconfig.PermRule, tool string) int {
+	for _, rule := range rules {
+		if strings.EqualFold(rule.Tool, tool) && agentconfig.IsBroadScope(rule.Scope) {
+			return rule.Line
+		}
+	}
+	return 0
+}
+
+func lineIfEqual(got, want string, line int) int {
+	if got == want {
+		return line
+	}
+	return 0
+}
+
+func lineIfTrue(ok bool, line int) int {
+	if ok {
+		return line
+	}
+	return 0
+}
+
 func collectGenericAgentConfig(c *model.Collection, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -587,17 +769,27 @@ func collectMCPConfig(c *model.Collection, s model.Surface) {
 	if err := json.Unmarshal(data, &root); err != nil {
 		return
 	}
+	mcpLine := firstPositive(topLevelJSONKeyLine(data, "mcpServers"), topLevelJSONKeyLine(data, "servers"), firstContentLine(data))
+	mcpLineStart, mcpLineEnd := lineRange(mcpLine)
 	if runtime := runtimeForSurface(s); runtime != "" {
-		c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{ID: "runtime:" + runtime, Kind: runtime, Source: s.Source, Scope: s.Scope, Summary: displayRuntime(runtime) + " MCP configuration evidence was found."})
+		c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{ID: "runtime:" + runtime, Kind: runtime, Source: s.Source, Scope: s.Scope, Summary: displayRuntime(runtime) + " MCP configuration evidence was found.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
 	}
-	servers := root.MCPServers
-	if servers == nil {
-		servers = map[string]mcpServer{}
+	servers := map[string]mcpServer{}
+	for name, server := range root.MCPServers {
+		servers[name] = server
 	}
 	for name, server := range root.Servers {
 		servers[name] = server
 	}
-	for serverName, server := range servers {
+	// MCP server JSON objects decode into maps; sort by server name before
+	// appending deduped tool/control summaries so the representative line is stable.
+	serverNames := make([]string, 0, len(servers))
+	for name := range servers {
+		serverNames = append(serverNames, name)
+	}
+	sort.Strings(serverNames)
+	for _, serverName := range serverNames {
+		server := servers[serverName]
 		if server.Disabled {
 			addControl(c, "control:tool-allowlist", "tool-allowlist", runtimeForSurface(s), s.Source, "MCP server "+serverName+" is disabled in configuration.")
 			continue
@@ -617,33 +809,35 @@ func collectMCPConfig(c *model.Collection, s model.Surface) {
 			toolKind = "mcp-remote-server"
 		}
 		c.Tools = appendUniqueTool(c.Tools, model.Tool{
-			ID:      toolID,
-			Kind:    toolKind,
-			Runtime: runtimeForSurface(s),
-			Source:  s.Source,
-			Risky:   riskyPackageLaunch || strings.HasPrefix(lower, "http://"),
-			Summary: "MCP server " + serverName + " is declared for local agent use.",
+			ID:        toolID,
+			Kind:      toolKind,
+			Runtime:   runtimeForSurface(s),
+			Source:    s.Source,
+			Risky:     riskyPackageLaunch || strings.HasPrefix(lower, "http://"),
+			Summary:   "MCP server " + serverName + " is declared for local agent use.",
+			LineStart: mcpLineStart,
+			LineEnd:   mcpLineEnd,
 		})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+toolID, "tool", s.Source, "declared", "MCP launch mechanism was collected without executing the MCP server."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+toolID, "tool", s.Source, "declared", "MCP launch mechanism was collected without executing the MCP server.", mcpLine))
 		if packageLaunch {
-			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "Package-manager or interpreter-launched MCP can execute local code under the developer user."})
+			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "Package-manager or interpreter-launched MCP can execute local code under the developer user.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
 			c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
 		}
 		if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || containsExternalCommunication(lower) {
 			addExternalCommunication(c, runtimeForSurface(s), s.Source, "MCP config declares a remote server or external communication path.")
 		}
 		if strings.Contains(lower, "~") || strings.Contains(lower, "$home") || strings.Contains(lower, "/users/") {
-			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "MCP filesystem arguments appear to include broad home or filesystem reachability."})
+			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "MCP filesystem arguments appear to include broad home or filesystem reachability.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
 			c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-secret-boundary", Kind: "secret-like-files", Abstract: true, Summary: "Developer machines commonly hold secret-like files and credential caches near local agents."})
 		}
 		if looksPinned(lower) {
-			c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:mcp-reviewed-pinned", Kind: "mcp-reviewed-pinned", Source: s.Source, Summary: "MCP command pinning constrains package-manager drift."})
+			c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:mcp-reviewed-pinned", Kind: "mcp-reviewed-pinned", Source: s.Source, Summary: "MCP command pinning constrains package-manager drift.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
 		}
 		if server.SandboxEnabled || strings.Contains(lower, "sandboxenabled") {
 			addControl(c, "control:tool-sandbox-execution", "tool-sandbox-execution", runtimeForSurface(s), s.Source, "MCP server "+serverName+" declares sandboxed tool execution.")
 		}
 		if len(server.AlwaysAllow) > 0 {
-			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "MCP server " + serverName + " declares always-allowed tool calls."})
+			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "MCP server " + serverName + " declares always-allowed tool calls.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
 		}
 	}
 }
@@ -681,12 +875,13 @@ func collectGitHubActionsWorkflow(c *model.Collection, s model.Surface) {
 	text := strings.ToLower(string(data))
 	if workflowHasUntrustedTrigger(text) {
 		c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
-			ID:      "trustinput:managed-workflow-trigger",
-			Kind:    "managed-workflow-trigger",
-			Runtime: runtime,
-			Source:  source,
-			Risky:   true,
-			Summary: "Workflow can be triggered by pull request, issue, or other repository event input.",
+			ID:         "trustinput:managed-workflow-trigger",
+			Kind:       "managed-workflow-trigger",
+			Runtime:    runtime,
+			Source:     source,
+			Provenance: trustInputProvenance(s),
+			Risky:      true,
+			Summary:    "Workflow can be triggered by pull request, issue, or other repository event input.",
 		})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:managed-workflow-trigger", "trust-input", source, "declared", "Managed workflow trigger surface was parsed without executing the workflow."))
 	}
@@ -832,12 +1027,13 @@ func collectGitLabCIWorkflow(c *model.Collection, s model.Surface) {
 	text := strings.ToLower(string(data))
 	if gitlabWorkflowHasUntrustedTrigger(text) {
 		c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
-			ID:      "trustinput:managed-workflow-trigger",
-			Kind:    "managed-workflow-trigger",
-			Runtime: runtime,
-			Source:  source,
-			Risky:   true,
-			Summary: "Pipeline can be triggered by merge request, trigger, web, schedule, or other repository event input.",
+			ID:         "trustinput:managed-workflow-trigger",
+			Kind:       "managed-workflow-trigger",
+			Runtime:    runtime,
+			Source:     source,
+			Provenance: trustInputProvenance(s),
+			Risky:      true,
+			Summary:    "Pipeline can be triggered by merge request, trigger, web, schedule, or other repository event input.",
 		})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:managed-workflow-trigger", "trust-input", source, "declared", "Managed workflow trigger surface was parsed without executing the pipeline."))
 	}
@@ -1659,9 +1855,14 @@ func collectManagedControlSurface(c *model.Collection, s model.Surface) {
 }
 
 func addExternalCommunication(c *model.Collection, runtime, source, summary string) {
-	c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:external-communication", Kind: "external-communication", Runtime: runtime, Source: source, Summary: summary})
+	addExternalCommunicationAt(c, runtime, source, summary, 0)
+}
+
+func addExternalCommunicationAt(c *model.Collection, runtime, source, summary string, line int) {
+	lineStart, lineEnd := lineRange(line)
+	c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:external-communication", Kind: "external-communication", Runtime: runtime, Source: source, Summary: summary, LineStart: lineStart, LineEnd: lineEnd})
 	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:external-destination", Kind: "external-destination", Abstract: true, Summary: "External network, web, or remote service destination outside the local trust boundary."})
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:external-communication", "authority", source, "declared", "External communication authority was collected."))
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:authority:external-communication", "authority", source, "declared", "External communication authority was collected.", line))
 }
 
 func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text string) {
@@ -1784,8 +1985,13 @@ func collectRuntimeSecurityControls(c *model.Collection, runtime, source, text s
 }
 
 func addControl(c *model.Collection, id, kind, runtime, source, summary string) {
-	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: id, Kind: kind, Runtime: runtime, Source: source, Summary: summary})
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+id, "control", source, "declared", summary))
+	addControlAt(c, id, kind, runtime, source, summary, 0)
+}
+
+func addControlAt(c *model.Collection, id, kind, runtime, source, summary string, line int) {
+	lineStart, lineEnd := lineRange(line)
+	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: id, Kind: kind, Runtime: runtime, Source: source, Summary: summary, LineStart: lineStart, LineEnd: lineEnd})
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+id, "control", source, "declared", summary, line))
 }
 
 func addObservedControl(c *model.Collection, id, kind, runtime, source, summary string) {
@@ -1794,8 +2000,8 @@ func addObservedControl(c *model.Collection, id, kind, runtime, source, summary 
 }
 
 func collectSummarySurface(c *model.Collection, s model.Surface) {
-	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:agent-private-context", Kind: "agent-private-context", Source: s.Source, Abstract: false, Summary: "Agent private context cache/history exists; contents are not inspected or emitted by default."})
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:agent-private-context", "boundary", s.Source, "observed", "Private agent context surface was summarized without reading contents."))
+	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:agent-private-context", Kind: "agent-private-context", Source: s.Source, Abstract: false, Summary: "Agent private context cache/history exists; contents are not inspected or emitted by default.", Anchor: "file"})
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceFileAnchor("evidence:boundary:agent-private-context", "boundary", s.Source, "observed", "Private agent context surface was summarized without reading contents."))
 	if s.SensitiveNameCount > 0 {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:memory-credential-retention",
@@ -1803,8 +2009,9 @@ func collectSummarySurface(c *model.Collection, s model.Surface) {
 			Source:   s.Source,
 			Abstract: false,
 			Summary:  "Agent private context includes credential-like filename indicators; contents are not inspected or emitted.",
+			Anchor:   "file",
 		})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence(
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceFileAnchor(
 			"evidence:boundary:memory-credential-retention",
 			"boundary",
 			s.Source,
@@ -1821,8 +2028,9 @@ func collectBoundaryIndicator(c *model.Collection, s model.Surface) {
 		Kind:    "secret-like-file",
 		Source:  s.Source,
 		Summary: "Secret-like file path exists; contents are not read or reported.",
+		Anchor:  "file",
 	})
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:secret-like-file", "boundary", s.Source, "observed", "Secret-like boundary exists; values are not included in reports."))
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceFileAnchor("evidence:boundary:secret-like-file", "boundary", s.Source, "observed", "Secret-like boundary exists; values are not included in reports."))
 }
 
 func runtimeForSurface(s model.Surface) string {
@@ -3376,6 +3584,114 @@ func evidence(id, kind, source, grade, summary string) model.Evidence {
 	return model.Evidence{ID: id, Kind: kind, Grade: grade, Source: source, Summary: summary}
 }
 
+func evidenceAt(id, kind, source, grade, summary string, line int) model.Evidence {
+	lineStart, lineEnd := lineRange(line)
+	return model.Evidence{ID: id, Kind: kind, Grade: grade, Source: source, Summary: summary, LineStart: lineStart, LineEnd: lineEnd}
+}
+
+func evidenceFileAnchor(id, kind, source, grade, summary string) model.Evidence {
+	return model.Evidence{ID: id, Kind: kind, Grade: grade, Source: source, Summary: summary, Anchor: "file"}
+}
+
+func lineRange(line int) (int, int) {
+	if line <= 0 {
+		return 0, 0
+	}
+	return line, line
+}
+
+func firstPositive(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstMatchingLine(data []byte, pattern *regexp.Regexp) int {
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		if pattern.MatchString(scanner.Text()) {
+			return lineNo
+		}
+	}
+	return 0
+}
+
+func firstContentLine(data []byte) int {
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		if strings.TrimSpace(scanner.Text()) != "" {
+			return lineNo
+		}
+	}
+	return 0
+}
+
+func topLevelJSONKeyLine(data []byte, key string) int {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	depth := 0
+	expectingTopKey := false
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return 0
+		}
+		if err != nil {
+			return 0
+		}
+		line := lineForByteOffset(data, dec.InputOffset())
+		if delim, ok := tok.(json.Delim); ok {
+			switch delim {
+			case '{':
+				depth++
+				if depth == 1 {
+					expectingTopKey = true
+				}
+			case '[':
+				depth++
+			case '}', ']':
+				depth--
+				if depth == 1 {
+					expectingTopKey = true
+				}
+			}
+			continue
+		}
+		if depth == 1 && expectingTopKey {
+			value, ok := tok.(string)
+			if !ok {
+				return 0
+			}
+			if value == key {
+				return line
+			}
+			expectingTopKey = false
+			continue
+		}
+		if depth == 1 {
+			expectingTopKey = true
+		}
+	}
+}
+
+func lineForByteOffset(data []byte, offset int64) int {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > int64(len(data)) {
+		offset = int64(len(data))
+	}
+	return bytes.Count(data[:offset], []byte{'\n'}) + 1
+}
+
 func trimPrefix(value, prefix string) string {
 	return strings.TrimPrefix(value, prefix)
 }
@@ -3396,6 +3712,8 @@ func appendUniqueRuntime(in []model.RuntimeEvidence, next model.RuntimeEvidence)
 		if item.ID == next.ID && item.Scope == next.Scope {
 			if prefersRuntimeSource(next.Source, item.Source) {
 				in[i] = next
+			} else {
+				in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			}
 			return in
 		}
@@ -3411,11 +3729,39 @@ func prefersRuntimeSource(next, current string) bool {
 }
 
 func appendUniqueTrustInput(in []model.TrustInput, next model.TrustInput) []model.TrustInput {
+	if next.Provenance == "" {
+		next.Provenance = model.TrustInputProvenanceUnknown
+	}
 	for i, item := range in {
-		if item.ID == next.ID && item.Runtime == next.Runtime {
+		if item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source && item.Provenance == next.Provenance {
 			if next.Risky && !item.Risky {
 				in[i].Risky = true
 				in[i].Summary = next.Summary
+				in[i].Source = next.Source
+				in[i].Provenance = next.Provenance
+			}
+			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(in[i].LineStart, in[i].LineEnd, in[i].Anchor, next.LineStart, next.LineEnd, next.Anchor)
+			return in
+		}
+	}
+	return append(in, next)
+}
+
+func appendUniqueTool(in []model.Tool, next model.Tool) []model.Tool {
+	for i, item := range in {
+		if item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source {
+			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
+			return in
+		}
+	}
+	return append(in, next)
+}
+
+func appendUniqueBoundary(in []model.Boundary, next model.Boundary) []model.Boundary {
+	for i, item := range in {
+		if item.ID == next.ID {
+			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
+			if in[i].Source == "" && next.Source != "" {
 				in[i].Source = next.Source
 			}
 			return in
@@ -3424,27 +3770,13 @@ func appendUniqueTrustInput(in []model.TrustInput, next model.TrustInput) []mode
 	return append(in, next)
 }
 
-func appendUniqueTool(in []model.Tool, next model.Tool) []model.Tool {
-	for _, item := range in {
-		if item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source {
-			return in
-		}
-	}
-	return append(in, next)
-}
-
-func appendUniqueBoundary(in []model.Boundary, next model.Boundary) []model.Boundary {
-	for _, item := range in {
-		if item.ID == next.ID {
-			return in
-		}
-	}
-	return append(in, next)
-}
-
 func appendUniqueAuthority(in []model.Authority, next model.Authority) []model.Authority {
-	for _, item := range in {
+	for i, item := range in {
 		if item.ID == next.ID && item.Runtime == next.Runtime {
+			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
+			if in[i].Source == "" && next.Source != "" {
+				in[i].Source = next.Source
+			}
 			return in
 		}
 	}
@@ -3471,6 +3803,8 @@ func appendUniqueControl(in []model.Control, next model.Control) []model.Control
 		if item.ID == next.ID && item.Runtime == next.Runtime {
 			if item.Enforcement == model.EnforcementAttested && next.Enforcement == model.EnforcementEnforced {
 				in[i] = next
+			} else {
+				in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			}
 			return in
 		}
@@ -3479,12 +3813,32 @@ func appendUniqueControl(in []model.Control, next model.Control) []model.Control
 }
 
 func appendUniqueEvidence(in []model.Evidence, next model.Evidence) []model.Evidence {
-	for _, item := range in {
+	for i, item := range in {
 		if item.ID == next.ID && item.Source == next.Source {
+			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			return in
 		}
 	}
 	return append(in, next)
+}
+
+func mergedAnchor(currentStart, currentEnd int, currentAnchor string, nextStart, nextEnd int, nextAnchor string) (int, int, string) {
+	if nextStart > 0 {
+		if nextEnd <= 0 {
+			nextEnd = nextStart
+		}
+		return nextStart, nextEnd, ""
+	}
+	if currentStart > 0 {
+		if currentEnd <= 0 {
+			currentEnd = currentStart
+		}
+		return currentStart, currentEnd, currentAnchor
+	}
+	if nextAnchor != "" {
+		return 0, 0, nextAnchor
+	}
+	return currentStart, currentEnd, currentAnchor
 }
 
 func appendUniqueFact(in []model.Fact, next model.Fact) []model.Fact {

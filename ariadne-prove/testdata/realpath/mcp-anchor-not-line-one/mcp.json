@@ -1,0 +1,10 @@
+{
+  "comment": "top-level metadata that must not become the evidence anchor",
+  "notes": ["line two keeps this fixture adversarial to line-one stamping"],
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem", "~"]
+    }
+  }
+}

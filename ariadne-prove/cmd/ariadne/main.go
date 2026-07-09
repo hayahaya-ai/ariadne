@@ -21,59 +21,73 @@ import (
 
 const agentHelp = "agent runtime to inspect: all, claude, codex, cursor, windsurf, continue, aider, gemini, opencode, github-actions, gitlab-ci"
 
+const (
+	exitSuccess      = 0
+	exitRuntimeError = 1
+	exitUsageError   = 2
+	exitReckless     = 3
+)
+
 func main() {
-	if len(os.Args) < 2 {
-		usage(os.Stdout)
-		os.Exit(0)
+	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func runCLI(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		usage(stdout)
+		return exitSuccess
 	}
-	switch os.Args[1] {
+	switch args[0] {
 	case "assess":
-		runAssess(os.Args[2:])
+		runAssess(args[1:])
 	case "self":
-		runSelf(os.Args[2:])
+		runSelf(args[1:])
 	case "prove":
-		runProve(os.Args[2:])
+		runProve(args[1:])
 	case "architecture":
-		runArchitecture(os.Args[2:])
+		runArchitecture(args[1:])
 	case "cases":
-		runCases(os.Args[2:])
+		runCases(args[1:])
 	case "proofs":
-		runProofs(os.Args[2:])
+		runProofs(args[1:])
 	case "controls":
-		runControls(os.Args[2:])
+		runControls(args[1:])
 	case "compare":
-		runCompare(os.Args[2:])
+		runCompare(args[1:])
 	case "closure":
-		runClosure(os.Args[2:])
+		runClosure(args[1:])
 	case "bundle":
-		runBundle(os.Args[2:])
+		runBundle(args[1:])
 	case "inventory":
-		runInventory(os.Args[2:])
+		runInventory(args[1:])
 	case "review-packet":
-		runReviewPacket(os.Args[2:])
+		runReviewPacket(args[1:])
 	case "review-check":
-		runReviewCheck(os.Args[2:])
+		runReviewCheck(args[1:])
 	case "review-run":
-		runReviewRun(os.Args[2:])
+		runReviewRun(args[1:])
 	case "scan":
-		runScan(os.Args[2:])
+		runScan(args[1:])
 	case "dashboard":
-		runDashboard(os.Args[2:])
+		runDashboard(args[1:])
 	case "stories":
-		runStories(os.Args[2:])
+		runStories(args[1:])
+	case "eval":
+		runEval(args[1:])
 	case "verdict":
-		runVerdict(os.Args[2:])
+		return runVerdictWithWriters(args[1:], stdout, stderr)
 	case "ls":
-		runLs(os.Args[2:])
+		runLs(args[1:])
 	case "show":
-		runShow(os.Args[2:])
+		runShow(args[1:])
 	case "help", "-h", "--help":
-		usage(os.Stdout)
+		usage(stdout)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
-		usage(os.Stderr)
-		os.Exit(2)
+		fmt.Fprintf(stderr, "unknown command: %s\n\n", args[0])
+		usage(stderr)
+		return exitUsageError
 	}
+	return exitSuccess
 }
 
 func runAssess(args []string) {
@@ -245,7 +259,14 @@ func verdictTargetPath(path string) (string, error) {
 }
 
 func runVerdict(args []string) {
-	fs := flag.NewFlagSet("verdict", flag.ExitOnError)
+	if code := runVerdictWithWriters(args, os.Stdout, os.Stderr); code != exitSuccess {
+		os.Exit(code)
+	}
+}
+
+func runVerdictWithWriters(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("verdict", flag.ContinueOnError)
+	fs.SetOutput(stderr)
 	path := fs.String("path", "", "repo, workspace, or mounted endpoint home path to assess; defaults to HOME in endpoint mode")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "endpoint", "collection mode: endpoint, repo")
@@ -253,37 +274,64 @@ func runVerdict(args []string) {
 	gate := fs.Bool("gate", false, "exit 3 if the verdict is reckless")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return exitUsageError
+	}
 	targetPath, err := verdictTargetPath(*path)
 	if err != nil {
-		fatal(err)
+		return cliUsageError(stderr, err)
 	}
-	writer, closeFn, err := outputWriter(*outPath)
+	if err := requireExistingScanPath(targetPath); err != nil {
+		return cliRuntimeError(stderr, err)
+	}
+	writer, closeFn, err := outputWriterTo(*outPath, stdout)
 	if err != nil {
-		fatal(err)
+		return cliRuntimeError(stderr, err)
 	}
 	defer closeFn()
 	inventory, err := prove.RunInventory(prove.Options{Path: targetPath, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
 	if err != nil {
-		fatal(err)
+		return cliRuntimeError(stderr, err)
 	}
 	r, err := prove.RunPath(prove.Options{Path: targetPath, Agent: *agent, Mode: *mode, IncludeSensitivePaths: *includeSensitive})
 	if err != nil {
-		fatal(err)
+		return cliRuntimeError(stderr, err)
 	}
 	v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
 	if *jsonOut {
 		if err := verdict.RenderJSON(writer, v); err != nil {
-			fatal(err)
+			return cliRuntimeError(stderr, err)
 		}
 	} else {
 		if err := verdict.RenderText(writer, v); err != nil {
-			fatal(err)
+			return cliRuntimeError(stderr, err)
 		}
 	}
 	if *gate && v.VerdictWord == verdict.WordReckless {
-		os.Exit(3)
+		return exitReckless
 	}
+	return exitSuccess
+}
+
+func requireExistingScanPath(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	return nil
+}
+
+func cliUsageError(w io.Writer, err error) int {
+	fmt.Fprintln(w, "ariadne:", err)
+	return exitUsageError
+}
+
+func cliRuntimeError(w io.Writer, err error) int {
+	fmt.Fprintln(w, "ariadne:", err)
+	return exitRuntimeError
 }
 
 var lsResourceKinds = []string{"findings", "agents", "surfaces", "controls", "facts", "cases"}
@@ -448,7 +496,7 @@ func renderShow(w io.Writer, id string, inventory model.InventoryReport, r model
 					"id: " + f.ID,
 					"exposure_id: " + f.ExposureID,
 					"title: " + f.Title,
-					fmt.Sprintf("where: %s:%d", f.Where.Source, f.Where.Line),
+					"where: " + verdictLocationSummary(f.Where),
 					"why: " + f.Why,
 					"fix: " + f.Fix,
 					"attested_only: " + strings.Join(f.AttestedOnly, ", "),
@@ -644,9 +692,29 @@ func evidenceRefsSummary(refs []model.EvidenceReference) string {
 	}
 	parts := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		parts = append(parts, fmt.Sprintf("%s:%d", ref.Source, ref.LineStart))
+		parts = append(parts, evidenceRefSourceSummary(ref))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func verdictLocationSummary(loc verdict.EvidenceLocation) string {
+	if loc.Source == "" {
+		return ""
+	}
+	if loc.Line > 0 {
+		return fmt.Sprintf("%s:%d", loc.Source, loc.Line)
+	}
+	return loc.Source
+}
+
+func evidenceRefSourceSummary(ref model.EvidenceReference) string {
+	if ref.Source == "" {
+		return ref.ID
+	}
+	if ref.LineStart > 0 {
+		return fmt.Sprintf("%s:%d", ref.Source, ref.LineStart)
+	}
+	return ref.Source
 }
 
 // showJSONOrLines writes v as indented JSON when jsonOut is set, otherwise
@@ -2150,7 +2218,7 @@ func runScan(args []string) {
 	path := fs.String("path", "", "single target path to scan")
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "repo", "collection mode: repo, endpoint")
-	format := fs.String("format", "table", "output format: table, json, dot, mermaid")
+	format := fs.String("format", "table", "output format: table, json, jsonl, dot, mermaid, html")
 	outPath := fs.String("out", "", "write output to file")
 	rulesPath := fs.String("rules", "", "custom deterministic rule policy JSON")
 	interpretMode := fs.String("interpret", "deterministic", "interpretation mode: deterministic, llm")
@@ -2508,6 +2576,79 @@ func runStories(args []string) {
 	}
 }
 
+func runEval(args []string) {
+	fs := flag.NewFlagSet("eval", flag.ExitOnError)
+	storyRoots := fs.String("story-roots", "testdata/storylab,testdata/realpath", "comma-separated Story Lab roots")
+	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
+	fs.Parse(args)
+	roots, err := evalStoryRootsFromFlag(fs, *storyRoots)
+	if err != nil {
+		fatal(err)
+	}
+	stories, err := storylab.ListVerdictExpectations(roots)
+	if err != nil {
+		fatal(err)
+	}
+	results := make([]storylab.EvalCaseResult, 0, len(stories))
+	for _, story := range stories {
+		run, err := prove.RunStoryAllWithInventory(prove.Options{
+			StoryRoot:             filepath.Dir(story.Dir),
+			StoryID:               story.Manifest.ID,
+			IncludeSensitivePaths: *includeSensitive,
+		})
+		if err != nil {
+			fatal(err)
+		}
+		v := verdict.Build(run.Inventory, run.Report, run.Inventory.TargetPath, run.Report.Story.Mode)
+		results = append(results, storylab.EvalCaseResult{
+			FixturePath: filepath.ToSlash(story.Dir),
+			Expected:    *story.Manifest.Expected.Verdict,
+			Actual:      v,
+			Surfaces:    run.Inventory.Collection.Surfaces,
+		})
+	}
+	score := storylab.ScoreVerdicts(results)
+	if err := storylab.RenderScorecard(os.Stdout, score); err != nil {
+		fatal(err)
+	}
+	if !score.Clean {
+		os.Exit(1)
+	}
+}
+
+func evalStoryRootsFromFlag(fs *flag.FlagSet, value string) ([]string, error) {
+	parts := splitCommaList(value)
+	explicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "story-roots" {
+			explicit = true
+		}
+	})
+	if explicit {
+		return parts, nil
+	}
+	roots := make([]string, 0, len(parts))
+	for _, part := range parts {
+		root, err := resolveDefaultStoryRoot(part)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, root)
+	}
+	return roots, nil
+}
+
+func splitCommaList(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 func usage(w io.Writer) {
 	fmt.Fprintln(w, strings.TrimSpace(`ariadne: local agent exposure prover
 
@@ -2582,6 +2723,8 @@ Examples:
   ariadne dashboard --path . --view exposure --out exposure-dashboard.html
   ariadne dashboard --targets targets.txt --out fleet-dashboard.html
   ariadne prove --path . --format dot --out graph.dot
+  ariadne scan --targets targets.txt
+  ariadne scan --targets targets.txt --format jsonl --out verdicts.jsonl
   ariadne scan --targets targets.txt --format json
   ariadne scan --targets targets.txt --format html --out fleet-dashboard.html
   ariadne prove --path . --agent codex --format json
@@ -2592,8 +2735,12 @@ Examples:
 }
 
 func outputWriter(path string) (io.Writer, func(), error) {
+	return outputWriterTo(path, os.Stdout)
+}
+
+func outputWriterTo(path string, stdout io.Writer) (io.Writer, func(), error) {
 	if path == "" {
-		return os.Stdout, func() {}, nil
+		return stdout, func() {}, nil
 	}
 	file, err := os.Create(path)
 	if err != nil {

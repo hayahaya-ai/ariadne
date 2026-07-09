@@ -1,0 +1,25 @@
+{
+  "id": "mcp-anchor-not-line-one",
+  "title": "MCP config anchor rejects line-one stamping",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does a risky MCP launcher cite the real config line instead of stamping line one?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "require_evidence_line_anchors": true,
+      "findings": [
+        {
+          "family": "mutable-tool-launch-execution",
+          "source": "mcp.json",
+          "line": 4,
+          "fix_surface": "mcp.json"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "claude-deny-not-allow",
+  "title": "Claude deny rules do not grant broad authority",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does a deny-only Claude config stay out of reckless findings?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "hardened",
+      "findings": []
+    }
+  }
+}

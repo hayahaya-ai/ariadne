@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const SchemaVersion = "ariadne.report/v1"
 
@@ -48,12 +51,28 @@ type World struct {
 }
 
 type ExpectedResult struct {
-	Status                  Status    `json:"status"`
-	ProofMode               ProofMode `json:"proof_mode"`
-	RequiredNodes           []string  `json:"required_nodes"`
-	RequiredEdges           []string  `json:"required_edges"`
-	ControlsBreakPath       []string  `json:"controls_break_path"`
-	RedactionMustNotContain []string  `json:"redaction_must_not_contain,omitempty"`
+	Status                  Status           `json:"status"`
+	ProofMode               ProofMode        `json:"proof_mode"`
+	RequiredNodes           []string         `json:"required_nodes"`
+	RequiredEdges           []string         `json:"required_edges"`
+	ControlsBreakPath       []string         `json:"controls_break_path"`
+	RedactionMustNotContain []string         `json:"redaction_must_not_contain,omitempty"`
+	Verdict                 *ExpectedVerdict `json:"verdict,omitempty"`
+}
+
+type ExpectedVerdict struct {
+	Word                       string                   `json:"word"`
+	Findings                   []ExpectedVerdictFinding `json:"findings,omitempty"`
+	MinTradeoffs               int                      `json:"min_tradeoffs,omitempty"`
+	MaxTradeoffs               int                      `json:"max_tradeoffs,omitempty"`
+	RequireEvidenceLineAnchors bool                     `json:"require_evidence_line_anchors,omitempty"`
+}
+
+type ExpectedVerdictFinding struct {
+	Family     string `json:"family"`
+	Source     string `json:"source"`
+	Line       int    `json:"line"`
+	FixSurface string `json:"fix_surface"`
 }
 
 type Story struct {
@@ -1262,6 +1281,7 @@ type EvidenceReference struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
 	Source    string `json:"source,omitempty"`
+	Anchor    string `json:"anchor,omitempty"`
 	LineStart int    `json:"line_start,omitempty"`
 	LineEnd   int    `json:"line_end,omitempty"`
 	Summary   string `json:"summary"`
@@ -1455,12 +1475,15 @@ type ZeroTrustRequirement struct {
 }
 
 type Evidence struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Grade   string `json:"grade"`
-	Source  string `json:"source,omitempty"`
-	Runtime string `json:"runtime,omitempty"`
-	Summary string `json:"summary"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Grade     string `json:"grade"`
+	Source    string `json:"source,omitempty"`
+	Runtime   string `json:"runtime,omitempty"`
+	Summary   string `json:"summary"`
+	LineStart int    `json:"-"`
+	LineEnd   int    `json:"-"`
+	Anchor    string `json:"-"`
 }
 
 type Surface struct {
@@ -1484,6 +1507,7 @@ type Fact struct {
 	Runtime       string   `json:"runtime,omitempty"`
 	Scope         string   `json:"scope,omitempty"`
 	Source        string   `json:"source,omitempty"`
+	Provenance    string   `json:"provenance,omitempty"`
 	HandlingMode  string   `json:"handling_mode,omitempty"`
 	EvidenceGrade string   `json:"evidence_grade"`
 	Redaction     string   `json:"redaction"`
@@ -1589,9 +1613,10 @@ type ScanTarget struct {
 }
 
 type ScanTargetResult struct {
-	Target ScanTarget `json:"target"`
-	Report Report     `json:"report,omitempty"`
-	Error  string     `json:"error,omitempty"`
+	Target  ScanTarget      `json:"target"`
+	Verdict json.RawMessage `json:"verdict,omitempty"`
+	Report  Report          `json:"-"`
+	Error   string          `json:"error,omitempty"`
 }
 
 type ScanSummary struct {
@@ -1618,11 +1643,50 @@ type ScanReport struct {
 	Mode           string             `json:"mode"`
 	Agent          string             `json:"agent"`
 	Summary        ScanSummary        `json:"summary"`
+	Fleet          FleetVerdictRollup `json:"fleet"`
 	Targets        []ScanTargetResult `json:"targets"`
 	Interpretation Interpretation     `json:"interpretation"`
 	Redaction      RedactionInfo      `json:"redaction"`
 	Warnings       []string           `json:"warnings,omitempty"`
 	Limitations    []string           `json:"limitations"`
+}
+
+type FleetVerdictRollup struct {
+	VerdictCounts     map[string]int          `json:"verdict_counts"`
+	RecklessByFamily  []FleetRecklessFamily   `json:"reckless_by_family"`
+	WorstFirstTargets []FleetTargetVerdictRow `json:"worst_first_targets"`
+}
+
+type FleetRecklessFamily struct {
+	Family                string                     `json:"family"`
+	Count                 int                        `json:"count"`
+	AffectedTargets       []string                   `json:"affected_targets"`
+	RepresentativeFinding FleetRepresentativeFinding `json:"representative_finding"`
+}
+
+type FleetRepresentativeFinding struct {
+	Target     string                `json:"target"`
+	FindingID  string                `json:"finding_id"`
+	ExposureID string                `json:"exposure_id"`
+	Title      string                `json:"title"`
+	Where      FleetEvidenceLocation `json:"where"`
+	Why        string                `json:"why"`
+	Fix        string                `json:"fix"`
+}
+
+type FleetEvidenceLocation struct {
+	Source string `json:"source"`
+	Line   int    `json:"line,omitempty"`
+	Anchor string `json:"anchor,omitempty"`
+}
+
+type FleetTargetVerdictRow struct {
+	Target        string `json:"target"`
+	Verdict       string `json:"verdict"`
+	RecklessCount int    `json:"reckless_count"`
+	TradeoffCount int    `json:"tradeoff_count"`
+	HardenedCount int    `json:"hardened_count"`
+	Inconclusive  int    `json:"inconclusive"`
 }
 
 type LLMReviewCheckReport struct {
@@ -1827,37 +1891,57 @@ type LLMReviewResponse struct {
 }
 
 type RuntimeEvidence struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Source  string `json:"source"`
-	Scope   string `json:"scope"`
-	Summary string `json:"summary"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Source    string `json:"source"`
+	Scope     string `json:"scope"`
+	Summary   string `json:"summary"`
+	LineStart int    `json:"-"`
+	LineEnd   int    `json:"-"`
+	Anchor    string `json:"-"`
 }
 
+const (
+	TrustInputProvenanceHomeScope    = "home_scope"
+	TrustInputProvenanceRepoCheckout = "repo_checkout"
+	TrustInputProvenanceThirdParty   = "third_party"
+	TrustInputProvenanceUnknown      = "unknown"
+)
+
 type TrustInput struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Runtime string `json:"runtime,omitempty"`
-	Source  string `json:"source"`
-	Risky   bool   `json:"risky"`
-	Summary string `json:"summary"`
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	Runtime    string `json:"runtime,omitempty"`
+	Source     string `json:"source"`
+	Provenance string `json:"provenance"`
+	Risky      bool   `json:"risky"`
+	Summary    string `json:"summary"`
+	LineStart  int    `json:"-"`
+	LineEnd    int    `json:"-"`
+	Anchor     string `json:"-"`
 }
 
 type Tool struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Runtime string `json:"runtime"`
-	Source  string `json:"source"`
-	Risky   bool   `json:"risky"`
-	Summary string `json:"summary"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Runtime   string `json:"runtime"`
+	Source    string `json:"source"`
+	Risky     bool   `json:"risky"`
+	Summary   string `json:"summary"`
+	LineStart int    `json:"-"`
+	LineEnd   int    `json:"-"`
+	Anchor    string `json:"-"`
 }
 
 type Authority struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Runtime string `json:"runtime"`
-	Source  string `json:"source"`
-	Summary string `json:"summary"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Runtime   string `json:"runtime"`
+	Source    string `json:"source"`
+	Summary   string `json:"summary"`
+	LineStart int    `json:"-"`
+	LineEnd   int    `json:"-"`
+	Anchor    string `json:"-"`
 }
 
 // Control enforcement provenance. Enforced controls come from configuration a
@@ -1877,12 +1961,18 @@ type Control struct {
 	Source      string `json:"source"`
 	Enforcement string `json:"enforcement"`
 	Summary     string `json:"summary"`
+	LineStart   int    `json:"-"`
+	LineEnd     int    `json:"-"`
+	Anchor      string `json:"-"`
 }
 
 type Boundary struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"`
-	Source   string `json:"source,omitempty"`
-	Abstract bool   `json:"abstract"`
-	Summary  string `json:"summary"`
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Source    string `json:"source,omitempty"`
+	Abstract  bool   `json:"abstract"`
+	Summary   string `json:"summary"`
+	LineStart int    `json:"-"`
+	LineEnd   int    `json:"-"`
+	Anchor    string `json:"-"`
 }

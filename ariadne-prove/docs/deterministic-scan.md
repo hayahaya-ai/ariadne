@@ -127,3 +127,21 @@ For the Zero Trust observability boundary, Ariadne separates partial observabili
 Secret values are never emitted. Private context surfaces are summarized by file count, size, source, category, and count-only credential-like filename indicators. Exact sensitive paths outside the scan root are redacted by default.
 
 For transcript and history JSONL files, Ariadne samples bounded structured metadata only. It looks at JSON keys and safe event-shape fields such as event type, request ID, trace ID, timestamp, tool-call presence, and approval-decision presence. It does not emit prompt text, tool arguments, tool outputs, or transcript content.
+
+## Eval
+
+`make eval` runs the Story Lab verdict benchmark. It loads normal Story Lab
+`manifest.json` files and uses optional `expected.verdict` fields on the existing
+`expected` object:
+
+- `word`: expected compact verdict word.
+- `findings`: expected reckless findings, each with `family`, `source`, exact
+  `line`, and `fix_surface`.
+- `min_tradeoffs`: minimum accepted trade-off lines expected in the verdict.
+- `require_evidence_line_anchors`: when true, every reckless `where` and evidence
+  reference for that fixture must carry a positive line number.
+
+The eval prints a scorecard with verdict-word accuracy, per-family precision and
+recall, and every mismatch with its fixture path. It exits 0 only when the
+scorecard is clean. A non-zero exit after a printed scorecard is the expected
+Phase 0 work queue; a non-zero exit before the scorecard is a harness error.

@@ -342,6 +342,9 @@ func proofSurfaceInspectCommands(localPath string) []string {
 }
 
 func sourceReferenceLineLabel(ref model.EvidenceReference) string {
+	if ref.Anchor == "file" {
+		return "file"
+	}
 	if ref.LineStart <= 0 {
 		return "not recorded"
 	}
@@ -375,6 +378,9 @@ func sourceReferenceLocalPath(root string, ref model.EvidenceReference) string {
 }
 
 func sourceReferenceMetadataOnly(ref model.EvidenceReference) bool {
+	if ref.Anchor == "file" {
+		return true
+	}
 	value := strings.ToLower(strings.TrimSpace(ref.Source + " " + ref.Kind + " " + ref.Summary))
 	return strings.Contains(value, "history") ||
 		strings.Contains(value, "cache") ||
@@ -385,6 +391,10 @@ func sourceReferenceMetadataOnly(ref model.EvidenceReference) bool {
 		strings.Contains(value, "approx bytes") ||
 		strings.Contains(value, "contents were not inspected") ||
 		strings.Contains(value, "contents are not inspected") ||
+		strings.Contains(value, "contents are not read") ||
+		strings.Contains(value, "contents are not reported") ||
 		strings.Contains(value, "contents are not emitted") ||
-		strings.Contains(value, "contents were not emitted")
+		strings.Contains(value, "contents were not emitted") ||
+		strings.Contains(value, "values are not included") ||
+		strings.Contains(value, "secret-like boundary")
 }

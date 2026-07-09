@@ -1,0 +1,30 @@
+{
+  "id": "gemini-repo-instructions-risky",
+  "title": "Gemini repo instructions with private-data egress",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does a Gemini-evidenced reckless chain target the Gemini config in its fix?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "findings": [
+        {
+          "family": "data-egress-chain",
+          "source": ".gemini/settings.json",
+          "line": 2,
+          "fix_surface": ".gemini/settings.json"
+        },
+        {
+          "family": "prompt-injection-to-secret-canary",
+          "source": ".gemini/settings.json",
+          "line": 2,
+          "fix_surface": ".gemini/settings.json"
+        }
+      ]
+    }
+  }
+}

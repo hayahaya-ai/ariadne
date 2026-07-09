@@ -1,0 +1,17 @@
+{
+  "id": "claude-secret-in-allow",
+  "title": "Allowed secret-like reads are not deny controls",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does an allow-only secret-like read avoid false hardening and false reckless findings?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "findings": []
+    }
+  }
+}

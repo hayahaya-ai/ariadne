@@ -22,6 +22,29 @@ network_access = false
 	}
 }
 
+func TestParseCodexConfigRecordsKeyLines(t *testing.T) {
+	data := []byte(`# comment
+profile = "dev"
+
+network_access = true
+sandbox_mode = "workspace-write"
+`)
+
+	got, ok := ParseCodexConfig(data)
+	if !ok {
+		t.Fatalf("ParseCodexConfig: ok=false, want true")
+	}
+	if got.NetworkAccess == nil || !*got.NetworkAccess {
+		t.Fatalf("NetworkAccess = %v, want true", got.NetworkAccess)
+	}
+	if got.NetworkAccessLine != 4 {
+		t.Fatalf("NetworkAccessLine = %d, want 4", got.NetworkAccessLine)
+	}
+	if got.SandboxMode != "workspace-write" || got.SandboxModeLine != 5 {
+		t.Fatalf("SandboxMode = %q line %d, want workspace-write line 5", got.SandboxMode, got.SandboxModeLine)
+	}
+}
+
 func TestParseCodexConfig_KeywordInStringValueDoesNotLeak(t *testing.T) {
 	data := []byte(`
 name = "danger-zone-app"

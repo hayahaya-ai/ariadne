@@ -1,0 +1,5 @@
+{
+  "input_isolation": true,
+  "trusted_source_policy": true,
+  "prompt_injection_filter": true
+}

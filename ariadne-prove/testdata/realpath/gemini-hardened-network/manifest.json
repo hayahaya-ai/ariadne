@@ -1,0 +1,17 @@
+{
+  "id": "gemini-hardened-network",
+  "title": "Gemini repo instructions with enforced network and secret controls",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does a hardened Gemini repo posture avoid reckless findings?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "hardened",
+      "findings": []
+    }
+  }
+}

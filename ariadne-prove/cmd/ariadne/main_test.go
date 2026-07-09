@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/report"
@@ -1635,79 +1633,61 @@ func TestRunVerdictJSONOnCombinedRisk(t *testing.T) {
 	}
 }
 
-// TestRunVerdictGateExitCode exercises `ariadne verdict --gate` as a real
-// subprocess (runVerdict calls os.Exit(3) on a reckless verdict, which the
-// in-process test harness cannot observe directly). It builds the CLI once
-// and reuses the binary across this test's cases.
-func TestRunVerdictGateExitCode(t *testing.T) {
-	bin := buildAriadneBinary(t)
-
+func TestCLIExitCode0SuccessfulVerdictNoGate(t *testing.T) {
 	recklessTarget, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "combined-risk"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	safeTarget, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "safe-controls"))
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	got := runCLI([]string{"verdict", "--path", recklessTarget, "--mode", "repo"}, &stdout, &stderr)
+	if got != exitSuccess {
+		t.Fatalf("exit code = %d, want %d; stderr:\n%s", got, exitSuccess, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "VERDICT: RECKLESS") {
+		t.Fatalf("successful verdict output missing reckless word:\n%s", stdout.String())
+	}
+}
+
+func TestCLIExitCode1RuntimeError(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	missingPath := filepath.Join(t.TempDir(), "missing-endpoint")
+	got := runCLI([]string{"verdict", "--path", missingPath, "--mode", "endpoint"}, &stdout, &stderr)
+	if got != exitRuntimeError {
+		t.Fatalf("exit code = %d, want %d; stdout:\n%s\nstderr:\n%s", got, exitRuntimeError, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ariadne:") {
+		t.Fatalf("runtime error should print ariadne-prefixed stderr, got:\n%s", stderr.String())
+	}
+}
+
+func TestCLIExitCode2UsageError(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	got := runCLI([]string{"verdict", "--definitely-not-a-flag"}, &stdout, &stderr)
+	if got != exitUsageError {
+		t.Fatalf("exit code = %d, want %d; stdout:\n%s\nstderr:\n%s", got, exitUsageError, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined") {
+		t.Fatalf("usage error should explain the unknown flag, got:\n%s", stderr.String())
+	}
+}
+
+func TestCLIExitCode3RecklessGate(t *testing.T) {
+	recklessTarget, err := filepath.Abs(filepath.Join("..", "..", "testdata", "realpath", "combined-risk"))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	t.Run("reckless exits 3", func(t *testing.T) {
-		cmd := exec.Command(bin, "verdict", "--path", recklessTarget, "--mode", "repo", "--gate")
-		err := cmd.Run()
-		exitErr, ok := err.(*exec.ExitError)
-		if !ok {
-			t.Fatalf("expected *exec.ExitError, got %v (err=%v)", cmd.ProcessState, err)
-		}
-		if got := exitErr.ExitCode(); got != 3 {
-			t.Fatalf("exit code = %d, want 3", got)
-		}
-	})
-
-	t.Run("non-reckless exits 0", func(t *testing.T) {
-		cmd := exec.Command(bin, "verdict", "--path", safeTarget, "--mode", "repo", "--gate")
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("expected exit 0, got error: %v", err)
-		}
-	})
-
-	t.Run("reckless without --gate exits 0", func(t *testing.T) {
-		cmd := exec.Command(bin, "verdict", "--path", recklessTarget, "--mode", "repo")
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("expected exit 0 without --gate, got error: %v", err)
-		}
-	})
-}
-
-var (
-	ariadneBinaryOnce sync.Once
-	ariadneBinaryPath string
-	ariadneBinaryErr  error
-)
-
-// buildAriadneBinary builds ./cmd/ariadne once per test run and returns the
-// path to the resulting binary, for tests that need to observe os.Exit
-// codes the in-process harness cannot see.
-func buildAriadneBinary(t *testing.T) string {
-	t.Helper()
-	ariadneBinaryOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "ariadne-cli-test-bin")
-		if err != nil {
-			ariadneBinaryErr = err
-			return
-		}
-		binPath := filepath.Join(dir, "ariadne")
-		cmd := exec.Command("go", "build", "-o", binPath, ".")
-		cmd.Env = os.Environ()
-		if out, err := cmd.CombinedOutput(); err != nil {
-			ariadneBinaryErr = fmt.Errorf("go build: %v\n%s", err, out)
-			return
-		}
-		ariadneBinaryPath = binPath
-	})
-	if ariadneBinaryErr != nil {
-		t.Fatal(ariadneBinaryErr)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	got := runCLI([]string{"verdict", "--path", recklessTarget, "--mode", "repo", "--gate"}, &stdout, &stderr)
+	if got != exitReckless {
+		t.Fatalf("exit code = %d, want %d; stdout:\n%s\nstderr:\n%s", got, exitReckless, stdout.String(), stderr.String())
 	}
-	return ariadneBinaryPath
+	if !strings.Contains(stdout.String(), "VERDICT: RECKLESS") {
+		t.Fatalf("gate verdict output missing reckless word:\n%s", stdout.String())
+	}
 }
 
 func TestRunLsFindings(t *testing.T) {

@@ -2396,6 +2396,8 @@ func RenderScan(w io.Writer, r model.ScanReport, format string) error {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(r)
+	case "jsonl":
+		return renderScanJSONL(w, r)
 	case "dot", "graphviz":
 		return renderScanDOT(w, r)
 	case "mermaid":
@@ -7226,27 +7228,47 @@ func mermaidText(value string) string {
 }
 
 func renderScanTable(w io.Writer, r model.ScanReport) error {
-	fmt.Fprintf(w, "Ariadne Scan\n\n")
+	fmt.Fprintf(w, "Ariadne Fleet Verdict\n\n")
 	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
 	fmt.Fprintf(w, "Agent: %s\n", r.Agent)
 	fmt.Fprintf(w, "Targets: %d completed, %d errors\n", r.Summary.Completed, r.Summary.Errors)
 	fmt.Fprintf(w, "Exposure paths: %d exposed, %d protected, %d inconclusive\n\n", r.Summary.Exposed, r.Summary.Protected, r.Summary.Inconclusive)
-	renderIssueSummary(w, r.Interpretation)
-	for _, target := range r.Targets {
-		fmt.Fprintf(w, "Target: %s (%s)\n", target.Target.ID, target.Target.Path)
-		if target.Error != "" {
-			fmt.Fprintf(w, "  Error: %s\n\n", target.Error)
-			continue
-		}
-		if len(target.Report.Exposures) == 0 {
-			fmt.Fprintf(w, "  - no exposure paths returned\n\n")
-			continue
-		}
-		for _, exposure := range target.Report.Exposures {
-			fmt.Fprintf(w, "  - %s: %s (%s)\n", exposure.ID, strings.ToUpper(string(exposure.Status)), exposure.ProofMode)
-		}
-		fmt.Fprintln(w)
+
+	fmt.Fprintf(w, "Verdicts:\n")
+	for _, key := range orderedFleetVerdictKeys(r.Fleet.VerdictCounts) {
+		fmt.Fprintf(w, "  - %s: %d\n", key, r.Fleet.VerdictCounts[key])
 	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintf(w, "Reckless findings by family:\n")
+	if len(r.Fleet.RecklessByFamily) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, family := range r.Fleet.RecklessByFamily {
+			fmt.Fprintf(w, "  - %s: %d finding(s) across %d target(s)\n", family.Family, family.Count, len(family.AffectedTargets))
+			fmt.Fprintf(w, "    targets: %s\n", strings.Join(family.AffectedTargets, ", "))
+			rep := family.RepresentativeFinding
+			fmt.Fprintf(w, "    representative: %s on %s (%s)\n", rep.Title, rep.Target, formatFleetEvidenceLocation(rep.Where))
+		}
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintf(w, "Worst-first targets:\n")
+	if len(r.Fleet.WorstFirstTargets) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, target := range r.Fleet.WorstFirstTargets {
+			fmt.Fprintf(w, "  - %s: %s (%d reckless, %d trade-off, %d hardened, %d inconclusive)\n",
+				target.Target,
+				target.Verdict,
+				target.RecklessCount,
+				target.TradeoffCount,
+				target.HardenedCount,
+				target.Inconclusive,
+			)
+		}
+	}
+	fmt.Fprintln(w)
 	if len(r.Limitations) > 0 {
 		fmt.Fprintf(w, "Limitations:\n")
 		for _, limitation := range r.Limitations {
@@ -7254,6 +7276,64 @@ func renderScanTable(w io.Writer, r model.ScanReport) error {
 		}
 	}
 	return nil
+}
+
+func renderScanJSONL(w io.Writer, r model.ScanReport) error {
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			return fmt.Errorf("cannot render scan jsonl: target %s failed: %s", scanTargetLabel(target.Target), target.Error)
+		}
+		if len(target.Verdict) == 0 {
+			return fmt.Errorf("cannot render scan jsonl: target %s has no verdict", scanTargetLabel(target.Target))
+		}
+		if _, err := w.Write(target.Verdict); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func scanTargetLabel(target model.ScanTarget) string {
+	if target.ID != "" {
+		return target.ID
+	}
+	if target.Path != "" {
+		return target.Path
+	}
+	return "<unknown>"
+}
+
+func orderedFleetVerdictKeys(counts map[string]int) []string {
+	known := []string{"reckless", "tradeoffs_only", "hardened", "no_agents_found"}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(counts))
+	for _, key := range known {
+		if _, ok := counts[key]; ok {
+			out = append(out, key)
+			seen[key] = true
+		}
+	}
+	var extras []string
+	for key := range counts {
+		if !seen[key] {
+			extras = append(extras, key)
+		}
+	}
+	sort.Strings(extras)
+	return append(out, extras...)
+}
+
+func formatFleetEvidenceLocation(where model.FleetEvidenceLocation) string {
+	if where.Source == "" {
+		return "unknown"
+	}
+	if where.Line > 0 {
+		return fmt.Sprintf("%s:%d", where.Source, where.Line)
+	}
+	return where.Source
 }
 
 func renderAssessTable(w io.Writer, r model.AssessReport) error {

@@ -3,7 +3,7 @@
   "$id": "https://ariadne.dev/schema/ariadne-scan-v1.schema.json",
   "title": "Ariadne Scan v1",
   "type": "object",
-  "required": ["schema_version", "run_id", "generated_at", "run_kind", "summary", "targets"],
+  "required": ["schema_version", "run_id", "generated_at", "run_kind", "summary", "fleet", "targets"],
   "properties": {
     "schema_version": { "const": "ariadne.report/v1" },
     "run_id": { "type": "string" },
@@ -29,6 +29,7 @@
         "info": { "type": "integer" }
       }
     },
+    "fleet": { "$ref": "#/$defs/fleet" },
     "interpretation": { "$ref": "#/$defs/interpretation" },
     "targets": {
       "type": "array",
@@ -37,13 +38,94 @@
         "required": ["target"],
         "properties": {
           "target": { "type": "object" },
-          "report": { "type": "object" },
+          "verdict": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json" },
           "error": { "type": "string" }
         }
       }
     }
   },
   "$defs": {
+    "fleet": {
+      "type": "object",
+      "required": ["verdict_counts", "reckless_by_family", "worst_first_targets"],
+      "properties": {
+        "verdict_counts": {
+          "type": "object",
+          "required": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"],
+          "properties": {
+            "reckless": { "type": "integer", "minimum": 0 },
+            "tradeoffs_only": { "type": "integer", "minimum": 0 },
+            "hardened": { "type": "integer", "minimum": 0 },
+            "no_agents_found": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "reckless_by_family": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reckless_family_rollup" }
+        },
+        "worst_first_targets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/worst_first_target" }
+        }
+      }
+    },
+    "reckless_family_rollup": {
+      "type": "object",
+      "required": ["family", "count", "affected_targets", "representative_finding"],
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["data-egress-chain", "mutable-tool-launch-execution", "prompt-injection-to-secret-canary"]
+        },
+        "count": { "type": "integer", "minimum": 0 },
+        "affected_targets": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "representative_finding": { "$ref": "#/$defs/representative_finding" }
+      }
+    },
+    "representative_finding": {
+      "type": "object",
+      "required": ["target", "finding_id", "exposure_id", "title", "where", "why", "fix"],
+      "properties": {
+        "target": { "type": "string" },
+        "finding_id": { "type": "string" },
+        "exposure_id": {
+          "type": "string",
+          "enum": ["data-egress-chain", "mutable-tool-launch-execution", "prompt-injection-to-secret-canary"]
+        },
+        "title": { "type": "string" },
+        "where": { "$ref": "#/$defs/fleet_evidence_location" },
+        "why": { "type": "string" },
+        "fix": { "type": "string" }
+      }
+    },
+    "fleet_evidence_location": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "anchor": { "type": "string", "enum": ["file"] }
+      }
+    },
+    "worst_first_target": {
+      "type": "object",
+      "required": ["target", "verdict", "reckless_count", "tradeoff_count", "hardened_count", "inconclusive"],
+      "properties": {
+        "target": { "type": "string" },
+        "verdict": {
+          "type": "string",
+          "enum": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"]
+        },
+        "reckless_count": { "type": "integer", "minimum": 0 },
+        "tradeoff_count": { "type": "integer", "minimum": 0 },
+        "hardened_count": { "type": "integer", "minimum": 0 },
+        "inconclusive": { "type": "integer", "minimum": 0 }
+      }
+    },
     "interpretation": {
       "type": "object",
       "required": ["mode", "engine", "summary", "issues", "limitations"],

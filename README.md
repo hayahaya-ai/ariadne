@@ -36,6 +36,19 @@ Because only enforced configuration counts (a self-declared `.ariadne/*.json` fi
 never turn the screen green), the verdict is trustworthy enough to gate on. Older
 report formats remain available via `--format summary|table|json|html`.
 
+## For Agents (Claude Code plugin)
+
+Ariadne ships a Claude Code plugin so an agent can consume the verdict directly.
+It contains the `ariadne-posture` skill (the consumption contract: facts are
+deterministic; grading is a labeled default judgment the agent may override with
+stated reasons; fixes are applied by the agent's own tools and re-verified) and
+the read-only `ariadne-audit` subagent for side-thread audits.
+
+```bash
+claude plugin marketplace add hayahaya-ai/ariadne
+claude plugin install ariadne@ariadne
+```
+
 ## Quick Start
 
 ```bash
@@ -209,6 +222,7 @@ From `ariadne-prove/`:
 ## Documentation
 
 - [Install](ariadne-prove/INSTALL.md)
+- [Operating Ariadne: CI gate and fleet scans](docs/operations.md)
 - [Deterministic scan model](ariadne-prove/docs/deterministic-scan.md)
 - [Zero Trust agent architecture](ariadne-prove/docs/zero-trust-agent-architecture.md)
 - [Priority rules](ariadne-prove/docs/priority-rules.md)

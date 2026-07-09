@@ -9,12 +9,17 @@ import (
 // requirements.toml file that matters for exposure grading. Fields not
 // modeled here are ignored.
 type CodexConfig struct {
-	SandboxMode    string   // e.g. "read-only", "workspace-write", "danger-full-access"; "" if absent
-	ApprovalPolicy string   // e.g. "never", "on-request", "on-failure", "untrusted"; "" if absent
-	NetworkAccess  *bool    // nil if absent
-	DenyRead       []string // paths from deny_read / [permissions.filesystem] deny_read arrays
-	HasMCPServers  bool     // true if an [mcp_servers...] table or mcp_servers key is present
-	IsRequirements bool     // set by the caller from surface kind, never parsed
+	SandboxMode        string   // e.g. "read-only", "workspace-write", "danger-full-access"; "" if absent
+	SandboxModeLine    int      // 1-based line of sandbox_mode, when known
+	ApprovalPolicy     string   // e.g. "never", "on-request", "on-failure", "untrusted"; "" if absent
+	ApprovalPolicyLine int      // 1-based line of approval_policy, when known
+	NetworkAccess      *bool    // nil if absent
+	NetworkAccessLine  int      // 1-based line of network_access, when known
+	DenyRead           []string // paths from deny_read / [permissions.filesystem] deny_read arrays
+	DenyReadLines      []int    // 1-based line for each deny_read entry, when known
+	HasMCPServers      bool     // true if an [mcp_servers...] table or mcp_servers key is present
+	MCPServersLine     int      // 1-based line of the MCP table/key, when known
+	IsRequirements     bool     // set by the caller from surface kind, never parsed
 
 	// HasInlineCredential is true when a key/value line's key matches a
 	// credential-like name (see isCredentialKeyName) and its value is a
@@ -45,7 +50,8 @@ func ParseCodexConfig(data []byte) (CodexConfig, bool) {
 	var cfg CodexConfig
 	currentTable := ""
 
-	for _, rawLine := range strings.Split(string(data), "\n") {
+	for idx, rawLine := range strings.Split(string(data), "\n") {
+		lineNo := idx + 1
 		line := strings.TrimRight(rawLine, "\r")
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
@@ -62,6 +68,7 @@ func ParseCodexConfig(data []byte) (CodexConfig, bool) {
 			currentTable = parseTableHeader(trimmed)
 			if isMCPServersTable(currentTable) {
 				cfg.HasMCPServers = true
+				cfg.MCPServersLine = lineNo
 			}
 			continue
 		}
@@ -70,7 +77,7 @@ func ParseCodexConfig(data []byte) (CodexConfig, bool) {
 		if !ok {
 			continue
 		}
-		applyKeyValue(&cfg, currentTable, key, value)
+		applyKeyValue(&cfg, currentTable, key, value, lineNo)
 	}
 
 	return cfg, true
@@ -96,22 +103,29 @@ func isMCPServersTable(header string) bool {
 // [permissions.filesystem] must be attributed, and no other table is known
 // to carry it in Codex configs, so a table restriction here would only add
 // a way to silently drop real deny rules.
-func applyKeyValue(cfg *CodexConfig, _ string, key, value string) {
+func applyKeyValue(cfg *CodexConfig, _ string, key, value string, lineNo int) {
 	switch key {
 	case "sandbox_mode":
 		cfg.SandboxMode = parseStringValue(value)
+		cfg.SandboxModeLine = lineNo
 	case "approval_policy":
 		cfg.ApprovalPolicy = parseStringValue(value)
+		cfg.ApprovalPolicyLine = lineNo
 	case "network_access":
 		if b, ok := parseBoolValue(value); ok {
 			cfg.NetworkAccess = &b
+			cfg.NetworkAccessLine = lineNo
 		}
 	case "deny_read":
 		if arr, ok := parseStringArray(value); ok {
 			cfg.DenyRead = append(cfg.DenyRead, arr...)
+			for range arr {
+				cfg.DenyReadLines = append(cfg.DenyReadLines, lineNo)
+			}
 		}
 	case "mcp_servers":
 		cfg.HasMCPServers = true
+		cfg.MCPServersLine = lineNo
 	}
 	if isCredentialKeyName(key) && isQuotedNonEmptyStringLiteral(value) {
 		cfg.HasInlineCredential = true

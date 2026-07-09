@@ -13,6 +13,36 @@ import (
 const ManifestName = "manifest.json"
 
 func List(root string) ([]model.Story, error) {
+	return list(root, false)
+}
+
+func ListManifests(root string) ([]model.Story, error) {
+	return list(root, true)
+}
+
+func ListVerdictExpectations(roots []string) ([]model.Story, error) {
+	var stories []model.Story
+	for _, root := range roots {
+		rootStories, err := ListManifests(root)
+		if err != nil {
+			return nil, err
+		}
+		for _, story := range rootStories {
+			if story.Manifest.Expected.Verdict != nil {
+				stories = append(stories, story)
+			}
+		}
+	}
+	sort.Slice(stories, func(i, j int) bool {
+		if stories[i].Manifest.ID == stories[j].Manifest.ID {
+			return stories[i].Dir < stories[j].Dir
+		}
+		return stories[i].Manifest.ID < stories[j].Manifest.ID
+	})
+	return stories, nil
+}
+
+func list(root string, skipMissingManifest bool) ([]model.Story, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
@@ -21,6 +51,14 @@ func List(root string) ([]model.Story, error) {
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
+		}
+		if skipMissingManifest {
+			if _, err := os.Stat(filepath.Join(root, entry.Name(), ManifestName)); err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, err
+			}
 		}
 		story, err := Load(root, entry.Name())
 		if err != nil {

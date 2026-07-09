@@ -20,6 +20,7 @@ import (
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/interpret"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/storylab"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/verdict"
 	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/zerotrust"
 )
 
@@ -41,26 +42,46 @@ type Options struct {
 	IncludeSensitivePaths bool
 }
 
+type StoryRun struct {
+	Story     model.Story
+	Report    model.Report
+	Inventory model.InventoryReport
+}
+
+type PathRun struct {
+	Report    model.Report
+	Inventory model.InventoryReport
+}
+
 func RunStory(opts Options) (model.Report, error) {
+	run, err := RunStoryWithInventory(opts)
+	if err != nil {
+		return model.Report{}, err
+	}
+	return run.Report, nil
+}
+
+func RunStoryWithInventory(opts Options) (StoryRun, error) {
 	if opts.StoryRoot == "" {
 		opts.StoryRoot = filepath.Join("testdata", "storylab")
 	}
 	story, err := storylab.Load(opts.StoryRoot, opts.StoryID)
 	if err != nil {
-		return model.Report{}, err
+		return StoryRun{}, err
 	}
 	manifest := story.Manifest
 	repoPath := resolve(story.Dir, manifest.World.RepoPath)
 	homePath := resolve(story.Dir, manifest.World.HomePath)
 	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
 	graph := BuildGraph(collection)
+	inventory := storyInventoryReport(manifest, collection, graph, storyTargetPath(manifest, repoPath, homePath), opts.IncludeSensitivePaths)
 	exposure := Evaluate(collection, graph, manifest)
 	exposure = attachExposureEvidenceReferences(collection, graph, exposure)
 	zeroTrust := zerotrust.Assess(collection, graph, []model.ExposureResult{exposure})
 	zeroTrust = attachZeroTrustEvidenceLocations(collection, zeroTrust)
 	policy, err := loadPolicy(story.Dir, opts.RulesPath)
 	if err != nil {
-		return model.Report{}, err
+		return StoryRun{}, err
 	}
 	report := model.Report{
 		SchemaVersion: model.SchemaVersion,
@@ -112,15 +133,140 @@ func RunStory(opts Options) (model.Report, error) {
 		RunLimitations: report.Limitations,
 	})
 	if err != nil {
-		return model.Report{}, err
+		return StoryRun{}, err
 	}
 	report.Interpretation = interp
 	report.Expected.RedactionMustNotContain = nil
 	report.Matched, report.Mismatches = Compare(report, manifest.Expected)
-	return report, nil
+	return StoryRun{Story: story, Report: report, Inventory: inventory}, nil
+}
+
+func RunStoryAllWithInventory(opts Options) (StoryRun, error) {
+	if opts.StoryRoot == "" {
+		opts.StoryRoot = filepath.Join("testdata", "storylab")
+	}
+	story, err := storylab.Load(opts.StoryRoot, opts.StoryID)
+	if err != nil {
+		return StoryRun{}, err
+	}
+	manifest := story.Manifest
+	repoPath := resolve(story.Dir, manifest.World.RepoPath)
+	homePath := resolve(story.Dir, manifest.World.HomePath)
+	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
+	graph := BuildGraph(collection)
+	inventory := storyInventoryReport(manifest, collection, graph, storyTargetPath(manifest, repoPath, homePath), opts.IncludeSensitivePaths)
+	exposures := EvaluateAll(collection, graph, manifest.Mode)
+	attachExposureSetEvidenceReferences(collection, graph, exposures)
+	zeroTrust := zerotrust.Assess(collection, graph, exposures)
+	zeroTrust = attachZeroTrustEvidenceLocations(collection, zeroTrust)
+	primary := model.ExposureResult{}
+	if len(exposures) > 0 {
+		primary = exposures[0]
+	}
+	policy, err := loadPolicy(story.Dir, opts.RulesPath)
+	if err != nil {
+		return StoryRun{}, err
+	}
+	report := model.Report{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "story",
+		Story: model.StorySummary{
+			ID:           manifest.ID,
+			Title:        manifest.Title,
+			Persona:      manifest.Persona,
+			UserQuestion: manifest.UserQuestion,
+			Runtime:      manifest.Runtime,
+			Mode:         manifest.Mode,
+		},
+		Expected:  manifest.Expected,
+		Matched:   true,
+		Exposure:  primary,
+		Exposures: exposures,
+		ZeroTrust: zeroTrust,
+		Graph:     graph,
+		Evidence:  collection.Evidence,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: opts.IncludeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Story Lab uses synthetic worlds and fake canaries as the correctness oracle.",
+			"No real secrets are read or reported.",
+			"Phase 1 evaluates exposure paths, not governance or runtime blocking.",
+		},
+	}
+	interp, err := interpret.EvaluateWithOptions(interpret.Input{
+		Target:     manifest.ID,
+		Mode:       manifest.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  report.Exposures,
+		Policy:     policy,
+	}, interpret.Options{
+		Mode:           opts.InterpretMode,
+		ReviewPath:     opts.LLMReviewPath,
+		Command:        opts.LLMCommand,
+		RequestOut:     opts.LLMRequestOut,
+		ReviewProfile:  opts.LLMReviewProfile,
+		Timeout:        opts.LLMTimeout,
+		Question:       report.Story.UserQuestion,
+		Redaction:      report.Redaction,
+		RunLimitations: report.Limitations,
+	})
+	if err != nil {
+		return StoryRun{}, err
+	}
+	report.Interpretation = interp
+	report.Expected.RedactionMustNotContain = nil
+	return StoryRun{Story: story, Report: report, Inventory: inventory}, nil
+}
+
+func storyTargetPath(manifest model.Manifest, repoPath, homePath string) string {
+	if manifest.Mode == "endpoint" && homePath != "" {
+		return homePath
+	}
+	return repoPath
+}
+
+func storyInventoryReport(manifest model.Manifest, collection model.Collection, graph model.Graph, target string, includeSensitivePaths bool) model.InventoryReport {
+	return model.InventoryReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "inventory",
+		TargetPath:    target,
+		Mode:          manifest.Mode,
+		Agent:         manifest.Runtime,
+		Collection:    collection,
+		SurfaceMap:    BuildSurfaceMap(collection),
+		Graph:         graph,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: includeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Inventory mode collects deterministic local facts only; it does not classify exposure.",
+			"Private histories, paste caches, transcripts, and file history are summarized by metadata only.",
+			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, GitHub Copilot in VS Code, Cline, Roo Code, GitHub Actions, GitLab CI, MCP, and generic repo instruction surfaces are supported in this milestone.",
+		},
+	}
 }
 
 func RunPath(opts Options) (model.Report, error) {
+	run, err := RunPathWithInventory(opts)
+	if err != nil {
+		return model.Report{}, err
+	}
+	return run.Report, nil
+}
+
+func RunPathWithInventory(opts Options) (PathRun, error) {
 	if opts.Path == "" {
 		opts.Path = "."
 	}
@@ -132,13 +278,15 @@ func RunPath(opts Options) (model.Report, error) {
 	}
 	root, err := filepath.Abs(opts.Path)
 	if err != nil {
-		return model.Report{}, err
+		return PathRun{}, err
 	}
 	home := ""
 	base := root
+	inventoryTarget := root
 	if opts.Mode == "endpoint" {
 		home = resolveEndpointHome(root)
 		base = home
+		inventoryTarget = home
 	}
 	collection := adapter.Collect(adapter.Options{
 		RepoPath:              root,
@@ -160,7 +308,29 @@ func RunPath(opts Options) (model.Report, error) {
 	}
 	policy, err := loadPolicy(root, opts.RulesPath)
 	if err != nil {
-		return model.Report{}, err
+		return PathRun{}, err
+	}
+	inventory := model.InventoryReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "inventory",
+		TargetPath:    inventoryTarget,
+		Mode:          opts.Mode,
+		Agent:         opts.Agent,
+		Collection:    collection,
+		SurfaceMap:    BuildSurfaceMap(collection),
+		Graph:         graph,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: opts.IncludeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Inventory is derived from local filesystem metadata and configuration parsing only.",
+			"No agent runtime, package manager, MCP server, or network endpoint was executed.",
+		},
 	}
 	report := model.Report{
 		SchemaVersion: model.SchemaVersion,
@@ -213,10 +383,10 @@ func RunPath(opts Options) (model.Report, error) {
 		RunLimitations: report.Limitations,
 	})
 	if err != nil {
-		return model.Report{}, err
+		return PathRun{}, err
 	}
 	report.Interpretation = interp
-	return report, nil
+	return PathRun{Report: report, Inventory: inventory}, nil
 }
 
 func RunReviewPacket(opts Options) (model.LLMReviewRequest, []byte, string, error) {
@@ -749,6 +919,7 @@ func RunScan(opts Options) (model.ScanReport, error) {
 		},
 	}
 	r.Summary.Targets = len(targets)
+	fleetVerdicts := make([]verdict.Verdict, 0, len(targets))
 	for _, target := range targets {
 		target.Path = strings.TrimSpace(target.Path)
 		if target.Path == "" {
@@ -757,7 +928,7 @@ func RunScan(opts Options) (model.ScanReport, error) {
 		if target.ID == "" {
 			target.ID = filepath.Base(target.Path)
 		}
-		report, err := RunPath(Options{
+		run, err := RunPathWithInventory(Options{
 			Path:                  target.Path,
 			Agent:                 opts.Agent,
 			Mode:                  opts.Mode,
@@ -777,9 +948,16 @@ func RunScan(opts Options) (model.ScanReport, error) {
 			r.Targets = append(r.Targets, result)
 			continue
 		}
-		result.Report = report
+		result.Report = run.Report
+		targetVerdict := verdict.Build(run.Inventory, run.Report, run.Report.TargetPath, run.Report.Story.Mode)
+		verdictBlob, err := json.Marshal(targetVerdict)
+		if err != nil {
+			return model.ScanReport{}, err
+		}
+		result.Verdict = verdictBlob
+		fleetVerdicts = append(fleetVerdicts, targetVerdict)
 		r.Summary.Completed++
-		for _, exposure := range report.Exposures {
+		for _, exposure := range run.Report.Exposures {
 			r.Summary.ExposurePaths++
 			switch exposure.Status {
 			case model.StatusExposed:
@@ -792,6 +970,7 @@ func RunScan(opts Options) (model.ScanReport, error) {
 		}
 		r.Targets = append(r.Targets, result)
 	}
+	r.Fleet = verdict.BuildFleet(fleetVerdicts)
 	r.Interpretation = interpret.AggregateScan(r.Targets)
 	r.Summary.Critical = r.Interpretation.Summary.Critical
 	r.Summary.High = r.Interpretation.Summary.High
@@ -903,7 +1082,7 @@ func attachExposureEvidenceReferences(c model.Collection, g model.Graph, exposur
 }
 
 func attachZeroTrustEvidenceLocations(c model.Collection, zeroTrust model.ZeroTrust) model.ZeroTrust {
-	locations := evidenceSourceLocations(c)
+	locations := evidenceLocationsForCollection(c)
 	for i := range zeroTrust.Checks {
 		zeroTrust.Checks[i].Evidence = zeroTrustEvidenceWithLocations(locations, zeroTrust.Checks[i].Evidence)
 	}
@@ -916,7 +1095,7 @@ func attachZeroTrustEvidenceLocations(c model.Collection, zeroTrust model.ZeroTr
 	return zeroTrust
 }
 
-func zeroTrustEvidenceWithLocations(locations map[string]evidenceSourceLocation, values []model.ZeroTrustEvidence) []model.ZeroTrustEvidence {
+func zeroTrustEvidenceWithLocations(locations evidenceLocations, values []model.ZeroTrustEvidence) []model.ZeroTrustEvidence {
 	if len(values) == 0 {
 		return []model.ZeroTrustEvidence{}
 	}
@@ -941,7 +1120,7 @@ func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure m
 	if len(exposure.PathEdges) == 0 {
 		return []model.EvidenceReference{}
 	}
-	sourceLocations := evidenceSourceLocations(c)
+	sourceLocations := evidenceLocationsForCollection(c)
 	evidenceByID := make(map[string]model.Evidence, len(c.Evidence))
 	for _, evidence := range c.Evidence {
 		evidenceByID[evidence.ID] = evidence
@@ -991,24 +1170,91 @@ func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure m
 }
 
 type evidenceSourceLocation struct {
-	Path string
-	Kind string
+	Path         string
+	Kind         string
+	HandlingMode string
 }
 
-func evidenceSourceLocations(c model.Collection) map[string]evidenceSourceLocation {
-	out := map[string]evidenceSourceLocation{}
+type evidenceAnchor struct {
+	LineStart int
+	LineEnd   int
+	Anchor    string
+}
+
+type evidenceLocations struct {
+	sources map[string]evidenceSourceLocation
+	anchors map[string]evidenceAnchor
+}
+
+func evidenceLocationsForCollection(c model.Collection) evidenceLocations {
+	out := evidenceLocations{
+		sources: map[string]evidenceSourceLocation{},
+		anchors: map[string]evidenceAnchor{},
+	}
 	for _, surface := range c.Surfaces {
-		if surface.Source == "" || surface.Path == "" || surface.HandlingMode != "parse" {
+		if surface.Source == "" || surface.Path == "" {
 			continue
 		}
-		if _, ok := out[surface.Source]; !ok {
-			out[surface.Source] = evidenceSourceLocation{Path: surface.Path, Kind: surface.Kind}
+		if _, ok := out.sources[surface.Source]; !ok {
+			out.sources[surface.Source] = evidenceSourceLocation{Path: surface.Path, Kind: surface.Kind, HandlingMode: surface.HandlingMode}
 		}
+	}
+	for _, evidence := range c.Evidence {
+		out.add(evidence.ID, evidence.Kind, evidence.Source, evidence.LineStart, evidence.LineEnd, evidence.Anchor)
+	}
+	for _, runtime := range c.Runtimes {
+		out.add(runtime.ID, "runtime", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
+		if runtime.Scope != "" {
+			configID := "config:" + runtime.Kind + "-" + runtime.Scope
+			out.add(configID, "config", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
+			out.add("evidence:"+configID, "config", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
+		}
+	}
+	for _, input := range c.TrustInputs {
+		out.add(input.ID, "trust_input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+		out.add(input.ID, "trust-input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+		out.add("evidence:"+input.ID, "trust_input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+		out.add("evidence:"+input.ID, "trust-input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+	}
+	for _, tool := range c.Tools {
+		out.add(tool.ID, "tool", tool.Source, tool.LineStart, tool.LineEnd, tool.Anchor)
+		out.add("evidence:"+tool.ID, "tool", tool.Source, tool.LineStart, tool.LineEnd, tool.Anchor)
+	}
+	for _, authority := range c.Authorities {
+		out.add(authority.ID, "authority", authority.Source, authority.LineStart, authority.LineEnd, authority.Anchor)
+		out.add("evidence:"+authority.ID, "authority", authority.Source, authority.LineStart, authority.LineEnd, authority.Anchor)
+	}
+	for _, boundary := range c.Boundaries {
+		out.add(boundary.ID, "boundary", boundary.Source, boundary.LineStart, boundary.LineEnd, boundary.Anchor)
+		out.add("evidence:"+boundary.ID, "boundary", boundary.Source, boundary.LineStart, boundary.LineEnd, boundary.Anchor)
+	}
+	for _, control := range c.Controls {
+		out.add(control.ID, "control", control.Source, control.LineStart, control.LineEnd, control.Anchor)
+		out.add("evidence:"+control.ID, "control", control.Source, control.LineStart, control.LineEnd, control.Anchor)
 	}
 	return out
 }
 
-func evidenceReferenceForNode(locations map[string]evidenceSourceLocation, node model.Node) (model.EvidenceReference, bool) {
+func (locations evidenceLocations) add(id, kind, source string, lineStart, lineEnd int, anchor string) {
+	if id == "" || source == "" {
+		return
+	}
+	if lineStart <= 0 && anchor == "" {
+		return
+	}
+	if lineStart > 0 && lineEnd <= 0 {
+		lineEnd = lineStart
+	}
+	value := evidenceAnchor{LineStart: lineStart, LineEnd: lineEnd, Anchor: anchor}
+	for _, key := range evidenceAnchorKeys(model.EvidenceReference{ID: id, Kind: kind, Source: source}) {
+		if existing, ok := locations.anchors[key]; ok && evidenceAnchorSpecificity(existing) >= evidenceAnchorSpecificity(value) {
+			continue
+		}
+		locations.anchors[key] = value
+	}
+}
+
+func evidenceReferenceForNode(locations evidenceLocations, node model.Node) (model.EvidenceReference, bool) {
 	if node.ID == "" || node.Source == "" {
 		return model.EvidenceReference{}, false
 	}
@@ -1020,12 +1266,22 @@ func evidenceReferenceForNode(locations map[string]evidenceSourceLocation, node 
 	}), true
 }
 
-func withEvidenceLocation(locations map[string]evidenceSourceLocation, ref model.EvidenceReference) model.EvidenceReference {
-	if ref.Source == "" || ref.LineStart > 0 {
+func withEvidenceLocation(locations evidenceLocations, ref model.EvidenceReference) model.EvidenceReference {
+	if ref.Source == "" || ref.LineStart > 0 || ref.Anchor != "" {
 		return ref
 	}
-	location, ok := locations[ref.Source]
+	if anchor, ok := locations.anchorFor(ref); ok {
+		return applyEvidenceAnchor(ref, anchor)
+	}
+	location, ok := locations.sources[ref.Source]
 	if !ok || location.Path == "" {
+		return ref
+	}
+	if metadataOnlyHandlingMode(location.HandlingMode) {
+		ref.Anchor = "file"
+		return ref
+	}
+	if location.HandlingMode != "parse" {
 		return ref
 	}
 	line := locateEvidenceLine(location.Path, ref)
@@ -1035,6 +1291,78 @@ func withEvidenceLocation(locations map[string]evidenceSourceLocation, ref model
 	ref.LineStart = line
 	ref.LineEnd = line
 	return ref
+}
+
+func (locations evidenceLocations) anchorFor(ref model.EvidenceReference) (evidenceAnchor, bool) {
+	var best evidenceAnchor
+	found := false
+	for _, key := range evidenceAnchorKeys(ref) {
+		anchor, ok := locations.anchors[key]
+		if !ok {
+			continue
+		}
+		if !found || evidenceAnchorSpecificity(anchor) > evidenceAnchorSpecificity(best) {
+			best = anchor
+			found = true
+		}
+	}
+	return best, found
+}
+
+func applyEvidenceAnchor(ref model.EvidenceReference, anchor evidenceAnchor) model.EvidenceReference {
+	if anchor.LineStart > 0 {
+		ref.LineStart = anchor.LineStart
+		if anchor.LineEnd > 0 {
+			ref.LineEnd = anchor.LineEnd
+		} else {
+			ref.LineEnd = anchor.LineStart
+		}
+		ref.Anchor = ""
+		return ref
+	}
+	if anchor.Anchor != "" {
+		ref.Anchor = anchor.Anchor
+	}
+	return ref
+}
+
+func evidenceAnchorKeys(ref model.EvidenceReference) []string {
+	kind := normalizeEvidenceKind(ref.Kind)
+	keys := []string{
+		ref.ID + "|" + kind + "|" + ref.Source,
+		ref.ID + "||" + ref.Source,
+	}
+	if strings.HasPrefix(ref.ID, "evidence:") {
+		withoutPrefix := strings.TrimPrefix(ref.ID, "evidence:")
+		keys = append(keys,
+			withoutPrefix+"|"+kind+"|"+ref.Source,
+			withoutPrefix+"||"+ref.Source,
+		)
+	} else {
+		keys = append(keys,
+			"evidence:"+ref.ID+"|"+kind+"|"+ref.Source,
+			"evidence:"+ref.ID+"||"+ref.Source,
+		)
+	}
+	return keys
+}
+
+func normalizeEvidenceKind(kind string) string {
+	return strings.ReplaceAll(kind, "-", "_")
+}
+
+func evidenceAnchorSpecificity(anchor evidenceAnchor) int {
+	if anchor.LineStart > 0 {
+		return 2
+	}
+	if anchor.Anchor == "file" {
+		return 1
+	}
+	return 0
+}
+
+func metadataOnlyHandlingMode(mode string) bool {
+	return mode == "boundary_indicator" || mode == "summarize"
 }
 
 func locateEvidenceLine(path string, ref model.EvidenceReference) int {
@@ -1150,11 +1478,13 @@ func dedupeExposureEvidenceReferences(values []model.EvidenceReference) []model.
 	seen := map[string]int{}
 	var out []model.EvidenceReference
 	for _, value := range values {
-		key := value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary + "|" + fmt.Sprint(value.LineStart) + "|" + fmt.Sprint(value.LineEnd)
+		key := value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary + "|" + value.Anchor + "|" + fmt.Sprint(value.LineStart) + "|" + fmt.Sprint(value.LineEnd)
 		if value.Source != "" {
 			key = "source|" + value.Source
 			if value.LineStart > 0 {
 				key += fmt.Sprintf(":%d", value.LineStart)
+			} else if value.Anchor != "" {
+				key += "#" + value.Anchor
 			}
 		}
 		if idx, ok := seen[key]; ok {
@@ -1173,6 +1503,9 @@ func evidenceReferenceSpecificity(value model.EvidenceReference) int {
 	score := 0
 	if value.LineStart > 0 {
 		score += 10
+	}
+	if value.Anchor == "file" {
+		score += 5
 	}
 	switch value.Kind {
 	case "authority", "tool", "control":

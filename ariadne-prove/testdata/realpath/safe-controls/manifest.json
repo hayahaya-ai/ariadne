@@ -1,0 +1,18 @@
+{
+  "id": "safe-controls",
+  "title": "Hardened controls do not produce reckless findings",
+  "persona": "developer / AppSec",
+  "user_question": "Do enforced controls keep the verdict out of reckless?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "min_tradeoffs": 1,
+      "findings": []
+    }
+  }
+}

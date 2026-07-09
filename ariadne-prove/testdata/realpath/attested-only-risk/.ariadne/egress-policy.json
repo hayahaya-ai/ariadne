@@ -1,0 +1,5 @@
+{
+  "network_restricted": true,
+  "egress_destination_allowlist": ["security.example.com"],
+  "webhook_allowlist": ["security.example.com"]
+}

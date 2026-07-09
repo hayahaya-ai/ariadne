@@ -1,0 +1,25 @@
+{
+  "id": "repo-checkout-instructions-under-home",
+  "title": "Repo checkout instructions under home remain untrusted influence",
+  "persona": "developer / IT",
+  "user_question": "Does risky repo-checkout influence under the endpoint home still satisfy the untrusted-influence leg?",
+  "runtime": "all",
+  "mode": "endpoint",
+  "world": {
+    "home_path": ".",
+    "repo_path": "checkout"
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "findings": [
+        {
+          "family": "data-egress-chain"
+        },
+        {
+          "family": "prompt-injection-to-secret-canary"
+        }
+      ]
+    }
+  }
+}

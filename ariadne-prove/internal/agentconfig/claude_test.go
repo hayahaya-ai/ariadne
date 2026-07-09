@@ -18,9 +18,9 @@ func TestParseClaudeSettings_DenyNotAllow(t *testing.T) {
 		t.Errorf("Allow = %v, want empty", got.Allow)
 	}
 	wantDeny := []PermRule{
-		{Raw: "Bash(*)", Tool: "Bash", Scope: "*"},
-		{Raw: "Read(~/.aws/**)", Tool: "Read", Scope: "~/.aws/**"},
-		{Raw: "WebFetch", Tool: "WebFetch", Scope: ""},
+		{Raw: "Bash(*)", Tool: "Bash", Scope: "*", Line: 1},
+		{Raw: "Read(~/.aws/**)", Tool: "Read", Scope: "~/.aws/**", Line: 1},
+		{Raw: "WebFetch", Tool: "WebFetch", Scope: "", Line: 1},
 	}
 	if len(got.Deny) != len(wantDeny) {
 		t.Fatalf("Deny = %+v, want %+v", got.Deny, wantDeny)
@@ -65,6 +65,31 @@ func TestParseClaudeSettings_DenyNotAllow(t *testing.T) {
 	}
 	if got.HasSecretReadAllow() {
 		t.Errorf("HasSecretReadAllow() = true, want false")
+	}
+}
+
+func TestParseClaudeSettingsRecordsPermissionLines(t *testing.T) {
+	data := []byte(`{
+  "permissions": {
+    "allow": [
+      "Read(*)",
+      "WebFetch(*)"
+    ]
+  }
+}`)
+
+	got, ok := ParseClaudeSettings(data)
+	if !ok {
+		t.Fatalf("ParseClaudeSettings: ok=false, want true")
+	}
+	if len(got.Allow) != 2 {
+		t.Fatalf("Allow = %+v, want 2 rules", got.Allow)
+	}
+	if got.Allow[0].Raw != "Read(*)" || got.Allow[0].Line != 4 {
+		t.Fatalf("Allow[0] = %+v, want Read(*) on line 4", got.Allow[0])
+	}
+	if got.Allow[1].Raw != "WebFetch(*)" || got.Allow[1].Line != 5 {
+		t.Fatalf("Allow[1] = %+v, want WebFetch(*) on line 5", got.Allow[1])
 	}
 }
 

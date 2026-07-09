@@ -1,0 +1,17 @@
+{
+  "id": "user-home-instructions-only",
+  "title": "User-authored home instructions are not untrusted repo influence",
+  "persona": "developer / IT",
+  "user_question": "Does a home-authored instruction file avoid satisfying the untrusted-influence leg?",
+  "runtime": "all",
+  "mode": "endpoint",
+  "world": {
+    "home_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "findings": []
+    }
+  }
+}

@@ -378,7 +378,7 @@ func roots(opts Options) []struct {
 	prefix string
 } {
 	if opts.Mode == "endpoint" {
-		return []struct {
+		out := []struct {
 			path   string
 			scope  string
 			prefix string
@@ -397,12 +397,42 @@ func roots(opts Options) []struct {
 			{filepath.Join(opts.HomePath, "Documents", "Cline", "Rules"), "endpoint", "Documents/Cline/Rules"},
 			{filepath.Join(opts.HomePath, ".ariadne"), "endpoint", ".ariadne"},
 		}
+		if endpointRepoRootIsDistinctHomeDescendant(opts) {
+			out = append(out, struct {
+				path   string
+				scope  string
+				prefix string
+			}{opts.RepoPath, "repo", ""})
+		}
+		return out
 	}
 	return []struct {
 		path   string
 		scope  string
 		prefix string
 	}{{opts.RepoPath, "repo", ""}}
+}
+
+func endpointRepoRootIsDistinctHomeDescendant(opts Options) bool {
+	if opts.RepoPath == "" || opts.HomePath == "" {
+		return false
+	}
+	repo, err := filepath.Abs(opts.RepoPath)
+	if err != nil {
+		return false
+	}
+	home, err := filepath.Abs(opts.HomePath)
+	if err != nil {
+		return false
+	}
+	if repo == home {
+		return false
+	}
+	rel, err := filepath.Rel(home, repo)
+	if err != nil {
+		return false
+	}
+	return rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
 }
 
 func shouldSkipDir(relPath string) bool {

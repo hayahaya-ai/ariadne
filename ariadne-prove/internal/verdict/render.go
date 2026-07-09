@@ -23,7 +23,7 @@ func RenderJSON(w io.Writer, v Verdict) error {
 func RenderText(w io.Writer, v Verdict) error {
 	fmt.Fprintf(w, "VERDICT: %s — %s\n", strings.ToUpper(v.VerdictWord), countsSentence(v))
 	for _, finding := range v.Reckless {
-		fmt.Fprintf(w, "  %s  %s  (%s:%d)\n", finding.ID, finding.Title, finding.Where.Source, finding.Where.Line)
+		fmt.Fprintf(w, "  %s  %s  (%s)\n", finding.ID, finding.Title, formatEvidenceLocation(finding.Where))
 	}
 	if v.Inconclusive > 0 {
 		fmt.Fprintf(w, "Couldn't verify: %d path(s) lacked evidence — see ariadne ls cases.\n", v.Inconclusive)
@@ -50,7 +50,7 @@ func RenderReadout(w io.Writer, v Verdict) error {
 		fmt.Fprintf(w, "  RECKLESS ── fix these ──\n")
 		for _, finding := range v.Reckless {
 			fmt.Fprintf(w, "  %d. %s\n", recklessNumber(finding.ID), finding.Title)
-			fmt.Fprintf(w, "       where  %s:%d\n", finding.Where.Source, finding.Where.Line)
+			fmt.Fprintf(w, "       where  %s\n", formatEvidenceLocation(finding.Where))
 			fmt.Fprintf(w, "       why    %s\n", finding.Why)
 			fmt.Fprintf(w, "       fix    %s\n", finding.Fix)
 		}
@@ -86,6 +86,16 @@ func RenderReadout(w io.Writer, v Verdict) error {
 	fmt.Fprintf(w, "  Next: %s\n", v.NextAction)
 	fmt.Fprintf(w, "  More: ariadne show %s · ariadne ls findings · --format json\n", moreShowTarget(v))
 	return nil
+}
+
+func formatEvidenceLocation(loc EvidenceLocation) string {
+	if loc.Source == "" {
+		return ""
+	}
+	if loc.Line > 0 {
+		return fmt.Sprintf("%s:%d", loc.Source, loc.Line)
+	}
+	return loc.Source
 }
 
 func moreShowTarget(v Verdict) string {

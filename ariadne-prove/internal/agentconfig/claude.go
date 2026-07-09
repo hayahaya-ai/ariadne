@@ -1,7 +1,9 @@
 package agentconfig
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 )
 
@@ -13,16 +15,18 @@ type PermRule struct {
 	Raw   string // original rule string, case preserved
 	Tool  string // parsed head, case preserved
 	Scope string // parsed parenthesized body; "" if none
+	Line  int    // 1-based line of the JSON string entry, when known
 }
 
 // ClaudeSettings is the structured shape of a .claude/settings.json or
 // settings.local.json file that matters for exposure grading. Fields not
 // modeled here (hooks, env, model, etc.) are ignored.
 type ClaudeSettings struct {
-	DefaultMode string // "" if absent; e.g. "default", "acceptEdits", "bypassPermissions"
-	Allow       []PermRule
-	Deny        []PermRule
-	Ask         []PermRule
+	DefaultMode     string // "" if absent; e.g. "default", "acceptEdits", "bypassPermissions"
+	DefaultModeLine int
+	Allow           []PermRule
+	Deny            []PermRule
+	Ask             []PermRule
 
 	// HasInlineCredential is true when a top-level JSON key, or a key
 	// nested one level under "permissions", has a name matching
@@ -54,22 +58,179 @@ func ParseClaudeSettings(data []byte) (ClaudeSettings, bool) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return ClaudeSettings{}, false
 	}
+	positions := claudeSettingPositions(data)
 
 	var out ClaudeSettings
 	switch {
 	case raw.Permissions != nil && raw.Permissions.DefaultMode != "":
 		out.DefaultMode = raw.Permissions.DefaultMode
+		out.DefaultModeLine = positions.PermissionsDefaultModeLine
 	case raw.DefaultMode != "":
 		out.DefaultMode = raw.DefaultMode
+		out.DefaultModeLine = positions.DefaultModeLine
 	}
 
 	if raw.Permissions != nil {
-		out.Allow = parsePermRules(raw.Permissions.Allow)
-		out.Deny = parsePermRules(raw.Permissions.Deny)
-		out.Ask = parsePermRules(raw.Permissions.Ask)
+		out.Allow = parsePermRulesWithLines(raw.Permissions.Allow, positions.AllowLines)
+		out.Deny = parsePermRulesWithLines(raw.Permissions.Deny, positions.DenyLines)
+		out.Ask = parsePermRulesWithLines(raw.Permissions.Ask, positions.AskLines)
 	}
 	out.HasInlineCredential = detectInlineCredential(data)
 	return out, true
+}
+
+type claudePositions struct {
+	DefaultModeLine            int
+	PermissionsDefaultModeLine int
+	AllowLines                 map[string][]int
+	DenyLines                  map[string][]int
+	AskLines                   map[string][]int
+}
+
+type jsonPositionContext struct {
+	kind         byte
+	path         []string
+	expectingKey bool
+	key          string
+}
+
+func claudeSettingPositions(data []byte) claudePositions {
+	pos := claudePositions{
+		AllowLines: map[string][]int{},
+		DenyLines:  map[string][]int{},
+		AskLines:   map[string][]int{},
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	var stack []jsonPositionContext
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return pos
+		}
+		line := lineForOffset(data, dec.InputOffset())
+		if delim, ok := tok.(json.Delim); ok {
+			switch delim {
+			case '{', '[':
+				path := containerValuePath(stack)
+				ctx := jsonPositionContext{kind: byte(delim), path: path}
+				if delim == '{' {
+					ctx.expectingKey = true
+				}
+				stack = append(stack, ctx)
+			case '}', ']':
+				if len(stack) > 0 {
+					stack = stack[:len(stack)-1]
+				}
+				markJSONValueConsumed(stack)
+			}
+			continue
+		}
+		if len(stack) == 0 {
+			continue
+		}
+		ctx := &stack[len(stack)-1]
+		if ctx.kind == '{' && ctx.expectingKey {
+			key, ok := tok.(string)
+			if !ok {
+				return pos
+			}
+			ctx.key = key
+			ctx.expectingKey = false
+			continue
+		}
+		recordClaudeScalarPosition(&pos, valuePath(stack), tok, line)
+		markJSONValueConsumed(stack)
+	}
+	return pos
+}
+
+func containerValuePath(stack []jsonPositionContext) []string {
+	if len(stack) == 0 {
+		return nil
+	}
+	parent := stack[len(stack)-1]
+	if parent.kind == '{' && !parent.expectingKey && parent.key != "" {
+		return appendPath(parent.path, parent.key)
+	}
+	return appendPath(parent.path)
+}
+
+func valuePath(stack []jsonPositionContext) []string {
+	if len(stack) == 0 {
+		return nil
+	}
+	ctx := stack[len(stack)-1]
+	if ctx.kind == '{' {
+		return appendPath(ctx.path, ctx.key)
+	}
+	return appendPath(ctx.path)
+}
+
+func appendPath(base []string, elems ...string) []string {
+	out := make([]string, 0, len(base)+len(elems))
+	out = append(out, base...)
+	out = append(out, elems...)
+	return out
+}
+
+func markJSONValueConsumed(stack []jsonPositionContext) {
+	if len(stack) == 0 {
+		return
+	}
+	ctx := &stack[len(stack)-1]
+	if ctx.kind == '{' && !ctx.expectingKey {
+		ctx.key = ""
+		ctx.expectingKey = true
+	}
+}
+
+func recordClaudeScalarPosition(pos *claudePositions, path []string, tok json.Token, line int) {
+	if line <= 0 {
+		return
+	}
+	switch {
+	case pathEquals(path, "defaultMode"):
+		pos.DefaultModeLine = line
+	case pathEquals(path, "permissions", "defaultMode"):
+		pos.PermissionsDefaultModeLine = line
+	case pathEquals(path, "permissions", "allow"):
+		if value, ok := tok.(string); ok {
+			pos.AllowLines[value] = append(pos.AllowLines[value], line)
+		}
+	case pathEquals(path, "permissions", "deny"):
+		if value, ok := tok.(string); ok {
+			pos.DenyLines[value] = append(pos.DenyLines[value], line)
+		}
+	case pathEquals(path, "permissions", "ask"):
+		if value, ok := tok.(string); ok {
+			pos.AskLines[value] = append(pos.AskLines[value], line)
+		}
+	}
+}
+
+func pathEquals(path []string, elems ...string) bool {
+	if len(path) != len(elems) {
+		return false
+	}
+	for i := range path {
+		if path[i] != elems[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func lineForOffset(data []byte, offset int64) int {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > int64(len(data)) {
+		offset = int64(len(data))
+	}
+	return bytes.Count(data[:offset], []byte{'\n'}) + 1
 }
 
 // detectInlineCredential inspects the real JSON key/value structure for a
@@ -121,12 +282,22 @@ func hasCredentialStringKey(m map[string]json.RawMessage) bool {
 }
 
 func parsePermRules(rules []string) []PermRule {
+	return parsePermRulesWithLines(rules, nil)
+}
+
+func parsePermRulesWithLines(rules []string, lines map[string][]int) []PermRule {
 	if len(rules) == 0 {
 		return nil
 	}
 	out := make([]PermRule, 0, len(rules))
+	used := map[string]int{}
 	for _, raw := range rules {
-		out = append(out, parsePermRule(raw))
+		rule := parsePermRule(raw)
+		if values := lines[raw]; len(values) > used[raw] {
+			rule.Line = values[used[raw]]
+			used[raw]++
+		}
+		out = append(out, rule)
 	}
 	return out
 }

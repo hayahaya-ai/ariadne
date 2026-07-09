@@ -2,7 +2,7 @@ PROJECT ?= ariadne-prove
 ROOT_BIN ?= bin/ariadne
 GOCACHE ?= /private/tmp/ariadne-gocache
 
-.PHONY: check fmt test vet build root-build product-build verify-first-run stories inventory prove assess scan clean
+.PHONY: check fmt test vet build root-build product-build verify-first-run eval stories inventory prove assess scan clean
 
 check: fmt vet test build
 
@@ -29,6 +29,9 @@ root-build:
 
 verify-first-run: build
 	ARIADNE_BIN=$(ROOT_BIN) bash scripts/verify-first-run.sh
+
+eval:
+	$(MAKE) -C $(PROJECT) eval
 
 stories: build
 	$(ROOT_BIN) stories list

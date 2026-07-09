@@ -1,0 +1,18 @@
+{
+  "id": "typical-dev",
+  "title": "Typical endpoint developer profile",
+  "persona": "developer / IT",
+  "user_question": "Does a normal endpoint developer posture stay trade-offs only?",
+  "runtime": "all",
+  "mode": "endpoint",
+  "world": {
+    "home_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "min_tradeoffs": 2,
+      "findings": []
+    }
+  }
+}

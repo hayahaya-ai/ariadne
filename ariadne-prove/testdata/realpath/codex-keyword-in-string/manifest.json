@@ -1,0 +1,17 @@
+{
+  "id": "codex-keyword-in-string",
+  "title": "Codex keywords inside unrelated strings are ignored",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does a bypass-looking project name avoid false reckless findings?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "findings": []
+    }
+  }
+}
