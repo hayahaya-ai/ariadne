@@ -1,0 +1,24 @@
+{
+  "id": "nested-instructions-root-twin",
+  "title": "Root repo instructions defeat the nested-scope default",
+  "persona": "developer / AppSec",
+  "user_question": "Does a risky root instruction keep the same exposed world reckless?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "findings": [
+        {
+          "family": "data-egress-chain"
+        },
+        {
+          "family": "prompt-injection-to-secret-canary"
+        }
+      ]
+    }
+  }
+}

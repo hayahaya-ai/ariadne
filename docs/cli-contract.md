@@ -13,6 +13,9 @@ ariadne verdict [--path P] [--mode M] [--json] [--gate]
 ariadne ls <findings|agents|surfaces|controls|facts|cases> [--path P] [--mode M] [--json]
 ariadne show <id> [--path P] [--mode M] [--json]
 ariadne scan --targets T [--format table|json|jsonl|dot|mermaid|html]
+ariadne review-packet --path P [--profile follow-up|inventory-blind] [--packet-out request.json]
+ariadne review-check --packet request.json --review review.json [--format summary|json]
+ariadne review-run --path P --command "reviewer-command" [--dir D] [--format summary|json]
 ```
 
 - `self` and `assess` default format changes to `readout` (the one-screen).
@@ -45,6 +48,12 @@ provenance": each trust input carries deterministic provenance (`home_scope`,
 `repo_checkout`, `third_party`, or `unknown`) derived from surface scope/arrival
 path. For exposed influence families, home-scope influence alone is a labeled
 default judgment, not a fact claim that the file is safe or user-authored.
+Each trust input also carries deterministic `instruction_scope`: `root` for a
+file at the assessment root or in a runtime-owned root config location (such as
+`.claude/`, `.codex/`, or `.gemini/`), `nested` for a subtree instruction, and
+`unknown` only when the assessment-relative location cannot be derived. Runtime
+config locations count as root because the runtime loads them independently of
+working inside a matching subtree. Scope classification never skips collection.
 
 **RECKLESS** — one finding per effectively exposed `ExposureResult`, ordered:
 data-egress-chain first, then prompt-injection-to-secret-canary, then
@@ -52,8 +61,12 @@ mutable-tool-launch-execution. An exposed data-egress-chain or
 prompt-injection-to-secret-canary path is not effectively exposed when every
 risky trust-input leg has provenance `home_scope`; that default judgment is
 recorded in verdict JSON and the capability is rendered under TRADE-OFFS
-instead. Mixed provenance, `repo_checkout`, `third_party`, `unknown`, or no
-risky trust-input leg keeps the exposed path reckless. Each finding carries:
+instead. Otherwise, when every risky non-home influence leg has
+`instruction_scope: nested`, the path is held as a trade-off by the labeled
+`nested_instructions_scoped_by_default` judgment. Nested instructions become
+live influence for agents that work inside those directories. Any root or
+unknown-scope non-home leg, or no risky trust-input leg, keeps the exposed path
+reckless. Each finding carries:
 - `id`: `reckless:1`, `reckless:2`, … (screen handle) plus `exposure_id` (stable).
 - `title`: one sentence naming the concrete risk (derive from exposure title,
   rewritten in second person, e.g. "Untrusted repo text can steer an agent that
@@ -111,6 +124,9 @@ exposed path:
     — held as a trade-off by default; see default_judgments to override".
   - secret/file access: "your own home config can steer agents that read local
     files — held as a trade-off by default; see default_judgments to override".
+- Nested-instruction scoped default judgments → a trade-off line naming the
+  affected exposure family and stating that the instructions become live
+  influence when agents work inside those directories.
 - `authority:external-communication` → "an agent can reach the network — normal
   for installs and web lookups".
 - `authority:file-read` → "agents read your workspace — that is what a coding
@@ -147,8 +163,9 @@ else any hardened or any runtime found → `hardened`; no runtimes discovered �
       "id": "fact:gemini:gemini-md:...",
       "trust_input_id": "trustinput:repo-instruction",
       "provenance": "repo_checkout",
+      "instruction_scope": "root",
       "source": "checkout/GEMINI.md",
-      "summary": "Trust input provenance derived from deterministic surface scope and arrival path."
+      "summary": "Trust input provenance and instruction scope derived from deterministic surface location and arrival path."
     }
   ],
   "default_judgments": [],
@@ -188,6 +205,64 @@ When the home-scope influence default applies, `default_judgments` contains one
 entry per affected exposure family with `rule:
 home_scope_influence_not_untrusted_by_default`, `label: default_judgment`,
 `trust_input_ids`, and `basis` refs for the weighed `fact` and `trust_input` IDs.
+When the nested-instruction default applies, the same shape uses `rule:
+nested_instructions_scoped_by_default`; its basis cites only the risky non-home
+trust inputs and their deterministic provenance/scope facts, and its summary
+states that the instructions become live for agents working in those
+directories.
+
+## Verdict-aware analyst review
+
+LLM or agent analysis is an interpretation layer, never evidence. The ingestible
+path is the existing `review-packet` -> reviewer -> `review-check` path. The
+`follow-up` profile is verdict-aware; no third profile is added.
+
+Workflow:
+
+```
+ariadne review-run --path <target> --command "your-reviewer" --dir ariadne-review
+```
+
+`review-run` writes `llm-request.json`, sends exactly that JSON to the supplied
+local command on stdin, saves the raw `llm-review.json`, and runs
+`review-check`. Ariadne does not call remote LLM services by itself. Teams that
+run their own reviewer manually can use:
+
+```
+ariadne review-packet --path <target> --profile follow-up --packet-out request.json
+your-reviewer < request.json > review.json
+ariadne review-check --packet request.json --review review.json
+ariadne prove --path <target> --interpret llm --llm-review review.json --format json
+```
+
+The follow-up packet (`schema/ariadne-llm-review-request-v1.schema.json`) includes
+the deterministic graph/exposure facts plus a compact verdict context:
+`verdict.reckless[]` (`id`, `exposure_id`, `where`, evidence ref IDs, why/fix),
+`default_judgments[]` (`id`, `rule`, `exposure_id`, `basis`),
+`influence_provenance[]`, `tradeoffs[]`, and a citation catalog with valid fact,
+finding, default-judgment, evidence-ref, graph-edge, and trade-off IDs.
+
+The accepted review response (`schema/ariadne-llm-review-v1.schema.json`) may
+only contain:
+
+- `finding_explanations[]`: explain each existing reckless finding in operator
+  context, citing packet fact IDs, evidence ref IDs, or graph edges.
+- `finding_ranking[]`: rank each existing reckless finding exactly once with a
+  one-line rationale and citations.
+- `default_judgment_overrides[]`: optionally propose overriding an existing
+  `default_judgments[].rule` for an existing `exposure_id`, citing that
+  judgment's basis fact IDs and giving a reason.
+
+`review-check` rejects unsupported IDs, unsupported graph edges, missing coverage
+of reckless findings, non-basis facts in an override, `issues[]`/new findings,
+attempts to close/remove/suppress findings, and any attempt to set or flip the
+deterministic verdict word.
+
+When a review passes, `prove --interpret llm --llm-review <file>` carries the
+validated content only under `interpretation.analyst` with `source_type:
+llm_review`, `derived_by: llm`, `review_source`, and `request_digest`. It does not
+change `verdict`, `reckless`, `tradeoffs`, `hardened`, issue summaries, exposure
+facts, buckets, fleet counts, or any closure state.
 
 ## Fleet scan output (`schema/ariadne-scan-v1.schema.json`)
 

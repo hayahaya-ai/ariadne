@@ -110,6 +110,15 @@ func ScoreVerdicts(cases []EvalCaseResult) EvalScorecard {
 				Message:     fmt.Sprintf("got %d trade-off(s), expected at most %d", len(c.Actual.Tradeoffs), c.Expected.MaxTradeoffs),
 			})
 		}
+		for _, rule := range c.Expected.DefaultJudgmentRules {
+			if !hasDefaultJudgmentRule(c.Actual.DefaultJudgments, rule) {
+				score.Mismatches = append(score.Mismatches, EvalMismatch{
+					FixturePath: c.FixturePath,
+					Kind:        "default_judgment",
+					Message:     "missing default judgment rule " + rule,
+				})
+			}
+		}
 		if c.Expected.RequireEvidenceLineAnchors {
 			score.Mismatches = append(score.Mismatches, lineAnchorMismatches(c.FixturePath, c.Actual, c.Surfaces)...)
 		}
@@ -153,6 +162,15 @@ func findingMismatches(path string, expected model.ExpectedVerdictFinding, actua
 		})
 	}
 	return out
+}
+
+func hasDefaultJudgmentRule(judgments []verdict.DefaultJudgment, rule string) bool {
+	for _, judgment := range judgments {
+		if judgment.Rule == rule {
+			return true
+		}
+	}
+	return false
 }
 
 func lineAnchorMismatches(path string, actual verdict.Verdict, surfaces []model.Surface) []EvalMismatch {

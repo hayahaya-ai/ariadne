@@ -64,11 +64,12 @@ type ScannedSummary struct {
 // InfluenceProvenanceFact is a deterministic fact about how a trust input
 // arrived. It is intentionally about location/arrival, not who authored it.
 type InfluenceProvenanceFact struct {
-	ID           string `json:"id"`
-	TrustInputID string `json:"trust_input_id"`
-	Provenance   string `json:"provenance"`
-	Source       string `json:"source"`
-	Summary      string `json:"summary"`
+	ID               string `json:"id"`
+	TrustInputID     string `json:"trust_input_id"`
+	Provenance       string `json:"provenance"`
+	InstructionScope string `json:"instruction_scope"`
+	Source           string `json:"source"`
+	Summary          string `json:"summary"`
 }
 
 // DefaultJudgment records an interpretative grading default and the facts it
@@ -211,7 +212,10 @@ func buildScanned(collection model.Collection) ScannedSummary {
 	}
 }
 
-const homeScopeDefaultRule = "home_scope_influence_not_untrusted_by_default"
+const (
+	homeScopeDefaultRule   = "home_scope_influence_not_untrusted_by_default"
+	nestedScopeDefaultRule = "nested_instructions_scoped_by_default"
+)
 
 func buildInfluenceProvenance(collection model.Collection) []InfluenceProvenanceFact {
 	out := make([]InfluenceProvenanceFact, 0, len(collection.TrustInputs))
@@ -221,21 +225,26 @@ func buildInfluenceProvenance(collection model.Collection) []InfluenceProvenance
 		if provenance == "" {
 			provenance = model.TrustInputProvenanceUnknown
 		}
+		instructionScope := input.InstructionScope
+		if instructionScope == "" {
+			instructionScope = model.InstructionScopeUnknown
+		}
 		factID := "fact:" + input.ID
 		if fact, ok := provenanceFactForInput(collection.Facts, input); ok {
 			factID = fact.ID
 		}
-		key := factID + "|" + input.ID + "|" + input.Source + "|" + provenance
+		key := factID + "|" + input.ID + "|" + input.Source + "|" + provenance + "|" + instructionScope
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
 		out = append(out, InfluenceProvenanceFact{
-			ID:           factID,
-			TrustInputID: input.ID,
-			Provenance:   provenance,
-			Source:       input.Source,
-			Summary:      "Trust input provenance derived from deterministic surface scope and arrival path.",
+			ID:               factID,
+			TrustInputID:     input.ID,
+			Provenance:       provenance,
+			InstructionScope: instructionScope,
+			Source:           input.Source,
+			Summary:          "Trust input provenance and instruction scope derived from deterministic surface location and arrival path.",
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -255,7 +264,7 @@ func buildInfluenceProvenance(collection model.Collection) []InfluenceProvenance
 
 func provenanceFactForInput(facts []model.Fact, input model.TrustInput) (model.Fact, bool) {
 	for _, fact := range facts {
-		if fact.Source == input.Source && fact.Provenance == input.Provenance {
+		if fact.Source == input.Source && fact.Provenance == input.Provenance && fact.InstructionScope == input.InstructionScope {
 			return fact, true
 		}
 	}
@@ -269,15 +278,30 @@ func provenanceFactForInput(facts []model.Fact, input model.TrustInput) (model.F
 
 func buildDefaultJudgments(exposures []model.ExposureResult, collection model.Collection, provenanceFacts []InfluenceProvenanceFact) []DefaultJudgment {
 	risky := riskyTrustInputs(collection)
-	if len(risky) == 0 || !allHomeScope(risky) {
+	if len(risky) == 0 {
 		return []DefaultJudgment{}
+	}
+	rule := ""
+	judgedInputs := risky
+	summary := ""
+	switch {
+	case allHomeScope(risky):
+		rule = homeScopeDefaultRule
+		summary = "Home-scope influence alone is treated as a trade-off by default; deterministic facts do not claim the file is safe or user-authored."
+	default:
+		judgedInputs = riskyUntrustedTrustInputs(risky)
+		if len(judgedInputs) == 0 || !allNestedScope(judgedInputs) {
+			return []DefaultJudgment{}
+		}
+		rule = nestedScopeDefaultRule
+		summary = "Nested untrusted instructions are scoped by default; they become live influence for agents that work inside those directories."
 	}
 	byID := make(map[string]model.ExposureResult, len(exposures))
 	for _, exposure := range exposures {
 		byID[exposure.ID] = exposure
 	}
-	trustInputIDs := trustInputIDs(risky)
-	basis := judgmentBasis(risky, provenanceFacts)
+	trustInputIDs := trustInputIDs(judgedInputs)
+	basis := judgmentBasis(judgedInputs, provenanceFacts)
 	var out []DefaultJudgment
 	for _, familyID := range []string{FamilyEgress, FamilySecret} {
 		exposure, ok := byID[familyID]
@@ -285,12 +309,12 @@ func buildDefaultJudgments(exposures []model.ExposureResult, collection model.Co
 			continue
 		}
 		out = append(out, DefaultJudgment{
-			Rule:          homeScopeDefaultRule,
+			Rule:          rule,
 			Label:         "default_judgment",
 			ExposureID:    familyID,
 			TrustInputIDs: trustInputIDs,
 			Basis:         basis,
-			Summary:       "Home-scope influence alone is treated as a trade-off by default; deterministic facts do not claim the file is safe or user-authored.",
+			Summary:       summary,
 		})
 	}
 	if out == nil {
@@ -312,6 +336,25 @@ func riskyTrustInputs(collection model.Collection) []model.TrustInput {
 func allHomeScope(inputs []model.TrustInput) bool {
 	for _, input := range inputs {
 		if input.Provenance != model.TrustInputProvenanceHomeScope {
+			return false
+		}
+	}
+	return true
+}
+
+func riskyUntrustedTrustInputs(inputs []model.TrustInput) []model.TrustInput {
+	var out []model.TrustInput
+	for _, input := range inputs {
+		if input.Provenance != model.TrustInputProvenanceHomeScope {
+			out = append(out, input)
+		}
+	}
+	return out
+}
+
+func allNestedScope(inputs []model.TrustInput) bool {
+	for _, input := range inputs {
+		if input.InstructionScope != model.InstructionScopeNested {
 			return false
 		}
 	}
@@ -340,11 +383,11 @@ func judgmentBasis(inputs []model.TrustInput, provenanceFacts []InfluenceProvena
 	var out []JudgmentBasisRef
 	seen := map[string]bool{}
 	for _, input := range inputs {
-		inputSources[input.ID+"|"+input.Source+"|"+input.Provenance] = true
+		inputSources[input.ID+"|"+input.Source+"|"+input.Provenance+"|"+input.InstructionScope] = true
 		addJudgmentBasis(&out, seen, JudgmentBasisRef{Kind: "trust_input", ID: input.ID})
 	}
 	for _, fact := range provenanceFacts {
-		if !inputSources[fact.TrustInputID+"|"+fact.Source+"|"+fact.Provenance] {
+		if !inputSources[fact.TrustInputID+"|"+fact.Source+"|"+fact.Provenance+"|"+fact.InstructionScope] {
 			continue
 		}
 		addJudgmentBasis(&out, seen, JudgmentBasisRef{Kind: "fact", ID: fact.ID})
@@ -1015,6 +1058,16 @@ func buildTradeoffs(judgments []DefaultJudgment, collection model.Collection, bu
 }
 
 func tradeoffSummaryForJudgment(judgment DefaultJudgment) string {
+	if judgment.Rule == nestedScopeDefaultRule {
+		switch judgment.ExposureID {
+		case FamilyEgress:
+			return "nested instructions can steer agents that reach the network — held as a trade-off by default; they become live influence when agents work inside those directories"
+		case FamilySecret:
+			return "nested instructions can steer agents that read local files — held as a trade-off by default; they become live influence when agents work inside those directories"
+		default:
+			return "nested instructions can steer agents — held as a trade-off by default; they become live influence when agents work inside those directories"
+		}
+	}
 	switch judgment.ExposureID {
 	case FamilyEgress:
 		return "your own home config can steer agents that reach the network — held as a trade-off by default; see default_judgments to override"
@@ -1047,12 +1100,23 @@ func mergeTradeoffSources(sources []string) string {
 func judgmentSource(judgment DefaultJudgment, collection model.Collection) string {
 	for _, inputID := range judgment.TrustInputIDs {
 		for _, input := range collection.TrustInputs {
-			if input.ID == inputID && input.Source != "" {
+			if input.ID == inputID && input.Source != "" && input.Risky && judgmentAppliesToInput(judgment.Rule, input) {
 				return input.Source
 			}
 		}
 	}
 	return ""
+}
+
+func judgmentAppliesToInput(rule string, input model.TrustInput) bool {
+	switch rule {
+	case homeScopeDefaultRule:
+		return input.Provenance == model.TrustInputProvenanceHomeScope
+	case nestedScopeDefaultRule:
+		return input.Provenance != model.TrustInputProvenanceHomeScope && input.InstructionScope == model.InstructionScopeNested
+	default:
+		return false
+	}
 }
 
 // buildHardened returns one line per enforced control, deduped by control

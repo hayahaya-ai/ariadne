@@ -266,6 +266,56 @@ func TestBuildRepoCheckoutInfluenceUnderHomeStaysReckless(t *testing.T) {
 	}
 }
 
+func TestBuildNestedInstructionsAppliesScopedDefaultJudgment(t *testing.T) {
+	v := buildVerdict(t, "nested-instructions-scoped")
+
+	if v.VerdictWord != verdict.WordTradeoffsOnly {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordTradeoffsOnly)
+	}
+	if len(v.Reckless) != 0 {
+		t.Fatalf("nested-only influence should not render reckless findings: %+v", v.Reckless)
+	}
+	if len(v.DefaultJudgments) != 2 {
+		t.Fatalf("default judgments = %d, want 2: %+v", len(v.DefaultJudgments), v.DefaultJudgments)
+	}
+	if !hasInstructionScopeFact(v, "services/api/AGENTS.md", model.InstructionScopeNested) {
+		t.Fatalf("verdict should carry nested instruction-scope fact: %+v", v.InfluenceProvenance)
+	}
+	for _, judgment := range v.DefaultJudgments {
+		if judgment.Rule != "nested_instructions_scoped_by_default" || judgment.Label != "default_judgment" {
+			t.Fatalf("unexpected default judgment identity: %+v", judgment)
+		}
+		if len(judgment.TrustInputIDs) == 0 || !hasBasisKind(judgment.Basis, "trust_input") || !hasBasisKind(judgment.Basis, "fact") {
+			t.Fatalf("scoped default judgment should cite trust input IDs and fact basis: %+v", judgment)
+		}
+		if !strings.Contains(judgment.Summary, "become live influence for agents that work inside those directories") {
+			t.Fatalf("scoped judgment should state the live-influence caveat: %+v", judgment)
+		}
+	}
+	for _, want := range []string{
+		"nested instructions can steer agents that reach the network — held as a trade-off by default; they become live influence when agents work inside those directories",
+		"nested instructions can steer agents that read local files — held as a trade-off by default; they become live influence when agents work inside those directories",
+	} {
+		if countTradeoffSummary(v.Tradeoffs, want) != 1 {
+			t.Fatalf("missing scoped default-judgment trade-off %q: %+v", want, v.Tradeoffs)
+		}
+	}
+}
+
+func TestBuildRootInstructionTwinStaysReckless(t *testing.T) {
+	v := buildVerdict(t, "nested-instructions-root-twin")
+
+	if v.VerdictWord != verdict.WordReckless {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordReckless)
+	}
+	if len(v.DefaultJudgments) != 0 {
+		t.Fatalf("mixed root and nested influence must not get scoped default judgment: %+v", v.DefaultJudgments)
+	}
+	if !hasInstructionScopeFact(v, "AGENTS.md", model.InstructionScopeRoot) {
+		t.Fatalf("verdict should carry root instruction-scope fact: %+v", v.InfluenceProvenance)
+	}
+}
+
 func TestRenderReadoutCombinedRisk(t *testing.T) {
 	v := buildVerdict(t, "combined-risk")
 
@@ -392,6 +442,15 @@ func TestBuildInconclusiveExposuresAreCounted(t *testing.T) {
 func hasInfluenceProvenance(v verdict.Verdict, source string, provenance string) bool {
 	for _, fact := range v.InfluenceProvenance {
 		if fact.Source == source && fact.Provenance == provenance && fact.ID != "" && fact.TrustInputID != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasInstructionScopeFact(v verdict.Verdict, source string, scope string) bool {
+	for _, fact := range v.InfluenceProvenance {
+		if fact.Source == source && fact.InstructionScope == scope && fact.ID != "" && fact.TrustInputID != "" {
 			return true
 		}
 	}

@@ -88,6 +88,7 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 	}
 	if surfaceCanEmitTrustInput(s) {
 		fact.Provenance = trustInputProvenance(s)
+		fact.InstructionScope = instructionScopeForSurface(opts, s)
 	}
 	c.Facts = appendUniqueFact(c.Facts, fact)
 	collectRuntimeSurfaceEvidence(c, s)
@@ -105,9 +106,9 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 
 	switch s.Kind {
 	case "claude-md", "agents-md", "nested-agents-md", "cursor-rules", "windsurf-rules", "continue-rules", "gemini-md", "codex-agents-md", "copilot-instructions", "copilot-path-instructions", "cline-rules", "roo-rules", "claude-command", "gemini-command", "claude-project-memory":
-		collectInstruction(c, s)
+		collectInstruction(c, opts, s)
 	case "claude-subagent":
-		collectDelegationSurface(c, s)
+		collectDelegationSurface(c, opts, s)
 	case "codex-config", "codex-requirements":
 		collectCodexConfig(c, s)
 	case "claude-settings", "claude-local-settings":
@@ -163,9 +164,9 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 	case "claude-remote-settings", "claude-policy-limits":
 		collectManagedControlSurface(c, s)
 	case "github-actions-workflow":
-		collectGitHubActionsWorkflow(c, s)
+		collectGitHubActionsWorkflow(c, opts, s)
 	case "gitlab-ci-pipeline":
-		collectGitLabCIWorkflow(c, s)
+		collectGitLabCIWorkflow(c, opts, s)
 	}
 	_ = opts
 }
@@ -191,7 +192,7 @@ func collectRuntimeSurfaceEvidence(c *model.Collection, s model.Surface) {
 	})
 }
 
-func collectInstruction(c *model.Collection, s model.Surface) {
+func collectInstruction(c *model.Collection, opts Options, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
 		return
@@ -218,15 +219,16 @@ func collectInstruction(c *model.Collection, s model.Surface) {
 		summary = "Agent instruction surface contains secret-seeking or permission-bypass guidance."
 	}
 	c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
-		ID:         id,
-		Kind:       kind,
-		Runtime:    runtimeForTrustInput(s),
-		Source:     s.Source,
-		Provenance: trustInputProvenance(s),
-		Risky:      risky,
-		Summary:    summary,
-		LineStart:  line,
-		LineEnd:    line,
+		ID:               id,
+		Kind:             kind,
+		Runtime:          runtimeForTrustInput(s),
+		Source:           s.Source,
+		Provenance:       trustInputProvenance(s),
+		InstructionScope: instructionScopeForSurface(opts, s),
+		Risky:            risky,
+		Summary:          summary,
+		LineStart:        line,
+		LineEnd:          line,
 	})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+id, "trust-input", s.Source, "declared", "Agent instruction surface was parsed without emitting raw content.", line))
 	lower := strings.ToLower(string(data))
@@ -246,7 +248,7 @@ func collectInstruction(c *model.Collection, s model.Surface) {
 	}
 }
 
-func collectDelegationSurface(c *model.Collection, s model.Surface) {
+func collectDelegationSurface(c *model.Collection, opts Options, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
 		return
@@ -261,15 +263,16 @@ func collectDelegationSurface(c *model.Collection, s model.Surface) {
 	}
 	addDelegationSurfaceAt(c, "claude", s.Source, summary, line)
 	c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
-		ID:         "trustinput:agent-delegation",
-		Kind:       "agent-delegation",
-		Runtime:    "claude",
-		Source:     s.Source,
-		Provenance: trustInputProvenance(s),
-		Risky:      riskyInstructionPattern.Match(data),
-		Summary:    "Subagent definition can influence delegated agent behavior.",
-		LineStart:  line,
-		LineEnd:    line,
+		ID:               "trustinput:agent-delegation",
+		Kind:             "agent-delegation",
+		Runtime:          "claude",
+		Source:           s.Source,
+		Provenance:       trustInputProvenance(s),
+		InstructionScope: instructionScopeForSurface(opts, s),
+		Risky:            riskyInstructionPattern.Match(data),
+		Summary:          "Subagent definition can influence delegated agent behavior.",
+		LineStart:        line,
+		LineEnd:          line,
 	})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:trustinput:agent-delegation", "trust-input", s.Source, "declared", "Subagent definition was parsed without emitting raw content.", line))
 }
@@ -339,6 +342,63 @@ func trustInputProvenance(s model.Surface) string {
 		return model.TrustInputProvenanceThirdParty
 	}
 	return model.TrustInputProvenanceUnknown
+}
+
+// instructionScopeForSurface records where an influence surface applies
+// relative to its assessment root. Files at that root and files in a
+// runtime-owned root config location are always-load influence; other files
+// are subtree-scoped. This never skips or suppresses collection.
+func instructionScopeForSurface(opts Options, s model.Surface) string {
+	root := opts.RepoPath
+	if s.Scope == "endpoint" {
+		root = opts.HomePath
+	}
+	if root == "" || s.Path == "" {
+		return model.InstructionScopeUnknown
+	}
+	rel, err := filepath.Rel(root, s.Path)
+	if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return model.InstructionScopeUnknown
+	}
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	if !strings.Contains(rel, "/") {
+		return model.InstructionScopeRoot
+	}
+	if s.Kind == "nested-agents-md" {
+		// .codex/AGENTS.md is an always-loaded Codex config surface that also
+		// matches the generic nested-AGENTS discovery rule.
+		if rel == ".codex/AGENTS.md" {
+			return model.InstructionScopeRoot
+		}
+		return model.InstructionScopeNested
+	}
+	if isRuntimeRootConfigLocation(rel) {
+		return model.InstructionScopeRoot
+	}
+	return model.InstructionScopeNested
+}
+
+func isRuntimeRootConfigLocation(rel string) bool {
+	for _, prefix := range []string{
+		".claude/",
+		".codex/",
+		".cursor/",
+		".windsurf/",
+		".continue/",
+		".gemini/",
+		".github/",
+		".gitlab/",
+		".clinerules/",
+		".cline/",
+		".roo/",
+		".vscode/",
+		"Documents/Cline/Rules/",
+	} {
+		if strings.HasPrefix(rel, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // collectCodexConfig parses .codex/config.toml (or requirements.toml) with
@@ -856,7 +916,7 @@ func collectMCPPolicy(c *model.Collection, s model.Surface) {
 	collectResourceControls(c, "", s.Source, text)
 }
 
-func collectGitHubActionsWorkflow(c *model.Collection, s model.Surface) {
+func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
 		return
@@ -875,13 +935,14 @@ func collectGitHubActionsWorkflow(c *model.Collection, s model.Surface) {
 	text := strings.ToLower(string(data))
 	if workflowHasUntrustedTrigger(text) {
 		c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
-			ID:         "trustinput:managed-workflow-trigger",
-			Kind:       "managed-workflow-trigger",
-			Runtime:    runtime,
-			Source:     source,
-			Provenance: trustInputProvenance(s),
-			Risky:      true,
-			Summary:    "Workflow can be triggered by pull request, issue, or other repository event input.",
+			ID:               "trustinput:managed-workflow-trigger",
+			Kind:             "managed-workflow-trigger",
+			Runtime:          runtime,
+			Source:           source,
+			Provenance:       trustInputProvenance(s),
+			InstructionScope: instructionScopeForSurface(opts, s),
+			Risky:            true,
+			Summary:          "Workflow can be triggered by pull request, issue, or other repository event input.",
 		})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:managed-workflow-trigger", "trust-input", source, "declared", "Managed workflow trigger surface was parsed without executing the workflow."))
 	}
@@ -1008,7 +1069,7 @@ func collectGitHubActionsWorkflow(c *model.Collection, s model.Surface) {
 	}
 }
 
-func collectGitLabCIWorkflow(c *model.Collection, s model.Surface) {
+func collectGitLabCIWorkflow(c *model.Collection, opts Options, s model.Surface) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
 		return
@@ -1027,13 +1088,14 @@ func collectGitLabCIWorkflow(c *model.Collection, s model.Surface) {
 	text := strings.ToLower(string(data))
 	if gitlabWorkflowHasUntrustedTrigger(text) {
 		c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
-			ID:         "trustinput:managed-workflow-trigger",
-			Kind:       "managed-workflow-trigger",
-			Runtime:    runtime,
-			Source:     source,
-			Provenance: trustInputProvenance(s),
-			Risky:      true,
-			Summary:    "Pipeline can be triggered by merge request, trigger, web, schedule, or other repository event input.",
+			ID:               "trustinput:managed-workflow-trigger",
+			Kind:             "managed-workflow-trigger",
+			Runtime:          runtime,
+			Source:           source,
+			Provenance:       trustInputProvenance(s),
+			InstructionScope: instructionScopeForSurface(opts, s),
+			Risky:            true,
+			Summary:          "Pipeline can be triggered by merge request, trigger, web, schedule, or other repository event input.",
 		})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:managed-workflow-trigger", "trust-input", source, "declared", "Managed workflow trigger surface was parsed without executing the pipeline."))
 	}
@@ -3732,13 +3794,17 @@ func appendUniqueTrustInput(in []model.TrustInput, next model.TrustInput) []mode
 	if next.Provenance == "" {
 		next.Provenance = model.TrustInputProvenanceUnknown
 	}
+	if next.InstructionScope == "" {
+		next.InstructionScope = model.InstructionScopeUnknown
+	}
 	for i, item := range in {
-		if item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source && item.Provenance == next.Provenance {
+		if item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source && item.Provenance == next.Provenance && item.InstructionScope == next.InstructionScope {
 			if next.Risky && !item.Risky {
 				in[i].Risky = true
 				in[i].Summary = next.Summary
 				in[i].Source = next.Source
 				in[i].Provenance = next.Provenance
+				in[i].InstructionScope = next.InstructionScope
 			}
 			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(in[i].LineStart, in[i].LineEnd, in[i].Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			return in

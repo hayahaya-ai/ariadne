@@ -135,6 +135,10 @@
           "type": "string",
           "enum": ["home_scope", "repo_checkout", "third_party", "unknown"]
         },
+        "instruction_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
+        },
         "handling_mode": { "type": "string" },
         "evidence_grade": { "type": "string", "enum": ["observed", "declared", "inferred", "skipped", "missing"] },
         "redaction": { "type": "string" },
@@ -158,7 +162,7 @@
     },
     "trust_input": {
       "type": "object",
-      "required": ["id", "kind", "source", "provenance", "risky", "summary"],
+      "required": ["id", "kind", "source", "provenance", "instruction_scope", "risky", "summary"],
       "properties": {
         "id": { "type": "string" },
         "kind": { "type": "string" },
@@ -167,6 +171,10 @@
         "provenance": {
           "type": "string",
           "enum": ["home_scope", "repo_checkout", "third_party", "unknown"]
+        },
+        "instruction_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
         },
         "risky": { "type": "boolean" },
         "summary": { "type": "string" }

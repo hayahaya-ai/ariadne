@@ -63,6 +63,7 @@ type ExpectedResult struct {
 type ExpectedVerdict struct {
 	Word                       string                   `json:"word"`
 	Findings                   []ExpectedVerdictFinding `json:"findings,omitempty"`
+	DefaultJudgmentRules       []string                 `json:"default_judgment_rules,omitempty"`
 	MinTradeoffs               int                      `json:"min_tradeoffs,omitempty"`
 	MaxTradeoffs               int                      `json:"max_tradeoffs,omitempty"`
 	RequireEvidenceLineAnchors bool                     `json:"require_evidence_line_anchors,omitempty"`
@@ -1502,17 +1503,18 @@ type Surface struct {
 }
 
 type Fact struct {
-	ID            string   `json:"id"`
-	Type          string   `json:"type"`
-	Runtime       string   `json:"runtime,omitempty"`
-	Scope         string   `json:"scope,omitempty"`
-	Source        string   `json:"source,omitempty"`
-	Provenance    string   `json:"provenance,omitempty"`
-	HandlingMode  string   `json:"handling_mode,omitempty"`
-	EvidenceGrade string   `json:"evidence_grade"`
-	Redaction     string   `json:"redaction"`
-	Summary       string   `json:"summary"`
-	Limitations   []string `json:"limitations,omitempty"`
+	ID               string   `json:"id"`
+	Type             string   `json:"type"`
+	Runtime          string   `json:"runtime,omitempty"`
+	Scope            string   `json:"scope,omitempty"`
+	Source           string   `json:"source,omitempty"`
+	Provenance       string   `json:"provenance,omitempty"`
+	InstructionScope string   `json:"instruction_scope,omitempty"`
+	HandlingMode     string   `json:"handling_mode,omitempty"`
+	EvidenceGrade    string   `json:"evidence_grade"`
+	Redaction        string   `json:"redaction"`
+	Summary          string   `json:"summary"`
+	Limitations      []string `json:"limitations,omitempty"`
 }
 
 type Graph struct {
@@ -1768,6 +1770,7 @@ type Interpretation struct {
 	PolicySource   string       `json:"policy_source,omitempty"`
 	ReviewSource   string       `json:"review_source,omitempty"`
 	RequestDigest  string       `json:"request_digest,omitempty"`
+	Analyst        *LLMAnalyst  `json:"analyst,omitempty"`
 }
 
 type IssueSummary struct {
@@ -1844,6 +1847,7 @@ type LLMReviewRequest struct {
 	ReviewContract     LLMReviewContract  `json:"review_contract"`
 	ReviewerTasks      []LLMReviewerTask  `json:"reviewer_tasks"`
 	CitationCatalog    LLMCitationCatalog `json:"citation_catalog"`
+	Verdict            *LLMVerdictContext `json:"verdict,omitempty"`
 	Collection         Collection         `json:"collection"`
 	Graph              Graph              `json:"graph"`
 	Exposures          []ExposureResult   `json:"exposures"`
@@ -1872,22 +1876,125 @@ type LLMReviewerTask struct {
 }
 
 type LLMCitationCatalog struct {
-	ExposureIDs  []string            `json:"exposure_ids"`
-	FactIDs      []string            `json:"fact_ids"`
-	GraphEdges   []string            `json:"graph_edges"`
-	ControlIDs   []string            `json:"control_ids"`
-	AuthorityIDs []string            `json:"authority_ids"`
-	BoundaryIDs  []string            `json:"boundary_ids"`
-	SourceRefs   []EvidenceReference `json:"source_refs"`
+	ExposureIDs          []string            `json:"exposure_ids"`
+	FactIDs              []string            `json:"fact_ids"`
+	GraphEdges           []string            `json:"graph_edges"`
+	ControlIDs           []string            `json:"control_ids"`
+	AuthorityIDs         []string            `json:"authority_ids"`
+	BoundaryIDs          []string            `json:"boundary_ids"`
+	FindingIDs           []string            `json:"finding_ids"`
+	DefaultJudgmentIDs   []string            `json:"default_judgment_ids"`
+	DefaultJudgmentRules []string            `json:"default_judgment_rules"`
+	TradeoffIDs          []string            `json:"tradeoff_ids"`
+	EvidenceRefIDs       []string            `json:"evidence_ref_ids"`
+	SourceRefs           []EvidenceReference `json:"source_refs"`
 }
 
 type LLMReviewResponse struct {
-	SchemaVersion string   `json:"schema_version"`
-	Reviewer      string   `json:"reviewer,omitempty"`
-	Model         string   `json:"model,omitempty"`
-	Summary       string   `json:"summary,omitempty"`
-	Issues        []Issue  `json:"issues"`
-	Limitations   []string `json:"limitations,omitempty"`
+	SchemaVersion            string                       `json:"schema_version"`
+	Reviewer                 string                       `json:"reviewer,omitempty"`
+	Model                    string                       `json:"model,omitempty"`
+	Summary                  string                       `json:"summary,omitempty"`
+	FindingExplanations      []LLMFindingExplanation      `json:"finding_explanations,omitempty"`
+	FindingRanking           []LLMFindingRanking          `json:"finding_ranking,omitempty"`
+	DefaultJudgmentOverrides []LLMDefaultJudgmentOverride `json:"default_judgment_overrides,omitempty"`
+	Issues                   []Issue                      `json:"issues,omitempty"`
+	Limitations              []string                     `json:"limitations,omitempty"`
+}
+
+type LLMVerdictContext struct {
+	VerdictWord         string                       `json:"verdict"`
+	Reckless            []LLMVerdictFinding          `json:"reckless"`
+	DefaultJudgments    []LLMDefaultJudgment         `json:"default_judgments"`
+	InfluenceProvenance []LLMInfluenceProvenanceFact `json:"influence_provenance"`
+	Tradeoffs           []LLMTradeoffLine            `json:"tradeoffs"`
+}
+
+type LLMVerdictFinding struct {
+	ID           string              `json:"id"`
+	ExposureID   string              `json:"exposure_id"`
+	Title        string              `json:"title"`
+	Where        LLMEvidenceLocation `json:"where"`
+	EvidenceRefs []string            `json:"evidence_ref_ids"`
+	Why          string              `json:"why"`
+	Fix          string              `json:"fix"`
+}
+
+type LLMEvidenceLocation struct {
+	Source string `json:"source"`
+	Line   int    `json:"line,omitempty"`
+	Anchor string `json:"anchor,omitempty"`
+}
+
+type LLMDefaultJudgment struct {
+	ID            string                `json:"id"`
+	Rule          string                `json:"rule"`
+	Label         string                `json:"label"`
+	ExposureID    string                `json:"exposure_id"`
+	TrustInputIDs []string              `json:"trust_input_ids"`
+	Basis         []LLMJudgmentBasisRef `json:"basis"`
+	Summary       string                `json:"summary"`
+}
+
+type LLMJudgmentBasisRef struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+type LLMInfluenceProvenanceFact struct {
+	ID               string `json:"id"`
+	TrustInputID     string `json:"trust_input_id"`
+	Provenance       string `json:"provenance"`
+	InstructionScope string `json:"instruction_scope"`
+	Source           string `json:"source"`
+	Summary          string `json:"summary"`
+}
+
+type LLMTradeoffLine struct {
+	ID      string `json:"id"`
+	Summary string `json:"summary"`
+	Source  string `json:"source"`
+}
+
+type LLMFindingExplanation struct {
+	FindingID       string   `json:"finding_id"`
+	ExposureID      string   `json:"exposure_id"`
+	OperatorContext string   `json:"operator_context"`
+	FactIDs         []string `json:"fact_ids,omitempty"`
+	EvidenceRefIDs  []string `json:"evidence_ref_ids,omitempty"`
+	GraphEdges      []string `json:"graph_edges,omitempty"`
+}
+
+type LLMFindingRanking struct {
+	Rank           int      `json:"rank"`
+	FindingID      string   `json:"finding_id"`
+	ExposureID     string   `json:"exposure_id"`
+	Rationale      string   `json:"rationale"`
+	FactIDs        []string `json:"fact_ids,omitempty"`
+	EvidenceRefIDs []string `json:"evidence_ref_ids,omitempty"`
+	GraphEdges     []string `json:"graph_edges,omitempty"`
+}
+
+type LLMDefaultJudgmentOverride struct {
+	Rule             string   `json:"rule"`
+	ExposureID       string   `json:"exposure_id"`
+	ProposedJudgment string   `json:"proposed_judgment"`
+	Reason           string   `json:"reason"`
+	BasisFactIDs     []string `json:"basis_fact_ids"`
+}
+
+type LLMAnalyst struct {
+	SourceType               string                       `json:"source_type"`
+	DerivedBy                string                       `json:"derived_by"`
+	ReviewSource             string                       `json:"review_source"`
+	RequestDigest            string                       `json:"request_digest"`
+	Reviewer                 string                       `json:"reviewer,omitempty"`
+	Model                    string                       `json:"model,omitempty"`
+	Summary                  string                       `json:"summary,omitempty"`
+	FindingExplanations      []LLMFindingExplanation      `json:"finding_explanations"`
+	FindingRanking           []LLMFindingRanking          `json:"finding_ranking"`
+	DefaultJudgmentOverrides []LLMDefaultJudgmentOverride `json:"default_judgment_overrides"`
+	Limitations              []string                     `json:"limitations,omitempty"`
 }
 
 type RuntimeEvidence struct {
@@ -1906,19 +2013,24 @@ const (
 	TrustInputProvenanceRepoCheckout = "repo_checkout"
 	TrustInputProvenanceThirdParty   = "third_party"
 	TrustInputProvenanceUnknown      = "unknown"
+
+	InstructionScopeRoot    = "root"
+	InstructionScopeNested  = "nested"
+	InstructionScopeUnknown = "unknown"
 )
 
 type TrustInput struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind"`
-	Runtime    string `json:"runtime,omitempty"`
-	Source     string `json:"source"`
-	Provenance string `json:"provenance"`
-	Risky      bool   `json:"risky"`
-	Summary    string `json:"summary"`
-	LineStart  int    `json:"-"`
-	LineEnd    int    `json:"-"`
-	Anchor     string `json:"-"`
+	ID               string `json:"id"`
+	Kind             string `json:"kind"`
+	Runtime          string `json:"runtime,omitempty"`
+	Source           string `json:"source"`
+	Provenance       string `json:"provenance"`
+	InstructionScope string `json:"instruction_scope"`
+	Risky            bool   `json:"risky"`
+	Summary          string `json:"summary"`
+	LineStart        int    `json:"-"`
+	LineEnd          int    `json:"-"`
+	Anchor           string `json:"-"`
 }
 
 type Tool struct {

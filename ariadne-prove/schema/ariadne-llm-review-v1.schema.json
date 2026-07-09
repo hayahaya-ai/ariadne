@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-llm-review-v1.schema.json",
+  "title": "Ariadne LLM Review v1",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": { "const": "ariadne.llm_review/v1" },
+    "reviewer": { "type": "string" },
+    "model": { "type": "string" },
+    "summary": { "type": "string" },
+    "finding_explanations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding_explanation" }
+    },
+    "finding_ranking": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding_ranking" }
+    },
+    "default_judgment_overrides": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/default_judgment_override" }
+    },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "not": {
+    "anyOf": [
+      { "required": ["verdict"] },
+      { "required": ["verdict_word"] },
+      { "required": ["close_findings"] },
+      { "required": ["closed_findings"] },
+      { "required": ["remove_findings"] },
+      { "required": ["removed_findings"] },
+      { "required": ["issues"] }
+    ]
+  },
+  "$defs": {
+    "finding_explanation": {
+      "type": "object",
+      "required": ["finding_id", "exposure_id", "operator_context"],
+      "properties": {
+        "finding_id": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "operator_context": { "type": "string" },
+        "fact_ids": { "type": "array", "items": { "type": "string" } },
+        "evidence_ref_ids": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "finding_ranking": {
+      "type": "object",
+      "required": ["rank", "finding_id", "exposure_id", "rationale"],
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "finding_id": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "rationale": { "type": "string" },
+        "fact_ids": { "type": "array", "items": { "type": "string" } },
+        "evidence_ref_ids": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "default_judgment_override": {
+      "type": "object",
+      "required": ["rule", "exposure_id", "proposed_judgment", "reason", "basis_fact_ids"],
+      "properties": {
+        "rule": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "proposed_judgment": { "type": "string" },
+        "reason": { "type": "string" },
+        "basis_fact_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

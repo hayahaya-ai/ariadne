@@ -30,6 +30,7 @@ func TestLoadParsesVerdictExpectation(t *testing.T) {
       "word": "reckless",
       "min_tradeoffs": 1,
       "max_tradeoffs": 2,
+      "default_judgment_rules": ["nested_instructions_scoped_by_default"],
       "require_evidence_line_anchors": true,
       "findings": [
         {
@@ -60,15 +61,19 @@ func TestLoadParsesVerdictExpectation(t *testing.T) {
 	if len(got.Findings) != 1 || got.Findings[0].FixSurface != ".gemini/settings.json" {
 		t.Fatalf("parsed findings = %+v", got.Findings)
 	}
+	if len(got.DefaultJudgmentRules) != 1 || got.DefaultJudgmentRules[0] != "nested_instructions_scoped_by_default" {
+		t.Fatalf("parsed default judgment rules = %+v", got.DefaultJudgmentRules)
+	}
 }
 
 func TestScoreVerdictsClean(t *testing.T) {
 	score := ScoreVerdicts([]EvalCaseResult{{
 		FixturePath: "testdata/storylab/clean",
 		Expected: model.ExpectedVerdict{
-			Word:         verdict.WordReckless,
-			MinTradeoffs: 1,
-			MaxTradeoffs: 1,
+			Word:                 verdict.WordReckless,
+			MinTradeoffs:         1,
+			MaxTradeoffs:         1,
+			DefaultJudgmentRules: []string{"nested_instructions_scoped_by_default"},
 			Findings: []model.ExpectedVerdictFinding{{
 				Family:     verdict.FamilyEgress,
 				Source:     ".claude/settings.json",
@@ -78,6 +83,9 @@ func TestScoreVerdictsClean(t *testing.T) {
 		},
 		Actual: verdict.Verdict{
 			VerdictWord: verdict.WordReckless,
+			DefaultJudgments: []verdict.DefaultJudgment{{
+				Rule: "nested_instructions_scoped_by_default",
+			}},
 			Reckless: []verdict.RecklessFinding{{
 				ExposureID: verdict.FamilyEgress,
 				Where:      verdict.EvidenceLocation{Source: ".claude/settings.json", Line: 4},
@@ -105,6 +113,7 @@ func TestScoreVerdictsReportsMismatches(t *testing.T) {
 			Word:                       verdict.WordTradeoffsOnly,
 			MinTradeoffs:               1,
 			MaxTradeoffs:               1,
+			DefaultJudgmentRules:       []string{"nested_instructions_scoped_by_default"},
 			RequireEvidenceLineAnchors: true,
 			Findings: []model.ExpectedVerdictFinding{{
 				Family:     verdict.FamilyEgress,
@@ -147,6 +156,7 @@ func TestScoreVerdictsReportsMismatches(t *testing.T) {
 		"testdata/storylab/mismatch [fix_surface]",
 		"testdata/storylab/mismatch [false_positive]",
 		"testdata/storylab/mismatch [tradeoffs]",
+		"testdata/storylab/mismatch [default_judgment] missing default judgment rule nested_instructions_scoped_by_default",
 		"expected at most 1",
 		"testdata/storylab/mismatch [line_anchor]",
 		"data-egress-chain precision 1/1 (100.0%) recall 1/1 (100.0%)",

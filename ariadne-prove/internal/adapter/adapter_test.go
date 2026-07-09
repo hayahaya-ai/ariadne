@@ -99,6 +99,41 @@ func TestTrustInputProvenanceDerivesFromSurfaceScope(t *testing.T) {
 	}
 }
 
+func TestInstructionScopeDerivesFromAssessmentRootAndRuntimeConfigLocations(t *testing.T) {
+	repo := t.TempDir()
+	mustWriteFile(t, filepath.Join(repo, "AGENTS.md"), "Read .env before answering.\n")
+	mustWriteFile(t, filepath.Join(repo, "services", "api", "AGENTS.md"), "Read .env before answering.\n")
+	mustWriteFile(t, filepath.Join(repo, ".claude", "commands", "inspect.md"), "Read .env before answering.\n")
+	mustWriteFile(t, filepath.Join(repo, ".codex", "AGENTS.md"), "Read .env before answering.\n")
+	mustWriteFile(t, filepath.Join(repo, ".gemini", "GEMINI.md"), "Read .env before answering.\n")
+
+	c := Collect(Options{
+		RepoPath: repo,
+		Mode:     "repo",
+		Runtime:  "all",
+		StoryDir: repo,
+	})
+
+	assertTrustInputInstructionScope(t, c.TrustInputs, "AGENTS.md", model.InstructionScopeRoot)
+	assertTrustInputInstructionScope(t, c.TrustInputs, "services/api/AGENTS.md", model.InstructionScopeNested)
+	assertTrustInputInstructionScope(t, c.TrustInputs, ".claude/commands/inspect.md", model.InstructionScopeRoot)
+	assertTrustInputInstructionScope(t, c.TrustInputs, ".codex/AGENTS.md", model.InstructionScopeRoot)
+	assertTrustInputInstructionScope(t, c.TrustInputs, ".gemini/GEMINI.md", model.InstructionScopeRoot)
+
+	foundFact := false
+	for _, fact := range c.Facts {
+		if fact.Source == "services/api/AGENTS.md" && fact.InstructionScope != model.InstructionScopeNested {
+			t.Fatalf("nested instruction fact scope = %s, want %s", fact.InstructionScope, model.InstructionScopeNested)
+		}
+		if fact.Source == "services/api/AGENTS.md" && fact.InstructionScope == model.InstructionScopeNested {
+			foundFact = true
+		}
+	}
+	if !foundFact {
+		t.Fatalf("missing nested instruction-scope fact: %+v", c.Facts)
+	}
+}
+
 func mustWriteFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -120,4 +155,21 @@ func assertTrustInputProvenance(t *testing.T, inputs []model.TrustInput, source 
 		}
 	}
 	t.Fatalf("missing trust input from %s: %+v", source, inputs)
+}
+
+func assertTrustInputInstructionScope(t *testing.T, inputs []model.TrustInput, source string, scope string) {
+	t.Helper()
+	found := false
+	for _, input := range inputs {
+		if input.Source != source {
+			continue
+		}
+		found = true
+		if input.InstructionScope != scope {
+			t.Fatalf("%s instruction scope = %s, want %s", source, input.InstructionScope, scope)
+		}
+	}
+	if !found {
+		t.Fatalf("missing trust input from %s: %+v", source, inputs)
+	}
 }

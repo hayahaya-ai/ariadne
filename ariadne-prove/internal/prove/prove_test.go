@@ -653,95 +653,86 @@ func TestRunPathAppliesCustomDeterministicRules(t *testing.T) {
 }
 
 func TestRunPathLLMReviewFromFilePrioritizesGraphBackedIssue(t *testing.T) {
-	reviewPath := filepath.Join(t.TempDir(), "llm-review.json")
-	review := `{
-  "schema_version": "ariadne.llm_review/v1",
-  "reviewer": "fixture",
-  "model": "fixture-model",
-  "summary": "The data egress chain is the highest-risk path.",
-  "issues": [
-    {
-      "id": "data-egress-critical",
-      "title": "LLM-reviewed data egress path",
-      "severity": "critical",
-      "priority": "p0",
-      "disposition": "fix_now",
-      "category": "data-egress",
-      "exposure_id": "data-egress-chain",
-      "exposure_status": "exposed",
-      "rationale": "The packet contains untrusted influence, private-data reachability, and external communication reachability.",
-      "signals": ["Graph contains the data egress chain."],
-      "graph_edges": [
-        "trustinput:repo-instruction|influences|runtime:codex",
-        "authority:external-communication|reaches|boundary:external-destination"
-      ],
-      "actions": ["Restrict external communication for agent runtimes."],
-      "confidence": "medium"
-    }
-  ],
-  "limitations": ["Fixture review only."]
-}`
-	if err := os.WriteFile(reviewPath, []byte(review), 0o644); err != nil {
+	reviewPath := llmReviewFixture(t, "combined-risk-review.json")
+	deterministic, err := RunPath(Options{Path: realPathFixture(t, "combined-risk")})
+	if err != nil {
 		t.Fatal(err)
 	}
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), InterpretMode: "llm", LLMReviewPath: reviewPath})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Interpretation.Mode != "llm_review" {
-		t.Fatalf("interpretation mode = %s, want llm_review", r.Interpretation.Mode)
+	if r.Interpretation.Mode != "deterministic" {
+		t.Fatalf("interpretation mode = %s, want deterministic", r.Interpretation.Mode)
 	}
-	if r.Interpretation.RequestDigest == "" {
+	if r.Interpretation.Analyst == nil || r.Interpretation.Analyst.RequestDigest == "" {
 		t.Fatalf("expected request digest for LLM audit")
 	}
-	issue := assertIssue(t, r.Interpretation.Issues, "llm:data-egress-critical", model.SeverityCritical, model.PriorityP0, true)
-	if issue.RuleSource != "llm" || issue.InterpretationMode != "llm_review" {
-		t.Fatalf("issue was not normalized as LLM review: %+v", issue)
+	if len(r.Interpretation.Issues) != len(deterministic.Interpretation.Issues) || r.Interpretation.Summary != deterministic.Interpretation.Summary {
+		t.Fatalf("LLM review must not replace deterministic issues: got %+v want %+v", r.Interpretation.Summary, deterministic.Interpretation.Summary)
 	}
+	analyst := r.Interpretation.Analyst
+	if analyst.SourceType != "llm_review" || analyst.DerivedBy != "llm" {
+		t.Fatalf("analyst section was not labeled as LLM-derived: %+v", analyst)
+	}
+	if len(analyst.FindingExplanations) != 3 || len(analyst.FindingRanking) != 3 {
+		t.Fatalf("analyst output should explain and rank the three reckless findings: %+v", analyst)
+	}
+	if analyst.FindingRanking[0].FindingID != "reckless:1" || analyst.FindingRanking[0].ExposureID != "data-egress-chain" {
+		t.Fatalf("data egress should remain analyst's top-ranked existing finding: %+v", analyst.FindingRanking)
+	}
+}
+
+func TestRunPathLLMReviewOnlyAddsAnalystSection(t *testing.T) {
+	path := realPathFixture(t, "combined-risk")
+	without, err := RunPathWithInventory(Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	with, err := RunPathWithInventory(Options{Path: path, InterpretMode: "llm", LLMReviewPath: llmReviewFixture(t, "combined-risk-review.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if without.Report.Interpretation.Analyst != nil {
+		t.Fatalf("deterministic run unexpectedly has analyst section: %+v", without.Report.Interpretation.Analyst)
+	}
+	if with.Report.Interpretation.Analyst == nil {
+		t.Fatalf("LLM-reviewed run missing analyst section")
+	}
+
+	withoutComparable := comparableReport(without.Report)
+	withComparable := comparableReport(with.Report)
+	withComparable.Interpretation.Analyst = nil
+	if got, want := stableJSON(t, withComparable), stableJSON(t, withoutComparable); got != want {
+		t.Fatalf("LLM review changed report content outside interpretation.analyst\n--- with ---\n%s\n--- without ---\n%s", got, want)
+	}
+	t.Logf("normalized prove JSON equal after removing interpretation.analyst: true")
+
+	withoutVerdict := verdict.Build(without.Inventory, without.Report, without.Report.TargetPath, without.Report.Story.Mode)
+	withVerdict := verdict.Build(with.Inventory, with.Report, with.Report.TargetPath, with.Report.Story.Mode)
+	withoutVerdict.GeneratedAt = time.Time{}
+	withVerdict.GeneratedAt = time.Time{}
+	if got, want := stableJSON(t, withVerdict), stableJSON(t, withoutVerdict); got != want {
+		t.Fatalf("LLM review changed deterministic verdict output\n--- with ---\n%s\n--- without ---\n%s", got, want)
+	}
+	t.Logf("verdict word/findings/buckets equal after normalizing generated_at: true")
 }
 
 func TestRunPathLLMReviewFromCommand(t *testing.T) {
 	dir := t.TempDir()
-	reviewer := filepath.Join(dir, "reviewer")
-	script := `#!/bin/sh
-cat >/dev/null
-printf '%s\n' '{
-  "schema_version": "ariadne.llm_review/v1",
-  "reviewer": "fixture-command",
-  "issues": [
-    {
-      "id": "command-secret-path",
-      "title": "Command-reviewed secret path",
-      "severity": "high",
-      "priority": "p1",
-      "disposition": "fix_now",
-      "category": "secret-access",
-      "exposure_id": "prompt-injection-to-secret-canary",
-      "exposure_status": "exposed",
-      "graph_edges": [
-        "authority:file-read|reaches|boundary:secret-like-file"
-      ],
-      "rationale": "The command reviewer selected the graph-backed secret path.",
-      "signals": ["Graph reaches a secret-like file boundary."],
-      "actions": ["Add deny-read controls."],
-      "confidence": "medium"
-    }
-  ]
-}'
-`
-	if err := os.WriteFile(reviewer, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	reviewer := writeFixtureReviewer(t, dir)
 	r, err := RunPath(Options{Path: realPathFixture(t, "combined-risk"), InterpretMode: "llm", LLMCommand: reviewer})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Interpretation.Mode != "llm_review" {
-		t.Fatalf("interpretation mode = %s, want llm_review", r.Interpretation.Mode)
+	if r.Interpretation.Mode != "deterministic" {
+		t.Fatalf("interpretation mode = %s, want deterministic", r.Interpretation.Mode)
 	}
-	issue := assertIssue(t, r.Interpretation.Issues, "llm:command-secret-path", model.SeverityHigh, model.PriorityP1, true)
-	if issue.RuleSource != "llm" {
-		t.Fatalf("issue source = %s, want llm", issue.RuleSource)
+	if r.Interpretation.Analyst == nil || r.Interpretation.Analyst.ReviewSource == "" {
+		t.Fatalf("expected analyst review source from command: %+v", r.Interpretation)
+	}
+	if !strings.Contains(r.Interpretation.Analyst.FindingExplanations[0].OperatorContext, "LLM-reviewed data egress path") {
+		t.Fatalf("command analyst content was not attached: %+v", r.Interpretation.Analyst)
 	}
 }
 
@@ -749,15 +740,47 @@ func TestRunPathLLMReviewRejectsUnsupportedGraphEvidence(t *testing.T) {
 	reviewPath := filepath.Join(t.TempDir(), "bad-llm-review.json")
 	review := `{
   "schema_version": "ariadne.llm_review/v1",
-  "issues": [
+  "finding_explanations": [
     {
-      "title": "Invented edge",
-      "severity": "critical",
-      "priority": "p0",
-      "disposition": "fix_now",
+      "finding_id": "reckless:1",
       "exposure_id": "data-egress-chain",
-      "exposure_status": "exposed",
+      "operator_context": "Invented edge.",
       "graph_edges": ["runtime:codex|invented|boundary:root"]
+    },
+    {
+      "finding_id": "reckless:2",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "operator_context": "Valid explanation.",
+      "fact_ids": ["fact:generic:secret-like-file:235c40c61601"]
+    },
+    {
+      "finding_id": "reckless:3",
+      "exposure_id": "mutable-tool-launch-execution",
+      "operator_context": "Valid explanation.",
+      "fact_ids": ["fact:mcp:mcp-config:b3cb7f985dab"]
+    }
+  ],
+  "finding_ranking": [
+    {
+      "rank": 1,
+      "finding_id": "reckless:1",
+      "exposure_id": "data-egress-chain",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:generic:claude-md:aa8513a0d09b"]
+    },
+    {
+      "rank": 2,
+      "finding_id": "reckless:3",
+      "exposure_id": "mutable-tool-launch-execution",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:mcp:mcp-config:b3cb7f985dab"]
+    },
+    {
+      "rank": 3,
+      "finding_id": "reckless:2",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:generic:secret-like-file:235c40c61601"]
     }
   ]
 }`
@@ -802,15 +825,19 @@ func TestRunPathWritesRedactedLLMReviewRequest(t *testing.T) {
 	if request.ReviewContract.Summary == "" || len(request.ReviewerTasks) == 0 {
 		t.Fatalf("LLM request should include review contract and reviewer tasks: %+v", request)
 	}
-	if !containsString(request.ReviewContract.RequiredCitations, "exposure_id") ||
+	if !containsString(request.ReviewContract.RequiredCitations, "finding_id") ||
 		!containsString(request.ReviewContract.ForbiddenClaims, "Secret values, private file contents, exact sensitive paths, or unredacted cache/history contents.") {
-		t.Fatalf("LLM review contract should require exposure citations and forbid private content claims: %+v", request.ReviewContract)
+		t.Fatalf("LLM review contract should require finding citations and forbid private content claims: %+v", request.ReviewContract)
+	}
+	if request.Verdict == nil || len(request.Verdict.Reckless) == 0 || len(request.CitationCatalog.FindingIDs) == 0 {
+		t.Fatalf("follow-up request should include verdict findings and finding IDs: %+v", request)
 	}
 	if len(request.CitationCatalog.ExposureIDs) == 0 || len(request.CitationCatalog.GraphEdges) == 0 || len(request.CitationCatalog.SourceRefs) == 0 {
 		t.Fatalf("LLM citation catalog should include exposures, graph edges, and source refs: %+v", request.CitationCatalog)
 	}
 	if !containsString(request.CitationCatalog.ExposureIDs, "data-egress-chain") ||
-		!containsString(request.CitationCatalog.GraphEdges, "trustinput:repo-instruction|influences|runtime:codex") {
+		!containsString(request.CitationCatalog.GraphEdges, "trustinput:repo-instruction|influences|runtime:codex") ||
+		!containsString(request.CitationCatalog.FindingIDs, "reckless:1") {
 		t.Fatalf("LLM citation catalog missing expected stable anchors: %+v", request.CitationCatalog)
 	}
 }
@@ -834,6 +861,9 @@ func TestRunPathWritesInventoryBlindLLMReviewRequest(t *testing.T) {
 	}
 	if request.ReviewProfile != "inventory_blind" {
 		t.Fatalf("review profile = %s, want inventory_blind", request.ReviewProfile)
+	}
+	if request.Verdict != nil {
+		t.Fatalf("inventory-blind request should omit verdict context: %+v", request.Verdict)
 	}
 	if len(request.Exposures) != 0 || len(request.Deterministic.Issues) != 0 {
 		t.Fatalf("inventory-blind request should omit deterministic exposure anchors: exposures=%d issues=%d", len(request.Exposures), len(request.Deterministic.Issues))
@@ -876,6 +906,12 @@ func TestRunReviewPacketBuildsUserFacingPacket(t *testing.T) {
 	if !containsString(request.CitationCatalog.ExposureIDs, "data-egress-chain") {
 		t.Fatalf("follow-up packet should include exposure anchors: %+v", request.CitationCatalog.ExposureIDs)
 	}
+	if request.Verdict == nil || request.Verdict.VerdictWord != "reckless" || len(request.Verdict.Reckless) != 3 {
+		t.Fatalf("follow-up packet should include graded verdict findings: %+v", request.Verdict)
+	}
+	if !containsString(request.CitationCatalog.FindingIDs, "reckless:1") || !containsString(request.CitationCatalog.EvidenceRefIDs, "evidence:trustinput:repo-instruction") {
+		t.Fatalf("follow-up packet should catalog finding and evidence IDs: %+v", request.CitationCatalog)
+	}
 	if strings.Contains(string(payload), "REALPATH_FAKE_SECRET_DO_NOT_LEAK") {
 		t.Fatalf("review packet leaked fake secret value")
 	}
@@ -896,39 +932,12 @@ func TestRunReviewPacketBuildsUserFacingPacket(t *testing.T) {
 func TestRunReviewCheckValidatesPacketBoundReview(t *testing.T) {
 	dir := t.TempDir()
 	packetPath := filepath.Join(dir, "llm-request.json")
-	reviewPath := filepath.Join(dir, "llm-review.json")
+	reviewPath := llmReviewFixture(t, "combined-risk-review.json")
 	_, payload, _, err := RunReviewPacket(Options{Path: realPathFixture(t, "combined-risk"), LLMReviewProfile: "follow-up"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(packetPath, payload, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	review := `{
-  "schema_version": "ariadne.llm_review/v1",
-  "reviewer": "fixture",
-  "model": "fixture-model",
-  "issues": [
-    {
-      "id": "packet-data-egress",
-      "title": "Packet-validated data egress path",
-      "severity": "critical",
-      "priority": "p0",
-      "disposition": "fix_now",
-      "category": "data-egress",
-      "exposure_id": "data-egress-chain",
-      "exposure_status": "exposed",
-      "rationale": "The review cites packet graph evidence.",
-      "graph_edges": [
-        "trustinput:repo-instruction|influences|runtime:codex",
-        "authority:external-communication|reaches|boundary:external-destination"
-      ],
-      "actions": ["Restrict external communication."],
-      "confidence": "medium"
-    }
-  ]
-}`
-	if err := os.WriteFile(reviewPath, []byte(review), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	check, err := RunReviewCheck(packetPath, reviewPath)
@@ -938,8 +947,59 @@ func TestRunReviewCheckValidatesPacketBoundReview(t *testing.T) {
 	if !check.Accepted || check.RunKind != "llm_review_check" || check.RequestDigest == "" {
 		t.Fatalf("review check should be accepted with digest: %+v", check)
 	}
-	if check.Interpretation.Mode != "llm_review" || check.Interpretation.Summary.Critical != 1 {
+	if check.Interpretation.Mode != "deterministic" || check.Interpretation.Analyst == nil || len(check.Interpretation.Analyst.FindingExplanations) != 3 {
 		t.Fatalf("review check interpretation mismatch: %+v", check.Interpretation)
+	}
+}
+
+func TestRunReviewCheckAcceptsDefaultJudgmentOverrideWithBasisFacts(t *testing.T) {
+	dir := t.TempDir()
+	packetPath := filepath.Join(dir, "llm-request.json")
+	reviewPath := filepath.Join(dir, "llm-review.json")
+	request, payload, _, err := RunReviewPacket(Options{Path: realPathFixture(t, "user-home-instructions-only"), Mode: "endpoint", LLMReviewProfile: "follow-up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Verdict == nil || len(request.Verdict.DefaultJudgments) == 0 || len(request.Verdict.Reckless) != 0 {
+		t.Fatalf("home-scope packet should have default judgments and no reckless findings: %+v", request.Verdict)
+	}
+	basisFact := ""
+	for _, ref := range request.Verdict.DefaultJudgments[0].Basis {
+		if ref.Kind == "fact" {
+			basisFact = ref.ID
+			break
+		}
+	}
+	if basisFact == "" {
+		t.Fatalf("default judgment missing fact basis: %+v", request.Verdict.DefaultJudgments[0])
+	}
+	if err := os.WriteFile(packetPath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	review := fmt.Sprintf(`{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture-override",
+  "finding_explanations": [],
+  "finding_ranking": [],
+  "default_judgment_overrides": [
+    {
+      "rule": %q,
+      "exposure_id": %q,
+      "proposed_judgment": "treat_as_reckless",
+      "reason": "The analyst believes this home-scope influence should be escalated for this operator, but does not change the deterministic verdict.",
+      "basis_fact_ids": [%q]
+    }
+  ]
+}`, request.Verdict.DefaultJudgments[0].Rule, request.Verdict.DefaultJudgments[0].ExposureID, basisFact)
+	if err := os.WriteFile(reviewPath, []byte(review), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	check, err := RunReviewCheck(packetPath, reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Interpretation.Analyst == nil || len(check.Interpretation.Analyst.DefaultJudgmentOverrides) != 1 {
+		t.Fatalf("expected accepted override in analyst section: %+v", check.Interpretation)
 	}
 }
 
@@ -956,16 +1016,47 @@ func TestRunReviewCheckRejectsUnsupportedReviewEvidence(t *testing.T) {
 	}
 	review := `{
   "schema_version": "ariadne.llm_review/v1",
-  "issues": [
+  "finding_explanations": [
     {
-      "id": "invented",
-      "title": "Invented edge",
-      "severity": "critical",
-      "priority": "p0",
-      "disposition": "fix_now",
+      "finding_id": "reckless:1",
       "exposure_id": "data-egress-chain",
-      "exposure_status": "exposed",
+      "operator_context": "Invented edge.",
       "graph_edges": ["runtime:codex|reaches|boundary:invented"]
+    },
+    {
+      "finding_id": "reckless:2",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "operator_context": "Valid explanation.",
+      "fact_ids": ["fact:generic:secret-like-file:235c40c61601"]
+    },
+    {
+      "finding_id": "reckless:3",
+      "exposure_id": "mutable-tool-launch-execution",
+      "operator_context": "Valid explanation.",
+      "fact_ids": ["fact:mcp:mcp-config:b3cb7f985dab"]
+    }
+  ],
+  "finding_ranking": [
+    {
+      "rank": 1,
+      "finding_id": "reckless:1",
+      "exposure_id": "data-egress-chain",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:generic:claude-md:aa8513a0d09b"]
+    },
+    {
+      "rank": 2,
+      "finding_id": "reckless:3",
+      "exposure_id": "mutable-tool-launch-execution",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:mcp:mcp-config:b3cb7f985dab"]
+    },
+    {
+      "rank": 3,
+      "finding_id": "reckless:2",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:generic:secret-like-file:235c40c61601"]
     }
   ]
 }`
@@ -975,6 +1066,34 @@ func TestRunReviewCheckRejectsUnsupportedReviewEvidence(t *testing.T) {
 	_, err = RunReviewCheck(packetPath, reviewPath)
 	if err == nil || !strings.Contains(err.Error(), "unsupported graph edge") {
 		t.Fatalf("expected unsupported graph edge rejection, got %v", err)
+	}
+}
+
+func TestRunReviewCheckRejectsVerdictAwareAntiGamingTwins(t *testing.T) {
+	dir := t.TempDir()
+	packetPath := filepath.Join(dir, "llm-request.json")
+	_, payload, _, err := RunReviewPacket(Options{Path: realPathFixture(t, "combined-risk"), LLMReviewProfile: "follow-up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name       string
+		fixture    string
+		wantReason string
+	}{
+		{name: "nonexistent fact", fixture: "nonexistent-fact-review.json", wantReason: `cites unsupported fact_id "fact:does-not-exist"`},
+		{name: "close finding", fixture: "close-finding-review.json", wantReason: `attempts to close or remove findings via field "closed_findings"`},
+		{name: "flip verdict", fixture: "flip-verdict-review.json", wantReason: `attempts to change the verdict word via field "verdict"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := RunReviewCheck(packetPath, llmReviewFixture(t, tc.fixture))
+			if err == nil || !strings.Contains(err.Error(), tc.wantReason) {
+				t.Fatalf("expected %q rejection, got %v", tc.wantReason, err)
+			}
+		})
 	}
 }
 
@@ -1003,7 +1122,7 @@ func TestRunReviewRunCreatesValidatedArtifacts(t *testing.T) {
 		t.Fatalf("review-run did not save raw reviewer JSON:\n%s", review)
 	}
 	check := readFile(t, run.CheckJSONPath)
-	for _, want := range []string{`"run_kind": "llm_review_check"`, `"accepted": true`, `"request_digest"`} {
+	for _, want := range []string{`"run_kind": "llm_review_check"`, `"accepted": true`, `"analyst"`, `"request_digest"`} {
 		if !strings.Contains(check, want) {
 			t.Fatalf("review-run check JSON missing %q:\n%s", want, check)
 		}
@@ -7635,6 +7754,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, reportExposure, "evidence_refs")
 	reportEvidenceReference := schemaMap(t, reportSchema, "$defs", "evidence_reference")
 	assertRequiredKeys(t, reportEvidenceReference, "id", "kind", "summary")
+	reportInterpretation := schemaMap(t, reportSchema, "$defs", "interpretation")
+	assertSchemaProperty(t, reportInterpretation, "analyst")
+	reportAnalyst := schemaMap(t, reportSchema, "$defs", "llm_analyst")
+	assertRequiredKeys(t, reportAnalyst, "source_type", "derived_by", "review_source", "request_digest", "finding_explanations", "finding_ranking", "default_judgment_overrides")
 	zeroTrust := schemaMap(t, reportSchema, "$defs", "zero_trust")
 	assertRequiredKeys(t, zeroTrust, "architecture_summary", "architecture_flaws")
 	assertSchemaProperty(t, zeroTrust, "architecture_summary")
@@ -7690,6 +7813,22 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	scanTarget := schemaMap(t, scanSchema, "properties", "targets", "items")
 	assertSchemaProperty(t, scanTarget, "verdict")
 	assertNoSchemaProperty(t, scanTarget, "report")
+	scanInterpretation := schemaMap(t, scanSchema, "$defs", "interpretation")
+	assertSchemaProperty(t, scanInterpretation, "analyst")
+
+	llmRequestSchema := loadSchema(t, "ariadne-llm-review-request-v1.schema.json")
+	assertRequiredKeys(t, llmRequestSchema, "schema_version", "target", "mode", "review_profile", "review_contract", "reviewer_tasks", "citation_catalog", "collection", "graph", "exposures", "deterministic_interpretation", "redaction", "limitations")
+	llmRequestCatalog := schemaMap(t, llmRequestSchema, "$defs", "citation_catalog")
+	assertRequiredKeys(t, llmRequestCatalog, "finding_ids", "default_judgment_ids", "default_judgment_rules", "evidence_ref_ids")
+	llmRequestVerdict := schemaMap(t, llmRequestSchema, "$defs", "verdict_context")
+	assertRequiredKeys(t, llmRequestVerdict, "verdict", "reckless", "default_judgments", "influence_provenance", "tradeoffs")
+	llmReviewSchema := loadSchema(t, "ariadne-llm-review-v1.schema.json")
+	assertRequiredKeys(t, llmReviewSchema, "schema_version")
+	assertSchemaProperty(t, llmReviewSchema, "finding_explanations")
+	assertSchemaProperty(t, llmReviewSchema, "finding_ranking")
+	assertSchemaProperty(t, llmReviewSchema, "default_judgment_overrides")
+	llmCheckSchema := loadSchema(t, "ariadne-llm-review-check-v1.schema.json")
+	assertRequiredKeys(t, llmCheckSchema, "schema_version", "run_id", "generated_at", "run_kind", "target", "mode", "review_profile", "packet_source", "review_source", "request_digest", "accepted", "interpretation", "redaction", "limitations")
 
 	architectureSchema := loadSchema(t, "ariadne-architecture-v1.schema.json")
 	assertRequiredKeys(t, architectureSchema,
@@ -8159,6 +8298,15 @@ func realPathFixture(t *testing.T, name string) string {
 	return root
 }
 
+func llmReviewFixture(t *testing.T, name string) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", "..", "testdata", "llm-review", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func copyRealPathFixture(t *testing.T, name string) string {
 	t.Helper()
 	src := realPathFixture(t, name)
@@ -8433,6 +8581,21 @@ func mustWriteFile(t *testing.T, path string, data string) {
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func comparableReport(r model.Report) model.Report {
+	r.RunID = ""
+	r.GeneratedAt = time.Time{}
+	return r
+}
+
+func stableJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}

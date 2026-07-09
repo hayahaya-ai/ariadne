@@ -68,13 +68,17 @@
     },
     "influence_provenance_fact": {
       "type": "object",
-      "required": ["id", "trust_input_id", "provenance", "source", "summary"],
+      "required": ["id", "trust_input_id", "provenance", "instruction_scope", "source", "summary"],
       "properties": {
         "id": { "type": "string" },
         "trust_input_id": { "type": "string" },
         "provenance": {
           "type": "string",
           "enum": ["home_scope", "repo_checkout", "third_party", "unknown"]
+        },
+        "instruction_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
         },
         "source": { "type": "string" },
         "summary": { "type": "string" }

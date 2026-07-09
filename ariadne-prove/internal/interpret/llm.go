@@ -34,6 +34,7 @@ type Options struct {
 	Timeout        time.Duration
 	Question       string
 	ReviewProfile  string
+	Verdict        *model.LLMVerdictContext
 	Redaction      model.RedactionInfo
 	RunLimitations []string
 }
@@ -64,7 +65,7 @@ func EvaluateWithOptions(in Input, opts Options) (model.Interpretation, error) {
 		if err != nil {
 			return model.Interpretation{}, err
 		}
-		return reviewToInterpretation(in, request, resp, source, digest)
+		return reviewToInterpretation(deterministic, request, resp, source, digest)
 	default:
 		return model.Interpretation{}, fmt.Errorf("unknown interpretation mode %q; use deterministic or llm", opts.Mode)
 	}
@@ -81,6 +82,10 @@ func BuildLLMReviewRequest(in Input, deterministic model.Interpretation, opts Op
 		exposures = []model.ExposureResult{}
 		deterministicAnchor = inventoryBlindDeterministicAnchor()
 	}
+	verdictContext := opts.Verdict
+	if profile == llmReviewProfileInventoryBlind {
+		verdictContext = nil
+	}
 	request := model.LLMReviewRequest{
 		SchemaVersion: llmRequestVersion,
 		Target:        in.Target,
@@ -96,7 +101,8 @@ func BuildLLMReviewRequest(in Input, deterministic model.Interpretation, opts Op
 			ResponseRules:     llmResponseRules(profile),
 		},
 		ReviewerTasks:   llmReviewerTasks(profile),
-		CitationCatalog: llmCitationCatalog(in, exposures, profile),
+		CitationCatalog: llmCitationCatalog(in, exposures, profile, verdictContext),
+		Verdict:         verdictContext,
 		Collection:      in.Collection,
 		Graph:           in.Graph,
 		Exposures:       exposures,
@@ -193,9 +199,10 @@ func llmReviewInstructions(profile string) []string {
 		)
 	}
 	return append(common,
-		"Return JSON using schema_version ariadne.llm_review/v1 with an issues array.",
-		"Every issue must cite an exposure_id from citation_catalog.exposure_ids.",
-		"Every graph_edges entry must be copied exactly from citation_catalog.graph_edges.",
+		"Return JSON using schema_version ariadne.llm_review/v1 with finding_explanations, finding_ranking, and optional default_judgment_overrides.",
+		"Every finding explanation and ranking entry must cite a finding_id from citation_catalog.finding_ids.",
+		"Every fact_id, evidence_ref_id, and graph_edges entry must be copied exactly from citation_catalog.",
+		"Do not return issues; follow-up reviews explain and rank existing verdict findings only.",
 	)
 }
 
@@ -203,14 +210,14 @@ func llmReviewContractSummary(profile string) string {
 	if profile == llmReviewProfileInventoryBlind {
 		return "Inventory-blind review reduces anchoring on Ariadne priority rules. It is request-only: reviewer hypotheses are not accepted as Ariadne interpretation until mapped back to deterministic exposures and graph edges."
 	}
-	return "Follow-up review lets a model reprioritize or explain Ariadne exposure paths, but accepted issues remain bound to deterministic exposure IDs, graph edges, allowed severities, priorities, dispositions, and redacted source refs."
+	return "Follow-up review lets a model explain, rank, and propose default-judgment overrides for the deterministic verdict, but accepted analyst content remains bound to existing reckless finding IDs, default judgments, fact IDs, graph edges, and redacted source refs."
 }
 
 func llmRequiredCitations(profile string) []string {
 	if profile == llmReviewProfileInventoryBlind {
 		return []string{"fact_ids", "graph_edges", "source_refs"}
 	}
-	return []string{"exposure_id", "exposure_status", "graph_edges"}
+	return []string{"finding_id", "fact_ids", "graph_edges"}
 }
 
 func llmAllowedClaims(profile string) []string {
@@ -225,8 +232,9 @@ func llmAllowedClaims(profile string) []string {
 		)
 	}
 	return append(claims,
-		"A graph-backed path may be higher or lower priority than Ariadne's deterministic ordering when the rationale cites packet evidence.",
-		"An existing Ariadne exposure should be fixed, reviewed, monitored, treated as controlled, or treated as expected capability.",
+		"An existing reckless finding can be explained in operator context when the explanation cites packet evidence.",
+		"Existing reckless findings can be ranked when each one-line rationale cites packet evidence.",
+		"An existing default_judgment can be proposed for override when the reviewer cites that judgment's basis facts.",
 	)
 }
 
@@ -239,7 +247,11 @@ func llmForbiddenClaims(profile string) []string {
 	if profile == llmReviewProfileInventoryBlind {
 		return append(claims, "Final Ariadne findings, accepted issue priorities, or exposure classifications.")
 	}
-	return claims
+	return append(claims,
+		"New findings, new exposure classifications, or issue lists not backed by the packet's existing reckless findings.",
+		"Closing, removing, suppressing, or resolving a finding.",
+		"Changing the deterministic verdict word.",
+	)
 }
 
 func llmResponseRules(profile string) []string {
@@ -252,10 +264,11 @@ func llmResponseRules(profile string) []string {
 	}
 	return []string{
 		"Use only schema_version ariadne.llm_review/v1.",
-		"Every issue must cite one exposure_id from the packet.",
-		"exposure_status must exactly match the cited exposure.",
-		"severity, priority, and disposition must use the allowed enum values.",
-		"graph_edges must be copied exactly from the packet.",
+		"Do not emit issues; analyst output must use finding_explanations, finding_ranking, and optional default_judgment_overrides.",
+		"Every finding_explanations entry must cite an existing finding_id and matching exposure_id.",
+		"finding_ranking must include each reckless finding exactly once when rankings are present.",
+		"default_judgment_overrides may only name an existing default_judgments rule and exposure_id, and must cite that judgment's basis fact IDs.",
+		"graph_edges, fact_ids, and evidence_ref_ids must be copied exactly from the packet citation catalog.",
 	}
 }
 
@@ -284,35 +297,41 @@ func llmReviewerTasks(profile string) []model.LLMReviewerTask {
 	}
 	return []model.LLMReviewerTask{
 		{
-			ID:                "review_top_exposures",
-			Title:             "Review Ariadne exposure priority",
-			Prompt:            "Assess whether Ariadne's exposed paths are correctly prioritized for security action using only cited graph evidence.",
-			RequiredCitations: []string{"exposure_id", "graph_edges"},
+			ID:                "explain_reckless_findings",
+			Title:             "Explain each reckless finding",
+			Prompt:            "Explain every verdict.reckless finding in operator context without adding findings or changing the verdict.",
+			RequiredCitations: []string{"finding_id", "fact_ids", "graph_edges"},
 		},
 		{
-			ID:                "identify_missing_or_overstated_signal",
-			Title:             "Identify missing or overstated signal",
-			Prompt:            "Point out where deterministic findings appear over-prioritized, under-prioritized, or missing required evidence.",
-			RequiredCitations: []string{"exposure_id", "graph_edges"},
+			ID:                "rank_reckless_findings",
+			Title:             "Rank reckless findings",
+			Prompt:            "Rank existing reckless findings with one one-line rationale per finding.",
+			RequiredCitations: []string{"finding_id", "fact_ids", "graph_edges"},
 		},
 		{
-			ID:                "recommend_evidence_next_steps",
-			Title:             "Recommend evidence next steps",
-			Prompt:            "Suggest deterministic evidence to collect next when the packet is inconclusive or a control claim is weak.",
-			RequiredCitations: []string{"exposure_id", "source_refs"},
+			ID:                "propose_default_judgment_overrides",
+			Title:             "Optionally propose default-judgment overrides",
+			Prompt:            "If a default_judgment should be overridden, name its rule and exposure_id, cite its basis fact IDs, and give the reason. Do not change the verdict word.",
+			RequiredCitations: []string{"default_judgment", "basis_fact_ids"},
 		},
 	}
 }
 
-func llmCitationCatalog(in Input, exposures []model.ExposureResult, profile string) model.LLMCitationCatalog {
+func llmCitationCatalog(in Input, exposures []model.ExposureResult, profile string, verdictContext *model.LLMVerdictContext) model.LLMCitationCatalog {
+	sourceRefs := llmSourceRefs(in, exposures, profile)
 	catalog := model.LLMCitationCatalog{
-		ExposureIDs:  exposureIDs(exposures),
-		FactIDs:      factIDs(in.Collection.Facts),
-		GraphEdges:   graphEdgeKeys(in.Graph),
-		ControlIDs:   controlIDs(in.Collection, exposures),
-		AuthorityIDs: authorityIDs(in.Collection),
-		BoundaryIDs:  boundaryIDs(in.Collection),
-		SourceRefs:   llmSourceRefs(in, exposures, profile),
+		ExposureIDs:          exposureIDs(exposures),
+		FactIDs:              factIDs(in.Collection.Facts),
+		GraphEdges:           graphEdgeKeys(in.Graph),
+		ControlIDs:           controlIDs(in.Collection, exposures),
+		AuthorityIDs:         authorityIDs(in.Collection),
+		BoundaryIDs:          boundaryIDs(in.Collection),
+		FindingIDs:           verdictFindingIDs(verdictContext),
+		DefaultJudgmentIDs:   verdictDefaultJudgmentIDs(verdictContext),
+		DefaultJudgmentRules: verdictDefaultJudgmentRules(verdictContext),
+		TradeoffIDs:          verdictTradeoffIDs(verdictContext),
+		EvidenceRefIDs:       evidenceRefIDs(sourceRefs, verdictContext),
+		SourceRefs:           sourceRefs,
 	}
 	return catalog
 }
@@ -342,13 +361,29 @@ func ValidateLLMReview(request model.LLMReviewRequest, reviewData []byte, source
 	if err != nil {
 		return model.Interpretation{}, err
 	}
-	return reviewToInterpretation(Input{
-		Target: request.Target,
-		Mode:   request.Mode,
-	}, request, resp, source, digest)
+	return reviewToInterpretation(request.Deterministic, request, resp, source, digest)
 }
 
 func parseLLMReview(data []byte) (model.LLMReviewResponse, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return model.LLMReviewResponse{}, err
+	}
+	forbiddenVerdictFields := []string{"verdict", "verdict_word"}
+	for _, field := range forbiddenVerdictFields {
+		if _, ok := raw[field]; ok {
+			return model.LLMReviewResponse{}, fmt.Errorf("LLM review attempts to change the verdict word via field %q", field)
+		}
+	}
+	forbiddenClosureFields := []string{"close_findings", "closed_findings", "remove_findings", "removed_findings", "resolved_findings", "suppressed_findings"}
+	for _, field := range forbiddenClosureFields {
+		if _, ok := raw[field]; ok {
+			return model.LLMReviewResponse{}, fmt.Errorf("LLM review attempts to close or remove findings via field %q", field)
+		}
+	}
+	if _, ok := raw["issues"]; ok {
+		return model.LLMReviewResponse{}, fmt.Errorf("LLM review issues are not accepted by verdict-aware follow-up; explain existing reckless findings instead")
+	}
 	var resp model.LLMReviewResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return model.LLMReviewResponse{}, err
@@ -359,9 +394,10 @@ func parseLLMReview(data []byte) (model.LLMReviewResponse, error) {
 	if resp.SchemaVersion != llmResponseVersion {
 		return model.LLMReviewResponse{}, fmt.Errorf("unsupported LLM review schema %q", resp.SchemaVersion)
 	}
-	if resp.Issues == nil {
-		resp.Issues = []model.Issue{}
-	}
+	resp.FindingExplanations = nonNilFindingExplanations(resp.FindingExplanations)
+	resp.FindingRanking = nonNilFindingRanking(resp.FindingRanking)
+	resp.DefaultJudgmentOverrides = nonNilDefaultJudgmentOverrides(resp.DefaultJudgmentOverrides)
+	resp.Issues = stringIssueSlice(resp.Issues)
 	return resp, nil
 }
 
@@ -395,39 +431,209 @@ func runLLMCommand(payload []byte, opts Options) (model.LLMReviewResponse, error
 	return parseLLMReview(stdout.Bytes())
 }
 
-func reviewToInterpretation(in Input, request model.LLMReviewRequest, resp model.LLMReviewResponse, source, digest string) (model.Interpretation, error) {
-	issues := make([]model.Issue, 0, len(resp.Issues))
-	for i, raw := range resp.Issues {
-		issue, err := normalizeLLMIssue(in, request, raw, i)
-		if err != nil {
-			return model.Interpretation{}, err
-		}
-		issues = append(issues, issue)
+func reviewToInterpretation(deterministic model.Interpretation, request model.LLMReviewRequest, resp model.LLMReviewResponse, source, digest string) (model.Interpretation, error) {
+	analyst, err := validateAnalystReview(request, resp, source, digest)
+	if err != nil {
+		return model.Interpretation{}, err
 	}
-	sortIssues(issues)
-	limitations := []string{
-		"LLM review is an interpretation layer over Ariadne facts; it is not raw evidence.",
-		"Ariadne rejected any LLM issue that cited unsupported exposure IDs, statuses, or graph edges.",
-		"No agent runtime, MCP server, package manager, or network probe was executed by Ariadne.",
+	out := deterministic
+	out.Analyst = &analyst
+	return out, nil
+}
+
+func validateAnalystReview(request model.LLMReviewRequest, resp model.LLMReviewResponse, source, digest string) (model.LLMAnalyst, error) {
+	if request.Verdict == nil {
+		return model.LLMAnalyst{}, fmt.Errorf("follow-up packet is missing verdict context")
 	}
-	limitations = append(limitations, resp.Limitations...)
-	if resp.Summary != "" {
-		limitations = append(limitations, "LLM summary: "+resp.Summary)
+	if len(resp.Issues) > 0 {
+		return model.LLMAnalyst{}, fmt.Errorf("LLM review issues are not accepted by verdict-aware follow-up; explain existing reckless findings instead")
 	}
-	engine := llmEngineName
-	if resp.Model != "" {
-		engine += " (" + resp.Model + ")"
+	findingByID := verdictFindingsByID(request.Verdict)
+	if err := validateFindingExplanations(request, resp.FindingExplanations, findingByID); err != nil {
+		return model.LLMAnalyst{}, err
 	}
-	return model.Interpretation{
-		Mode:           modeLLMReview,
-		Engine:         engine,
-		AvailableModes: availableModes(),
-		Summary:        summarize(issues),
-		Issues:         issues,
-		Limitations:    limitations,
-		ReviewSource:   source,
-		RequestDigest:  digest,
+	if err := validateFindingRanking(request, resp.FindingRanking, findingByID); err != nil {
+		return model.LLMAnalyst{}, err
+	}
+	if err := validateDefaultJudgmentOverrides(request, resp.DefaultJudgmentOverrides); err != nil {
+		return model.LLMAnalyst{}, err
+	}
+	return model.LLMAnalyst{
+		SourceType:               modeLLMReview,
+		DerivedBy:                "llm",
+		ReviewSource:             source,
+		RequestDigest:            digest,
+		Reviewer:                 resp.Reviewer,
+		Model:                    resp.Model,
+		Summary:                  resp.Summary,
+		FindingExplanations:      nonNilFindingExplanations(resp.FindingExplanations),
+		FindingRanking:           nonNilFindingRanking(resp.FindingRanking),
+		DefaultJudgmentOverrides: nonNilDefaultJudgmentOverrides(resp.DefaultJudgmentOverrides),
+		Limitations:              stringSlice(resp.Limitations),
 	}, nil
+}
+
+func validateFindingExplanations(request model.LLMReviewRequest, explanations []model.LLMFindingExplanation, findingByID map[string]model.LLMVerdictFinding) error {
+	if len(findingByID) == 0 && len(explanations) == 0 {
+		return nil
+	}
+	if len(explanations) != len(findingByID) {
+		return fmt.Errorf("LLM finding_explanations must explain each reckless finding exactly once; got %d, want %d", len(explanations), len(findingByID))
+	}
+	seen := map[string]bool{}
+	for i, explanation := range explanations {
+		label := fmt.Sprintf("LLM finding_explanations[%d]", i)
+		finding, ok := findingByID[explanation.FindingID]
+		if !ok || !containsString(request.CitationCatalog.FindingIDs, explanation.FindingID) {
+			return fmt.Errorf("%s cites unsupported finding_id %q", label, explanation.FindingID)
+		}
+		if seen[explanation.FindingID] {
+			return fmt.Errorf("%s duplicates finding_id %q", label, explanation.FindingID)
+		}
+		seen[explanation.FindingID] = true
+		if explanation.ExposureID != finding.ExposureID {
+			return fmt.Errorf("%s exposure_id %q does not match finding %q exposure_id %q", label, explanation.ExposureID, explanation.FindingID, finding.ExposureID)
+		}
+		if strings.TrimSpace(explanation.OperatorContext) == "" {
+			return fmt.Errorf("%s has empty operator_context", label)
+		}
+		if err := validateAnalystCitations(label, request, explanation.FactIDs, explanation.EvidenceRefIDs, explanation.GraphEdges); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateFindingRanking(request model.LLMReviewRequest, ranking []model.LLMFindingRanking, findingByID map[string]model.LLMVerdictFinding) error {
+	if len(ranking) == 0 && len(findingByID) == 0 {
+		return nil
+	}
+	if len(ranking) != len(findingByID) {
+		return fmt.Errorf("LLM finding_ranking must rank each reckless finding exactly once; got %d, want %d", len(ranking), len(findingByID))
+	}
+	seenFindings := map[string]bool{}
+	seenRanks := map[int]bool{}
+	for i, ranked := range ranking {
+		label := fmt.Sprintf("LLM finding_ranking[%d]", i)
+		finding, ok := findingByID[ranked.FindingID]
+		if !ok || !containsString(request.CitationCatalog.FindingIDs, ranked.FindingID) {
+			return fmt.Errorf("%s cites unsupported finding_id %q", label, ranked.FindingID)
+		}
+		if seenFindings[ranked.FindingID] {
+			return fmt.Errorf("%s duplicates finding_id %q", label, ranked.FindingID)
+		}
+		seenFindings[ranked.FindingID] = true
+		if ranked.ExposureID != finding.ExposureID {
+			return fmt.Errorf("%s exposure_id %q does not match finding %q exposure_id %q", label, ranked.ExposureID, ranked.FindingID, finding.ExposureID)
+		}
+		if ranked.Rank < 1 || ranked.Rank > len(findingByID) {
+			return fmt.Errorf("%s has unsupported rank %d", label, ranked.Rank)
+		}
+		if seenRanks[ranked.Rank] {
+			return fmt.Errorf("%s duplicates rank %d", label, ranked.Rank)
+		}
+		seenRanks[ranked.Rank] = true
+		if strings.TrimSpace(ranked.Rationale) == "" {
+			return fmt.Errorf("%s has empty rationale", label)
+		}
+		if err := validateAnalystCitations(label, request, ranked.FactIDs, ranked.EvidenceRefIDs, ranked.GraphEdges); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDefaultJudgmentOverrides(request model.LLMReviewRequest, overrides []model.LLMDefaultJudgmentOverride) error {
+	judgmentByKey := defaultJudgmentsByKey(request.Verdict)
+	for i, override := range overrides {
+		label := fmt.Sprintf("LLM default_judgment_overrides[%d]", i)
+		judgment, ok := judgmentByKey[defaultJudgmentKey(override.Rule, override.ExposureID)]
+		if !ok {
+			return fmt.Errorf("%s references unsupported default_judgment rule %q exposure_id %q", label, override.Rule, override.ExposureID)
+		}
+		if !containsString(request.CitationCatalog.DefaultJudgmentRules, override.Rule) {
+			return fmt.Errorf("%s cites unsupported default_judgment rule %q", label, override.Rule)
+		}
+		if strings.TrimSpace(override.ProposedJudgment) == "" {
+			return fmt.Errorf("%s has empty proposed_judgment", label)
+		}
+		if strings.TrimSpace(override.Reason) == "" {
+			return fmt.Errorf("%s has empty reason", label)
+		}
+		if len(override.BasisFactIDs) == 0 {
+			return fmt.Errorf("%s must cite at least one basis_fact_id", label)
+		}
+		validBasisFacts := judgmentBasisFactSet(judgment)
+		for _, factID := range override.BasisFactIDs {
+			if !containsString(request.CitationCatalog.FactIDs, factID) {
+				return fmt.Errorf("%s cites unsupported fact_id %q", label, factID)
+			}
+			if !validBasisFacts[factID] {
+				return fmt.Errorf("%s cites fact_id %q outside default_judgment basis", label, factID)
+			}
+		}
+	}
+	return nil
+}
+
+func validateAnalystCitations(label string, request model.LLMReviewRequest, factIDs, evidenceRefIDs, graphEdges []string) error {
+	if len(factIDs)+len(evidenceRefIDs)+len(graphEdges) == 0 {
+		return fmt.Errorf("%s must cite at least one fact_id, evidence_ref_id, or graph_edge", label)
+	}
+	for _, factID := range factIDs {
+		if !containsString(request.CitationCatalog.FactIDs, factID) {
+			return fmt.Errorf("%s cites unsupported fact_id %q", label, factID)
+		}
+	}
+	for _, refID := range evidenceRefIDs {
+		if !containsString(request.CitationCatalog.EvidenceRefIDs, refID) {
+			return fmt.Errorf("%s cites unsupported evidence_ref_id %q", label, refID)
+		}
+	}
+	for _, edge := range graphEdges {
+		if !containsString(request.CitationCatalog.GraphEdges, edge) {
+			return fmt.Errorf("%s cites unsupported graph edge %q", label, edge)
+		}
+	}
+	return nil
+}
+
+func verdictFindingsByID(verdictContext *model.LLMVerdictContext) map[string]model.LLMVerdictFinding {
+	out := map[string]model.LLMVerdictFinding{}
+	if verdictContext == nil {
+		return out
+	}
+	for _, finding := range verdictContext.Reckless {
+		if finding.ID != "" {
+			out[finding.ID] = finding
+		}
+	}
+	return out
+}
+
+func defaultJudgmentsByKey(verdictContext *model.LLMVerdictContext) map[string]model.LLMDefaultJudgment {
+	out := map[string]model.LLMDefaultJudgment{}
+	if verdictContext == nil {
+		return out
+	}
+	for _, judgment := range verdictContext.DefaultJudgments {
+		out[defaultJudgmentKey(judgment.Rule, judgment.ExposureID)] = judgment
+	}
+	return out
+}
+
+func defaultJudgmentKey(rule, exposureID string) string {
+	return strings.TrimSpace(rule) + "\x00" + strings.TrimSpace(exposureID)
+}
+
+func judgmentBasisFactSet(judgment model.LLMDefaultJudgment) map[string]bool {
+	out := map[string]bool{}
+	for _, basis := range judgment.Basis {
+		if basis.Kind == "fact" && basis.ID != "" {
+			out[basis.ID] = true
+		}
+	}
+	return out
 }
 
 func normalizeLLMIssue(in Input, request model.LLMReviewRequest, issue model.Issue, idx int) (model.Issue, error) {
@@ -601,6 +807,63 @@ func boundaryIDs(collection model.Collection) []string {
 	return uniqueSorted(out)
 }
 
+func verdictFindingIDs(verdictContext *model.LLMVerdictContext) []string {
+	if verdictContext == nil {
+		return []string{}
+	}
+	var out []string
+	for _, finding := range verdictContext.Reckless {
+		out = append(out, finding.ID)
+	}
+	return uniqueSorted(out)
+}
+
+func verdictDefaultJudgmentIDs(verdictContext *model.LLMVerdictContext) []string {
+	if verdictContext == nil {
+		return []string{}
+	}
+	var out []string
+	for _, judgment := range verdictContext.DefaultJudgments {
+		out = append(out, judgment.ID)
+	}
+	return uniqueSorted(out)
+}
+
+func verdictDefaultJudgmentRules(verdictContext *model.LLMVerdictContext) []string {
+	if verdictContext == nil {
+		return []string{}
+	}
+	var out []string
+	for _, judgment := range verdictContext.DefaultJudgments {
+		out = append(out, judgment.Rule)
+	}
+	return uniqueSorted(out)
+}
+
+func verdictTradeoffIDs(verdictContext *model.LLMVerdictContext) []string {
+	if verdictContext == nil {
+		return []string{}
+	}
+	var out []string
+	for _, tradeoff := range verdictContext.Tradeoffs {
+		out = append(out, tradeoff.ID)
+	}
+	return uniqueSorted(out)
+}
+
+func evidenceRefIDs(refs []model.EvidenceReference, verdictContext *model.LLMVerdictContext) []string {
+	var out []string
+	for _, ref := range refs {
+		out = append(out, ref.ID)
+	}
+	if verdictContext != nil {
+		for _, finding := range verdictContext.Reckless {
+			out = append(out, finding.EvidenceRefs...)
+		}
+	}
+	return uniqueSorted(out)
+}
+
 func llmSourceRefs(in Input, exposures []model.ExposureResult, profile string) []model.EvidenceReference {
 	var refs []model.EvidenceReference
 	for _, evidence := range in.Collection.Evidence {
@@ -685,4 +948,41 @@ func uniqueSorted(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func nonNilFindingExplanations(values []model.LLMFindingExplanation) []model.LLMFindingExplanation {
+	if values == nil {
+		return []model.LLMFindingExplanation{}
+	}
+	return values
+}
+
+func nonNilFindingRanking(values []model.LLMFindingRanking) []model.LLMFindingRanking {
+	if values == nil {
+		return []model.LLMFindingRanking{}
+	}
+	return values
+}
+
+func nonNilDefaultJudgmentOverrides(values []model.LLMDefaultJudgmentOverride) []model.LLMDefaultJudgmentOverride {
+	if values == nil {
+		return []model.LLMDefaultJudgmentOverride{}
+	}
+	return values
+}
+
+func stringIssueSlice(values []model.Issue) []model.Issue {
+	if values == nil {
+		return []model.Issue{}
+	}
+	return values
 }

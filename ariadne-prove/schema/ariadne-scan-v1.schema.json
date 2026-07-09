@@ -139,7 +139,8 @@
         "limitations": { "type": "array", "items": { "type": "string" } },
         "policy_source": { "type": "string" },
         "review_source": { "type": "string" },
-        "request_digest": { "type": "string" }
+        "request_digest": { "type": "string" },
+        "analyst": { "$ref": "#/$defs/llm_analyst" }
       }
     },
     "issue_summary": {
@@ -180,6 +181,68 @@
         "controls": { "type": "array", "items": { "type": "string" } },
         "actions": { "type": "array", "items": { "type": "string" } },
         "confidence": { "type": "string" }
+      }
+    },
+    "llm_analyst": {
+      "type": "object",
+      "required": ["source_type", "derived_by", "review_source", "request_digest", "finding_explanations", "finding_ranking", "default_judgment_overrides"],
+      "properties": {
+        "source_type": { "const": "llm_review" },
+        "derived_by": { "const": "llm" },
+        "review_source": { "type": "string" },
+        "request_digest": { "type": "string" },
+        "reviewer": { "type": "string" },
+        "model": { "type": "string" },
+        "summary": { "type": "string" },
+        "finding_explanations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/llm_finding_explanation" }
+        },
+        "finding_ranking": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/llm_finding_ranking" }
+        },
+        "default_judgment_overrides": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/llm_default_judgment_override" }
+        },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "llm_finding_explanation": {
+      "type": "object",
+      "required": ["finding_id", "exposure_id", "operator_context"],
+      "properties": {
+        "finding_id": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "operator_context": { "type": "string" },
+        "fact_ids": { "type": "array", "items": { "type": "string" } },
+        "evidence_ref_ids": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "llm_finding_ranking": {
+      "type": "object",
+      "required": ["rank", "finding_id", "exposure_id", "rationale"],
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "finding_id": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "rationale": { "type": "string" },
+        "fact_ids": { "type": "array", "items": { "type": "string" } },
+        "evidence_ref_ids": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "llm_default_judgment_override": {
+      "type": "object",
+      "required": ["rule", "exposure_id", "proposed_judgment", "reason", "basis_fact_ids"],
+      "properties": {
+        "rule": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "proposed_judgment": { "type": "string" },
+        "reason": { "type": "string" },
+        "basis_fact_ids": { "type": "array", "items": { "type": "string" } }
       }
     }
   }

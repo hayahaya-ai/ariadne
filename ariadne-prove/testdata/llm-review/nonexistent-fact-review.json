@@ -1,0 +1,59 @@
+{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture-bad-fact",
+  "finding_explanations": [
+    {
+      "finding_id": "reckless:1",
+      "exposure_id": "data-egress-chain",
+      "operator_context": "This cites a fact that is not in the packet.",
+      "fact_ids": [
+        "fact:does-not-exist"
+      ]
+    },
+    {
+      "finding_id": "reckless:2",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "operator_context": "This entry is otherwise shaped like a real finding explanation.",
+      "fact_ids": [
+        "fact:generic:secret-like-file:235c40c61601"
+      ]
+    },
+    {
+      "finding_id": "reckless:3",
+      "exposure_id": "mutable-tool-launch-execution",
+      "operator_context": "This entry is otherwise shaped like a real finding explanation.",
+      "fact_ids": [
+        "fact:mcp:mcp-config:b3cb7f985dab"
+      ]
+    }
+  ],
+  "finding_ranking": [
+    {
+      "rank": 1,
+      "finding_id": "reckless:1",
+      "exposure_id": "data-egress-chain",
+      "rationale": "Ranking cites valid graph evidence.",
+      "graph_edges": [
+        "authority:external-communication|reaches|boundary:external-destination"
+      ]
+    },
+    {
+      "rank": 2,
+      "finding_id": "reckless:3",
+      "exposure_id": "mutable-tool-launch-execution",
+      "rationale": "Ranking cites valid graph evidence.",
+      "graph_edges": [
+        "tool:mcp-package-launch|grants|authority:local-code-execution"
+      ]
+    },
+    {
+      "rank": 3,
+      "finding_id": "reckless:2",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "rationale": "Ranking cites valid graph evidence.",
+      "graph_edges": [
+        "authority:file-read|reaches|boundary:secret-like-file"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-llm-review-check-v1.schema.json",
+  "title": "Ariadne LLM Review Check v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "target",
+    "mode",
+    "review_profile",
+    "packet_source",
+    "review_source",
+    "request_digest",
+    "accepted",
+    "interpretation",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "const": "llm_review_check" },
+    "target": { "type": "string" },
+    "mode": { "type": "string" },
+    "review_profile": { "const": "follow_up" },
+    "packet_source": { "type": "string" },
+    "review_source": { "type": "string" },
+    "request_digest": { "type": "string" },
+    "accepted": { "const": true },
+    "interpretation": {
+      "type": "object",
+      "required": ["mode", "engine", "summary", "issues", "limitations", "analyst"],
+      "properties": {
+        "mode": { "type": "string" },
+        "engine": { "type": "string" },
+        "summary": { "type": "object" },
+        "issues": { "type": "array", "items": { "type": "object" } },
+        "limitations": { "type": "array", "items": { "type": "string" } },
+        "analyst": { "$ref": "#/$defs/llm_analyst" }
+      }
+    },
+    "redaction": { "type": "object" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "llm_analyst": {
+      "type": "object",
+      "required": ["source_type", "derived_by", "review_source", "request_digest", "finding_explanations", "finding_ranking", "default_judgment_overrides"],
+      "properties": {
+        "source_type": { "const": "llm_review" },
+        "derived_by": { "const": "llm" },
+        "review_source": { "type": "string" },
+        "request_digest": { "type": "string" },
+        "reviewer": { "type": "string" },
+        "model": { "type": "string" },
+        "summary": { "type": "string" },
+        "finding_explanations": { "type": "array", "items": { "type": "object" } },
+        "finding_ranking": { "type": "array", "items": { "type": "object" } },
+        "default_judgment_overrides": { "type": "array", "items": { "type": "object" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

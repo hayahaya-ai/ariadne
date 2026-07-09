@@ -127,6 +127,7 @@ func RunStoryWithInventory(opts Options) (StoryRun, error) {
 		Command:        opts.LLMCommand,
 		RequestOut:     opts.LLMRequestOut,
 		ReviewProfile:  opts.LLMReviewProfile,
+		Verdict:        llmVerdictContext(verdict.Build(inventory, report, inventory.TargetPath, manifest.Mode)),
 		Timeout:        opts.LLMTimeout,
 		Question:       report.Story.UserQuestion,
 		Redaction:      report.Redaction,
@@ -212,6 +213,7 @@ func RunStoryAllWithInventory(opts Options) (StoryRun, error) {
 		Command:        opts.LLMCommand,
 		RequestOut:     opts.LLMRequestOut,
 		ReviewProfile:  opts.LLMReviewProfile,
+		Verdict:        llmVerdictContext(verdict.Build(inventory, report, inventory.TargetPath, manifest.Mode)),
 		Timeout:        opts.LLMTimeout,
 		Question:       report.Story.UserQuestion,
 		Redaction:      report.Redaction,
@@ -377,6 +379,7 @@ func RunPathWithInventory(opts Options) (PathRun, error) {
 		Command:        opts.LLMCommand,
 		RequestOut:     opts.LLMRequestOut,
 		ReviewProfile:  opts.LLMReviewProfile,
+		Verdict:        llmVerdictContext(verdict.Build(inventory, report, report.TargetPath, report.Story.Mode)),
 		Timeout:        opts.LLMTimeout,
 		Question:       report.Story.UserQuestion,
 		Redaction:      report.Redaction,
@@ -453,9 +456,108 @@ func RunReviewPacket(opts Options) (model.LLMReviewRequest, []byte, string, erro
 	}, deterministic, interpret.Options{
 		ReviewProfile:  opts.LLMReviewProfile,
 		Question:       "What should a reviewer inspect about this agent exposure posture?",
+		Verdict:        llmVerdictContext(verdict.Build(model.InventoryReport{Collection: collection}, model.Report{Exposures: exposures}, root, opts.Mode)),
 		Redaction:      redaction,
 		RunLimitations: limitations,
 	})
+}
+
+func llmVerdictContext(v verdict.Verdict) *model.LLMVerdictContext {
+	ctx := &model.LLMVerdictContext{
+		VerdictWord:         v.VerdictWord,
+		Reckless:            make([]model.LLMVerdictFinding, 0, len(v.Reckless)),
+		DefaultJudgments:    make([]model.LLMDefaultJudgment, 0, len(v.DefaultJudgments)),
+		InfluenceProvenance: make([]model.LLMInfluenceProvenanceFact, 0, len(v.InfluenceProvenance)),
+		Tradeoffs:           make([]model.LLMTradeoffLine, 0, len(v.Tradeoffs)),
+	}
+	for _, finding := range v.Reckless {
+		ctx.Reckless = append(ctx.Reckless, model.LLMVerdictFinding{
+			ID:         finding.ID,
+			ExposureID: finding.ExposureID,
+			Title:      finding.Title,
+			Where: model.LLMEvidenceLocation{
+				Source: finding.Where.Source,
+				Line:   finding.Where.Line,
+				Anchor: finding.Where.Anchor,
+			},
+			EvidenceRefs: evidenceReferenceIDs(finding.EvidenceRefs),
+			Why:          finding.Why,
+			Fix:          finding.Fix,
+		})
+	}
+	for _, judgment := range v.DefaultJudgments {
+		ctx.DefaultJudgments = append(ctx.DefaultJudgments, model.LLMDefaultJudgment{
+			ID:            llmDefaultJudgmentID(judgment.Rule, judgment.ExposureID),
+			Rule:          judgment.Rule,
+			Label:         judgment.Label,
+			ExposureID:    judgment.ExposureID,
+			TrustInputIDs: copiedStringSlice(judgment.TrustInputIDs),
+			Basis:         llmJudgmentBasis(judgment.Basis),
+			Summary:       judgment.Summary,
+		})
+	}
+	for _, fact := range v.InfluenceProvenance {
+		ctx.InfluenceProvenance = append(ctx.InfluenceProvenance, model.LLMInfluenceProvenanceFact{
+			ID:               fact.ID,
+			TrustInputID:     fact.TrustInputID,
+			Provenance:       fact.Provenance,
+			InstructionScope: fact.InstructionScope,
+			Source:           fact.Source,
+			Summary:          fact.Summary,
+		})
+	}
+	for _, tradeoff := range v.Tradeoffs {
+		ctx.Tradeoffs = append(ctx.Tradeoffs, model.LLMTradeoffLine{
+			ID:      tradeoff.ID,
+			Summary: tradeoff.Summary,
+			Source:  tradeoff.Source,
+		})
+	}
+	return ctx
+}
+
+func evidenceReferenceIDs(refs []model.EvidenceReference) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.ID) != "" {
+			out = append(out, ref.ID)
+		}
+	}
+	return out
+}
+
+func copiedStringSlice(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
+}
+
+func llmJudgmentBasis(basis []verdict.JudgmentBasisRef) []model.LLMJudgmentBasisRef {
+	out := make([]model.LLMJudgmentBasisRef, 0, len(basis))
+	for _, ref := range basis {
+		out = append(out, model.LLMJudgmentBasisRef{Kind: ref.Kind, ID: ref.ID})
+	}
+	return out
+}
+
+func llmDefaultJudgmentID(rule, exposureID string) string {
+	return "default_judgment:" + llmSafeID(rule) + ":" + llmSafeID(exposureID)
+}
+
+func llmSafeID(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func RunReviewCheck(packetPath, reviewPath string) (model.LLMReviewCheckReport, error) {
@@ -501,7 +603,7 @@ func RunReviewCheck(packetPath, reviewPath string) (model.LLMReviewCheckReport, 
 		Redaction:      request.Redaction,
 		Limitations: []string{
 			"Review check validates a reviewer response against the exact packet file supplied.",
-			"Accepted means the review cites supported packet exposure IDs, statuses, graph edges, severities, priorities, and dispositions.",
+			"Accepted means the review cites supported packet finding IDs, fact IDs, graph edges, default judgments, and basis facts.",
 			"Accepted LLM review remains interpretation over deterministic Ariadne facts, not raw evidence.",
 		},
 	}, nil
