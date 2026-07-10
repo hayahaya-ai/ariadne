@@ -1589,19 +1589,20 @@ func (g *Graph) BuildIndex() {
 }
 
 type ExposureResult struct {
-	ID                 string              `json:"id"`
-	Title              string              `json:"title"`
-	Status             Status              `json:"status"`
-	ProofMode          ProofMode           `json:"proof_mode"`
-	Runtimes           []string            `json:"runtimes,omitempty"`
-	PathNodes          []string            `json:"path_nodes"`
-	PathEdges          []string            `json:"path_edges"`
-	EvidenceReferences []EvidenceReference `json:"evidence_refs"`
-	Observation        Observation         `json:"observation"`
-	ControlsBreakPath  []string            `json:"controls_break_path,omitempty"`
-	WhyItMatters       string              `json:"why_it_matters"`
-	WhatWasTested      string              `json:"what_was_tested"`
-	Limitations        []string            `json:"limitations"`
+	ID                  string              `json:"id"`
+	Title               string              `json:"title"`
+	Status              Status              `json:"status"`
+	ProofMode           ProofMode           `json:"proof_mode"`
+	Runtimes            []string            `json:"runtimes,omitempty"`
+	PathNodes           []string            `json:"path_nodes"`
+	PathEdges           []string            `json:"path_edges"`
+	OccurrencePathEdges []string            `json:"occurrence_path_edges,omitempty"`
+	EvidenceReferences  []EvidenceReference `json:"evidence_refs"`
+	Observation         Observation         `json:"observation"`
+	ControlsBreakPath   []string            `json:"controls_break_path,omitempty"`
+	WhyItMatters        string              `json:"why_it_matters"`
+	WhatWasTested       string              `json:"what_was_tested"`
+	Limitations         []string            `json:"limitations"`
 }
 
 type Observation struct {
@@ -2111,19 +2112,20 @@ const (
 )
 
 type Control struct {
-	ID           string   `json:"id"`
-	OccurrenceID string   `json:"occurrence_id,omitempty"`
-	Kind         string   `json:"kind"`
-	Runtime      string   `json:"runtime,omitempty"`
-	Source       string   `json:"source"`
-	Scope        string   `json:"scope,omitempty"`
-	ScopeSubtree string   `json:"scope_subtree,omitempty"`
-	Enforcement  string   `json:"enforcement"`
-	AppliesTo    []string `json:"applies_to,omitempty"`
-	Summary      string   `json:"summary"`
-	LineStart    int      `json:"-"`
-	LineEnd      int      `json:"-"`
-	Anchor       string   `json:"-"`
+	ID                  string   `json:"id"`
+	OccurrenceID        string   `json:"occurrence_id,omitempty"`
+	Kind                string   `json:"kind"`
+	Runtime             string   `json:"runtime,omitempty"`
+	Source              string   `json:"source"`
+	Scope               string   `json:"scope,omitempty"`
+	ScopeSubtree        string   `json:"scope_subtree,omitempty"`
+	Enforcement         string   `json:"enforcement"`
+	AppliesTo           []string `json:"applies_to,omitempty"`
+	RestrictedResources []string `json:"restricted_resources,omitempty"`
+	Summary             string   `json:"summary"`
+	LineStart           int      `json:"-"`
+	LineEnd             int      `json:"-"`
+	Anchor              string   `json:"-"`
 }
 
 type Boundary struct {

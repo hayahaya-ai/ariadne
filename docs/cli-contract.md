@@ -190,6 +190,11 @@ Inconclusive exposures add one line under the readout:
 `ariadne.verdict/v1` remains frozen. Verdict v2 adds the `inconclusive` verdict
 word and occurrence-level parser statuses without widening v1.
 
+Every discovered JSON, supported Codex TOML, and supported workflow/config YAML
+surface is structurally checked before it can report `parsed`. A malformed
+supported document, an unreadable config, or an unreadable discovery subtree
+creates a failing parser-status occurrence and therefore blocks a safe verdict.
+
 ```json
 {
   "schema_version": "ariadne.verdict/v2",
@@ -344,6 +349,10 @@ facts, buckets, fleet counts, or any closure state.
 
 `scan --targets` aggregates the per-target verdicts; it does not introduce a
 second endpoint report format.
+
+The verdict v2 and scan schemas are self-contained: standard Draft 2020-12
+validators can validate either artifact without pre-registering Ariadne's other
+schema files or resolving `ariadne.dev` URLs.
 
 - `--format jsonl`: newline-delimited `ariadne.verdict/v2`, exactly one complete
   verdict object per completed target. If any target failed and lacks a verdict,

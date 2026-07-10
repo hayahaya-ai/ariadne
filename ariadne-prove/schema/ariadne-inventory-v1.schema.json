@@ -259,6 +259,7 @@
         "scope_subtree": { "type": "string" },
         "enforcement": { "type": "string", "enum": ["enforced", "attested"] },
         "applies_to": { "type": "array", "items": { "type": "string", "pattern": "^occurrence:" } },
+        "restricted_resources": { "type": "array", "items": { "type": "string" } },
         "summary": { "type": "string" }
       }
     },

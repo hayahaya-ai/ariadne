@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "one": { "command": "npx", "args": ["example-server@1.2.3"] },
+    "two": { "command": "npx", "args": ["example-server@2.0.1"] }
+  }
+}

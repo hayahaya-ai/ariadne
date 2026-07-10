@@ -133,6 +133,100 @@ func TestPhase5CompositionSafeInversesStayProtected(t *testing.T) {
 	}
 }
 
+func TestPhase5ReviewPartialControlsDoNotProtectAllowedPaths(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "composition-partial-deny-unsafe"), Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range []string{"prompt-injection-to-secret-canary", "data-egress-chain"} {
+		if got := exposureStatus(r.Exposures, family); got != model.StatusExposed {
+			t.Fatalf("%s status = %s, want exposed", family, got)
+		}
+	}
+}
+
+func TestPhase5ReviewMalformedParserMatrixFailsClosed(t *testing.T) {
+	for _, fixture := range []string{"inconclusive-malformed-cursor", "inconclusive-malformed-codex", "inconclusive-malformed-github"} {
+		t.Run(fixture, func(t *testing.T) {
+			inventory, err := RunInventory(Options{Path: realPathFixture(t, fixture), Mode: "repo", Agent: "all"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			malformed := false
+			for _, status := range inventory.Collection.ParserStatuses {
+				if status.Status == model.ParserStatusMalformed {
+					malformed = true
+					break
+				}
+			}
+			if !malformed {
+				t.Fatalf("parser statuses = %+v, want malformed occurrence", inventory.Collection.ParserStatuses)
+			}
+			r, err := RunPath(Options{Path: realPathFixture(t, fixture), Mode: "repo", Agent: "all"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode).VerdictWord; got != verdict.WordInconclusive {
+				t.Fatalf("verdict = %s, want inconclusive", got)
+			}
+		})
+	}
+}
+
+func TestPhase5ReviewExposedMCPEvidenceExcludesProtectedPeer(t *testing.T) {
+	path := realPathFixture(t, "composition-root-unpinned-nested-pinned")
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, exposure := range r.Exposures {
+		if exposure.ID != "mutable-tool-launch-execution" {
+			continue
+		}
+		for _, ref := range exposure.EvidenceReferences {
+			if strings.Contains(ref.Source, "examples/safe/mcp.json") {
+				t.Fatalf("exposed MCP path cited protected peer evidence: %+v", exposure.EvidenceReferences)
+			}
+		}
+	}
+	v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
+	for _, finding := range v.Reckless {
+		if finding.ExposureID != "mutable-tool-launch-execution" {
+			continue
+		}
+		for _, capability := range finding.RelatedCapabilities {
+			if strings.Contains(capability.Source, "examples/safe/mcp.json") {
+				t.Fatalf("exposed MCP finding consumed protected peer capability: %+v", finding.RelatedCapabilities)
+			}
+		}
+	}
+}
+
+func TestPhase5ReviewCrossRuntimeEvidenceExcludesProtectedRuntime(t *testing.T) {
+	path := realPathFixture(t, "composition-cross-runtime-unsafe-codex")
+	r, err := RunPath(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, exposure := range r.Exposures {
+		if exposure.ID != "prompt-injection-to-secret-canary" && exposure.ID != "data-egress-chain" {
+			continue
+		}
+		if exposure.Status != model.StatusExposed || len(exposure.OccurrencePathEdges) == 0 {
+			t.Fatalf("%s lacks exposed occurrence path: %+v", exposure.ID, exposure)
+		}
+		for _, ref := range exposure.EvidenceReferences {
+			if ref.Source == ".claude/settings.json" {
+				t.Fatalf("%s cited protected Claude occurrence in unsafe Codex path: %+v", exposure.ID, exposure.EvidenceReferences)
+			}
+		}
+	}
+}
+
 func TestPhase5GraphConnectsControlsOnlyToApplicableOccurrences(t *testing.T) {
 	inventory, err := RunInventory(Options{Path: realPathFixture(t, "composition-mcp-mixed-launchers"), Mode: "repo", Agent: "all"})
 	if err != nil {
@@ -334,6 +428,82 @@ func TestUnreadableConfigProducesParserStatusWhenFilesystemEnforcesPermissions(t
 	}
 	if len(inventory.Collection.ParserStatuses) != 1 || inventory.Collection.ParserStatuses[0].Status != model.ParserStatusUnreadable {
 		t.Fatalf("parser statuses = %+v, want unreadable", inventory.Collection.ParserStatuses)
+	}
+}
+
+func TestUnreadableRelevantSubtreeFailsClosedWhenFilesystemEnforcesPermissions(t *testing.T) {
+	path := t.TempDir()
+	configDir := filepath.Join(path, ".claude")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(`{"permissions":{"defaultMode":"default"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(configDir, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(configDir, 0o755)
+	if handle, err := os.Open(configDir); err == nil {
+		handle.Close()
+		t.Skip("current user can read mode-000 directories")
+	}
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := false
+	for _, status := range inventory.Collection.ParserStatuses {
+		if status.Status == model.ParserStatusUnreadable {
+			failure = true
+			break
+		}
+	}
+	if !failure {
+		t.Fatalf("parser statuses = %+v, want unreadable discovery occurrence; warnings=%v", inventory.Collection.ParserStatuses, inventory.Collection.Warnings)
+	}
+	r, err := RunPath(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode).VerdictWord; got != verdict.WordInconclusive {
+		t.Fatalf("verdict = %s, want inconclusive", got)
+	}
+}
+
+func TestPublishedVerdictAndScanSchemasAreSelfContained(t *testing.T) {
+	schemaDir, err := filepath.Abs(filepath.Join("..", "..", "schema"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"ariadne-verdict-v2.schema.json", "ariadne-scan-v1.schema.json"} {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(schemaDir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document any
+			if err := json.Unmarshal(data, &document); err != nil {
+				t.Fatal(err)
+			}
+			var walk func(any)
+			walk = func(value any) {
+				switch typed := value.(type) {
+				case map[string]any:
+					if ref, ok := typed["$ref"].(string); ok && !strings.HasPrefix(ref, "#") {
+						t.Errorf("published schema must be independently resolvable without an external registry: %s", ref)
+					}
+					for _, child := range typed {
+						walk(child)
+					}
+				case []any:
+					for _, child := range typed {
+						walk(child)
+					}
+				}
+			}
+			walk(document)
+		})
 	}
 }
 
@@ -8089,6 +8259,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	reportExposure := schemaMap(t, reportSchema, "$defs", "exposure")
 	assertRequiredKeys(t, reportExposure, "evidence_refs")
 	assertSchemaProperty(t, reportExposure, "evidence_refs")
+	assertSchemaProperty(t, reportExposure, "occurrence_path_edges")
 	reportEvidenceReference := schemaMap(t, reportSchema, "$defs", "evidence_reference")
 	assertRequiredKeys(t, reportEvidenceReference, "id", "kind", "summary")
 	reportInterpretation := schemaMap(t, reportSchema, "$defs", "interpretation")
@@ -8141,6 +8312,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, inventoryAuthority, "occurrence_id")
 	assertSchemaProperty(t, inventoryAuthority, "authority_scope")
 	assertSchemaProperty(t, inventoryAuthority, "scope_subtree")
+	inventoryControl := schemaMap(t, inventorySchema, "$defs", "control")
+	assertSchemaProperty(t, inventoryControl, "restricted_resources")
 	inventoryGraph := schemaMap(t, inventorySchema, "$defs", "graph")
 	assertRequiredKeys(t, inventoryGraph, "nodes", "edges")
 	inventorySurfaceMap := schemaMap(t, inventorySchema, "$defs", "surface_map")

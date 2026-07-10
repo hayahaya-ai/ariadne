@@ -1,0 +1,10 @@
+{
+  "id": "inconclusive-malformed-cursor",
+  "title": "Malformed Cursor configuration is inconclusive",
+  "persona": "developer / AppSec",
+  "user_question": "Does malformed generic agent JSON fail closed?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": { "repo_path": "." },
+  "expected": { "verdict": { "word": "inconclusive" } }
+}

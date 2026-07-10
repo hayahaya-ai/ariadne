@@ -890,6 +890,30 @@ func llmSourceRefs(in Input, exposures []model.ExposureResult, profile string) [
 			Summary: surface.Summary,
 		})
 	}
+	for _, runtime := range in.Collection.Runtimes {
+		refs = append(refs, model.EvidenceReference{ID: runtime.ID, Kind: "runtime", Source: runtime.Source, Summary: runtime.Summary})
+		refs = append(refs, model.EvidenceReference{ID: runtime.OccurrenceID, Kind: "runtime_occurrence", Source: runtime.Source, Summary: runtime.Summary})
+	}
+	for _, input := range in.Collection.TrustInputs {
+		refs = append(refs, model.EvidenceReference{ID: input.ID, Kind: "trust-input", Source: input.Source, Summary: input.Summary})
+		refs = append(refs, model.EvidenceReference{ID: input.OccurrenceID, Kind: "trust_input_occurrence", Source: input.Source, Summary: input.Summary})
+	}
+	for _, tool := range in.Collection.Tools {
+		refs = append(refs, model.EvidenceReference{ID: tool.ID, Kind: "tool", Source: tool.Source, Summary: tool.Summary})
+		refs = append(refs, model.EvidenceReference{ID: tool.OccurrenceID, Kind: "tool_occurrence", Source: tool.Source, Summary: tool.Summary})
+	}
+	for _, authority := range in.Collection.Authorities {
+		refs = append(refs, model.EvidenceReference{ID: authority.ID, Kind: "authority", Source: authority.Source, Summary: authority.Summary})
+		refs = append(refs, model.EvidenceReference{ID: authority.OccurrenceID, Kind: "authority_occurrence", Source: authority.Source, Summary: authority.Summary})
+	}
+	for _, boundary := range in.Collection.Boundaries {
+		refs = append(refs, model.EvidenceReference{ID: boundary.ID, Kind: "boundary", Source: boundary.Source, Summary: boundary.Summary})
+		refs = append(refs, model.EvidenceReference{ID: boundary.OccurrenceID, Kind: "boundary_occurrence", Source: boundary.Source, Summary: boundary.Summary})
+	}
+	for _, control := range in.Collection.Controls {
+		refs = append(refs, model.EvidenceReference{ID: control.ID, Kind: "control", Source: control.Source, Summary: control.Summary})
+		refs = append(refs, model.EvidenceReference{ID: control.OccurrenceID, Kind: "control_occurrence", Source: control.Source, Summary: control.Summary})
+	}
 	if profile == llmReviewProfileFollowUp {
 		for _, exposure := range exposures {
 			refs = append(refs, exposure.EvidenceReferences...)

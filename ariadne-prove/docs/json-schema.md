@@ -62,6 +62,19 @@ Edge types:
 - `governs`
 - `verifies`
 
+The graph has two layers. Stable family nodes and `path_edges` remain for UI and
+backward compatibility. Proof-bearing nodes use `occurrence:*` identities and
+`instance_of` edges. Each exposure's `occurrence_path_edges` contains the exact
+runtime/config, trust-input, tool, authority, boundary, and control occurrences
+that produced its status; evidence resolution uses these edges instead of a
+family-level last-write-wins lookup.
+
+Controls may include `applies_to` occurrence IDs and
+`restricted_resources`. A path is protected only when the control is enforced,
+is connected to the relevant runtime/source/scope occurrence, and covers the
+specific boundary resource. A deny for one secret path or network operation is
+not a universal barrier for other allowed resources or operations.
+
 ### Interpretation
 
 `prove`, `scan`, and `dashboard` include deterministic interpretation on top of exposure paths.
@@ -292,3 +305,7 @@ Draft schemas are available in:
 - [schema/ariadne-operator-packet-v1.schema.json](../schema/ariadne-operator-packet-v1.schema.json)
 - [schema/ariadne-verdict-v1.schema.json](../schema/ariadne-verdict-v1.schema.json)
 - [schema/ariadne-verdict-v2.schema.json](../schema/ariadne-verdict-v2.schema.json)
+
+`ariadne-verdict-v2.schema.json` and `ariadne-scan-v1.schema.json` are
+self-contained Draft 2020-12 documents. They can validate emitted artifacts
+without a custom schema registry or network retrieval.

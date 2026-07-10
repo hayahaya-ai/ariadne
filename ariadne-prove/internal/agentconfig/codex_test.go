@@ -200,6 +200,19 @@ func TestParseCodexConfig_InvalidUTF8(t *testing.T) {
 	}
 }
 
+func TestParseCodexConfigRejectsMalformedSupportedTOML(t *testing.T) {
+	for _, document := range []string{
+		`sandbox_mode = "danger-full-access`,
+		`[permissions.filesystem`,
+		`not a key value line`,
+		`deny_read = [".env"`,
+	} {
+		if _, ok := ParseCodexConfig([]byte(document)); ok {
+			t.Fatalf("ParseCodexConfig(%q) = ok, want malformed", document)
+		}
+	}
+}
+
 func TestParseCodexConfig_FullDocument(t *testing.T) {
 	data := []byte(`
 # Codex config

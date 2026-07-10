@@ -1,0 +1,17 @@
+{
+  "id": "mcp-unbound-sha-unsafe",
+  "title": "Unrelated digest text cannot pin a mutable launcher",
+  "persona": "developer / AppSec",
+  "user_question": "Does an unrelated sha256 argument leave a latest package launcher reckless?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": { "repo_path": "." },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "findings": [
+        { "family": "mutable-tool-launch-execution", "source": "mcp.json", "line": 2, "fix_surface": "mcp.json" }
+      ]
+    }
+  }
+}

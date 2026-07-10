@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": ["Read(.env)", "WebSearch"],
+    "deny": ["Read(~/.aws/**)", "WebFetch"]
+  }
+}

@@ -32,6 +32,9 @@ var (
 	riskyInstructionPattern      = regexp.MustCompile(`(?i)(read\s+\.env|read\s+.*secret|secret|token|always approve|ignore security|bypass|send\s+.*secret|send\s+.*token|private key|\.ssh|\.aws)`)
 	delegationInstructionPattern = regexp.MustCompile(`(?i)(sub[- ]?agent|delegate\s+to|handoff\s+to|worker\s+agent|manager\s+agent|spawn\s+agent|parallel\s+agents|task\s+tool|agent\s+team)`)
 	inlineCredentialPattern      = regexp.MustCompile(`(?i)(api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|password)\s*[:=]`)
+	exactPackageVersionPattern   = regexp.MustCompile(`(?i)^(?:@[^/@\s]+/[^@\s]+|[^@\s]+)@v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$`)
+	exactPythonVersionPattern    = regexp.MustCompile(`(?i)^[a-z0-9_.-]+==[0-9]+\.[0-9]+\.[0-9]+(?:[a-z0-9_.+-]*)$`)
+	boundImageDigestPattern      = regexp.MustCompile(`(?i)^[^@\s]+@sha256:[a-f0-9]{64}$`)
 )
 
 func Collect(opts Options) model.Collection {
@@ -50,9 +53,22 @@ func Collect(opts Options) model.Collection {
 	})
 	c.Surfaces = surfaces
 	c.Warnings = append(c.Warnings, warnings...)
+	for _, warning := range warnings {
+		source := discoveryWarningSource(warning)
+		status := model.ParserStatusFact{
+			ID:      "parser:surface-discovery:" + shortHash(warning),
+			Source:  source,
+			Scope:   normalizedCollectionMode(opts.Mode),
+			Status:  model.ParserStatusUnreadable,
+			Summary: "Could not completely inspect a potentially relevant configuration subtree: " + warning,
+		}
+		status.OccurrenceID = stableOccurrenceID("config", status.ID, "", status.Source, status.Scope, "")
+		c.ParserStatuses = appendUniqueParserStatus(c.ParserStatuses, status)
+	}
 	for _, s := range surfaces {
 		collectSurface(&c, opts, s)
 	}
+	linkRuntimeRequirementControls(&c)
 	if opts.Mode == "endpoint" && !hasBoundary(&c, "boundary:developer-secret-boundary") && len(c.Authorities) > 0 {
 		authority := c.Authorities[0]
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
@@ -70,6 +86,73 @@ func Collect(opts Options) model.Collection {
 		c.ParserStatuses = []model.ParserStatusFact{}
 	}
 	return c
+}
+
+func linkRuntimeRequirementControls(c *model.Collection) {
+	for i := range c.Controls {
+		control := &c.Controls[i]
+		if control.Runtime != "codex" || !strings.HasSuffix(filepath.ToSlash(control.Source), ".codex/requirements.toml") {
+			continue
+		}
+		for _, authority := range c.Authorities {
+			if authority.Runtime != "codex" || !requirementControlRestrictsAuthority(control.ID, authority.ID) || !requirementScopeContains(control.Scope, control.ScopeSubtree, authority.AuthorityScope, authority.ScopeSubtree) {
+				continue
+			}
+			if authority.OccurrenceID != "" && !containsExactString(control.AppliesTo, authority.OccurrenceID) {
+				control.AppliesTo = append(control.AppliesTo, authority.OccurrenceID)
+			}
+		}
+	}
+}
+
+func containsExactString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func requirementControlRestrictsAuthority(controlID, authorityID string) bool {
+	switch controlID {
+	case "control:deny-secret-read":
+		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
+	case "control:network-restricted":
+		return authorityID == "authority:external-communication" || authorityID == "authority:broad-local"
+	default:
+		return false
+	}
+}
+
+func requirementScopeContains(controlScope, controlSubtree, authorityScope, authoritySubtree string) bool {
+	if controlScope == model.InstructionScopeRoot {
+		return true
+	}
+	return controlScope == model.InstructionScopeNested && authorityScope == model.AuthorityScopeNested && controlSubtree != "" && controlSubtree == authoritySubtree
+}
+
+func discoveryWarningSource(warning string) string {
+	for _, prefix := range []string{"could not inspect ", "surface discovery failed for "} {
+		if rest, ok := strings.CutPrefix(warning, prefix); ok {
+			if source, _, found := strings.Cut(rest, ": "); found && source != "" {
+				return source
+			}
+		}
+	}
+	return "surface-discovery"
+}
+
+func normalizedCollectionMode(mode string) string {
+	if mode == "endpoint" {
+		return "endpoint"
+	}
+	return "repo"
+}
+
+func shortHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:6])
 }
 
 func hasBoundary(c *model.Collection, id string) bool {
@@ -235,8 +318,17 @@ func parserStatusForSurface(s model.Surface) (model.ParserStatusFact, bool) {
 		_, parsed = agentconfig.ParseClaudeSettings(data)
 	case "github-actions-workflow":
 		_, parsed = agentconfig.ParseGitHubWorkflow(data)
+	case "gitlab-ci-pipeline", "aider-config", "opentelemetry-config":
+		parsed = agentconfig.ValidateYAMLDocument(data)
 	case "mcp-config", "claude-mcp-config", "cursor-mcp-config", "windsurf-mcp-config", "continue-mcp-config", "vscode-mcp-config", "cline-mcp-config", "roo-mcp-config":
 		var document map[string]json.RawMessage
+		parsed = json.Unmarshal(data, &document) == nil
+	case "cursor-settings", "windsurf-settings", "continue-config", "gemini-settings", "opencode-config", "vscode-settings",
+		"claude-plugin-config", "claude-installed-plugins", "gemini-extension", "claude-policy-limits",
+		"network-policy", "egress-policy", "agent-policy", "tool-policy", "delegation-policy", "input-policy", "identity-policy",
+		"authorization-policy", "workload-policy", "resource-policy", "memory-policy", "integrity-policy", "observability-policy",
+		"response-policy", "governance-policy", "output-policy", "supply-chain-policy", "ai-bom":
+		var document any
 		parsed = json.Unmarshal(data, &document) == nil
 	}
 	if !parsed {
@@ -644,8 +736,8 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 	if cfg.NetworkAccess != nil && !*cfg.NetworkAccess {
 		addControlAt(c, "control:network-restricted", "network-restricted", "codex", source, "Codex config restricts external network communication.", cfg.NetworkAccessLine)
 	}
-	if codexDeniesSecretPath(cfg) {
-		addControlAt(c, "control:deny-secret-read", "deny-secret-read", "codex", source, "Codex deny-read policy covers secret-like paths.", codexDenySecretPathLine(cfg))
+	if patterns := codexSecretDenyPatterns(cfg); len(patterns) > 0 {
+		addResourceControlAt(c, "control:deny-secret-read", "deny-secret-read", "codex", source, patterns, "Codex deny-read policy covers named secret-like paths.", codexDenySecretPathLine(cfg))
 	}
 	scopedSandbox := cfg.SandboxMode == "read-only" || cfg.SandboxMode == "workspace-write"
 	scopedApproval := cfg.ApprovalPolicy == "on-request" || cfg.ApprovalPolicy == "on-failure" || cfg.ApprovalPolicy == "untrusted"
@@ -671,6 +763,16 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 
 func codexDeniesSecretPath(cfg agentconfig.CodexConfig) bool {
 	return codexDenySecretPathLine(cfg) > 0
+}
+
+func codexSecretDenyPatterns(cfg agentconfig.CodexConfig) []string {
+	var patterns []string
+	for _, candidate := range cfg.DenyRead {
+		if agentconfig.IsSecretLikePath(candidate) {
+			patterns = append(patterns, candidate)
+		}
+	}
+	return patterns
 }
 
 func codexDenySecretPathLine(cfg agentconfig.CodexConfig) int {
@@ -754,8 +856,8 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 	if claudeNetworkRestricted(cfg) {
 		addControlAt(c, "control:network-restricted", "network-restricted", "claude", source, "Claude Code settings restrict web or external network communication.", claudeNetworkRestrictedLine(cfg))
 	}
-	if cfg.HasSecretReadDeny() {
-		addControlAt(c, "control:deny-secret-read", "deny-secret-read", "claude", source, "Claude Code deny/disallow policy covers secret-like paths.", claudeSecretReadDenyLine(cfg))
+	if patterns := claudeSecretDenyPatterns(cfg); len(patterns) > 0 {
+		addResourceControlAt(c, "control:deny-secret-read", "deny-secret-read", "claude", source, patterns, "Claude Code deny/disallow policy covers named secret-like paths.", claudeSecretReadDenyLine(cfg))
 	}
 	if (cfg.DefaultMode == "default" && len(cfg.Allow) > 0) || len(cfg.Deny) > 0 {
 		addControlAt(c, "control:scoped-permissions", "scoped-permissions", "claude", source, "Claude Code settings declare scoped default-mode permissions.", firstPositive(lineIfEqual(cfg.DefaultMode, "default", cfg.DefaultModeLine), firstPermRuleLine(cfg.Allow), firstPermRuleLine(cfg.Deny)))
@@ -839,6 +941,9 @@ func claudeAllowsExternalCommunication(cfg agentconfig.ClaudeSettings) bool {
 func claudeNetworkRestricted(cfg agentconfig.ClaudeSettings) bool {
 	deniedWebFetch := cfg.HasDenyTool("WebFetch") && !cfg.HasAllowTool("WebFetch")
 	deniedWebSearch := cfg.HasDenyTool("WebSearch") && !cfg.HasAllowTool("WebSearch")
+	if claudeAllowsExternalCommunication(cfg) {
+		return false
+	}
 	if deniedWebFetch || deniedWebSearch {
 		return true
 	}
@@ -846,6 +951,16 @@ func claudeNetworkRestricted(cfg agentconfig.ClaudeSettings) bool {
 		return true
 	}
 	return false
+}
+
+func claudeSecretDenyPatterns(cfg agentconfig.ClaudeSettings) []string {
+	var patterns []string
+	for _, rule := range cfg.Deny {
+		if strings.EqualFold(rule.Tool, "Read") && agentconfig.IsSecretLikePath(rule.Scope) {
+			patterns = append(patterns, rule.Scope)
+		}
+	}
+	return patterns
 }
 
 func claudeBroadLocalLine(cfg agentconfig.ClaudeSettings) int {
@@ -2375,6 +2490,12 @@ func addControlAt(c *model.Collection, id, kind, runtime, source, summary string
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+id, "control", source, "declared", summary, line))
 }
 
+func addResourceControlAt(c *model.Collection, id, kind, runtime, source string, resources []string, summary string, line int) {
+	lineStart, lineEnd := lineRange(line)
+	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: id, Kind: kind, Runtime: runtime, Source: source, RestrictedResources: append([]string(nil), resources...), Summary: summary, LineStart: lineStart, LineEnd: lineEnd})
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+id, "control", source, "declared", summary, line))
+}
+
 func addObservedControl(c *model.Collection, id, kind, runtime, source, summary string) {
 	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: id, Kind: kind, Runtime: runtime, Source: source, Summary: summary})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+id, "control", source, "observed", summary))
@@ -3884,7 +4005,105 @@ func inlineCredentialConfigured(text string) bool {
 }
 
 func looksPinned(text string) bool {
-	return regexp.MustCompile(`@[0-9]+\.[0-9]+`).MatchString(text) || strings.Contains(text, "sha256:")
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false
+	}
+	launcher := strings.TrimSuffix(filepath.Base(fields[0]), ".exe")
+	args := fields[1:]
+	switch launcher {
+	case "npx":
+		coordinate := firstPackageCoordinate(args)
+		return exactPackageVersionPattern.MatchString(coordinate)
+	case "uvx":
+		coordinate := firstPackageCoordinate(args)
+		return exactPackageVersionPattern.MatchString(coordinate) || exactPythonVersionPattern.MatchString(coordinate)
+	case "npm":
+		if len(args) > 0 && (args[0] == "exec" || args[0] == "x") {
+			args = args[1:]
+		}
+		coordinate := firstPackageCoordinate(args)
+		return exactPackageVersionPattern.MatchString(coordinate)
+	case "pnpm", "yarn":
+		if len(args) > 0 && (args[0] == "dlx" || args[0] == "exec") {
+			args = args[1:]
+		}
+		coordinate := firstPackageCoordinate(args)
+		return exactPackageVersionPattern.MatchString(coordinate)
+	case "docker":
+		return boundImageDigestPattern.MatchString(dockerRunImage(args))
+	}
+	return false
+}
+
+func firstPackageCoordinate(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := strings.Trim(args[i], `"',`)
+		if arg == "--" {
+			continue
+		}
+		if strings.HasPrefix(arg, "--package=") {
+			return strings.TrimPrefix(arg, "--package=")
+		}
+		if arg == "-p" || arg == "--package" {
+			if i+1 < len(args) {
+				return strings.Trim(args[i+1], `"',`)
+			}
+			return ""
+		}
+		if packageFlagConsumesValue(arg) {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func packageFlagConsumesValue(flag string) bool {
+	switch flag {
+	case "--cache", "--userconfig", "--registry", "--prefix", "--node-options", "--call", "-c":
+		return true
+	default:
+		return false
+	}
+}
+
+func dockerRunImage(args []string) string {
+	run := -1
+	for i, arg := range args {
+		if arg == "run" {
+			run = i
+			break
+		}
+	}
+	if run < 0 {
+		return ""
+	}
+	for i := run + 1; i < len(args); i++ {
+		arg := strings.Trim(args[i], `"',`)
+		if dockerFlagConsumesValue(arg) {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func dockerFlagConsumesValue(flag string) bool {
+	switch flag {
+	case "-v", "--volume", "-e", "--env", "--name", "--network", "-w", "--workdir", "--entrypoint", "-p", "--publish":
+		return true
+	default:
+		return false
+	}
 }
 
 func declaresSecretDeny(text string) bool {

@@ -1379,6 +1379,16 @@ approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 deny_read = [".env", "**/.env"]
 CODEX
+cat > "$enforced_target/mcp.json" <<'MCP'
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem@1.2.3", "."]
+    }
+  }
+}
+MCP
 "$bin" proofs --path "$enforced_target" --case case:least-agency-authority --format json --out "$enforced_after_json"
 "$bin" compare --before "$enforced_before_json" --after "$enforced_after_json" --out "$enforced_compare_txt"
 

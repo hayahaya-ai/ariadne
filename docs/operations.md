@@ -75,6 +75,9 @@ What to expect per run, verified on developer hardware:
   system should consume. Schema: `ariadne.verdict/v2`
   (`ariadne-prove/schema/ariadne-verdict-v2.schema.json`). Verdict v1 remains
   frozen for existing consumers.
+- Verdict v2 and consolidated scan JSON can be validated with an unconfigured
+  Draft 2020-12 validator; both schemas are self-contained and require no
+  network access or pre-registered sibling schemas.
 - Fleet ordering is deterministic: reckless targets first, then inconclusive,
   trade-offs, hardened, and no-agents targets; ties use reckless count then
   target path. Self-declared `.ariadne/*.json` controls remain

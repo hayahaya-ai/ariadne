@@ -1009,7 +1009,7 @@ type recklessFixTarget struct {
 // then used to select a same-runtime edit surface. It never suggests a
 // .ariadne/* declaration.
 func recklessFix(exposureID string, refs []model.EvidenceReference, collection model.Collection) string {
-	target := recklessFixTargetFromEvidence(refs, collection)
+	target := recklessFixTargetFromEvidence(exposureID, refs, collection)
 	source := recklessFixSource(exposureID, target, collection)
 	switch exposureID {
 	case FamilySecret:
@@ -1041,9 +1041,16 @@ func recklessFix(exposureID string, refs []model.EvidenceReference, collection m
 	}
 }
 
-func recklessFixTargetFromEvidence(refs []model.EvidenceReference, collection model.Collection) recklessFixTarget {
+func recklessFixTargetFromEvidence(exposureID string, refs []model.EvidenceReference, collection model.Collection) recklessFixTarget {
 	if len(refs) == 0 {
 		return recklessFixTarget{}
+	}
+	if exposureID != FamilyMCP {
+		for _, ref := range refs {
+			if target, ok := fixTargetFromSurface(ref.Source, collection.Surfaces); ok && isRuntimeFixSurface(target) {
+				return target
+			}
+		}
 	}
 	ref := refs[0]
 	if target, ok := fixTargetFromSurface(ref.Source, collection.Surfaces); ok {
@@ -1272,6 +1279,7 @@ func hasWordPrefix(s, prefix string) bool {
 type capabilityCandidate struct {
 	order           int
 	id              string
+	occurrenceID    string
 	kind            string
 	runtime         string
 	source          string
@@ -1319,6 +1327,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			candidates = append(candidates, capabilityCandidate{
 				order:           10,
 				id:              authority.ID,
+				occurrenceID:    authority.OccurrenceID,
 				kind:            "authority",
 				runtime:         authority.Runtime,
 				source:          authority.Source,
@@ -1330,6 +1339,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			candidates = append(candidates, capabilityCandidate{
 				order:           11,
 				id:              authority.ID,
+				occurrenceID:    authority.OccurrenceID,
 				kind:            "authority",
 				runtime:         authority.Runtime,
 				source:          authority.Source,
@@ -1346,6 +1356,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 		candidates = append(candidates, capabilityCandidate{
 			order:           12,
 			id:              boundary.ID,
+			occurrenceID:    boundary.OccurrenceID,
 			kind:            "boundary",
 			source:          boundary.Source,
 			summary:         boundary.Summary,
@@ -1358,14 +1369,15 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			continue
 		}
 		candidate := capabilityCandidate{
-			order:   13,
-			id:      tool.ID,
-			kind:    "tool",
-			runtime: tool.Runtime,
-			source:  tool.Source,
-			summary: tool.Summary,
+			order:        13,
+			id:           tool.ID,
+			occurrenceID: tool.OccurrenceID,
+			kind:         "tool",
+			runtime:      tool.Runtime,
+			source:       tool.Source,
+			summary:      tool.Summary,
 		}
-		if control, ok := firstEnforcedControl(collection.Controls, "control:mcp-reviewed-pinned"); ok {
+		if control, ok := firstApplicableEnforcedControl(collection.Controls, "control:mcp-reviewed-pinned", tool.OccurrenceID); ok {
 			candidate.tradeoffSummary = "MCP tools configured and pinned"
 			candidate.tradeoffSource = firstNonEmpty(control.Source, tool.Source)
 		}
@@ -1395,6 +1407,15 @@ func capabilityConsumedByExposure(candidate capabilityCandidate, exposure model.
 			return true
 		}
 	}
+	if len(exposure.OccurrencePathEdges) > 0 {
+		for _, edge := range exposure.OccurrencePathEdges {
+			from, _, to, ok := splitEdge(edge)
+			if ok && candidate.occurrenceID != "" && (from == candidate.occurrenceID || to == candidate.occurrenceID) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, edge := range exposure.PathEdges {
 		if edgeConsumesCandidate(edge, candidate) {
 			return true
@@ -1408,6 +1429,20 @@ func capabilityConsumedByExposure(candidate capabilityCandidate, exposure model.
 		}
 	}
 	return false
+}
+
+func firstApplicableEnforcedControl(controls []model.Control, id, occurrenceID string) (model.Control, bool) {
+	for _, control := range controls {
+		if control.ID != id || control.Enforcement != model.EnforcementEnforced {
+			continue
+		}
+		for _, target := range control.AppliesTo {
+			if target == occurrenceID {
+				return control, true
+			}
+		}
+	}
+	return model.Control{}, false
 }
 
 func evidenceRefMatchesCandidate(ref model.EvidenceReference, candidate capabilityCandidate) bool {
