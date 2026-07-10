@@ -1,0 +1,47 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ariadne-prove/go.mod
+
+      - name: Build release binaries
+        working-directory: ariadne-prove
+        run: |
+          version="${GITHUB_REF_NAME}"
+          dist="$RUNNER_TEMP/dist"
+          mkdir -p "$dist"
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
+            goos="${target%/*}"; goarch="${target#*/}"; ext=""
+            [ "$goos" = "windows" ] && ext=".exe"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags "-s -w" -o "$dist/ariadne$ext" ./cmd/ariadne
+            ( cd "$dist"
+              if [ "$goos" = "windows" ]; then
+                zip -q "ariadne-$version-$goos-$goarch.zip" "ariadne$ext" && rm "ariadne$ext"
+              else
+                tar czf "ariadne-$version-$goos-$goarch.tar.gz" ariadne && rm ariadne
+              fi )
+          done
+          ( cd "$dist" && shasum -a 256 ariadne-"$version"-* > SHA256SUMS.txt )
+          echo "DIST=$dist" >> "$GITHUB_ENV"
+
+      - name: Attach binaries to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" "$DIST"/* --clobber

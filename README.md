@@ -70,10 +70,25 @@ Two design rules keep the word trustworthy:
   file is `attested` evidence and never improves the grade. Only enforced
   configuration counts.
 
-## Quick start
+## Install
+
+**Download a prebuilt binary** (no Go required) from the
+[latest release](https://github.com/hayahaya-ai/ariadne/releases/latest) —
+macOS (arm64/amd64), Linux (amd64/arm64), Windows (amd64). For example, on
+Apple Silicon:
 
 ```bash
-make build                 # builds ./bin/ariadne (Go, zero dependencies)
+curl -sSL https://github.com/hayahaya-ai/ariadne/releases/latest/download/ariadne-v0.1.0-darwin-arm64.tar.gz | tar xz
+./ariadne self
+```
+
+Checksums for every asset are in `SHA256SUMS.txt` on the release page.
+
+**Or build from source** (Go, zero dependencies):
+
+```bash
+git clone https://github.com/hayahaya-ai/ariadne && cd ariadne
+make build
 ./bin/ariadne self         # assess this machine (endpoint mode)
 ./bin/ariadne assess --path <repo>   # assess a repository
 ```
