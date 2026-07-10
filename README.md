@@ -1,247 +1,178 @@
 # Ariadne
 
-Ariadne is a deterministic exposure analysis tool for local AI agent runtimes and their tool configurations.
+[![CI](https://github.com/hayahaya-ai/ariadne/actions/workflows/ci.yml/badge.svg)](https://github.com/hayahaya-ai/ariadne/actions/workflows/ci.yml)
 
-It answers a concrete security question:
+**One command that tells you if your AI coding setup is dangerous.**
 
-> Can untrusted instructions plus agent authority create a path to sensitive local boundaries, and do controls break that path?
+Your AI assistants — Claude Code, Codex, Cursor, Gemini CLI, Copilot, and their
+MCP tools — can read your files, run programs, and reach the internet. Ariadne
+reads their configuration and answers one question, deterministically:
 
-Ariadne is fact-first. It collects deterministic evidence, builds a graph, and classifies only the exposure paths supported by that graph. It does not execute agents, run MCP servers, install packages, call external services, or read secret values.
+> Can untrusted instructions plus agent authority create a path to sensitive
+> local boundaries — and do enforced controls break that path?
 
-The active implementation is in [`ariadne-prove/`](ariadne-prove/).
+Nothing is executed, no packages are installed, no network calls are made, and
+secret values are never read. Ariadne inspects your setup the way an auditor
+reads blueprints, without touching the wiring.
 
 ## The 60-second readout
 
-`ariadne self` (or `ariadne assess --path <repo>`) prints one screen: which agents were
-found, the **reckless** configurations that need action (each with file:line, why, and a
-one-line fix), the **trade-offs** you're accepting as the normal cost of using agents,
-and the **hardened** controls already working for you. The verdict is a word —
-`reckless`, `tradeoffs_only`, or `hardened` — not a score.
+```text
+$ ariadne self
 
-It is designed to be driven by other AI agents as much as by people. Every line carries
-a stable ID, and the CLI is a navigable resource tree with progressive disclosure:
+Ariadne · AI agent risk readout
+Scanned your machine · 4 agent runtimes found · 1,887 config files read ·
+nothing executed, no secret values read
 
-```bash
-ariadne self                       # one-screen graded readout (default format)
-ariadne verdict --json             # compact machine verdict (schema: ariadne.verdict/v1)
-ariadne verdict --gate             # exit 3 if reckless — one-line CI/pipeline gate
-ariadne ls findings                # list resources: findings | agents | surfaces | controls | facts | cases
-ariadne show reckless:1            # drill into one finding: evidence, why, fix
-ariadne show .claude/settings.json # everything Ariadne concluded from one file
+  VERDICT: RECKLESS — 1 finding needs action.
+
+  RECKLESS ── fix these ──
+  1. A mutable tool launcher can run unreviewed code on your machine
+       where  .cursor/mcp.json:2
+       why    it downloads and runs whatever the package registry serves
+              today, with your permissions
+       fix    pin the package to an exact version in .cursor/mcp.json
+
+  TRADE-OFFS ── normal cost of using agents ──
+  •  agents read your workspace — that is what a coding agent is for
+
+  HARDENED ── working in your favor ──
+  ✓  approval prompts are enforced in .claude/settings.json
 ```
 
-Fix suggestions are printed, never applied — Ariadne only reads. An agent applies the
-edit with its own tools, then reruns `ariadne self` to confirm the verdict dropped.
-Because only enforced configuration counts (a self-declared `.ariadne/*.json` file can
-never turn the screen green), the verdict is trustworthy enough to gate on. Older
-report formats remain available via `--format summary|table|json|html`.
+The verdict is a word, not a score: `reckless`, `tradeoffs_only`, `hardened`,
+or `no_agents_found`. Every finding carries the exact file and line, why it
+matters in one sentence, and a one-line fix for the same surface the evidence
+came from.
 
-## For Agents (Claude Code plugin)
+## How it decides
 
-Ariadne ships a Claude Code plugin so an agent can consume the verdict directly.
-It contains the `ariadne-posture` skill (the consumption contract: facts are
-deterministic; grading is a labeled default judgment the agent may override with
-stated reasons; fixes are applied by the agent's own tools and re-verified) and
-the read-only `ariadne-audit` subagent for side-thread audits.
+Every conclusion lands in exactly one of three buckets:
+
+- **Reckless** — the dangerous combination exists (untrusted influence +
+  private-data reach + external egress, or a mutable tool launcher) and no
+  enforced barrier breaks it.
+- **Trade-offs** — real capabilities, honestly named, that are simply the cost
+  of agents being useful. Acknowledged, never nagged about.
+- **Hardened** — enforced protections already working for you: deny rules,
+  sandboxes, pinned launchers, approval gates, CI secret isolation.
+
+Two design rules keep the word trustworthy:
+
+- **Facts are deterministic; opinions are labeled.** What exists, what it
+  grants, and which line are facts — the same scan gives byte-identical
+  answers. Where grading requires judgment (your own home config is not
+  "untrusted input" by default; a plain `pull_request` workflow benefits from
+  GitHub's fork-PR secret isolation), the verdict JSON carries that judgment's
+  name and the fact IDs it weighed in `default_judgments`, so a person or an
+  agent can overrule it.
+- **The verdict cannot be gamed.** A self-declared `.ariadne/*.json` policy
+  file is `attested` evidence and never improves the grade. Only enforced
+  configuration counts.
+
+## Quick start
+
+```bash
+make build                 # builds ./bin/ariadne (Go, zero dependencies)
+./bin/ariadne self         # assess this machine (endpoint mode)
+./bin/ariadne assess --path <repo>   # assess a repository
+```
+
+Fix suggestions are printed, never applied — Ariadne only reads. Apply the fix
+with your own tools, rerun, and watch the verdict drop.
+
+## Built to be driven by agents
+
+The primary user may be an AI agent deciding what to do next. Every line has a
+stable ID and the CLI is a navigable resource tree:
+
+```bash
+ariadne verdict --json             # machine verdict (schema: ariadne.verdict/v1)
+ariadne ls findings                # findings | agents | surfaces | controls | facts | cases
+ariadne show reckless:1            # drill into one finding: evidence, why, fix
+ariadne show .claude/settings.json # everything concluded from one file
+```
+
+A Claude Code plugin ships in this repo — the `ariadne-posture` skill teaches
+any agent the consumption contract (verify evidence, fix with your own tools,
+re-verify, never fake a passing grade) and the read-only `ariadne-audit`
+subagent handles side-thread audits:
 
 ```bash
 claude plugin marketplace add hayahaya-ai/ariadne
 claude plugin install ariadne@ariadne
 ```
 
-## Quick Start
+## Gate a pipeline, see a fleet
 
 ```bash
-make build
-make verify-first-run
-./bin/ariadne self
-./bin/ariadne self --bundle-dir /tmp/ariadne-self
-./bin/ariadne bundle verify --dir /tmp/ariadne-self
-./bin/ariadne self --format html --out /tmp/ariadne-self.html
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format operator
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format html --out /tmp/ariadne-assess.html
+# CI gate: exit 3 when reckless — this repository gates itself with this line.
+ariadne verdict --path . --mode repo --gate
+
+# Fleet rollup: one verdict/v1 JSON line per endpoint, plus a worst-first
+# summary with findings grouped by family — SIEM-ready.
+ariadne scan --targets endpoints.txt --mode endpoint --format jsonl --out verdicts.jsonl
+ariadne scan --targets endpoints.txt --mode endpoint --format json  --out fleet.json
 ```
 
-The first command builds the CLI. The second command runs the product verification loop against known fixtures. `ariadne self` is the local developer-machine assessment: it inspects the current `HOME` in endpoint mode and returns the first operator action. Add `--bundle-dir` when you want a durable first-run folder containing `assessment.txt`, `operator-packet.txt`, `operator-packet.json`, `dashboard.html`, `inventory-coverage.txt`, `inventory.json`, `llm-follow-up-request.txt`, `llm-follow-up-request.json`, `llm-inventory-blind-request.txt`, `llm-inventory-blind-request.json`, `cases.txt`, `cases.json`, `case-action.txt`, `case-action.json`, `proof-action.txt`, `proof-plan.json`, `README.md`, and `manifest.json` with byte size and SHA-256 metadata for generated payload files. Use `ariadne bundle verify --dir <bundle>` to recompute those hashes before attaching, sharing, or trusting a saved bundle. `operator-packet.txt` is the small ticket-style handoff: start case, source refs, graph path, missing controls, proof artifacts, commands, and done criteria. `operator-packet.json` is the same compact packet with run metadata for ticketing and workflow automation. `inventory-coverage.txt` is the compact fact-only coverage matrix for discovered AI runtimes, parsed configs, summarized private context, boundary indicators, skipped surfaces, and modeled signals. `llm-follow-up-request.*` is an optional reviewer handoff over Ariadne exposure IDs that must be validated with `ariadne review-check` before ingestion. `llm-inventory-blind-request.*` is a lower-bias, request-only hypothesis packet; hypotheses must be mapped back to deterministic facts, source refs, and graph edges before becoming findings. `case-action.txt` and `case-action.json` isolate the focused first operator case so a human or workflow system can act without loading the full case board. The bundle HTML dashboard starts with an Operator Console for the current case, an Optional Reviewer Handoff for the LLM packet files and validation commands, source tasks, proof loop, and commands, then includes a Source Reference Workbench with exact files, line numbers, facts, copyable paths, inspect commands, and a Source Action Board that groups evidence files and proof surfaces into concrete operator tasks; assessment JSON exposes the same source contract under `source_reference_workbench` and the optional review handoff under `review_packets`. Private/history/cache surfaces use metadata-safe commands instead of content reads. `ariadne assess --path ...` is the repo or mounted-path assessment. Both tell you what Ariadne inspected, what facts it collected, which operator case is first, what evidence supports it, what is normal agent capability, what is real risk, what hard barrier is missing, and how to prove the fix worked. Use `--format operator` or `--format operator-json` when you want the same handoff outside a bundle. The `Signal quality` section is the signal/noise boundary: capability alone is not exposure; Ariadne marks action only when graph evidence connects influence, authority, boundary reachability, and missing hard-barrier evidence. The `Lethal trifecta` section names the data-egress chain: untrusted content, private-data access, and external communication in the same supported agent graph. Use `--format table` when you want the full terminal audit trail.
+Fleet numbers obey the same rule as the readout: attested declarations never
+improve a tally. See [Operating Ariadne](docs/operations.md) for CI and
+MDM/fleet deployment patterns documented against verified behavior.
 
-## First-Run Triage Loop
+## Why you can trust the answer
 
-Ariadne is meant to be used as an operator workflow, not just a scanner.
+- **Scored against 29 fixture worlds** with known-correct expected verdicts —
+  including adversarial twins built to catch lazy shortcuts (keyword-in-string,
+  deny-vs-allow, commented-out config, self-declared policies, nested test
+  corpora, `pull_request_target` vs plain `pull_request`) — at 100%
+  verdict-word accuracy and 100% per-family precision/recall (`make eval`).
+- **Proven deterministic**: repeated runs are byte-identical modulo run ID and
+  timestamp, enforced by tests.
+- **Fast**: ~2,000 config files in about half a second (benchmarked).
+- **Calibrated on real machines**: every false alarm found in the wild became a
+  permanent regression fixture.
+- **Exit codes are contract**: 0 success · 1 runtime error · 2 usage error ·
+  3 reckless (with `--gate`) — each tested.
+- **Self-gated**: CI runs the full scorecard plus `ariadne verdict --gate` on
+  this repository itself.
 
-```bash
-# 1. Get the first action.
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
+## What it deliberately does not do
 
-# 2. Focus the prioritized case.
-./bin/ariadne cases --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary
-./bin/ariadne cases --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --format action
+No agent execution, no MCP server launches, no package installs, no live
+network tests, no secret values in output, no compliance-framework theater.
+Private histories, transcripts, and caches are summarized by metadata only.
+Ariadne answers "am I being reckless?", not "am I ISO-aligned?"
 
-# 3. Save the baseline proof state.
-./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --format json --out before-proof.json
+## Deeper workflows
 
-# 4. See the proof evidence Ariadne expects.
-./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary
-
-# 5. Export suggested proof files for review.
-./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --patch-dir proof-patches
-
-# 6. Rerun after applying real control evidence.
-./bin/ariadne proofs --path ariadne-prove/testdata/realpath/combined-risk --case case:egress-output-boundary --format json --out after-proof.json
-
-# 7. Compare before and after.
-./bin/ariadne compare --before before-proof.json --after after-proof.json
-```
-
-The compare output includes closure receipts with evidence references, before/after artifact hashes, and exact verification commands for recreating the text receipt and HTML compare.
-
-`ariadne cases` emits an `action_packet` for each operator case. The packet is a fact-first handoff: evidence to open, the control to prove, proof files to generate or review, rerun commands, compare commands, and done criteria.
-
-On the `combined-risk` fixture, the first action currently starts with `case:egress-output-boundary` because Ariadne connected these facts:
-
-- repo instructions can influence local agent runtimes
-- Claude/Codex configuration grants broad or file-read authority
-- a secret-like boundary exists
-- external communication or tool-mediated egress is reachable
-- no hard egress or output barrier is proven
-
-The HTML version includes clickable local evidence links and copy-path buttons:
+Behind the one-screen readout, Ariadne keeps a full evidence trail: graph
+exports (JSON/DOT/Mermaid), Zero Trust boundary mapping, operator case boards
+with proof loops and closure receipts, self-assessment bundles
+(`ariadne self --bundle-dir <dir>`, verified with `ariadne bundle verify`),
+and a fact-bound LLM review path (`review-packet` → `review-check`) where
+analyst output must cite existing fact IDs and can never alter the verdict.
+These remain available behind explicit flags and `--format` options:
 
 ```bash
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk --format html --out /tmp/ariadne-assess.html
-```
-
-## Endpoint Mode
-
-Use endpoint mode when the target looks like a developer home directory or mounted endpoint snapshot:
-
-```bash
-./bin/ariadne self
-./bin/ariadne self --bundle-dir ariadne-self
-./bin/ariadne bundle verify --dir ariadne-self
-./bin/ariadne self --format html --out /tmp/ariadne-self.html
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format action
-./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format coverage
-./bin/ariadne inventory --path ariadne-prove/testdata/realpath/messy-ai-surfaces --mode endpoint --format json
-```
-
-Endpoint mode discovers local AI surfaces such as Claude, Codex, GitHub Copilot in VS Code, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, Cline, Roo Code, MCP, and Ariadne proof policy files. Repo assessment also discovers managed-agent workflow surfaces such as GitHub Actions and GitLab CI. It parses known security-relevant files, summarizes private context surfaces, models authorities and boundaries, and then ranks operator cases. For managed workflows, Ariadne structurally parses trigger event kinds and separates the trigger, workflow tool invocation, repository-write permission, OIDC/cloud identity permission, CI secret reference, external communication, and approval gate as separate facts. Plain `pull_request` uses GitHub's fork-PR secret/write-token isolation as an enforced, labeled default; privileged or attacker-postable triggers such as `pull_request_target`, `workflow_run`, and issue/comment events retain their untrusted influence leg. The self-assessment bundle is the recommended handoff artifact when you need to inspect results later, attach evidence to a ticket, or share the readout with another operator.
-
-## Fact Contract
-
-Ariadne separates facts from interpretation:
-
-- **Observed fact:** a file, config, instruction, cache, MCP, tool, authority, control, or boundary was discovered.
-- **Declared fact:** a config or policy says a control exists.
-- **Inferred fact:** Ariadne can model authority or reachability from deterministic evidence.
-- **Enforced vs attested controls:** a control parsed from configuration a runtime or platform actually applies (Claude/Codex permission semantics, pinned launchers, CI gates, managed settings) is `enforced`; a self-declared `.ariadne/*.json` policy flag is `attested`. Attested controls never flip a path to `protected`, never count as proven hard barriers, and never close a case — they are reported separately as `attested_controls`.
-- **Classification:** Ariadne connects facts into a graph path and labels the path `exposed`, `protected`, or `inconclusive`.
-- **Operator case:** Ariadne ranks missing hard barriers that would break a supported path. Cases close only on enforced evidence.
-
-If Ariadne cannot cite facts, evidence references, graph edges, controls, and limitations, it should not present a conclusion as more than unknown or inconclusive.
-
-## What It Does
-
-- Discovers AI-agent configuration surfaces across repositories and endpoint-style home directories.
-- Parses known security-relevant config and instruction files.
-- Summarizes private or high-volume agent context without emitting content, including count-only credential-like filename indicators.
-- Builds a graph of trust inputs, runtimes, tools, authorities, controls, and boundaries.
-- Models managed workflow agent paths such as pull-request or merge-request-triggered AI reviews with repository token, OIDC or CI identity token, CI secret, and egress facts.
-- Exports graph evidence as JSON, Graphviz DOT, or Mermaid for review and visualization.
-- Reports exposure paths as `exposed`, `protected`, or `inconclusive`.
-- Maps exposure evidence to Zero Trust agent architecture boundaries as `breaking`, `controlled`, `unknown`, or `not_observed`.
-- Aggregates Zero Trust boundary coverage across target lists, including evidence anchors, missing evidence, next collectors, and the control evidence needed to close gaps.
-- Prioritizes graph-backed issues with deterministic rules.
-- Supports custom rule policies for organization-specific risky paths.
-- Detects declared Zero Trust agent controls such as approval, sandbox, output filtering, continuous authorization, resource limits, credential-helper, request-to-action traceability, retention, memory integrity, provenance, and credential-isolation posture.
-- Detects AI supply-chain evidence such as AI-BOM or ML-BOM surfaces, model provenance, dependency health, provider review, signing, and runtime validation declarations.
-- Flags inline credential field indicators in agent configuration without emitting values.
-- Creates fact-bound review packets for optional human or LLM review, including follow-up packets over Ariadne exposure IDs and inventory-blind packets for lower-bias hypothesis review.
-- Writes local HTML operator dashboards with first action, evidence links, proof bundles, case boards, and Zero Trust boundary coverage views.
-- Emits JSON for automation, fleet aggregation, and security data pipelines.
-
-## Exposure Families
-
-- **Secret boundary access:** untrusted repo or agent instructions can influence a runtime that has file-read authority near secret-like files.
-- **Mutable tool launch:** an agent can invoke a tool launched through mutable package-manager or interpreter configuration that grants local execution.
-- **Data egress chain:** untrusted influence, private-data reachability, and external communication reachability exist in the same graph.
-
-## Zero Trust Architecture
-
-Ariadne reports where agent architecture is breaking across influence, authority, sensitive data, external egress, output controls, tool/MCP, AI supply chain, memory/context, identity, workload authorization, continuous authorization, human approval, resource exhaustion, observability, response, governance, configuration integrity, and control-strength boundaries.
-
-The product readout starts with `zero_trust.architecture_flaws`: user-centered architecture flaw categories such as untrusted instructions steering privileged tools, weak agent identity, arbitrary external egress, missing observability, and unsafe persistent memory. Each flaw cites the underlying check IDs, evidence sources, graph edges, observed controls, control evidence needed to break the flaw, evidence surfaces Ariadne can collect, and next actions.
-
-The model is fact-first: `breaking` requires graph evidence, `controlled` requires a control edge, and unsupported identity or observability claims remain `unknown`. For influence, risky untrusted instructions reaching high-risk authority are `breaking` even when a specific data boundary is not yet proven. For egress, risky agent influence or authority reaching arbitrary external communication is `breaking` without hard destination or network-scope controls. For identity, high-risk inherited local authority without strong scoped agent identity is `breaking`; helper-only evidence is partial. For workload authorization, sandboxing is containment, not authorization. For observability, audit logs alone are partial; the stronger boundary needs action logging plus request or trace propagation.
-
-See [Zero Trust agent architecture](ariadne-prove/docs/zero-trust-agent-architecture.md).
-
-## Commands
-
-From the repository root:
-
-```bash
-make test
-make build
-make verify-first-run
-./bin/ariadne help
-./bin/ariadne self
-./bin/ariadne self --bundle-dir ariadne-self
-./bin/ariadne bundle verify --dir ariadne-self
-./bin/ariadne assess --path ariadne-prove/testdata/realpath/combined-risk
-make scan
-```
-
-From `ariadne-prove/`:
-
-```bash
-./bin/ariadne self
-./bin/ariadne self --bundle-dir ariadne-self
-./bin/ariadne bundle verify --dir ariadne-self
-./bin/ariadne self --format html --out ariadne-self.html
-./bin/ariadne architecture --path .
-./bin/ariadne architecture --targets targets.txt
-./bin/ariadne architecture --path . --mode endpoint --include-sensitive-paths
-./bin/ariadne architecture --path . --status all --format json
-./bin/ariadne inventory --path .
-./bin/ariadne prove --path .
-./bin/ariadne scan --targets targets.txt --format json --out scan.json
-./bin/ariadne dashboard --path . --out ariadne-dashboard.html
-./bin/ariadne dashboard --path . --view exposure --out exposure-dashboard.html
-./bin/ariadne dashboard --targets targets.txt --out fleet-dashboard.html
-./bin/ariadne prove --path . --rules .ariadne/rules.json
-./bin/ariadne review-packet --path . --profile follow-up --packet-out llm-request.json
-./bin/ariadne review-check --packet llm-request.json --review llm-review.json
-./bin/ariadne review-run --path . --command ./security-reviewer --dir ariadne-review
-./bin/ariadne review-packet --path . --profile inventory-blind --format json --out llm-request.json
-./bin/ariadne prove --path . --interpret llm --llm-review llm-review.json
-./bin/ariadne stories list
-./bin/ariadne prove --story data-egress-chain-exposed
+ariadne self --format summary|table|json|html
+ariadne assess --path <repo> --format operator
+ariadne stories list           # Story Lab fixture worlds
+make verify-first-run          # product verification loop
+make eval                      # verdict eval scorecard (exits 0 only when clean)
 ```
 
 ## Documentation
 
 - [Install](ariadne-prove/INSTALL.md)
 - [Operating Ariadne: CI gate and fleet scans](docs/operations.md)
+- [North star and quality bar](docs/northstar.md)
+- [CLI contract](docs/cli-contract.md)
 - [Deterministic scan model](ariadne-prove/docs/deterministic-scan.md)
 - [Zero Trust agent architecture](ariadne-prove/docs/zero-trust-agent-architecture.md)
-- [Priority rules](ariadne-prove/docs/priority-rules.md)
 - [Threat model](ariadne-prove/docs/threat-model.md)
 - [Fleet usage](ariadne-prove/docs/fleet.md)
 - [JSON and graph contract](ariadne-prove/docs/json-schema.md)
-- [Contributing](ariadne-prove/CONTRIBUTING.md)
-- [Security policy](ariadne-prove/SECURITY.md)
-
-## Privacy And Safety
-
-Ariadne is local-first and deterministic by default.
-
-- It does not execute agent runtimes.
-- It does not execute MCP/tool servers.
-- It does not install or resolve packages.
-- It does not call network services.
-- It does not emit secret values.
-- Private histories, transcripts, paste caches, and file histories are summarized by metadata only.
+- [Contributing](ariadne-prove/CONTRIBUTING.md) · [Security policy](ariadne-prove/SECURITY.md)
 
 ## License
 
