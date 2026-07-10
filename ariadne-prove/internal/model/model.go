@@ -62,6 +62,7 @@ type ExpectedResult struct {
 
 type ExpectedVerdict struct {
 	Word                       string                   `json:"word"`
+	Error                      bool                     `json:"error,omitempty"`
 	Findings                   []ExpectedVerdictFinding `json:"findings,omitempty"`
 	DefaultJudgmentRules       []string                 `json:"default_judgment_rules,omitempty"`
 	MinTradeoffs               int                      `json:"min_tradeoffs,omitempty"`
@@ -1525,8 +1526,10 @@ type Fact struct {
 }
 
 type Graph struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	Nodes     []Node `json:"nodes"`
+	Edges     []Edge `json:"edges"`
+	nodeIndex map[string]struct{}
+	edgeIndex map[string]struct{}
 }
 
 type Node struct {
@@ -1549,6 +1552,10 @@ func (e Edge) Key() string {
 }
 
 func (g Graph) HasNode(id string) bool {
+	if g.nodeIndex != nil {
+		_, ok := g.nodeIndex[id]
+		return ok
+	}
 	for _, node := range g.Nodes {
 		if node.ID == id {
 			return true
@@ -1558,12 +1565,27 @@ func (g Graph) HasNode(id string) bool {
 }
 
 func (g Graph) HasEdge(key string) bool {
+	if g.edgeIndex != nil {
+		_, ok := g.edgeIndex[key]
+		return ok
+	}
 	for _, edge := range g.Edges {
 		if edge.Key() == key {
 			return true
 		}
 	}
 	return false
+}
+
+func (g *Graph) BuildIndex() {
+	g.nodeIndex = make(map[string]struct{}, len(g.Nodes))
+	for _, node := range g.Nodes {
+		g.nodeIndex[node.ID] = struct{}{}
+	}
+	g.edgeIndex = make(map[string]struct{}, len(g.Edges))
+	for _, edge := range g.Edges {
+		g.edgeIndex[edge.Key()] = struct{}{}
+	}
 }
 
 type ExposureResult struct {
@@ -1588,16 +1610,17 @@ type Observation struct {
 }
 
 type Collection struct {
-	Surfaces    []Surface         `json:"surfaces,omitempty"`
-	Facts       []Fact            `json:"facts,omitempty"`
-	Runtimes    []RuntimeEvidence `json:"runtimes"`
-	TrustInputs []TrustInput      `json:"trust_inputs"`
-	Tools       []Tool            `json:"tools"`
-	Authorities []Authority       `json:"authorities"`
-	Controls    []Control         `json:"controls"`
-	Boundaries  []Boundary        `json:"boundaries"`
-	Evidence    []Evidence        `json:"evidence"`
-	Warnings    []string          `json:"warnings,omitempty"`
+	Surfaces       []Surface          `json:"surfaces,omitempty"`
+	Facts          []Fact             `json:"facts,omitempty"`
+	ParserStatuses []ParserStatusFact `json:"parser_statuses"`
+	Runtimes       []RuntimeEvidence  `json:"runtimes"`
+	TrustInputs    []TrustInput       `json:"trust_inputs"`
+	Tools          []Tool             `json:"tools"`
+	Authorities    []Authority        `json:"authorities"`
+	Controls       []Control          `json:"controls"`
+	Boundaries     []Boundary         `json:"boundaries"`
+	Evidence       []Evidence         `json:"evidence"`
+	Warnings       []string           `json:"warnings,omitempty"`
 }
 
 type InventoryReport struct {
@@ -2005,14 +2028,15 @@ type LLMAnalyst struct {
 }
 
 type RuntimeEvidence struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Source    string `json:"source"`
-	Scope     string `json:"scope"`
-	Summary   string `json:"summary"`
-	LineStart int    `json:"-"`
-	LineEnd   int    `json:"-"`
-	Anchor    string `json:"-"`
+	ID           string `json:"id"`
+	OccurrenceID string `json:"occurrence_id,omitempty"`
+	Kind         string `json:"kind"`
+	Source       string `json:"source"`
+	Scope        string `json:"scope"`
+	Summary      string `json:"summary"`
+	LineStart    int    `json:"-"`
+	LineEnd      int    `json:"-"`
+	Anchor       string `json:"-"`
 }
 
 const (
@@ -2032,6 +2056,7 @@ const (
 
 type TrustInput struct {
 	ID               string `json:"id"`
+	OccurrenceID     string `json:"occurrence_id,omitempty"`
 	Kind             string `json:"kind"`
 	Runtime          string `json:"runtime,omitempty"`
 	Source           string `json:"source"`
@@ -2046,28 +2071,33 @@ type TrustInput struct {
 }
 
 type Tool struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Runtime   string `json:"runtime"`
-	Source    string `json:"source"`
-	Risky     bool   `json:"risky"`
-	Summary   string `json:"summary"`
-	LineStart int    `json:"-"`
-	LineEnd   int    `json:"-"`
-	Anchor    string `json:"-"`
+	ID           string `json:"id"`
+	OccurrenceID string `json:"occurrence_id,omitempty"`
+	Kind         string `json:"kind"`
+	Runtime      string `json:"runtime"`
+	Source       string `json:"source"`
+	Scope        string `json:"scope,omitempty"`
+	ScopeSubtree string `json:"scope_subtree,omitempty"`
+	Risky        bool   `json:"risky"`
+	Summary      string `json:"summary"`
+	LineStart    int    `json:"-"`
+	LineEnd      int    `json:"-"`
+	Anchor       string `json:"-"`
 }
 
 type Authority struct {
-	ID             string `json:"id"`
-	Kind           string `json:"kind"`
-	Runtime        string `json:"runtime"`
-	Source         string `json:"source"`
-	AuthorityScope string `json:"authority_scope,omitempty"`
-	ScopeSubtree   string `json:"scope_subtree,omitempty"`
-	Summary        string `json:"summary"`
-	LineStart      int    `json:"-"`
-	LineEnd        int    `json:"-"`
-	Anchor         string `json:"-"`
+	ID             string   `json:"id"`
+	OccurrenceID   string   `json:"occurrence_id,omitempty"`
+	Kind           string   `json:"kind"`
+	Runtime        string   `json:"runtime"`
+	Source         string   `json:"source"`
+	AuthorityScope string   `json:"authority_scope,omitempty"`
+	ScopeSubtree   string   `json:"scope_subtree,omitempty"`
+	GrantedBy      []string `json:"granted_by,omitempty"`
+	Summary        string   `json:"summary"`
+	LineStart      int      `json:"-"`
+	LineEnd        int      `json:"-"`
+	Anchor         string   `json:"-"`
 }
 
 // Control enforcement provenance. Enforced controls come from configuration a
@@ -2081,24 +2111,51 @@ const (
 )
 
 type Control struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind"`
-	Runtime     string `json:"runtime,omitempty"`
-	Source      string `json:"source"`
-	Enforcement string `json:"enforcement"`
-	Summary     string `json:"summary"`
-	LineStart   int    `json:"-"`
-	LineEnd     int    `json:"-"`
-	Anchor      string `json:"-"`
+	ID           string   `json:"id"`
+	OccurrenceID string   `json:"occurrence_id,omitempty"`
+	Kind         string   `json:"kind"`
+	Runtime      string   `json:"runtime,omitempty"`
+	Source       string   `json:"source"`
+	Scope        string   `json:"scope,omitempty"`
+	ScopeSubtree string   `json:"scope_subtree,omitempty"`
+	Enforcement  string   `json:"enforcement"`
+	AppliesTo    []string `json:"applies_to,omitempty"`
+	Summary      string   `json:"summary"`
+	LineStart    int      `json:"-"`
+	LineEnd      int      `json:"-"`
+	Anchor       string   `json:"-"`
 }
 
 type Boundary struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Source    string `json:"source,omitempty"`
-	Abstract  bool   `json:"abstract"`
-	Summary   string `json:"summary"`
-	LineStart int    `json:"-"`
-	LineEnd   int    `json:"-"`
-	Anchor    string `json:"-"`
+	ID           string   `json:"id"`
+	OccurrenceID string   `json:"occurrence_id,omitempty"`
+	Kind         string   `json:"kind"`
+	Source       string   `json:"source,omitempty"`
+	Scope        string   `json:"scope,omitempty"`
+	ScopeSubtree string   `json:"scope_subtree,omitempty"`
+	ReachedBy    []string `json:"reached_by,omitempty"`
+	Abstract     bool     `json:"abstract"`
+	Summary      string   `json:"summary"`
+	LineStart    int      `json:"-"`
+	LineEnd      int      `json:"-"`
+	Anchor       string   `json:"-"`
+}
+
+const (
+	ParserStatusParsed     = "parsed"
+	ParserStatusMalformed  = "malformed"
+	ParserStatusUnreadable = "unreadable"
+)
+
+// ParserStatusFact records whether a discovered configuration occurrence was
+// actually readable and structurally parseable. A discovered filename is not
+// treated as equivalent to successfully collected configuration evidence.
+type ParserStatusFact struct {
+	ID           string `json:"id"`
+	OccurrenceID string `json:"occurrence_id"`
+	Source       string `json:"source"`
+	Runtime      string `json:"runtime,omitempty"`
+	Scope        string `json:"scope"`
+	Status       string `json:"status"`
+	Summary      string `json:"summary"`
 }

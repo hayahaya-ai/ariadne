@@ -2891,7 +2891,18 @@ func renderAssessSummarySourceReferences(w io.Writer, refs model.AssessSourceRef
 		return
 	}
 	fmt.Fprintf(w, "Source references:\n")
-	rows := refs.Rows
+	rows := append([]model.AssessSourceRefRow(nil), refs.Rows...)
+	// The compact summary gets one row. Prefer an exact line anchor when one
+	// exists so occurrence-rich graphs do not let metadata-only boundaries
+	// displace the most actionable source reference.
+	if limit == 1 {
+		for i, row := range rows {
+			if row.Line != "" && row.Line != "not recorded" {
+				rows[0], rows[i] = rows[i], rows[0]
+				break
+			}
+		}
+	}
 	if limit <= 0 || limit > len(rows) {
 		limit = len(rows)
 	}
@@ -7307,7 +7318,7 @@ func scanTargetLabel(target model.ScanTarget) string {
 }
 
 func orderedFleetVerdictKeys(counts map[string]int) []string {
-	known := []string{"reckless", "tradeoffs_only", "hardened", "no_agents_found"}
+	known := []string{"reckless", "inconclusive", "tradeoffs_only", "hardened", "no_agents_found"}
 	seen := map[string]bool{}
 	out := make([]string, 0, len(counts))
 	for _, key := range known {

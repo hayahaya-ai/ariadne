@@ -1,0 +1,25 @@
+{
+  "id": "composition-mcp-mixed-launchers",
+  "title": "A pinned MCP server cannot hide an unpinned peer",
+  "persona": "developer / AppSec",
+  "user_question": "Does one unpinned MCP launcher remain reckless when another server in the same config is pinned?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "require_evidence_line_anchors": true,
+      "findings": [
+        {
+          "family": "mutable-tool-launch-execution",
+          "source": "mcp.json",
+          "line": 2,
+          "fix_surface": "mcp.json"
+        }
+      ]
+    }
+  }
+}

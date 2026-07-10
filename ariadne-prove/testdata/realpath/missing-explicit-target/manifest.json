@@ -1,0 +1,16 @@
+{
+  "id": "missing-explicit-target",
+  "title": "Missing explicit targets fail instead of grading no agents",
+  "persona": "developer / IT",
+  "user_question": "Does a missing target produce an operational error?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "missing"
+  },
+  "expected": {
+    "verdict": {
+      "error": true
+    }
+  }
+}

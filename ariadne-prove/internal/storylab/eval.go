@@ -15,6 +15,7 @@ type EvalCaseResult struct {
 	Expected    model.ExpectedVerdict
 	Actual      verdict.Verdict
 	Surfaces    []model.Surface
+	RunError    string
 }
 
 type EvalScorecard struct {
@@ -45,6 +46,20 @@ func ScoreVerdicts(cases []EvalCaseResult) EvalScorecard {
 	score := EvalScorecard{Cases: len(cases)}
 	families := map[string]*EvalFamilyScore{}
 	for _, c := range cases {
+		if c.Expected.Error {
+			score.VerdictTotal++
+			if c.RunError != "" {
+				score.VerdictCorrect++
+			} else {
+				score.Mismatches = append(score.Mismatches, EvalMismatch{FixturePath: c.FixturePath, Kind: "expected_error", Message: "target completed successfully, expected an error"})
+			}
+			continue
+		}
+		if c.RunError != "" {
+			score.VerdictTotal++
+			score.Mismatches = append(score.Mismatches, EvalMismatch{FixturePath: c.FixturePath, Kind: "unexpected_error", Message: c.RunError})
+			continue
+		}
 		if c.Expected.Word != "" {
 			score.VerdictTotal++
 			if c.Actual.VerdictWord == c.Expected.Word {

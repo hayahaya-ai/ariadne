@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "nested-pinned": {
+      "command": "npx",
+      "args": ["example-nested-server@2.3.4"]
+    }
+  }
+}

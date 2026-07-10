@@ -102,7 +102,7 @@
       "type": "object",
       "required": ["verdict", "reckless", "default_judgments", "influence_provenance", "tradeoffs"],
       "properties": {
-        "verdict": { "type": "string", "enum": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"] },
+        "verdict": { "type": "string", "enum": ["reckless", "inconclusive", "tradeoffs_only", "hardened", "no_agents_found"] },
         "reckless": {
           "type": "array",
           "items": { "$ref": "#/$defs/verdict_finding" }

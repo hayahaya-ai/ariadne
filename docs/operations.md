@@ -6,9 +6,10 @@ timings tested in `ariadne-prove/cmd/ariadne/main_test.go` and
 
 ## Gate a CI pipeline on the verdict
 
-`ariadne verdict --gate` exits `3` when the target grades `reckless`, `0`
-otherwise. Exit codes are contract (`docs/cli-contract.md`): `0` success,
-`1` runtime error, `2` usage error, `3` reckless (only with `--gate`).
+`ariadne verdict --gate` exits `3` when the target grades `reckless` or
+`inconclusive`, `0` otherwise. Exit codes are contract (`docs/cli-contract.md`):
+`0` success, `1` runtime error, `2` usage error, `3` fail-closed verdict (only
+with `--gate`).
 
 ```bash
 # Any CI system: fail the job when the repo's agent config is reckless.
@@ -64,16 +65,17 @@ What to expect per run, verified on developer hardware:
   and no secret values are read or emitted. Private histories and caches are
   summarized by metadata only. This is safe to run on developer machines
   without a maintenance window.
-- The JSONL output is one complete `ariadne.verdict/v1` object per completed
+- The JSONL output is one complete `ariadne.verdict/v2` object per completed
   target. The scan JSON output adds `fleet.verdict_counts`,
   `fleet.reckless_by_family`, and `fleet.worst_first_targets` for one-screen
   CISO posture.
-- The JSON's `verdict` word (`reckless` / `tradeoffs_only` / `hardened` /
+- The JSON's `verdict` word (`reckless` / `inconclusive` / `tradeoffs_only` / `hardened` /
   `no_agents_found`), `reckless[]` findings, and `default_judgments[]` (labeled
   default opinions with the fact IDs they weighed) are the fields a downstream
-  system should consume. Schema: `ariadne.verdict/v1`
-  (`ariadne-prove/schema/ariadne-verdict-v1.schema.json`), frozen; changes are
-  additive only.
-- Fleet ordering is deterministic: reckless targets first, reckless count
-  descending, then target path. Self-declared `.ariadne/*.json` controls remain
+  system should consume. Schema: `ariadne.verdict/v2`
+  (`ariadne-prove/schema/ariadne-verdict-v2.schema.json`). Verdict v1 remains
+  frozen for existing consumers.
+- Fleet ordering is deterministic: reckless targets first, then inconclusive,
+  trade-offs, hardened, and no-agents targets; ties use reckless count then
+  target path. Self-declared `.ariadne/*.json` controls remain
   attested-only and never improve fleet hardened or protected counts.

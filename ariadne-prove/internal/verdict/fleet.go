@@ -8,6 +8,7 @@ import (
 
 var fleetVerdictOrder = []string{
 	WordReckless,
+	WordInconclusive,
 	WordTradeoffsOnly,
 	WordHardened,
 	WordNoAgentsFound,
@@ -24,7 +25,7 @@ type fleetFindingRep struct {
 	finding RecklessFinding
 }
 
-// BuildFleet aggregates already-built ariadne.verdict/v1 endpoint verdicts.
+// BuildFleet aggregates already-built ariadne.verdict/v2 endpoint verdicts.
 // It does not inspect raw collection data or reinterpret attested controls.
 func BuildFleet(verdicts []Verdict) model.FleetVerdictRollup {
 	counts := map[string]int{}
@@ -57,10 +58,10 @@ func BuildFleet(verdicts []Verdict) model.FleetVerdictRollup {
 	}
 
 	sort.SliceStable(targetRows, func(i, j int) bool {
-		leftReckless := targetRows[i].RecklessCount > 0
-		rightReckless := targetRows[j].RecklessCount > 0
-		if leftReckless != rightReckless {
-			return leftReckless
+		leftRank := fleetVerdictRank(targetRows[i].Verdict)
+		rightRank := fleetVerdictRank(targetRows[j].Verdict)
+		if leftRank != rightRank {
+			return leftRank < rightRank
 		}
 		if targetRows[i].RecklessCount != targetRows[j].RecklessCount {
 			return targetRows[i].RecklessCount > targetRows[j].RecklessCount
@@ -105,6 +106,15 @@ func BuildFleet(verdicts []Verdict) model.FleetVerdictRollup {
 		RecklessByFamily:  byFamily,
 		WorstFirstTargets: targetRows,
 	}
+}
+
+func fleetVerdictRank(word string) int {
+	for index, candidate := range fleetVerdictOrder {
+		if word == candidate {
+			return index
+		}
+	}
+	return len(fleetVerdictOrder)
 }
 
 func fleetRepresentativeFinding(rep fleetFindingRep) model.FleetRepresentativeFinding {

@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "deny": ["Read(.env)", "WebFetch", "WebSearch"]
+  }
+}

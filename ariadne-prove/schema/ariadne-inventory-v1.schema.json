@@ -46,6 +46,7 @@
       "type": "object",
       "required": [
         "runtimes",
+        "parser_statuses",
         "trust_inputs",
         "tools",
         "authorities",
@@ -61,6 +62,10 @@
         "facts": {
           "type": "array",
           "items": { "$ref": "#/$defs/fact" }
+        },
+        "parser_statuses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/parser_status" }
         },
         "runtimes": {
           "type": "array",
@@ -161,11 +166,25 @@
         "write_permissions": { "type": "boolean" }
       }
     },
-    "runtime": {
+    "parser_status": {
       "type": "object",
-      "required": ["id", "kind", "source", "scope", "summary"],
+      "required": ["id", "occurrence_id", "source", "scope", "status", "summary"],
       "properties": {
         "id": { "type": "string" },
+        "occurrence_id": { "type": "string", "pattern": "^occurrence:config:" },
+        "source": { "type": "string" },
+        "runtime": { "type": "string" },
+        "scope": { "type": "string", "enum": ["repo", "endpoint"] },
+        "status": { "type": "string", "enum": ["parsed", "malformed", "unreadable"] },
+        "summary": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["id", "occurrence_id", "kind", "source", "scope", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "occurrence_id": { "type": "string", "pattern": "^occurrence:runtime:" },
         "kind": { "type": "string" },
         "source": { "type": "string" },
         "scope": { "type": "string" },
@@ -174,9 +193,10 @@
     },
     "trust_input": {
       "type": "object",
-      "required": ["id", "kind", "source", "provenance", "instruction_scope", "risky", "summary"],
+      "required": ["id", "occurrence_id", "kind", "source", "provenance", "instruction_scope", "risky", "summary"],
       "properties": {
         "id": { "type": "string" },
+        "occurrence_id": { "type": "string", "pattern": "^occurrence:trust-input:" },
         "kind": { "type": "string" },
         "runtime": { "type": "string" },
         "source": { "type": "string" },
@@ -195,21 +215,25 @@
     },
     "tool": {
       "type": "object",
-      "required": ["id", "kind", "runtime", "source", "risky", "summary"],
+      "required": ["id", "occurrence_id", "kind", "runtime", "source", "scope", "risky", "summary"],
       "properties": {
         "id": { "type": "string" },
+        "occurrence_id": { "type": "string", "pattern": "^occurrence:tool:" },
         "kind": { "type": "string" },
         "runtime": { "type": "string" },
         "source": { "type": "string" },
+        "scope": { "type": "string", "enum": ["root", "nested", "unknown"] },
+        "scope_subtree": { "type": "string" },
         "risky": { "type": "boolean" },
         "summary": { "type": "string" }
       }
     },
     "authority": {
       "type": "object",
-      "required": ["id", "kind", "runtime", "source", "summary"],
+      "required": ["id", "occurrence_id", "kind", "runtime", "source", "authority_scope", "summary"],
       "properties": {
         "id": { "type": "string" },
+        "occurrence_id": { "type": "string", "pattern": "^occurrence:authority:" },
         "kind": { "type": "string" },
         "runtime": { "type": "string" },
         "source": { "type": "string" },
@@ -218,28 +242,37 @@
           "enum": ["root", "nested", "unknown"]
         },
         "scope_subtree": { "type": "string" },
+        "granted_by": { "type": "array", "items": { "type": "string", "pattern": "^occurrence:tool:" } },
         "summary": { "type": "string" }
       }
     },
     "control": {
       "type": "object",
-      "required": ["id", "kind", "source", "enforcement", "summary"],
+      "required": ["id", "occurrence_id", "kind", "source", "scope", "enforcement", "summary"],
       "properties": {
         "id": { "type": "string" },
+        "occurrence_id": { "type": "string", "pattern": "^occurrence:control:" },
         "kind": { "type": "string" },
         "runtime": { "type": "string" },
         "source": { "type": "string" },
+        "scope": { "type": "string", "enum": ["root", "nested", "unknown"] },
+        "scope_subtree": { "type": "string" },
         "enforcement": { "type": "string", "enum": ["enforced", "attested"] },
+        "applies_to": { "type": "array", "items": { "type": "string", "pattern": "^occurrence:" } },
         "summary": { "type": "string" }
       }
     },
     "boundary": {
       "type": "object",
-      "required": ["id", "kind", "abstract", "summary"],
+      "required": ["id", "occurrence_id", "kind", "source", "scope", "abstract", "summary"],
       "properties": {
         "id": { "type": "string" },
+        "occurrence_id": { "type": "string", "pattern": "^occurrence:boundary:" },
         "kind": { "type": "string" },
         "source": { "type": "string" },
+        "scope": { "type": "string", "enum": ["root", "nested", "unknown"] },
+        "scope_subtree": { "type": "string" },
+        "reached_by": { "type": "array", "items": { "type": "string", "pattern": "^occurrence:authority:" } },
         "abstract": { "type": "boolean" },
         "summary": { "type": "string" }
       }

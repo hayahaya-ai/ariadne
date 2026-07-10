@@ -21,19 +21,20 @@ ariadne review-run --path P --command "reviewer-command" [--dir D] [--format sum
 - `self` and `assess` default format changes to `readout` (the one-screen).
   The previous default moves to `--format summary`. All other formats unchanged.
 - `verdict` prints the compact verdict (text by default, JSON with `--json`).
-  With `--gate`, exit code 3 when verdict is `reckless` (0 otherwise). Without
-  `--gate`, always exit 0 on success. `self`/`assess` always exit 0 on success.
+  With `--gate`, exit code 3 when verdict is `reckless` or `inconclusive` (0
+  otherwise). Without `--gate`, always exit 0 on success. `self`/`assess`
+  always exit 0 on success.
 - `ls` prints one resource per line: `<id>\t<one-line summary>`.
 - `show` resolves any ID the run knows: `reckless:N`, `tradeoff:N`, `hardened:N`,
   `case:*`, `control:*`, `fact:*` (fact IDs from the collection), runtime IDs
   (`runtime:claude`), or a surface source path (`.claude/settings.json`).
   Unknown ID: exit 1 with a one-line error listing valid prefixes.
 - `scan --targets` defaults to the fleet verdict summary table. `--format jsonl`
-  emits one complete `ariadne.verdict/v1` object per completed target, one line
+  emits one complete `ariadne.verdict/v2` object per completed target, one line
   per target, for SIEM ingestion. `--format json` emits the consolidated
   `ariadne-scan-v1` rollup with `fleet` and `targets[].verdict`.
-- Exit codes everywhere: 0 success, 1 runtime error, 2 usage error, 3 reckless
-  (only with `--gate`).
+- Exit codes everywhere: 0 success, 1 runtime error, 2 usage error, 3 fail-closed
+  verdict (`reckless` or `inconclusive`, only with `--gate`).
 - **Fix suggestions print; Ariadne never writes to scanned files.**
 
 ## Grading rules (deterministic, in this order)
@@ -176,23 +177,38 @@ deterministic `; `-separated list.
 ID, id `hardened:N`, rendered `✓ <control summary> (enforced) — <source>`.
 Cap at 6 on screen; full list in JSON.
 
-**Verdict word**: any reckless → `reckless`; else any tradeoffs → `tradeoffs_only`;
-else any runtime found → `hardened` (with or without enforced controls); else →
-`no_agents_found`. Enforced controls observed without a runtime remain listed under
-HARDENED but do not supply the verdict word. Inconclusive exposures add one line
-under the readout:
+**Verdict word**: any reckless → `reckless`; else any malformed or unreadable
+configuration occurrence → `inconclusive`; else any tradeoffs →
+`tradeoffs_only`; else any runtime found → `hardened` (with or without enforced
+controls); else → `no_agents_found`. Enforced controls observed without a
+runtime remain listed under HARDENED but do not supply the verdict word.
+Inconclusive exposures add one line under the readout:
 "Couldn't verify: <n> path(s) lacked evidence — see ariadne ls cases."
 
-## Verdict JSON (`schema/ariadne-verdict-v1.schema.json`)
+## Verdict JSON (`schema/ariadne-verdict-v2.schema.json`)
+
+`ariadne.verdict/v1` remains frozen. Verdict v2 adds the `inconclusive` verdict
+word and occurrence-level parser statuses without widening v1.
 
 ```json
 {
-  "schema_version": "ariadne.verdict/v1",
+  "schema_version": "ariadne.verdict/v2",
   "generated_at": "...",
   "target": "/abs/path",
   "mode": "endpoint",
   "verdict": "reckless",
   "scanned": { "runtimes": ["claude", "codex"], "surfaces": 14, "executed": false },
+  "parser_statuses": [
+    {
+      "id": "parser:claude:claude-settings:...",
+      "occurrence_id": "occurrence:config:...",
+      "source": ".claude/settings.json",
+      "runtime": "claude",
+      "scope": "endpoint",
+      "status": "parsed",
+      "summary": "Configuration occurrence was read and parsed for supported deterministic facts."
+    }
+  ],
   "influence_provenance": [
     {
       "id": "fact:gemini:gemini-md:...",
@@ -329,7 +345,7 @@ facts, buckets, fleet counts, or any closure state.
 `scan --targets` aggregates the per-target verdicts; it does not introduce a
 second endpoint report format.
 
-- `--format jsonl`: newline-delimited `ariadne.verdict/v1`, exactly one complete
+- `--format jsonl`: newline-delimited `ariadne.verdict/v2`, exactly one complete
   verdict object per completed target. If any target failed and lacks a verdict,
   JSONL rendering fails instead of silently dropping the target.
 - `--format json`: one `ariadne.report/v1` scan document with `fleet` plus
@@ -341,14 +357,15 @@ second endpoint report format.
   findings grouped by exposure family, and the worst-first target list.
 
 Fleet ordering is deterministic. Verdict counts render in
-`reckless`, `tradeoffs_only`, `hardened`, `no_agents_found` order. Reckless
+`reckless`, `inconclusive`, `tradeoffs_only`, `hardened`, `no_agents_found`
+order. Reckless
 family groups are sorted by family key; each group's affected targets are sorted
 by target path. The worst-first target list puts targets with reckless findings
 first, orders those by reckless count descending, and breaks all ties by target
 path.
 
 Fleet non-gameability is inherited from the endpoint verdict: `hardened` counts
-come only from enforced controls already present in `ariadne.verdict/v1`.
+come only from enforced controls already present in `ariadne.verdict/v2`.
 Self-declared `.ariadne/*.json` controls may appear under a finding's
 `attested_only`, but they never improve verdict counts, hardened counts, family
 counts, or worst-first ordering.

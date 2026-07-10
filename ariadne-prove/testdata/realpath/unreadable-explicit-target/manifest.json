@@ -1,0 +1,16 @@
+{
+  "id": "unreadable-explicit-target",
+  "title": "Non-directory explicit targets fail instead of grading no agents",
+  "persona": "developer / IT",
+  "user_question": "Does an unscannable explicit target produce an operational error?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "target.txt"
+  },
+  "expected": {
+    "verdict": {
+      "error": true
+    }
+  }
+}

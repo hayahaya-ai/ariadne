@@ -1,0 +1,18 @@
+{
+  "id": "composition-cross-runtime-all-safe",
+  "title": "Claude and Codex paths are independently controlled",
+  "persona": "developer / AppSec",
+  "user_question": "Does the safe inverse remain non-reckless when both runtime paths carry their own controls?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "min_tradeoffs": 1,
+      "findings": []
+    }
+  }
+}

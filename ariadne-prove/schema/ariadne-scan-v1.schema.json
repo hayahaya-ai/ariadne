@@ -38,7 +38,7 @@
         "required": ["target"],
         "properties": {
           "target": { "type": "object" },
-          "verdict": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json" },
+          "verdict": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v2.schema.json" },
           "error": { "type": "string" }
         }
       }
@@ -51,9 +51,10 @@
       "properties": {
         "verdict_counts": {
           "type": "object",
-          "required": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"],
+          "required": ["reckless", "inconclusive", "tradeoffs_only", "hardened", "no_agents_found"],
           "properties": {
             "reckless": { "type": "integer", "minimum": 0 },
+            "inconclusive": { "type": "integer", "minimum": 0 },
             "tradeoffs_only": { "type": "integer", "minimum": 0 },
             "hardened": { "type": "integer", "minimum": 0 },
             "no_agents_found": { "type": "integer", "minimum": 0 }
@@ -118,7 +119,7 @@
         "target": { "type": "string" },
         "verdict": {
           "type": "string",
-          "enum": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"]
+          "enum": ["reckless", "inconclusive", "tradeoffs_only", "hardened", "no_agents_found"]
         },
         "reckless_count": { "type": "integer", "minimum": 0 },
         "tradeoff_count": { "type": "integer", "minimum": 0 },

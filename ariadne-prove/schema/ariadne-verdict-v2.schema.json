@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-verdict-v2.schema.json",
+  "title": "Ariadne Verdict v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "target",
+    "mode",
+    "verdict",
+    "scanned",
+    "parser_statuses",
+    "influence_provenance",
+    "authority_scope",
+    "default_judgments",
+    "reckless",
+    "tradeoffs",
+    "hardened",
+    "inconclusive",
+    "next_action",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.verdict/v2" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "target": { "type": "string" },
+    "mode": { "type": "string", "enum": ["repo", "endpoint"] },
+    "verdict": { "type": "string", "enum": ["reckless", "inconclusive", "tradeoffs_only", "hardened", "no_agents_found"] },
+    "scanned": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json#/$defs/scanned" },
+    "parser_statuses": {
+      "type": "array",
+      "items": { "$ref": "https://ariadne.dev/schema/ariadne-inventory-v1.schema.json#/$defs/parser_status" }
+    },
+    "influence_provenance": {
+      "type": "array",
+      "items": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json#/$defs/influence_provenance_fact" }
+    },
+    "authority_scope": {
+      "type": "array",
+      "items": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json#/$defs/authority_scope_fact" }
+    },
+    "default_judgments": {
+      "type": "array",
+      "items": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json#/$defs/default_judgment" }
+    },
+    "reckless": {
+      "type": "array",
+      "items": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json#/$defs/reckless_finding" }
+    },
+    "tradeoffs": {
+      "type": "array",
+      "items": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json#/$defs/tradeoff_line" }
+    },
+    "hardened": {
+      "type": "array",
+      "items": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json#/$defs/hardened_line" }
+    },
+    "inconclusive": { "type": "integer", "minimum": 0 },
+    "next_action": { "type": "string" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -14,11 +14,12 @@ import (
 )
 
 // SchemaVersion identifies the verdict JSON shape.
-const SchemaVersion = "ariadne.verdict/v1"
+const SchemaVersion = "ariadne.verdict/v2"
 
 // Verdict words.
 const (
 	WordReckless      = "reckless"
+	WordInconclusive  = "inconclusive"
 	WordTradeoffsOnly = "tradeoffs_only"
 	WordHardened      = "hardened"
 	WordNoAgentsFound = "no_agents_found"
@@ -44,6 +45,7 @@ type Verdict struct {
 	Mode                string                    `json:"mode"`
 	VerdictWord         string                    `json:"verdict"`
 	Scanned             ScannedSummary            `json:"scanned"`
+	ParserStatuses      []model.ParserStatusFact  `json:"parser_statuses"`
 	InfluenceProvenance []InfluenceProvenanceFact `json:"influence_provenance"`
 	AuthorityScope      []AuthorityScopeFact      `json:"authority_scope"`
 	DefaultJudgments    []DefaultJudgment         `json:"default_judgments"`
@@ -167,17 +169,27 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 	hardened := buildHardened(collection)
 
 	inconclusive := 0
+	conclusive := 0
 	for _, exposure := range r.Exposures {
 		if exposure.Status == model.StatusInconclusive {
 			inconclusive++
+		} else {
+			conclusive++
 		}
 	}
 
-	word := computeVerdictWord(len(reckless), len(tradeoffs), len(hardened), len(collection.Runtimes))
+	parserFailures := parserFailureCount(collection.ParserStatuses)
+	word := computeVerdictWord(len(reckless), len(tradeoffs), len(hardened), inconclusive, conclusive, len(collection.Runtimes), parserFailures)
 
 	nextAction := "no action needed — rerun after config changes"
 	if word == WordReckless {
 		nextAction = "fix reckless:1, then rerun ariadne self"
+	} else if word == WordInconclusive {
+		if parserFailures > 0 {
+			nextAction = "repair unreadable or malformed configuration evidence, then rerun ariadne self"
+		} else {
+			nextAction = "collect the missing authority, boundary, or control evidence, then rerun ariadne self"
+		}
 	}
 
 	return Verdict{
@@ -187,6 +199,7 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 		Mode:                mode,
 		VerdictWord:         word,
 		Scanned:             buildScanned(collection),
+		ParserStatuses:      append([]model.ParserStatusFact{}, collection.ParserStatuses...),
 		InfluenceProvenance: influenceProvenance,
 		AuthorityScope:      authorityScope,
 		DefaultJudgments:    defaultJudgments,
@@ -201,10 +214,12 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 	}
 }
 
-func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, runtimeCount int) string {
+func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, inconclusiveCount, conclusiveCount, runtimeCount, parserFailureCount int) string {
 	switch {
 	case recklessCount > 0:
 		return WordReckless
+	case parserFailureCount > 0:
+		return WordInconclusive
 	case tradeoffCount > 0:
 		return WordTradeoffsOnly
 	case runtimeCount > 0:
@@ -214,6 +229,16 @@ func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, runtimeCoun
 		_ = hardenedCount
 		return WordNoAgentsFound
 	}
+}
+
+func parserFailureCount(statuses []model.ParserStatusFact) int {
+	count := 0
+	for _, status := range statuses {
+		if status.Status == model.ParserStatusMalformed || status.Status == model.ParserStatusUnreadable {
+			count++
+		}
+	}
+	return count
 }
 
 func buildScanned(collection model.Collection) ScannedSummary {
