@@ -1,0 +1,17 @@
+{
+  "egress_destination_allowlist": [
+    "https://api.company.example"
+  ],
+  "webhook_allowlist": [
+    "https://hooks.company.example/agent"
+  ],
+  "per_tool_network_scope": {
+    "WebFetch": [
+      "https://api.company.example"
+    ]
+  },
+  "egress_content_filter": {
+    "block_secret_like": true
+  },
+  "egress_audit": true
+}

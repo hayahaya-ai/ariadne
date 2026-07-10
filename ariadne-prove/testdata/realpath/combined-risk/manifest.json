@@ -1,0 +1,38 @@
+{
+  "id": "combined-risk",
+  "title": "Combined repo risk keeps exposed capabilities visible",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does the compact verdict expose the risky repo posture without losing normal trade-offs?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "min_tradeoffs": 1,
+      "max_tradeoffs": 1,
+      "findings": [
+        {
+          "family": "data-egress-chain",
+          "source": "CLAUDE.md",
+          "line": 1,
+          "fix_surface": ".claude/settings.json"
+        },
+        {
+          "family": "prompt-injection-to-secret-canary",
+          "source": "CLAUDE.md",
+          "line": 1,
+          "fix_surface": ".claude/settings.json"
+        },
+        {
+          "family": "mutable-tool-launch-execution",
+          "source": "mcp.json",
+          "line": 2,
+          "fix_surface": "mcp.json"
+        }
+      ]
+    }
+  }
+}

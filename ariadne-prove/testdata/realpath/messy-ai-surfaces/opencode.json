@@ -1,0 +1,8 @@
+{
+  "tools": {
+    "shell": true
+  },
+  "mcp": {
+    "enabled": true
+  }
+}

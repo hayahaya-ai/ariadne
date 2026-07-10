@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "roo-shell": {
+      "command": "python3",
+      "args": ["scripts/roo_server.py"],
+      "alwaysAllow": ["run_command"]
+    }
+  }
+}
+

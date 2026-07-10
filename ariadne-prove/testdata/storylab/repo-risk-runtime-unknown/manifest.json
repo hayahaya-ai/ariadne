@@ -1,0 +1,22 @@
+{
+  "id": "repo-risk-runtime-unknown",
+  "title": "Repo instruction is risky but runtime authority is unknown",
+  "persona": "AppSec reviewer",
+  "user_question": "Is this repo dangerous to open with an agent?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "world/repo"
+  },
+  "expected": {
+    "status": "inconclusive",
+    "proof_mode": "inferred",
+    "required_nodes": [
+      "trustinput:repo-instruction",
+      "boundary:secret-like-file"
+    ],
+    "required_edges": [],
+    "controls_break_path": [],
+    "redaction_must_not_contain": ["STORYLAB_FAKE_SECRET_DO_NOT_LEAK_UNKNOWN"]
+  }
+}

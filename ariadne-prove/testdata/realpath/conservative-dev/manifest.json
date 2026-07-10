@@ -1,0 +1,17 @@
+{
+  "id": "conservative-dev",
+  "title": "Conservative endpoint profile",
+  "persona": "developer / IT",
+  "user_question": "Does a deny-by-default endpoint stay hardened?",
+  "runtime": "all",
+  "mode": "endpoint",
+  "world": {
+    "home_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "hardened",
+      "findings": []
+    }
+  }
+}

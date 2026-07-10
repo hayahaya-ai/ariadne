@@ -1,0 +1,367 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-inventory-v1.schema.json",
+  "title": "Ariadne Inventory v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "target_path",
+    "mode",
+    "agent",
+    "collection",
+    "surface_map",
+    "graph",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "const": "inventory" },
+    "target_path": { "type": "string" },
+    "mode": { "type": "string", "enum": ["repo", "endpoint"] },
+    "agent": { "type": "string" },
+    "collection": { "$ref": "#/$defs/collection" },
+    "surface_map": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/surface_map" }
+    },
+    "graph": { "$ref": "#/$defs/graph" },
+    "redaction": { "$ref": "#/$defs/redaction" },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "collection": {
+      "type": "object",
+      "required": [
+        "runtimes",
+        "trust_inputs",
+        "tools",
+        "authorities",
+        "controls",
+        "boundaries",
+        "evidence"
+      ],
+      "properties": {
+        "surfaces": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/surface" }
+        },
+        "facts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fact" }
+        },
+        "runtimes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/runtime" }
+        },
+        "trust_inputs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/trust_input" }
+        },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tool" }
+        },
+        "authorities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/authority" }
+        },
+        "controls": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control" }
+        },
+        "boundaries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/boundary" }
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "surface": {
+      "type": "object",
+      "required": [
+        "id",
+        "runtime",
+        "scope",
+        "category",
+        "kind",
+        "handling_mode",
+        "source",
+        "summary"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "runtime": { "type": "string" },
+        "scope": { "type": "string" },
+        "category": { "type": "string" },
+        "kind": { "type": "string" },
+        "handling_mode": { "type": "string", "enum": ["parse", "summarize", "boundary_indicator", "ignore", "skip"] },
+        "source": { "type": "string" },
+        "summary": { "type": "string" },
+        "approx_bytes": { "type": "integer" },
+        "file_count": { "type": "integer" },
+        "sensitive_name_count": { "type": "integer" }
+      }
+    },
+    "fact": {
+      "type": "object",
+      "required": ["id", "type", "evidence_grade", "redaction", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "runtime": { "type": "string" },
+        "scope": { "type": "string" },
+        "source": { "type": "string" },
+        "provenance": {
+          "type": "string",
+          "enum": ["home_scope", "repo_checkout", "third_party", "unknown"]
+        },
+        "instruction_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
+        },
+        "authority_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
+        },
+        "scope_subtree": { "type": "string" },
+        "handling_mode": { "type": "string" },
+        "evidence_grade": { "type": "string", "enum": ["observed", "declared", "inferred", "skipped", "missing"] },
+        "redaction": { "type": "string" },
+        "summary": { "type": "string" },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "trigger_events": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "references_secrets": { "type": "boolean" },
+        "id_token_write": { "type": "boolean" },
+        "write_permissions": { "type": "boolean" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["id", "kind", "source", "scope", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "scope": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "trust_input": {
+      "type": "object",
+      "required": ["id", "kind", "source", "provenance", "instruction_scope", "risky", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "runtime": { "type": "string" },
+        "source": { "type": "string" },
+        "provenance": {
+          "type": "string",
+          "enum": ["home_scope", "repo_checkout", "third_party", "unknown"]
+        },
+        "instruction_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
+        },
+        "scope_subtree": { "type": "string" },
+        "risky": { "type": "boolean" },
+        "summary": { "type": "string" }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "required": ["id", "kind", "runtime", "source", "risky", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "runtime": { "type": "string" },
+        "source": { "type": "string" },
+        "risky": { "type": "boolean" },
+        "summary": { "type": "string" }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "required": ["id", "kind", "runtime", "source", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "runtime": { "type": "string" },
+        "source": { "type": "string" },
+        "authority_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
+        },
+        "scope_subtree": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "control": {
+      "type": "object",
+      "required": ["id", "kind", "source", "enforcement", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "runtime": { "type": "string" },
+        "source": { "type": "string" },
+        "enforcement": { "type": "string", "enum": ["enforced", "attested"] },
+        "summary": { "type": "string" }
+      }
+    },
+    "boundary": {
+      "type": "object",
+      "required": ["id", "kind", "abstract", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "abstract": { "type": "boolean" },
+        "summary": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["id", "kind", "grade", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "grade": { "type": "string" },
+        "source": { "type": "string" },
+        "runtime": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/graph_node" }
+        },
+        "edges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/graph_edge" }
+        }
+      }
+    },
+    "graph_node": {
+      "type": "object",
+      "required": ["id", "type", "label"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "label": { "type": "string" },
+        "runtime": { "type": "string" },
+        "source": { "type": "string" }
+      }
+    },
+    "graph_edge": {
+      "type": "object",
+      "required": ["from", "type", "to"],
+      "properties": {
+        "from": { "type": "string" },
+        "type": { "type": "string" },
+        "to": { "type": "string" },
+        "evidence_id": { "type": "string" }
+      }
+    },
+    "surface_map": {
+      "type": "object",
+      "required": [
+        "runtime",
+        "scope",
+        "surface_count",
+        "parsed",
+        "summarized",
+        "boundary_indicators",
+        "skipped",
+        "source_refs",
+        "categories",
+        "handling_modes",
+        "authorities",
+        "tools",
+        "controls"
+      ],
+      "properties": {
+        "runtime": { "type": "string" },
+        "scope": { "type": "string" },
+        "surface_count": { "type": "integer" },
+        "parsed": { "type": "integer" },
+        "summarized": { "type": "integer" },
+        "boundary_indicators": { "type": "integer" },
+        "skipped": { "type": "integer" },
+        "source_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/count" }
+        },
+        "handling_modes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/count" }
+        },
+        "authorities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "controls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "count": {
+      "type": "object",
+      "required": ["name", "count"],
+      "properties": {
+        "name": { "type": "string" },
+        "count": { "type": "integer" }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": ["level", "sensitive_paths_included", "canary_values_included"],
+      "properties": {
+        "level": { "type": "string" },
+        "sensitive_paths_included": { "type": "boolean" },
+        "canary_values_included": { "type": "boolean" }
+      }
+    }
+  }
+}

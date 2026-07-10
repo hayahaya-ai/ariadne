@@ -1,0 +1,22 @@
+{
+  "per_action_authorization": true,
+  "continuous_authorization": {
+    "real_time_policy_evaluation": true,
+    "policy_evaluation_per_action": true,
+    "reauthorize_on_risk_change": true
+  },
+  "dynamic_privilege_scoping": {
+    "just_enough_access": true,
+    "task_scoped_privileges": true
+  },
+  "jit_elevation": {
+    "privilege_elevation_ttl": "15m",
+    "elevate_permissions_only_when_needed": true
+  },
+  "standing_access": false,
+  "automatic_access_revocation": {
+    "revoke_after_task": true,
+    "revoke_on_risk_change": true,
+    "revoke_on_anomaly": true
+  }
+}

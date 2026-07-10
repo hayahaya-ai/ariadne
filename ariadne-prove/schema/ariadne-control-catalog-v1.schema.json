@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-control-catalog-v1.schema.json",
+  "title": "Ariadne Control Catalog v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "mode",
+    "agent",
+    "status_filter",
+    "summary",
+    "controls",
+    "families",
+    "operator_cases",
+    "workstreams",
+    "proof_specs",
+    "verification_tasks",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "type": "string", "enum": ["control_catalog", "control_catalog_scan", "case_board", "case_board_scan"] },
+    "target_path": { "type": "string" },
+    "targets_file": { "type": "string" },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "case_filter": { "type": "string" },
+    "summary": { "$ref": "#/$defs/control_catalog_summary" },
+    "controls": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure" }
+    },
+    "families": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure_family" }
+    },
+    "operator_cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_operator_case" }
+    },
+    "workstreams": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_break_path_workstream" }
+    },
+    "proof_specs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_proof_spec" }
+    },
+    "verification_tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/control_verification_task" }
+    },
+    "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "control_catalog_summary": {
+      "type": "object",
+      "required": ["controls", "critical", "high", "medium", "low", "targets", "flaws"],
+      "properties": {
+        "controls": { "type": "integer" },
+        "critical": { "type": "integer" },
+        "high": { "type": "integer" },
+        "medium": { "type": "integer" },
+        "low": { "type": "integer" },
+        "targets": { "type": "integer" },
+        "flaws": { "type": "integer" }
+      }
+    },
+    "control_operator_case": {
+      "type": "object",
+      "required": ["id", "title", "severity", "rank", "priority_reason", "state", "state_reason", "question", "finding", "next_step", "target_count", "flaw_count", "control_count", "targets", "flaws", "evidence_refs", "starting_controls", "starting_task_ids", "proof_surfaces", "evidence_examples", "proof_patches", "rerun_commands", "compare_commands", "action_packet", "success_criteria", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "rank": { "type": "integer" },
+        "priority_reason": { "type": "string" },
+        "state": { "type": "string" },
+        "state_reason": { "type": "string" },
+        "question": { "type": "string" },
+        "finding": { "type": "string" },
+        "next_step": { "type": "string" },
+        "target_count": { "type": "integer" },
+        "flaw_count": { "type": "integer" },
+        "control_count": { "type": "integer" },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" } },
+        "starting_controls": { "type": "array", "items": { "type": "string" } },
+        "starting_task_ids": { "type": "array", "items": { "type": "string" } },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "evidence_examples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_evidence_example" }
+        },
+        "proof_patches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_proof_patch" }
+        },
+        "patch_export_command": { "type": "string" },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "compare_commands": { "type": "array", "items": { "type": "string" } },
+        "action_packet": { "$ref": "#/$defs/control_operator_action_packet" },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_operator_action_packet": {
+      "type": "object",
+      "required": ["available", "open_first", "evidence_sources", "generated_proof_paths", "suggested_destinations", "destination_paths", "apply_commands", "commands", "done_criteria", "limitations"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "status": { "type": "string" },
+        "case_id": { "type": "string" },
+        "case_title": { "type": "string" },
+        "state": { "type": "string" },
+        "current_control": { "type": "string" },
+        "proof_surface": { "type": "string" },
+        "open_first": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "generated_proof_paths": { "type": "array", "items": { "type": "string" } },
+        "suggested_destinations": { "type": "array", "items": { "type": "string" } },
+        "destination_paths": { "type": "array", "items": { "type": "string" } },
+        "apply_commands": { "type": "array", "items": { "type": "string" } },
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_operator_action_command" }
+        },
+        "done_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_operator_action_command": {
+      "type": "object",
+      "required": ["step", "id", "title", "files"],
+      "properties": {
+        "step": { "type": "integer" },
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "command": { "type": "string" },
+        "files": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_break_path_workstream": {
+      "type": "object",
+      "required": ["id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "targets", "evidence_refs", "proof_surfaces", "starting_task_ids", "starting_controls", "rationale", "success_criteria", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "control_count": { "type": "integer" },
+        "flaw_count": { "type": "integer" },
+        "target_count": { "type": "integer" },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" } },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "starting_task_ids": { "type": "array", "items": { "type": "string" } },
+        "starting_controls": { "type": "array", "items": { "type": "string" } },
+        "rationale": { "type": "string" },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_proof_spec": {
+      "type": "object",
+      "required": ["control", "evidence_kind", "proof_surfaces", "recognized_indicators", "notes", "limitations"],
+      "properties": {
+        "control": { "type": "string" },
+        "evidence_kind": { "type": "string" },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "recognized_indicators": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_verification_task": {
+      "type": "object",
+      "required": ["id", "control", "severity", "targets", "question", "why", "evidence_refs", "proof_surfaces", "recognized_indicators", "evidence_examples", "proof_patches", "actions", "rerun_commands", "success_criteria", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "control": { "type": "string" },
+        "severity": { "type": "string" },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "question": { "type": "string" },
+        "why": { "type": "string" },
+        "evidence_refs": { "type": "array", "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" } },
+        "proof_surfaces": { "type": "array", "items": { "type": "string" } },
+        "recognized_indicators": { "type": "array", "items": { "type": "string" } },
+        "evidence_examples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_evidence_example" }
+        },
+        "proof_patches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_proof_patch" }
+        },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_evidence_example": {
+      "type": "object",
+      "required": ["surface", "summary", "example", "limitations"],
+      "properties": {
+        "surface": { "type": "string" },
+        "summary": { "type": "string" },
+        "example": { "type": "string" },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_proof_patch": {
+      "type": "object",
+      "required": ["control", "surface", "format", "operation", "summary", "fields", "example", "rerun_commands", "success_criteria", "limitations"],
+      "properties": {
+        "control": { "type": "string" },
+        "surface": { "type": "string" },
+        "format": { "type": "string" },
+        "operation": { "type": "string" },
+        "summary": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/control_proof_patch_field" }
+        },
+        "example": { "type": "string" },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "success_criteria": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "control_proof_patch_field": {
+      "type": "object",
+      "required": ["indicator", "name", "value_json"],
+      "properties": {
+        "indicator": { "type": "string" },
+        "name": { "type": "string" },
+        "value_json": { "type": "string" }
+      }
+    }
+  }
+}

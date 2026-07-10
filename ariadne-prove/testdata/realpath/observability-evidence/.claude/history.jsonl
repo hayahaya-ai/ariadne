@@ -1,0 +1,2 @@
+{"timestamp":"2026-06-01T00:00:00Z","session_id":"session-1","request_id":"request-1","trace_id":"trace-1","type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"TRANSCRIPT_SECRET_DO_NOT_LEAK"}}]}}
+{"timestamp":"2026-06-01T00:00:03Z","session_id":"session-1","request_id":"request-1","trace_id":"trace-1","type":"approval_decision","decision":"approved","tool_name":"Read"}

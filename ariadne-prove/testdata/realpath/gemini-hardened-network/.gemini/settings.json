@@ -1,0 +1,4 @@
+{
+  "deny_read": [".env", "**/.env"],
+  "network_access": false
+}

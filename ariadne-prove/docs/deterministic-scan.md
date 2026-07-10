@@ -1,0 +1,147 @@
+# Deterministic Scan Model
+
+Ariadne's default mode is deterministic. It observes local files and config, emits facts, builds a graph, and classifies only supported exposure paths.
+
+## What Ariadne Does
+
+- walks supported AI-agent surfaces
+- parses known configuration and instruction files
+- summarizes private/high-volume surfaces by metadata
+- models authorities, boundaries, and controls
+- builds graph edges between facts
+- classifies supported exposure paths
+- maps exposure and control evidence to Zero Trust architecture flaws and boundary checks
+- exports the same graph as JSON, Graphviz DOT, or Mermaid when requested
+
+## Structured config parsing (Claude Code and Codex)
+
+For the two flagship runtimes, control and authority detection reads the real
+configuration structure, not substrings of the file text. `.claude/settings.json`
+permissions (`defaultMode`, `allow`/`deny`/`ask` rule lists split into tool and path
+scope) are parsed as JSON, and `.codex/config.toml` / `requirements.toml`
+(`sandbox_mode`, `approval_policy`, `network_access`, `deny_read`) are parsed by a
+zero-dependency minimal TOML reader, both in `internal/agentconfig`. This distinguishes
+an `allow` rule from a `deny` rule, ignores keywords that appear only inside comments or
+string values, and never treats a commented-out line as live configuration — see
+[../../docs/parser-spec.md](../../docs/parser-spec.md) for the full semantics and the
+adversarial fixtures that would fail under substring matching.
+
+## What Ariadne Does Not Do
+
+- execute agent runtimes
+- run shell commands discovered in configs
+- execute MCP or tool servers
+- install or resolve packages
+- call external network services
+- read or emit secret values
+- infer safety from missing evidence
+
+## Evidence Grades
+
+| Grade | Meaning |
+| --- | --- |
+| `observed` | Ariadne observed a file, surface, or boundary indicator. |
+| `declared` | Ariadne parsed a config or instruction declaration. |
+| `inferred` | Ariadne modeled a fact from deterministic evidence. |
+| `skipped` | Ariadne intentionally skipped a noisy or private surface. |
+
+## Control Enforcement
+
+Every control additionally carries an `enforcement` value:
+
+| Enforcement | Meaning |
+| --- | --- |
+| `enforced` | The control comes from configuration a runtime or platform actually applies: Claude/Codex permission semantics, pinned tool launchers, CI platform gates, or managed settings surfaces. |
+| `attested` | The control is a self-declaration, such as an `.ariadne/*.json` policy flag. Nothing executes it. |
+
+Attested controls never satisfy a hard-barrier requirement: they cannot flip an
+exposure path to `protected`, mark an architecture boundary `controlled`, or
+close an operator case. They stay visible in the graph and are reported
+separately as `attested_controls` so an operator can see what has been declared
+but not proven. Exported proof patches under `.ariadne/` therefore record
+attested progress only; closing a case requires enforced evidence.
+
+## Status Semantics
+
+| Status | Meaning |
+| --- | --- |
+| `exposed` | Ariadne found a supported graph path from influence or tool authority to a sensitive boundary without a breaking control. |
+| `protected` | Ariadne found a supported path attempt and an enforced control that breaks it. Attested declarations do not qualify. |
+| `inconclusive` | Ariadne did not collect enough evidence to prove exposure or protection. |
+
+## Zero Trust Control Evidence
+
+Ariadne parses declared controls from runtime configuration, `.ariadne/agent-policy.json`, and focused policy files such as `.ariadne/tool-policy.json`, `.ariadne/delegation-policy.json`, `.ariadne/input-policy.json`, `.ariadne/output-policy.json`, `.ariadne/identity-policy.json`, `.ariadne/authorization-policy.json`, `.ariadne/resource-policy.json`, `.ariadne/memory-policy.json`, `.ariadne/workload-policy.json`, `.ariadne/egress-policy.json`, `.ariadne/response-policy.json`, `.ariadne/governance-policy.json`, `.ariadne/integrity-policy.json`, and `.ariadne/supply-chain-policy.json`.
+
+Supported control signals include:
+
+- cryptographic identity, workload identity, mTLS, X.509, or SPIFFE indicators
+- per-agent credential isolation, non-shared credentials, or agent-scoped credential indicators
+- hardware-bound credential indicators such as passkeys, FIDO2, WebAuthn, TPM, Secure Enclave, or YubiKey posture
+- least agency, least privilege, RBAC, scoped permissions, or deny-by-default indicators
+- runtime-scoped permissions such as Claude `defaultMode: default`, scoped `Read(...)` / `Bash(...)` permissions, Codex `read-only`, or Codex `workspace-write`
+- identity-based isolation, workload isolation, network segmentation, or microsegmentation indicators
+- named-caller, principal allowlist, service-account allowlist, or workload allowlist indicators
+- ABAC, attribute condition, claim, subject-attribute, resource-attribute, or context-attribute indicators
+- per-tool scope, allowed-tool, tool allowlist, MCP allowlist, or permission-scope indicators
+- approved tool or MCP server allowlists, MCP review and pinning, descriptor/schema integrity, tool argument validation, tool authentication, signed tool artifacts, deployment verification, sandboxed tool execution, and circuit breakers
+- AI-BOM or ML-BOM, model provenance, training-data lineage, dependency health, provider review, signed AI artifacts, runtime component validation, and dependency reachability analysis
+- delegation scope, delegate allowlist, agent-to-agent authorization, original-intent verification, delegated credential scoping, subagent context isolation, and delegation audit indicators
+- egress destination allowlists, webhook allowlists, per-tool network scope, output filtering, and egress audit indicators
+- approval-required posture, ask/PreToolUse settings, and approval decision logging
+- sandbox or filesystem isolation posture
+- credential helper, vault, or keychain retrieval
+- short-lived, OAuth/OIDC, federated, JIT, or token-lifetime credential indicators
+- credential rotation, revocation, or identity lifecycle indicators
+- per-action authorization, continuous policy evaluation, dynamic privilege scoping, JIT elevation, no-standing-access, and automatic access revocation indicators
+- rate limits, spend limits, loop guards, tool timeouts, concurrency limits, circuit breakers, and resource usage audit indicators
+- audit, tool-call, approval, telemetry, or trace logging indicators
+- request ID, trace ID, correlation ID, distributed tracing, or provenance indicators that connect the original request to resulting agent actions
+- input isolation, trusted instruction source, instruction provenance, schema validation, prompt-injection filtering, untrusted-content delimiting, spotlighting, or maximum input length indicators
+- sensitive-output filtering, output redaction or blocking, output filter logging, semantic output analysis, and high-risk output review indicators
+- automated first-pass investigation or alert triage indicators
+- behavioral monitoring, session termination, credential revocation, quarantine, dynamic access reduction, or response escalation indicators
+- agent inventory, accountable owner, deployment approval, risk assessment, governance review, or Shadow AI discovery indicators
+- transcript, memory, or context retention indicators
+- memory isolation, context retention, context integrity, context provenance, and memory credential-isolation indicators
+- reviewed version-controlled config, signed config, deployment verification, managed-settings enforcement, immutable runtime, and rollback indicators
+- observed structured transcript metadata for tool-call events, approval decisions, action logs, request IDs, trace IDs, correlation IDs, or session IDs
+- telemetry export and immutable audit log indicators from observability policy or OpenTelemetry collector config
+
+Ariadne also flags inline credential field indicators as `boundary:credential-material` and credential-like filename indicators inside summarized private context as `boundary:memory-credential-retention`. It reports field or filename presence only; values are never emitted.
+
+For managed-agent workflows, Ariadne separates workflow evidence into typed facts instead of treating the workflow as a generic script. GitHub Actions pull request, issue, workflow-run, or repository-dispatch triggers and GitLab CI merge request, trigger, web, schedule, or pipeline triggers become `trustinput:managed-workflow-trigger`; AI or agent-like workflow steps become `tool:managed-agent-workflow`; repository write permissions or token-backed repository API use become `authority:repository-write` reaching `boundary:repository-integrity-boundary`; GitHub `id-token: write` and GitLab `id_tokens` or identity-token posture become `authority:cloud-identity-token` reaching `boundary:cloud-identity-boundary`; CI secret or variable references become `authority:credential-access` reaching `boundary:ci-secret-boundary`; external actions, images, package calls, APIs, or web calls become `authority:external-communication`. Ariadne never runs the workflow and never emits secret values.
+
+For the Zero Trust influence boundary, Ariadne separates exposure proof from architecture proof. A specific data exposure may be inconclusive if no sensitive boundary was observed, but risky untrusted instructions influencing high-risk runtime authority or model-callable tool surfaces are still reported as a breaking influence boundary unless input isolation or a trusted-source gate breaks the path.
+
+For the Zero Trust external egress boundary, Ariadne separates the full data-egress chain from the external communication boundary itself. A complete private-data exfiltration path may be inconclusive, but risky untrusted instructions, high-risk authority, or risky tool surfaces reaching arbitrary external communication are reported as a breaking egress boundary unless Ariadne observes network restriction, destination allowlists, webhook allowlists, or per-tool network scope.
+
+For the Zero Trust identity boundary, Ariadne separates helper-style credential retrieval from strong scoped agent identity. Credential helpers, vault references, or keychain retrieval are useful evidence, but they do not by themselves prove that high-risk agent actions are attributable to a cryptographic, hardware-bound, or per-agent identity with scoped or ephemeral credential issuance. High-risk local execution, broad local authority, external communication, delegated authority, or sensitive-data access without that hard identity boundary is reported as a breaking architecture path.
+
+For the Zero Trust workload authorization boundary, Ariadne treats sandboxing and network restriction as containment evidence, not as proof that the agent workload is authorized for the caller, context, segment, or tool scope. The boundary is controlled only when Ariadne observes caller or condition evidence such as named callers or ABAC plus isolation or scope evidence such as identity-based isolation, network segmentation, or per-tool scope. High-risk agent authority without that identity-aware workload authorization boundary is reported as a breaking architecture path.
+
+For the Zero Trust observability boundary, Ariadne separates partial observability from a stronger request-to-action trail. Audit, telemetry, transcript, or cache evidence is useful, but it is not enough by itself. The boundary is treated as controlled only when Ariadne observes action logging evidence plus request, trace, or correlation propagation evidence. High-risk tool or authority surfaces with no observability controls are reported as a breaking architecture path.
+
+## Redaction
+
+Secret values are never emitted. Private context surfaces are summarized by file count, size, source, category, and count-only credential-like filename indicators. Exact sensitive paths outside the scan root are redacted by default.
+
+For transcript and history JSONL files, Ariadne samples bounded structured metadata only. It looks at JSON keys and safe event-shape fields such as event type, request ID, trace ID, timestamp, tool-call presence, and approval-decision presence. It does not emit prompt text, tool arguments, tool outputs, or transcript content.
+
+## Eval
+
+`make eval` runs the Story Lab verdict benchmark. It loads normal Story Lab
+`manifest.json` files and uses optional `expected.verdict` fields on the existing
+`expected` object:
+
+- `word`: expected compact verdict word.
+- `findings`: expected reckless findings, each with `family`, `source`, exact
+  `line`, and `fix_surface`.
+- `min_tradeoffs`: minimum accepted trade-off lines expected in the verdict.
+- `require_evidence_line_anchors`: when true, every reckless `where` and evidence
+  reference for that fixture must carry a positive line number.
+
+The eval prints a scorecard with verdict-word accuracy, per-family precision and
+recall, and every mismatch with its fixture path. It exits 0 only when the
+scorecard is clean. A non-zero exit after a printed scorecard is the expected
+Phase 0 work queue; a non-zero exit before the scorecard is a harness error.

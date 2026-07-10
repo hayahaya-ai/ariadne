@@ -1,0 +1,35 @@
+{
+  "id": "mutable-tool-launch-protected",
+  "title": "Reviewed and pinned tool control breaks mutable execution",
+  "persona": "developer / AppSec",
+  "user_question": "Did tool review and package pinning break the local execution path?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "world/repo"
+  },
+  "expected": {
+    "status": "protected",
+    "proof_mode": "simulated",
+    "required_nodes": [
+      "runtime:codex",
+      "runtime:claude",
+      "tool:mcp-package-launch",
+      "authority:local-code-execution",
+      "boundary:developer-execution-boundary",
+      "control:mcp-reviewed-pinned"
+    ],
+    "required_edges": [
+      "runtime:codex|can_call|tool:mcp-package-launch",
+      "runtime:claude|can_call|tool:mcp-package-launch",
+      "tool:mcp-package-launch|grants|authority:local-code-execution",
+      "authority:local-code-execution|reaches|boundary:developer-execution-boundary",
+      "control:mcp-reviewed-pinned|restricts|tool:mcp-package-launch",
+      "control:mcp-reviewed-pinned|restricts|boundary:developer-execution-boundary"
+    ],
+    "controls_break_path": [
+      "review and pin MCP servers"
+    ],
+    "redaction_must_not_contain": []
+  }
+}

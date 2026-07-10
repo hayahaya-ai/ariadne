@@ -1,0 +1,32 @@
+{
+  "id": "data-egress-chain-exposed",
+  "title": "Untrusted instruction can reach private data and external communication",
+  "persona": "AppSec / SecOps",
+  "user_question": "Can this agent setup combine untrusted instructions, private data access, and external communication?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "world/repo"
+  },
+  "expected": {
+    "status": "exposed",
+    "proof_mode": "simulated",
+    "required_nodes": [
+      "trustinput:repo-instruction",
+      "runtime:codex",
+      "authority:file-read",
+      "authority:external-communication",
+      "boundary:secret-like-file",
+      "boundary:external-destination"
+    ],
+    "required_edges": [
+      "trustinput:repo-instruction|influences|runtime:codex",
+      "runtime:codex|has_authority|authority:file-read",
+      "runtime:codex|has_authority|authority:external-communication",
+      "authority:file-read|reaches|boundary:secret-like-file",
+      "authority:external-communication|reaches|boundary:external-destination"
+    ],
+    "controls_break_path": ["restrict external network communication", "deny-read secret-like paths"],
+    "redaction_must_not_contain": ["DATA_EGRESS_FAKE_SECRET_DO_NOT_LEAK_EXPOSED"]
+  }
+}

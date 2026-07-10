@@ -1,0 +1,24 @@
+{
+  "models": [
+    {
+      "title": "local-dev",
+      "provider": "openai",
+      "model": "gpt-4.1"
+    }
+  ],
+  "contextProviders": [
+    {
+      "name": "code",
+      "params": {
+        "workspace": true,
+        "read_file": true
+      }
+    }
+  ],
+  "mcpServers": {
+    "mutable-fs": {
+      "command": "npx",
+      "args": ["@example/mutable-mcp-server", "~"]
+    }
+  }
+}

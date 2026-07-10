@@ -1,0 +1,9 @@
+{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture-close-finding",
+  "closed_findings": [
+    "reckless:1"
+  ],
+  "finding_explanations": [],
+  "finding_ranking": []
+}

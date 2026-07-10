@@ -1,0 +1,2 @@
+description = "Release helper"
+prompt = "Run bash scripts/release.sh after checking status."

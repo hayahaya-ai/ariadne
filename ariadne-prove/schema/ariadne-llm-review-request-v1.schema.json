@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-llm-review-request-v1.schema.json",
+  "title": "Ariadne LLM Review Request v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "target",
+    "mode",
+    "review_profile",
+    "question",
+    "instructions",
+    "review_contract",
+    "reviewer_tasks",
+    "citation_catalog",
+    "collection",
+    "graph",
+    "exposures",
+    "deterministic_interpretation",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.llm_review_request/v1" },
+    "target": { "type": "string" },
+    "mode": { "type": "string" },
+    "review_profile": { "type": "string", "enum": ["follow_up", "inventory_blind"] },
+    "question": { "type": "string" },
+    "instructions": { "type": "array", "items": { "type": "string" } },
+    "review_contract": { "$ref": "#/$defs/review_contract" },
+    "reviewer_tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/reviewer_task" }
+    },
+    "citation_catalog": { "$ref": "#/$defs/citation_catalog" },
+    "verdict": { "$ref": "#/$defs/verdict_context" },
+    "collection": { "type": "object" },
+    "graph": { "type": "object" },
+    "exposures": { "type": "array", "items": { "type": "object" } },
+    "deterministic_interpretation": { "type": "object" },
+    "redaction": { "type": "object" },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "allowed_priorities": { "type": "array", "items": { "type": "string" } },
+    "allowed_severities": { "type": "array", "items": { "type": "string" } },
+    "allowed_statuses": { "type": "array", "items": { "type": "string" } },
+    "allowed_dispositions": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "review_contract": {
+      "type": "object",
+      "required": ["summary", "required_citations", "allowed_claims", "forbidden_claims", "response_rules"],
+      "properties": {
+        "summary": { "type": "string" },
+        "required_citations": { "type": "array", "items": { "type": "string" } },
+        "allowed_claims": { "type": "array", "items": { "type": "string" } },
+        "forbidden_claims": { "type": "array", "items": { "type": "string" } },
+        "response_rules": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "reviewer_task": {
+      "type": "object",
+      "required": ["id", "title", "prompt", "required_citations"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "prompt": { "type": "string" },
+        "required_citations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "citation_catalog": {
+      "type": "object",
+      "required": [
+        "exposure_ids",
+        "fact_ids",
+        "graph_edges",
+        "control_ids",
+        "authority_ids",
+        "boundary_ids",
+        "finding_ids",
+        "default_judgment_ids",
+        "default_judgment_rules",
+        "tradeoff_ids",
+        "evidence_ref_ids",
+        "source_refs"
+      ],
+      "properties": {
+        "exposure_ids": { "type": "array", "items": { "type": "string" } },
+        "fact_ids": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } },
+        "control_ids": { "type": "array", "items": { "type": "string" } },
+        "authority_ids": { "type": "array", "items": { "type": "string" } },
+        "boundary_ids": { "type": "array", "items": { "type": "string" } },
+        "finding_ids": { "type": "array", "items": { "type": "string" } },
+        "default_judgment_ids": { "type": "array", "items": { "type": "string" } },
+        "default_judgment_rules": { "type": "array", "items": { "type": "string" } },
+        "tradeoff_ids": { "type": "array", "items": { "type": "string" } },
+        "evidence_ref_ids": { "type": "array", "items": { "type": "string" } },
+        "source_refs": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "verdict_context": {
+      "type": "object",
+      "required": ["verdict", "reckless", "default_judgments", "influence_provenance", "tradeoffs"],
+      "properties": {
+        "verdict": { "type": "string", "enum": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"] },
+        "reckless": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/verdict_finding" }
+        },
+        "default_judgments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/default_judgment" }
+        },
+        "influence_provenance": { "type": "array", "items": { "type": "object" } },
+        "tradeoffs": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "verdict_finding": {
+      "type": "object",
+      "required": ["id", "exposure_id", "title", "where", "evidence_ref_ids", "why", "fix"],
+      "properties": {
+        "id": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "title": { "type": "string" },
+        "where": { "type": "object" },
+        "evidence_ref_ids": { "type": "array", "items": { "type": "string" } },
+        "why": { "type": "string" },
+        "fix": { "type": "string" }
+      }
+    },
+    "default_judgment": {
+      "type": "object",
+      "required": ["id", "rule", "label", "exposure_id", "trust_input_ids", "basis", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "rule": { "type": "string" },
+        "label": { "const": "default_judgment" },
+        "exposure_id": { "type": "string" },
+        "trust_input_ids": { "type": "array", "items": { "type": "string" } },
+        "basis": { "type": "array", "items": { "$ref": "#/$defs/judgment_basis_ref" } },
+        "summary": { "type": "string" }
+      }
+    },
+    "judgment_basis_ref": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["fact", "trust_input"] },
+        "id": { "type": "string" }
+      }
+    }
+  }
+}

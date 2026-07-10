@@ -1,0 +1,30 @@
+{
+  "cryptographic_identity": "spiffe",
+  "least_agency": true,
+  "deny_by_default": true,
+  "identity_based_isolation": true,
+  "named_callers": ["agent://codex/local/appsec-review"],
+  "abac_policy": {
+    "subject_attributes": ["agent_id", "repo_id"],
+    "resource_attributes": ["workspace", "tool"]
+  },
+  "network_segmentation": true,
+  "tool_scope": {
+    "allowed_tools": ["Read", "mcp:approved"],
+    "permission_scope": "workspace"
+  },
+  "approval_required": true,
+  "sandbox_required": true,
+  "credential_helper": "vault",
+  "short_lived_credentials": true,
+  "audit_logging": true,
+  "tool_call_logging": true,
+  "request_id": true,
+  "trace_id": true,
+  "input_validation": true,
+  "schema_validation": true,
+  "automated_triage": true,
+  "context_retention": {
+    "retention_days": 7
+  }
+}

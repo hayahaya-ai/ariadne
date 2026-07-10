@@ -1,26 +1,66 @@
-name: CI
+name: ci
 
 on:
-  pull_request:
   push:
-    branches:
-      - main
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: read
 
+env:
+  GOCACHE: /tmp/ariadne-gocache
+  TMPDIR: /tmp
+
 jobs:
   go-test:
-    name: go-test
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: ariadne-prove/go.mod
+          cache: true
 
-      - name: Run tests
+      - name: Check formatting
+        working-directory: ariadne-prove
+        run: test -z "$(gofmt -l cmd internal)"
+
+      - name: Vet
+        working-directory: ariadne-prove
+        run: go vet ./...
+
+      - name: Test
+        working-directory: ariadne-prove
         run: go test ./...
+
+      - name: Build
+        working-directory: ariadne-prove
+        run: go build -o bin/ariadne ./cmd/ariadne
+
+      - name: Smoke story list
+        working-directory: ariadne-prove
+        run: ./bin/ariadne stories list
+
+      - name: Smoke scan
+        working-directory: ariadne-prove
+        run: ./bin/ariadne scan --targets testdata/realpath/targets.txt --format json --out /tmp/ariadne-scan.json
+
+      - name: Product verification loop
+        run: make verify-first-run
+
+      - name: Verdict eval scorecard
+        run: make eval
+
+      - name: Ariadne repository self-gate
+        run: ./ariadne-prove/bin/ariadne verdict --path . --mode repo --gate
+
+      - name: Fleet rollup smoke
+        working-directory: ariadne-prove
+        run: |
+          ./bin/ariadne scan --targets testdata/realpath/fleet-targets.txt --mode repo --format jsonl --out /tmp/ariadne-fleet.jsonl
+          test "$(wc -l < /tmp/ariadne-fleet.jsonl)" -ge 6

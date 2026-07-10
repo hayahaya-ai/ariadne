@@ -1,0 +1,2919 @@
+package prove
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/adapter"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/interpret"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/storylab"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/verdict"
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/zerotrust"
+)
+
+type Options struct {
+	StoryRoot             string
+	StoryID               string
+	Path                  string
+	TargetsFile           string
+	Targets               []model.ScanTarget
+	Agent                 string
+	Mode                  string
+	RulesPath             string
+	InterpretMode         string
+	LLMReviewPath         string
+	LLMCommand            string
+	LLMRequestOut         string
+	LLMReviewProfile      string
+	LLMTimeout            time.Duration
+	IncludeSensitivePaths bool
+}
+
+type StoryRun struct {
+	Story     model.Story
+	Report    model.Report
+	Inventory model.InventoryReport
+}
+
+type PathRun struct {
+	Report    model.Report
+	Inventory model.InventoryReport
+}
+
+func RunStory(opts Options) (model.Report, error) {
+	run, err := RunStoryWithInventory(opts)
+	if err != nil {
+		return model.Report{}, err
+	}
+	return run.Report, nil
+}
+
+func RunStoryWithInventory(opts Options) (StoryRun, error) {
+	if opts.StoryRoot == "" {
+		opts.StoryRoot = filepath.Join("testdata", "storylab")
+	}
+	story, err := storylab.Load(opts.StoryRoot, opts.StoryID)
+	if err != nil {
+		return StoryRun{}, err
+	}
+	manifest := story.Manifest
+	repoPath := resolve(story.Dir, manifest.World.RepoPath)
+	homePath := resolve(story.Dir, manifest.World.HomePath)
+	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
+	graph := BuildGraph(collection)
+	inventory := storyInventoryReport(manifest, collection, graph, storyTargetPath(manifest, repoPath, homePath), opts.IncludeSensitivePaths)
+	exposure := Evaluate(collection, graph, manifest)
+	exposure = attachExposureEvidenceReferences(collection, graph, exposure)
+	zeroTrust := zerotrust.Assess(collection, graph, []model.ExposureResult{exposure})
+	zeroTrust = attachZeroTrustEvidenceLocations(collection, zeroTrust)
+	policy, err := loadPolicy(story.Dir, opts.RulesPath)
+	if err != nil {
+		return StoryRun{}, err
+	}
+	report := model.Report{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "story",
+		Story: model.StorySummary{
+			ID:           manifest.ID,
+			Title:        manifest.Title,
+			Persona:      manifest.Persona,
+			UserQuestion: manifest.UserQuestion,
+			Runtime:      manifest.Runtime,
+			Mode:         manifest.Mode,
+		},
+		Expected:  manifest.Expected,
+		Exposure:  exposure,
+		Exposures: []model.ExposureResult{exposure},
+		ZeroTrust: zeroTrust,
+		Graph:     graph,
+		Evidence:  collection.Evidence,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: opts.IncludeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Story Lab uses synthetic worlds and fake canaries as the correctness oracle.",
+			"No real secrets are read or reported.",
+			"Phase 1 evaluates exposure paths, not governance or runtime blocking.",
+		},
+	}
+	interp, err := interpret.EvaluateWithOptions(interpret.Input{
+		Target:     manifest.ID,
+		Mode:       manifest.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  report.Exposures,
+		Policy:     policy,
+	}, interpret.Options{
+		Mode:           opts.InterpretMode,
+		ReviewPath:     opts.LLMReviewPath,
+		Command:        opts.LLMCommand,
+		RequestOut:     opts.LLMRequestOut,
+		ReviewProfile:  opts.LLMReviewProfile,
+		Verdict:        llmVerdictContext(verdict.Build(inventory, report, inventory.TargetPath, manifest.Mode)),
+		Timeout:        opts.LLMTimeout,
+		Question:       report.Story.UserQuestion,
+		Redaction:      report.Redaction,
+		RunLimitations: report.Limitations,
+	})
+	if err != nil {
+		return StoryRun{}, err
+	}
+	report.Interpretation = interp
+	report.Expected.RedactionMustNotContain = nil
+	report.Matched, report.Mismatches = Compare(report, manifest.Expected)
+	return StoryRun{Story: story, Report: report, Inventory: inventory}, nil
+}
+
+func RunStoryAllWithInventory(opts Options) (StoryRun, error) {
+	if opts.StoryRoot == "" {
+		opts.StoryRoot = filepath.Join("testdata", "storylab")
+	}
+	story, err := storylab.Load(opts.StoryRoot, opts.StoryID)
+	if err != nil {
+		return StoryRun{}, err
+	}
+	manifest := story.Manifest
+	repoPath := resolve(story.Dir, manifest.World.RepoPath)
+	homePath := resolve(story.Dir, manifest.World.HomePath)
+	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
+	graph := BuildGraph(collection)
+	inventory := storyInventoryReport(manifest, collection, graph, storyTargetPath(manifest, repoPath, homePath), opts.IncludeSensitivePaths)
+	exposures := EvaluateAll(collection, graph, manifest.Mode)
+	attachExposureSetEvidenceReferences(collection, graph, exposures)
+	zeroTrust := zerotrust.Assess(collection, graph, exposures)
+	zeroTrust = attachZeroTrustEvidenceLocations(collection, zeroTrust)
+	primary := model.ExposureResult{}
+	if len(exposures) > 0 {
+		primary = exposures[0]
+	}
+	policy, err := loadPolicy(story.Dir, opts.RulesPath)
+	if err != nil {
+		return StoryRun{}, err
+	}
+	report := model.Report{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "story",
+		Story: model.StorySummary{
+			ID:           manifest.ID,
+			Title:        manifest.Title,
+			Persona:      manifest.Persona,
+			UserQuestion: manifest.UserQuestion,
+			Runtime:      manifest.Runtime,
+			Mode:         manifest.Mode,
+		},
+		Expected:  manifest.Expected,
+		Matched:   true,
+		Exposure:  primary,
+		Exposures: exposures,
+		ZeroTrust: zeroTrust,
+		Graph:     graph,
+		Evidence:  collection.Evidence,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: opts.IncludeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Story Lab uses synthetic worlds and fake canaries as the correctness oracle.",
+			"No real secrets are read or reported.",
+			"Phase 1 evaluates exposure paths, not governance or runtime blocking.",
+		},
+	}
+	interp, err := interpret.EvaluateWithOptions(interpret.Input{
+		Target:     manifest.ID,
+		Mode:       manifest.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  report.Exposures,
+		Policy:     policy,
+	}, interpret.Options{
+		Mode:           opts.InterpretMode,
+		ReviewPath:     opts.LLMReviewPath,
+		Command:        opts.LLMCommand,
+		RequestOut:     opts.LLMRequestOut,
+		ReviewProfile:  opts.LLMReviewProfile,
+		Verdict:        llmVerdictContext(verdict.Build(inventory, report, inventory.TargetPath, manifest.Mode)),
+		Timeout:        opts.LLMTimeout,
+		Question:       report.Story.UserQuestion,
+		Redaction:      report.Redaction,
+		RunLimitations: report.Limitations,
+	})
+	if err != nil {
+		return StoryRun{}, err
+	}
+	report.Interpretation = interp
+	report.Expected.RedactionMustNotContain = nil
+	return StoryRun{Story: story, Report: report, Inventory: inventory}, nil
+}
+
+func storyTargetPath(manifest model.Manifest, repoPath, homePath string) string {
+	if manifest.Mode == "endpoint" && homePath != "" {
+		return homePath
+	}
+	return repoPath
+}
+
+func storyInventoryReport(manifest model.Manifest, collection model.Collection, graph model.Graph, target string, includeSensitivePaths bool) model.InventoryReport {
+	return model.InventoryReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "inventory",
+		TargetPath:    target,
+		Mode:          manifest.Mode,
+		Agent:         manifest.Runtime,
+		Collection:    collection,
+		SurfaceMap:    BuildSurfaceMap(collection),
+		Graph:         graph,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: includeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Inventory mode collects deterministic local facts only; it does not classify exposure.",
+			"Private histories, paste caches, transcripts, and file history are summarized by metadata only.",
+			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, GitHub Copilot in VS Code, Cline, Roo Code, GitHub Actions, GitLab CI, MCP, and generic repo instruction surfaces are supported in this milestone.",
+		},
+	}
+}
+
+func RunPath(opts Options) (model.Report, error) {
+	run, err := RunPathWithInventory(opts)
+	if err != nil {
+		return model.Report{}, err
+	}
+	return run.Report, nil
+}
+
+func RunPathWithInventory(opts Options) (PathRun, error) {
+	if opts.Path == "" {
+		opts.Path = "."
+	}
+	if opts.Agent == "" {
+		opts.Agent = "all"
+	}
+	if opts.Mode == "" {
+		opts.Mode = "repo"
+	}
+	root, err := filepath.Abs(opts.Path)
+	if err != nil {
+		return PathRun{}, err
+	}
+	home := ""
+	base := root
+	inventoryTarget := root
+	if opts.Mode == "endpoint" {
+		home = resolveEndpointHome(root)
+		base = home
+		inventoryTarget = home
+	}
+	collection := adapter.Collect(adapter.Options{
+		RepoPath:              root,
+		HomePath:              home,
+		Mode:                  opts.Mode,
+		Runtime:               opts.Agent,
+		StoryDir:              base,
+		IncludeSensitivePaths: opts.IncludeSensitivePaths,
+	})
+	graph := BuildGraph(collection)
+	exposures := EvaluateAll(collection, graph, opts.Mode)
+	normalizeRealPathExposures(exposures)
+	attachExposureSetEvidenceReferences(collection, graph, exposures)
+	zeroTrust := zerotrust.Assess(collection, graph, exposures)
+	zeroTrust = attachZeroTrustEvidenceLocations(collection, zeroTrust)
+	primary := model.ExposureResult{}
+	if len(exposures) > 0 {
+		primary = exposures[0]
+	}
+	policy, err := loadPolicy(root, opts.RulesPath)
+	if err != nil {
+		return PathRun{}, err
+	}
+	inventory := model.InventoryReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "inventory",
+		TargetPath:    inventoryTarget,
+		Mode:          opts.Mode,
+		Agent:         opts.Agent,
+		Collection:    collection,
+		SurfaceMap:    BuildSurfaceMap(collection),
+		Graph:         graph,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: opts.IncludeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Inventory is derived from local filesystem metadata and configuration parsing only.",
+			"No agent runtime, package manager, MCP server, or network endpoint was executed.",
+		},
+	}
+	report := model.Report{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "path",
+		TargetPath:    root,
+		Story: model.StorySummary{
+			ID:           "real-path",
+			Title:        "Real path exposure proof",
+			Persona:      "developer / IT / AppSec",
+			UserQuestion: "What agent exposure paths exist in this repository or setup?",
+			Runtime:      opts.Agent,
+			Mode:         opts.Mode,
+		},
+		Matched:   true,
+		Exposure:  primary,
+		Exposures: exposures,
+		ZeroTrust: zeroTrust,
+		Graph:     graph,
+		Evidence:  collection.Evidence,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: opts.IncludeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Real path mode is static and local; it does not execute Claude, Codex, MCP servers, or package managers.",
+			"Exposure means Ariadne found a graph path from influence or tool authority to a sensitive boundary; runtime exploitability is not proven.",
+			"Missing evidence is represented as inconclusive rather than safe.",
+		},
+	}
+	interp, err := interpret.EvaluateWithOptions(interpret.Input{
+		Target:     root,
+		Mode:       opts.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  exposures,
+		Policy:     policy,
+	}, interpret.Options{
+		Mode:           opts.InterpretMode,
+		ReviewPath:     opts.LLMReviewPath,
+		Command:        opts.LLMCommand,
+		RequestOut:     opts.LLMRequestOut,
+		ReviewProfile:  opts.LLMReviewProfile,
+		Verdict:        llmVerdictContext(verdict.Build(inventory, report, report.TargetPath, report.Story.Mode)),
+		Timeout:        opts.LLMTimeout,
+		Question:       report.Story.UserQuestion,
+		Redaction:      report.Redaction,
+		RunLimitations: report.Limitations,
+	})
+	if err != nil {
+		return PathRun{}, err
+	}
+	report.Interpretation = interp
+	return PathRun{Report: report, Inventory: inventory}, nil
+}
+
+func RunReviewPacket(opts Options) (model.LLMReviewRequest, []byte, string, error) {
+	if opts.Path == "" {
+		opts.Path = "."
+	}
+	if opts.Agent == "" {
+		opts.Agent = "all"
+	}
+	if opts.Mode == "" {
+		opts.Mode = "repo"
+	}
+	root, err := filepath.Abs(opts.Path)
+	if err != nil {
+		return model.LLMReviewRequest{}, nil, "", err
+	}
+	home := ""
+	base := root
+	if opts.Mode == "endpoint" {
+		home = resolveEndpointHome(root)
+		base = home
+	}
+	collection := adapter.Collect(adapter.Options{
+		RepoPath:              root,
+		HomePath:              home,
+		Mode:                  opts.Mode,
+		Runtime:               opts.Agent,
+		StoryDir:              base,
+		IncludeSensitivePaths: opts.IncludeSensitivePaths,
+	})
+	graph := BuildGraph(collection)
+	exposures := EvaluateAll(collection, graph, opts.Mode)
+	normalizeRealPathExposures(exposures)
+	attachExposureSetEvidenceReferences(collection, graph, exposures)
+	policy, err := loadPolicy(root, opts.RulesPath)
+	if err != nil {
+		return model.LLMReviewRequest{}, nil, "", err
+	}
+	limitations := []string{
+		"Real path mode is static and local; it does not execute Claude, Codex, MCP servers, package managers, reviewers, or networks.",
+		"Review packets contain redacted deterministic facts and graph evidence only.",
+		"Reviewer output is interpretation, not raw evidence; unsupported claims must be mapped back to deterministic evidence before use.",
+	}
+	redaction := model.RedactionInfo{
+		Level:                  "default",
+		SensitivePathsIncluded: opts.IncludeSensitivePaths,
+		CanaryValuesIncluded:   false,
+	}
+	deterministic := interpret.Evaluate(interpret.Input{
+		Target:     root,
+		Mode:       opts.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  exposures,
+		Policy:     policy,
+	})
+	return interpret.BuildLLMReviewRequest(interpret.Input{
+		Target:     root,
+		Mode:       opts.Mode,
+		Collection: collection,
+		Graph:      graph,
+		Exposures:  exposures,
+		Policy:     policy,
+	}, deterministic, interpret.Options{
+		ReviewProfile:  opts.LLMReviewProfile,
+		Question:       "What should a reviewer inspect about this agent exposure posture?",
+		Verdict:        llmVerdictContext(verdict.Build(model.InventoryReport{Collection: collection}, model.Report{Exposures: exposures}, root, opts.Mode)),
+		Redaction:      redaction,
+		RunLimitations: limitations,
+	})
+}
+
+func llmVerdictContext(v verdict.Verdict) *model.LLMVerdictContext {
+	ctx := &model.LLMVerdictContext{
+		VerdictWord:         v.VerdictWord,
+		Reckless:            make([]model.LLMVerdictFinding, 0, len(v.Reckless)),
+		DefaultJudgments:    make([]model.LLMDefaultJudgment, 0, len(v.DefaultJudgments)),
+		InfluenceProvenance: make([]model.LLMInfluenceProvenanceFact, 0, len(v.InfluenceProvenance)),
+		Tradeoffs:           make([]model.LLMTradeoffLine, 0, len(v.Tradeoffs)),
+	}
+	for _, finding := range v.Reckless {
+		ctx.Reckless = append(ctx.Reckless, model.LLMVerdictFinding{
+			ID:         finding.ID,
+			ExposureID: finding.ExposureID,
+			Title:      finding.Title,
+			Where: model.LLMEvidenceLocation{
+				Source: finding.Where.Source,
+				Line:   finding.Where.Line,
+				Anchor: finding.Where.Anchor,
+			},
+			EvidenceRefs: evidenceReferenceIDs(finding.EvidenceRefs),
+			Why:          finding.Why,
+			Fix:          finding.Fix,
+		})
+	}
+	for _, judgment := range v.DefaultJudgments {
+		ctx.DefaultJudgments = append(ctx.DefaultJudgments, model.LLMDefaultJudgment{
+			ID:            llmDefaultJudgmentID(judgment.Rule, judgment.ExposureID),
+			Rule:          judgment.Rule,
+			Label:         judgment.Label,
+			ExposureID:    judgment.ExposureID,
+			TrustInputIDs: copiedStringSlice(judgment.TrustInputIDs),
+			Basis:         llmJudgmentBasis(judgment.Basis),
+			Summary:       judgment.Summary,
+		})
+	}
+	for _, fact := range v.InfluenceProvenance {
+		ctx.InfluenceProvenance = append(ctx.InfluenceProvenance, model.LLMInfluenceProvenanceFact{
+			ID:               fact.ID,
+			TrustInputID:     fact.TrustInputID,
+			Provenance:       fact.Provenance,
+			InstructionScope: fact.InstructionScope,
+			Source:           fact.Source,
+			Summary:          fact.Summary,
+		})
+	}
+	for _, tradeoff := range v.Tradeoffs {
+		ctx.Tradeoffs = append(ctx.Tradeoffs, model.LLMTradeoffLine{
+			ID:      tradeoff.ID,
+			Summary: tradeoff.Summary,
+			Source:  tradeoff.Source,
+		})
+	}
+	return ctx
+}
+
+func evidenceReferenceIDs(refs []model.EvidenceReference) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.ID) != "" {
+			out = append(out, ref.ID)
+		}
+	}
+	return out
+}
+
+func copiedStringSlice(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
+}
+
+func llmJudgmentBasis(basis []verdict.JudgmentBasisRef) []model.LLMJudgmentBasisRef {
+	out := make([]model.LLMJudgmentBasisRef, 0, len(basis))
+	for _, ref := range basis {
+		out = append(out, model.LLMJudgmentBasisRef{Kind: ref.Kind, ID: ref.ID})
+	}
+	return out
+}
+
+func llmDefaultJudgmentID(rule, exposureID string) string {
+	return "default_judgment:" + llmSafeID(rule) + ":" + llmSafeID(exposureID)
+}
+
+func llmSafeID(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func RunReviewCheck(packetPath, reviewPath string) (model.LLMReviewCheckReport, error) {
+	packetPath = strings.TrimSpace(packetPath)
+	reviewPath = strings.TrimSpace(reviewPath)
+	if packetPath == "" {
+		return model.LLMReviewCheckReport{}, fmt.Errorf("review-check requires --packet <llm-request.json>")
+	}
+	if reviewPath == "" {
+		return model.LLMReviewCheckReport{}, fmt.Errorf("review-check requires --review <llm-review.json>")
+	}
+	packetData, err := os.ReadFile(packetPath)
+	if err != nil {
+		return model.LLMReviewCheckReport{}, err
+	}
+	reviewData, err := os.ReadFile(reviewPath)
+	if err != nil {
+		return model.LLMReviewCheckReport{}, err
+	}
+	var request model.LLMReviewRequest
+	if err := json.Unmarshal(packetData, &request); err != nil {
+		return model.LLMReviewCheckReport{}, err
+	}
+	digest := sha256.Sum256(packetData)
+	digestString := hex.EncodeToString(digest[:])
+	interpretation, err := interpret.ValidateLLMReview(request, reviewData, "file:"+reviewPath, digestString)
+	if err != nil {
+		return model.LLMReviewCheckReport{}, err
+	}
+	return model.LLMReviewCheckReport{
+		SchemaVersion:  model.SchemaVersion,
+		RunID:          randomID(),
+		GeneratedAt:    time.Now().UTC(),
+		RunKind:        "llm_review_check",
+		Target:         request.Target,
+		Mode:           request.Mode,
+		ReviewProfile:  request.ReviewProfile,
+		PacketSource:   packetPath,
+		ReviewSource:   reviewPath,
+		RequestDigest:  digestString,
+		Accepted:       true,
+		Interpretation: interpretation,
+		Redaction:      request.Redaction,
+		Limitations: []string{
+			"Review check validates a reviewer response against the exact packet file supplied.",
+			"Accepted means the review cites supported packet finding IDs, fact IDs, graph edges, default judgments, and basis facts.",
+			"Accepted LLM review remains interpretation over deterministic Ariadne facts, not raw evidence.",
+		},
+	}, nil
+}
+
+func RunReviewRun(opts Options, dir string) (model.LLMReviewRunReport, error) {
+	if strings.TrimSpace(opts.LLMCommand) == "" {
+		return model.LLMReviewRunReport{}, fmt.Errorf("review-run requires --command <reviewer>")
+	}
+	if strings.TrimSpace(opts.LLMReviewProfile) == "" {
+		opts.LLMReviewProfile = "follow-up"
+	}
+	if dir == "" {
+		dir = "ariadne-review"
+	}
+	artifactDir, err := filepath.Abs(dir)
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	request, payload, _, err := RunReviewPacket(opts)
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	if request.ReviewProfile != "follow_up" {
+		return model.LLMReviewRunReport{}, fmt.Errorf("review-run requires a follow-up packet; %s packets are request-only until mapped back to Ariadne exposure evidence", request.ReviewProfile)
+	}
+	packetPath := filepath.Join(artifactDir, "llm-request.json")
+	reviewPath := filepath.Join(artifactDir, "llm-review.json")
+	checkJSONPath := filepath.Join(artifactDir, "review-check.json")
+	checkSummaryPath := filepath.Join(artifactDir, "review-check.txt")
+	if err := os.WriteFile(packetPath, append(payload, '\n'), 0o644); err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	reviewData, err := runReviewCommandRaw(payload, opts.LLMCommand, opts.LLMTimeout)
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	reviewData = bytes.TrimSpace(reviewData)
+	if err := os.WriteFile(reviewPath, append(reviewData, '\n'), 0o644); err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	check, err := RunReviewCheck(packetPath, reviewPath)
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	checkData, err := json.MarshalIndent(check, "", "  ")
+	if err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	if err := os.WriteFile(checkJSONPath, append(checkData, '\n'), 0o644); err != nil {
+		return model.LLMReviewRunReport{}, err
+	}
+	return model.LLMReviewRunReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            randomID(),
+		GeneratedAt:      time.Now().UTC(),
+		RunKind:          "llm_review_run",
+		Target:           request.Target,
+		Mode:             request.Mode,
+		ReviewProfile:    request.ReviewProfile,
+		Command:          opts.LLMCommand,
+		ArtifactDir:      artifactDir,
+		PacketPath:       packetPath,
+		ReviewPath:       reviewPath,
+		CheckJSONPath:    checkJSONPath,
+		CheckSummaryPath: checkSummaryPath,
+		RequestDigest:    check.RequestDigest,
+		Accepted:         check.Accepted,
+		Check:            check,
+		Redaction:        request.Redaction,
+		Limitations: []string{
+			"Review run executes only the supplied local reviewer command; Ariadne does not call remote LLM services by itself.",
+			"The reviewer receives only the redacted Ariadne review packet on stdin.",
+			"Accepted means the reviewer response passed packet-bound validation; it remains interpretation over deterministic facts, not raw evidence.",
+		},
+	}, nil
+}
+
+func runReviewCommandRaw(payload []byte, command string, timeout time.Duration) ([]byte, error) {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("empty review command")
+	}
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	cmd.Stdin = bytes.NewReader(payload)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if len(msg) > 800 {
+			msg = msg[:800]
+		}
+		if msg != "" {
+			return nil, fmt.Errorf("review command failed: %w: %s", err, msg)
+		}
+		return nil, fmt.Errorf("review command failed: %w", err)
+	}
+	return stdout.Bytes(), nil
+}
+
+func RunInventory(opts Options) (model.InventoryReport, error) {
+	if opts.Path == "" {
+		opts.Path = "."
+	}
+	if opts.Agent == "" {
+		opts.Agent = "all"
+	}
+	if opts.Mode == "" {
+		opts.Mode = "repo"
+	}
+	root, err := filepath.Abs(opts.Path)
+	if err != nil {
+		return model.InventoryReport{}, err
+	}
+	home := ""
+	target := root
+	base := root
+	if opts.Mode == "endpoint" {
+		home = resolveEndpointHome(root)
+		target = home
+		base = home
+	}
+	collection := adapter.Collect(adapter.Options{
+		RepoPath:              root,
+		HomePath:              home,
+		Mode:                  opts.Mode,
+		Runtime:               opts.Agent,
+		StoryDir:              base,
+		IncludeSensitivePaths: opts.IncludeSensitivePaths,
+	})
+	graph := BuildGraph(collection)
+	surfaceMap := BuildSurfaceMap(collection)
+	return model.InventoryReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "inventory",
+		TargetPath:    target,
+		Mode:          opts.Mode,
+		Agent:         opts.Agent,
+		Collection:    collection,
+		SurfaceMap:    surfaceMap,
+		Graph:         graph,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: opts.IncludeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Warnings: collection.Warnings,
+		Limitations: []string{
+			"Inventory mode collects deterministic local facts only; it does not classify exposure.",
+			"Private histories, paste caches, transcripts, and file history are summarized by metadata only.",
+			"Claude, Codex, Cursor, Windsurf, Continue, Aider, Gemini CLI, OpenCode, GitHub Copilot in VS Code, Cline, Roo Code, GitHub Actions, GitLab CI, MCP, and generic repo instruction surfaces are supported in this milestone.",
+		},
+	}, nil
+}
+
+func resolveEndpointHome(root string) string {
+	if pathLooksLikeEndpointHome(root) {
+		return root
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return home
+	}
+	return root
+}
+
+func pathLooksLikeEndpointHome(root string) bool {
+	for _, marker := range endpointHomeMarkers() {
+		if _, err := os.Stat(filepath.Join(root, marker)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func endpointHomeMarkers() []string {
+	return []string{
+		".claude",
+		".codex",
+		".cursor",
+		".windsurf",
+		".continue",
+		".aider",
+		".gemini",
+		".opencode",
+		".aider.conf.yml",
+		".aider.conf.yaml",
+		".aider.conf",
+		".aider.chat.history.md",
+		".aider.input.history",
+		".aider.model.settings.yml",
+		".aider.model.metadata.json",
+		".cursorrules",
+		".windsurfrules",
+		"opencode.json",
+		"opencode.jsonc",
+		"opencode.yml",
+		"opencode.yaml",
+		".opencode.json",
+	}
+}
+
+func BuildSurfaceMap(c model.Collection) []model.SurfaceMap {
+	type surfaceMapBuilder struct {
+		item         model.SurfaceMap
+		sourceSeen   map[string]bool
+		categorySeen map[string]int
+		handlingSeen map[string]int
+		authSeen     map[string]bool
+		toolSeen     map[string]bool
+		controlSeen  map[string]bool
+	}
+	builders := map[string]*surfaceMapBuilder{}
+	ensure := func(runtime, scope string) *surfaceMapBuilder {
+		if runtime == "" {
+			runtime = "unknown"
+		}
+		if scope == "" {
+			scope = "unknown"
+		}
+		key := runtime + "\x00" + scope
+		if builders[key] == nil {
+			builders[key] = &surfaceMapBuilder{
+				item: model.SurfaceMap{
+					Runtime: runtime,
+					Scope:   scope,
+				},
+				sourceSeen:   map[string]bool{},
+				categorySeen: map[string]int{},
+				handlingSeen: map[string]int{},
+				authSeen:     map[string]bool{},
+				toolSeen:     map[string]bool{},
+				controlSeen:  map[string]bool{},
+			}
+		}
+		return builders[key]
+	}
+	for _, surface := range c.Surfaces {
+		b := ensure(surface.Runtime, surface.Scope)
+		b.item.SurfaceCount++
+		switch surface.HandlingMode {
+		case "parse":
+			b.item.Parsed++
+		case "summarize":
+			b.item.Summarized++
+		case "boundary_indicator":
+			b.item.BoundaryIndicators++
+		case "skip":
+			b.item.Skipped++
+		}
+		if surface.Source != "" && !b.sourceSeen[surface.Source] {
+			b.sourceSeen[surface.Source] = true
+			b.item.SourceRefs = append(b.item.SourceRefs, surface.Source)
+		}
+		if surface.Category != "" {
+			b.categorySeen[surface.Category]++
+		}
+		if surface.HandlingMode != "" {
+			b.handlingSeen[surface.HandlingMode]++
+		}
+	}
+	for _, authority := range c.Authorities {
+		if authority.Runtime == "" {
+			continue
+		}
+		b := ensure(authority.Runtime, scopeForRuntime(c, authority.Runtime))
+		if authority.Kind != "" && !b.authSeen[authority.Kind] {
+			b.authSeen[authority.Kind] = true
+			b.item.Authorities = append(b.item.Authorities, authority.Kind)
+		}
+	}
+	for _, tool := range c.Tools {
+		if tool.Runtime == "" {
+			continue
+		}
+		b := ensure(tool.Runtime, scopeForRuntime(c, tool.Runtime))
+		if tool.Kind != "" && !b.toolSeen[tool.Kind] {
+			b.toolSeen[tool.Kind] = true
+			b.item.Tools = append(b.item.Tools, tool.Kind)
+		}
+	}
+	for _, control := range c.Controls {
+		if control.Runtime == "" {
+			continue
+		}
+		b := ensure(control.Runtime, scopeForRuntime(c, control.Runtime))
+		if control.Kind != "" && !b.controlSeen[control.Kind] {
+			b.controlSeen[control.Kind] = true
+			b.item.Controls = append(b.item.Controls, control.Kind)
+		}
+	}
+	var out []model.SurfaceMap
+	for _, builder := range builders {
+		item := builder.item
+		sort.Strings(item.SourceRefs)
+		sort.Strings(item.Authorities)
+		sort.Strings(item.Tools)
+		sort.Strings(item.Controls)
+		item.Categories = countsFromMap(builder.categorySeen)
+		item.HandlingModes = countsFromMap(builder.handlingSeen)
+		item.Limitations = surfaceMapLimitations(item)
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Runtime == out[j].Runtime {
+			return out[i].Scope < out[j].Scope
+		}
+		return out[i].Runtime < out[j].Runtime
+	})
+	return out
+}
+
+func scopeForRuntime(c model.Collection, runtime string) string {
+	for _, surface := range c.Surfaces {
+		if surface.Runtime == runtime && surface.Scope != "" {
+			return surface.Scope
+		}
+	}
+	for _, runtimeEvidence := range c.Runtimes {
+		if runtimeEvidence.Kind == runtime && runtimeEvidence.Scope != "" {
+			return runtimeEvidence.Scope
+		}
+	}
+	return "unknown"
+}
+
+func countsFromMap(values map[string]int) []model.AssessCount {
+	var out []model.AssessCount
+	for name, count := range values {
+		out = append(out, model.AssessCount{Name: name, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Count > out[j].Count
+	})
+	return out
+}
+
+func surfaceMapLimitations(item model.SurfaceMap) []string {
+	var out []string
+	if item.Summarized > 0 {
+		out = append(out, "Private or high-volume surfaces were summarized by metadata only.")
+	}
+	if item.BoundaryIndicators > 0 {
+		out = append(out, "Sensitive boundary indicators use path and filename signals only.")
+	}
+	if item.Skipped > 0 {
+		out = append(out, "Skipped surfaces were intentionally excluded by bounded discovery rules.")
+	}
+	return out
+}
+
+func RunScan(opts Options) (model.ScanReport, error) {
+	if opts.Agent == "" {
+		opts.Agent = "all"
+	}
+	if opts.Mode == "" {
+		opts.Mode = "repo"
+	}
+	targets := opts.Targets
+	targetsFile := ""
+	if opts.TargetsFile != "" {
+		loaded, err := LoadTargets(opts.TargetsFile)
+		if err != nil {
+			return model.ScanReport{}, err
+		}
+		targetsFile = opts.TargetsFile
+		if abs, err := filepath.Abs(opts.TargetsFile); err == nil {
+			targetsFile = abs
+		}
+		targets = append(targets, loaded...)
+	}
+	if len(targets) == 0 && opts.Path != "" {
+		targets = append(targets, model.ScanTarget{ID: filepath.Base(opts.Path), Path: opts.Path})
+	}
+	if len(targets) == 0 {
+		return model.ScanReport{}, fmt.Errorf("scan requires --targets or --path")
+	}
+	if len(targets) > 1 && opts.LLMReviewPath != "" {
+		return model.ScanReport{}, fmt.Errorf("--llm-review can only be used with a single scan target; use --llm-command for multi-target LLM review")
+	}
+	if len(targets) > 1 && opts.LLMRequestOut != "" {
+		return model.ScanReport{}, fmt.Errorf("--llm-request-out can only be used with a single scan target")
+	}
+	r := model.ScanReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         randomID(),
+		GeneratedAt:   time.Now().UTC(),
+		RunKind:       "scan",
+		TargetsFile:   targetsFile,
+		Mode:          opts.Mode,
+		Agent:         opts.Agent,
+		Redaction: model.RedactionInfo{
+			Level:                  "default",
+			SensitivePathsIncluded: opts.IncludeSensitivePaths,
+			CanaryValuesIncluded:   false,
+		},
+		Limitations: []string{
+			"Scan mode runs deterministic local analysis across the provided paths.",
+			"Fleet usage expects endpoint data to be available as local or mounted paths; Ariadne does not remotely collect files.",
+			"Each target report is static and local; no agent, MCP server, package manager, or network call is executed.",
+		},
+	}
+	r.Summary.Targets = len(targets)
+	fleetVerdicts := make([]verdict.Verdict, 0, len(targets))
+	for _, target := range targets {
+		target.Path = strings.TrimSpace(target.Path)
+		if target.Path == "" {
+			continue
+		}
+		if target.ID == "" {
+			target.ID = filepath.Base(target.Path)
+		}
+		run, err := RunPathWithInventory(Options{
+			Path:                  target.Path,
+			Agent:                 opts.Agent,
+			Mode:                  opts.Mode,
+			RulesPath:             opts.RulesPath,
+			InterpretMode:         opts.InterpretMode,
+			LLMReviewPath:         opts.LLMReviewPath,
+			LLMCommand:            opts.LLMCommand,
+			LLMRequestOut:         opts.LLMRequestOut,
+			LLMReviewProfile:      opts.LLMReviewProfile,
+			LLMTimeout:            opts.LLMTimeout,
+			IncludeSensitivePaths: opts.IncludeSensitivePaths,
+		})
+		result := model.ScanTargetResult{Target: target}
+		if err != nil {
+			result.Error = err.Error()
+			r.Summary.Errors++
+			r.Targets = append(r.Targets, result)
+			continue
+		}
+		result.Report = run.Report
+		targetVerdict := verdict.Build(run.Inventory, run.Report, run.Report.TargetPath, run.Report.Story.Mode)
+		verdictBlob, err := json.Marshal(targetVerdict)
+		if err != nil {
+			return model.ScanReport{}, err
+		}
+		result.Verdict = verdictBlob
+		fleetVerdicts = append(fleetVerdicts, targetVerdict)
+		r.Summary.Completed++
+		for _, exposure := range run.Report.Exposures {
+			r.Summary.ExposurePaths++
+			switch exposure.Status {
+			case model.StatusExposed:
+				r.Summary.Exposed++
+			case model.StatusProtected:
+				r.Summary.Protected++
+			case model.StatusInconclusive:
+				r.Summary.Inconclusive++
+			}
+		}
+		r.Targets = append(r.Targets, result)
+	}
+	r.Fleet = verdict.BuildFleet(fleetVerdicts)
+	r.Interpretation = interpret.AggregateScan(r.Targets)
+	r.Summary.Critical = r.Interpretation.Summary.Critical
+	r.Summary.High = r.Interpretation.Summary.High
+	r.Summary.Medium = r.Interpretation.Summary.Medium
+	r.Summary.Low = r.Interpretation.Summary.Low
+	r.Summary.Info = r.Interpretation.Summary.Info
+	return r, nil
+}
+
+func loadPolicy(root, explicit string) (model.RulePolicy, error) {
+	path := interpret.DefaultPolicyPath(root, explicit)
+	if path == "" {
+		return model.RulePolicy{Version: "ariadne.rules/v1"}, nil
+	}
+	return interpret.LoadPolicy(path)
+}
+
+func LoadTargets(path string) ([]model.ScanTarget, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	baseDir := filepath.Dir(path)
+	var targets []model.ScanTarget
+	scanner := bufio.NewScanner(file)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		target := model.ScanTarget{}
+		if before, after, ok := strings.Cut(line, ","); ok {
+			target.ID = strings.TrimSpace(before)
+			target.Path = strings.TrimSpace(after)
+		} else if before, after, ok := strings.Cut(line, "="); ok {
+			target.ID = strings.TrimSpace(before)
+			target.Path = strings.TrimSpace(after)
+		} else {
+			target.Path = line
+			target.ID = filepath.Base(line)
+		}
+		if target.Path == "" {
+			return nil, fmt.Errorf("empty target path at %s:%d", path, lineNo)
+		}
+		if !filepath.IsAbs(target.Path) {
+			target.Path = filepath.Join(baseDir, target.Path)
+		}
+		targets = append(targets, target)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+func normalizeRealPathExposures(exposures []model.ExposureResult) {
+	for i := range exposures {
+		if exposures[i].ProofMode == model.ProofSimulated {
+			exposures[i].ProofMode = model.ProofInferred
+		}
+		if exposures[i].Observation.Status == model.ObservationSucceededInLab {
+			exposures[i].Observation.Status = model.ObservationNotAttempted
+		}
+		switch exposures[i].Observation.Summary {
+		case "The simulated story path reaches the fake secret boundary without a breaking control.":
+			exposures[i].Observation.Summary = "The deterministic graph path reaches a secret-like boundary without a breaking control."
+		case "The simulated path reaches a deny-read control before the fake secret boundary.":
+			exposures[i].Observation.Summary = "The deterministic graph path reaches a deny-read control before the secret-like boundary."
+		case "The simulated story path reaches local code execution through a mutable tool launcher.":
+			exposures[i].Observation.Summary = "The deterministic graph path reaches local code execution through a mutable tool launcher."
+		case "The simulated MCP path reaches a reviewed/pinned control before local code execution.":
+			exposures[i].Observation.Summary = "The deterministic graph path reaches a reviewed/pinned control before local code execution."
+		}
+		if exposures[i].ID == "prompt-injection-to-secret-canary" {
+			exposures[i].Title = "Prompt/repo instruction to secret-like file access"
+			exposures[i].WhatWasTested = "Whether influence plus local agent authority creates a path to a secret-like boundary, and whether a deny-read control breaks that path."
+			exposures[i].Limitations = []string{
+				"Real path mode is static and local; it does not execute the agent or read secret values.",
+				"Exposure means Ariadne found a graph path, not that a live exploit was observed.",
+			}
+		}
+		if exposures[i].ID == "mutable-tool-launch-execution" {
+			exposures[i].Limitations = []string{
+				"Real path mode inspects declared MCP configuration only.",
+				"The MCP server is not executed and package identity is not resolved from a registry.",
+			}
+		}
+		if exposures[i].ID == "data-egress-chain" {
+			exposures[i].Limitations = []string{
+				"Real path mode is static and local; it does not execute the agent or observe live data movement.",
+				"Exposure means Ariadne found deterministic graph evidence for untrusted influence, private-data reachability, and external communication reachability.",
+			}
+		}
+	}
+}
+
+func attachExposureSetEvidenceReferences(c model.Collection, g model.Graph, exposures []model.ExposureResult) {
+	for i := range exposures {
+		exposures[i] = attachExposureEvidenceReferences(c, g, exposures[i])
+	}
+}
+
+func attachExposureEvidenceReferences(c model.Collection, g model.Graph, exposure model.ExposureResult) model.ExposureResult {
+	exposure.EvidenceReferences = evidenceReferencesForExposure(c, g, exposure)
+	return exposure
+}
+
+func attachZeroTrustEvidenceLocations(c model.Collection, zeroTrust model.ZeroTrust) model.ZeroTrust {
+	locations := evidenceLocationsForCollection(c)
+	for i := range zeroTrust.Checks {
+		zeroTrust.Checks[i].Evidence = zeroTrustEvidenceWithLocations(locations, zeroTrust.Checks[i].Evidence)
+	}
+	for i := range zeroTrust.ArchitectureFlaws {
+		zeroTrust.ArchitectureFlaws[i].Evidence = zeroTrustEvidenceWithLocations(locations, zeroTrust.ArchitectureFlaws[i].Evidence)
+	}
+	for i := range zeroTrust.Maturity.Requirements {
+		zeroTrust.Maturity.Requirements[i].Evidence = zeroTrustEvidenceWithLocations(locations, zeroTrust.Maturity.Requirements[i].Evidence)
+	}
+	return zeroTrust
+}
+
+func zeroTrustEvidenceWithLocations(locations evidenceLocations, values []model.ZeroTrustEvidence) []model.ZeroTrustEvidence {
+	if len(values) == 0 {
+		return []model.ZeroTrustEvidence{}
+	}
+	out := make([]model.ZeroTrustEvidence, 0, len(values))
+	for _, value := range values {
+		ref := withEvidenceLocation(locations, model.EvidenceReference{
+			ID:        value.ID,
+			Kind:      value.Kind,
+			Source:    value.Source,
+			LineStart: value.LineStart,
+			LineEnd:   value.LineEnd,
+			Summary:   value.Summary,
+		})
+		value.LineStart = ref.LineStart
+		value.LineEnd = ref.LineEnd
+		out = append(out, value)
+	}
+	return out
+}
+
+func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure model.ExposureResult) []model.EvidenceReference {
+	if len(exposure.PathEdges) == 0 {
+		return []model.EvidenceReference{}
+	}
+	sourceLocations := evidenceLocationsForCollection(c)
+	evidenceByID := make(map[string]model.Evidence, len(c.Evidence))
+	for _, evidence := range c.Evidence {
+		evidenceByID[evidence.ID] = evidence
+	}
+	nodeByID := make(map[string]model.Node, len(g.Nodes))
+	for _, node := range g.Nodes {
+		nodeByID[node.ID] = node
+	}
+	edgeByKey := make(map[string]model.Edge, len(g.Edges))
+	for _, edge := range g.Edges {
+		edgeByKey[edge.Key()] = edge
+	}
+	var refs []model.EvidenceReference
+	for _, pathEdge := range exposure.PathEdges {
+		edge, ok := edgeByKey[pathEdge]
+		if ok {
+			if edge.EvidenceID != "" {
+				if evidence, found := evidenceByID[edge.EvidenceID]; found {
+					refs = append(refs, withEvidenceLocation(sourceLocations, model.EvidenceReference{
+						ID:      evidence.ID,
+						Kind:    evidence.Kind,
+						Source:  evidence.Source,
+						Summary: evidence.Summary,
+					}))
+				}
+			}
+			if ref, ok := evidenceReferenceForNode(sourceLocations, nodeByID[edge.From]); ok {
+				refs = append(refs, ref)
+			}
+			if ref, ok := evidenceReferenceForNode(sourceLocations, nodeByID[edge.To]); ok {
+				refs = append(refs, ref)
+			}
+			continue
+		}
+		parts := strings.Split(pathEdge, "|")
+		if len(parts) != 3 {
+			continue
+		}
+		if ref, ok := evidenceReferenceForNode(sourceLocations, nodeByID[parts[0]]); ok {
+			refs = append(refs, ref)
+		}
+		if ref, ok := evidenceReferenceForNode(sourceLocations, nodeByID[parts[2]]); ok {
+			refs = append(refs, ref)
+		}
+	}
+	return dedupeExposureEvidenceReferences(refs)
+}
+
+type evidenceSourceLocation struct {
+	Path         string
+	Kind         string
+	HandlingMode string
+}
+
+type evidenceAnchor struct {
+	LineStart int
+	LineEnd   int
+	Anchor    string
+}
+
+type evidenceLocations struct {
+	sources map[string]evidenceSourceLocation
+	anchors map[string]evidenceAnchor
+}
+
+func evidenceLocationsForCollection(c model.Collection) evidenceLocations {
+	out := evidenceLocations{
+		sources: map[string]evidenceSourceLocation{},
+		anchors: map[string]evidenceAnchor{},
+	}
+	for _, surface := range c.Surfaces {
+		if surface.Source == "" || surface.Path == "" {
+			continue
+		}
+		if _, ok := out.sources[surface.Source]; !ok {
+			out.sources[surface.Source] = evidenceSourceLocation{Path: surface.Path, Kind: surface.Kind, HandlingMode: surface.HandlingMode}
+		}
+	}
+	for _, evidence := range c.Evidence {
+		out.add(evidence.ID, evidence.Kind, evidence.Source, evidence.LineStart, evidence.LineEnd, evidence.Anchor)
+	}
+	for _, runtime := range c.Runtimes {
+		out.add(runtime.ID, "runtime", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
+		if runtime.Scope != "" {
+			configID := "config:" + runtime.Kind + "-" + runtime.Scope
+			out.add(configID, "config", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
+			out.add("evidence:"+configID, "config", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
+		}
+	}
+	for _, input := range c.TrustInputs {
+		out.add(input.ID, "trust_input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+		out.add(input.ID, "trust-input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+		out.add("evidence:"+input.ID, "trust_input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+		out.add("evidence:"+input.ID, "trust-input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+	}
+	for _, tool := range c.Tools {
+		out.add(tool.ID, "tool", tool.Source, tool.LineStart, tool.LineEnd, tool.Anchor)
+		out.add("evidence:"+tool.ID, "tool", tool.Source, tool.LineStart, tool.LineEnd, tool.Anchor)
+	}
+	for _, authority := range c.Authorities {
+		out.add(authority.ID, "authority", authority.Source, authority.LineStart, authority.LineEnd, authority.Anchor)
+		out.add("evidence:"+authority.ID, "authority", authority.Source, authority.LineStart, authority.LineEnd, authority.Anchor)
+	}
+	for _, boundary := range c.Boundaries {
+		out.add(boundary.ID, "boundary", boundary.Source, boundary.LineStart, boundary.LineEnd, boundary.Anchor)
+		out.add("evidence:"+boundary.ID, "boundary", boundary.Source, boundary.LineStart, boundary.LineEnd, boundary.Anchor)
+	}
+	for _, control := range c.Controls {
+		out.add(control.ID, "control", control.Source, control.LineStart, control.LineEnd, control.Anchor)
+		out.add("evidence:"+control.ID, "control", control.Source, control.LineStart, control.LineEnd, control.Anchor)
+	}
+	return out
+}
+
+func (locations evidenceLocations) add(id, kind, source string, lineStart, lineEnd int, anchor string) {
+	if id == "" || source == "" {
+		return
+	}
+	if lineStart <= 0 && anchor == "" {
+		return
+	}
+	if lineStart > 0 && lineEnd <= 0 {
+		lineEnd = lineStart
+	}
+	value := evidenceAnchor{LineStart: lineStart, LineEnd: lineEnd, Anchor: anchor}
+	for _, key := range evidenceAnchorKeys(model.EvidenceReference{ID: id, Kind: kind, Source: source}) {
+		if existing, ok := locations.anchors[key]; ok && evidenceAnchorSpecificity(existing) >= evidenceAnchorSpecificity(value) {
+			continue
+		}
+		locations.anchors[key] = value
+	}
+}
+
+func evidenceReferenceForNode(locations evidenceLocations, node model.Node) (model.EvidenceReference, bool) {
+	if node.ID == "" || node.Source == "" {
+		return model.EvidenceReference{}, false
+	}
+	return withEvidenceLocation(locations, model.EvidenceReference{
+		ID:      node.ID,
+		Kind:    node.Type,
+		Source:  node.Source,
+		Summary: node.Label,
+	}), true
+}
+
+func withEvidenceLocation(locations evidenceLocations, ref model.EvidenceReference) model.EvidenceReference {
+	if ref.Source == "" || ref.LineStart > 0 || ref.Anchor != "" {
+		return ref
+	}
+	if anchor, ok := locations.anchorFor(ref); ok {
+		return applyEvidenceAnchor(ref, anchor)
+	}
+	location, ok := locations.sources[ref.Source]
+	if !ok || location.Path == "" {
+		return ref
+	}
+	if metadataOnlyHandlingMode(location.HandlingMode) {
+		ref.Anchor = "file"
+		return ref
+	}
+	if location.HandlingMode != "parse" {
+		return ref
+	}
+	line := locateEvidenceLine(location.Path, ref)
+	if line <= 0 {
+		return ref
+	}
+	ref.LineStart = line
+	ref.LineEnd = line
+	return ref
+}
+
+func (locations evidenceLocations) anchorFor(ref model.EvidenceReference) (evidenceAnchor, bool) {
+	var best evidenceAnchor
+	found := false
+	for _, key := range evidenceAnchorKeys(ref) {
+		anchor, ok := locations.anchors[key]
+		if !ok {
+			continue
+		}
+		if !found || evidenceAnchorSpecificity(anchor) > evidenceAnchorSpecificity(best) {
+			best = anchor
+			found = true
+		}
+	}
+	return best, found
+}
+
+func applyEvidenceAnchor(ref model.EvidenceReference, anchor evidenceAnchor) model.EvidenceReference {
+	if anchor.LineStart > 0 {
+		ref.LineStart = anchor.LineStart
+		if anchor.LineEnd > 0 {
+			ref.LineEnd = anchor.LineEnd
+		} else {
+			ref.LineEnd = anchor.LineStart
+		}
+		ref.Anchor = ""
+		return ref
+	}
+	if anchor.Anchor != "" {
+		ref.Anchor = anchor.Anchor
+	}
+	return ref
+}
+
+func evidenceAnchorKeys(ref model.EvidenceReference) []string {
+	kind := normalizeEvidenceKind(ref.Kind)
+	keys := []string{
+		ref.ID + "|" + kind + "|" + ref.Source,
+		ref.ID + "||" + ref.Source,
+	}
+	if strings.HasPrefix(ref.ID, "evidence:") {
+		withoutPrefix := strings.TrimPrefix(ref.ID, "evidence:")
+		keys = append(keys,
+			withoutPrefix+"|"+kind+"|"+ref.Source,
+			withoutPrefix+"||"+ref.Source,
+		)
+	} else {
+		keys = append(keys,
+			"evidence:"+ref.ID+"|"+kind+"|"+ref.Source,
+			"evidence:"+ref.ID+"||"+ref.Source,
+		)
+	}
+	return keys
+}
+
+func normalizeEvidenceKind(kind string) string {
+	return strings.ReplaceAll(kind, "-", "_")
+}
+
+func evidenceAnchorSpecificity(anchor evidenceAnchor) int {
+	if anchor.LineStart > 0 {
+		return 2
+	}
+	if anchor.Anchor == "file" {
+		return 1
+	}
+	return 0
+}
+
+func metadataOnlyHandlingMode(mode string) bool {
+	return mode == "boundary_indicator" || mode == "summarize"
+}
+
+func locateEvidenceLine(path string, ref model.EvidenceReference) int {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+	const maxLines = 400
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+		if len(lines) >= maxLines {
+			break
+		}
+	}
+	candidates := evidenceLineCandidates(ref)
+	if len(candidates) > 0 {
+		for idx, line := range lines {
+			lower := strings.ToLower(line)
+			for _, candidate := range candidates {
+				if strings.Contains(lower, candidate) {
+					return idx + 1
+				}
+			}
+		}
+	}
+	for idx, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		return idx + 1
+	}
+	return 0
+}
+
+func evidenceLineCandidates(ref model.EvidenceReference) []string {
+	source := strings.ToLower(ref.Source)
+	id := strings.ToLower(ref.ID)
+	kind := strings.ToLower(ref.Kind)
+	summary := strings.ToLower(ref.Summary)
+	switch {
+	case strings.Contains(source, ".github/workflows/") && (strings.Contains(id, "managed-agent-workflow") || strings.Contains(kind, "tool")):
+		return []string{"claude", "codex", "openai ", "anthropic", "copilot", "gemini", "aider", "cursor-agent", "continue", "llm", "run:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "external-communication"):
+		return []string{"curl", "wget", "http://", "https://", "webhook", "uses:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "repository-write"):
+		return []string{"write-all", "contents: write", "pull-requests: write", "issues: write", "packages: write", "actions: write"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "broad-local"):
+		return []string{"write-all", "contents: write", "pull-requests: write", "id-token: write", "packages: write"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "credential-access"):
+		return []string{"secrets.", "secrets:", "${{ secrets."}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "cloud-identity-token"):
+		return []string{"id-token: write"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "file-read"):
+		return []string{"actions/checkout", "checkout@", "github.workspace"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "local-code-execution"):
+		return []string{"run:", "uses:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "approval-required"):
+		return []string{"environment:"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "scoped-permissions"):
+		return []string{"permissions:", "contents: read", "pull-requests: read"}
+	case strings.Contains(source, ".github/workflows/") && strings.Contains(id, "signed-tool-artifacts"):
+		return []string{"uses:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && (strings.Contains(id, "managed-agent-workflow") || strings.Contains(kind, "tool")):
+		return []string{"claude", "codex", "openai ", "anthropic", "copilot", "gemini", "aider", "continue", "llm", "agent", "script:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "external-communication"):
+		return []string{"curl", "wget", "http://", "https://", "webhook", "image:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "repository-write"):
+		return []string{"ci_job_token", "job-token", "private-token", "write_repository", "git push", "api/v4", "merge_requests"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "broad-local"):
+		return []string{"ci_job_token", "job-token", "private-token", "write_repository", "git push", "api/v4"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "credential-access"):
+		return []string{"variables:", "ci_job_token", "ci_registry_password", "deploy_token", "openai_api_key", "anthropic_api_key"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "cloud-identity-token"):
+		return []string{"id_tokens:", "identity:", "oidc", "jwt"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "file-read"):
+		return []string{"ci_project_dir", "git_strategy", "git checkout", "git fetch", "git clone"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "local-code-execution"):
+		return []string{"script:", "before_script:", "after_script:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "approval-required"):
+		return []string{"when: manual", "manual_confirmation", "environment:"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "scoped-permissions"):
+		return []string{"rules:", "only:", "except:", "protected: true"}
+	case (strings.Contains(source, ".gitlab-ci.") || strings.Contains(source, ".gitlab/ci/")) && strings.Contains(id, "signed-tool-artifacts"):
+		return []string{"@sha256:", "image:"}
+	case strings.Contains(id, "mcp") || strings.Contains(summary, "mcp"):
+		return []string{"mcpservers", "mcp_servers", "servers", "command", "npx", "uvx", "docker", "python"}
+	case strings.Contains(id, "external-communication") || strings.Contains(summary, "external"):
+		return []string{"curl", "wget", "http://", "https://", "webfetch", "websearch", "network"}
+	case strings.Contains(id, "broad-local") || strings.Contains(summary, "broad local") || strings.Contains(summary, "bypass"):
+		return []string{"bypass", "danger", "approval_policy", "bash", "alwaysallow", "write"}
+	case strings.Contains(id, "local-code-execution") || strings.Contains(summary, "execution"):
+		return []string{"bash", "shell", "terminal", "run_command", "command", "run:"}
+	case strings.Contains(id, "file-read") || strings.Contains(summary, "read"):
+		return []string{"read", "filesystem", "workspace", "allowed_directories", "checkout"}
+	case strings.Contains(id, "deny-secret-read"):
+		return []string{"deny", ".env", ".ssh", ".aws", "*.pem"}
+	case strings.Contains(kind, "trust") || strings.Contains(summary, "instruction"):
+		return []string{"secret", ".env", "ignore", "bypass", "instruction", "agent"}
+	default:
+		return nil
+	}
+}
+
+func dedupeExposureEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	if len(values) == 0 {
+		return []model.EvidenceReference{}
+	}
+	seen := map[string]int{}
+	var out []model.EvidenceReference
+	for _, value := range values {
+		key := value.ID + "|" + value.Kind + "|" + value.Source + "|" + value.Summary + "|" + value.Anchor + "|" + fmt.Sprint(value.LineStart) + "|" + fmt.Sprint(value.LineEnd)
+		if value.Source != "" {
+			key = "source|" + value.Source
+			if value.LineStart > 0 {
+				key += fmt.Sprintf(":%d", value.LineStart)
+			} else if value.Anchor != "" {
+				key += "#" + value.Anchor
+			}
+		}
+		if idx, ok := seen[key]; ok {
+			if evidenceReferenceSpecificity(value) > evidenceReferenceSpecificity(out[idx]) {
+				out[idx] = value
+			}
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, value)
+	}
+	return out
+}
+
+func evidenceReferenceSpecificity(value model.EvidenceReference) int {
+	score := 0
+	if value.LineStart > 0 {
+		score += 10
+	}
+	if value.Anchor == "file" {
+		score += 5
+	}
+	switch value.Kind {
+	case "authority", "tool", "control":
+		score += 30
+	case "boundary", "trust_input", "trust-input":
+		score += 20
+	case "config", "runtime":
+		score += 5
+	default:
+		score += 10
+	}
+	return score
+}
+
+func BuildGraph(c model.Collection) model.Graph {
+	g := model.Graph{
+		Nodes: []model.Node{},
+		Edges: []model.Edge{},
+	}
+	addNode := func(node model.Node) {
+		for _, existing := range g.Nodes {
+			if existing.ID == node.ID {
+				return
+			}
+		}
+		g.Nodes = append(g.Nodes, node)
+	}
+	addEdge := func(edge model.Edge) {
+		for _, existing := range g.Edges {
+			if existing.Key() == edge.Key() {
+				return
+			}
+		}
+		g.Edges = append(g.Edges, edge)
+	}
+	for _, runtime := range c.Runtimes {
+		addNode(model.Node{ID: runtime.ID, Type: "runtime", Label: runtime.Kind, Runtime: runtime.Kind, Source: runtime.Source})
+		if runtime.Scope != "" {
+			configID := "config:" + runtime.Kind + "-" + runtime.Scope
+			addNode(model.Node{ID: configID, Type: "config", Label: runtime.Kind + " " + runtime.Scope + " config", Runtime: runtime.Kind, Source: runtime.Source})
+			addEdge(model.Edge{From: configID, Type: "configures", To: runtime.ID, EvidenceID: "evidence:" + configID})
+		}
+	}
+	for _, surface := range c.Surfaces {
+		nodeType := "surface"
+		if surface.Category != "" {
+			nodeType = surface.Category
+		}
+		addNode(model.Node{ID: surface.ID, Type: nodeType, Label: surface.Kind, Runtime: surface.Runtime, Source: surface.Source})
+	}
+	for _, input := range c.TrustInputs {
+		addNode(model.Node{ID: input.ID, Type: "trust_input", Label: input.Kind, Source: input.Source})
+		for _, runtime := range c.Runtimes {
+			if input.Runtime != "" && input.Runtime != runtime.Kind {
+				continue
+			}
+			addEdge(model.Edge{From: input.ID, Type: "influences", To: runtime.ID, EvidenceID: "evidence:" + input.ID})
+		}
+	}
+	for _, tool := range c.Tools {
+		addNode(model.Node{ID: tool.ID, Type: "tool", Label: tool.Kind, Source: tool.Source})
+		for _, runtime := range c.Runtimes {
+			if tool.Runtime != "" && tool.Runtime != runtime.Kind {
+				continue
+			}
+			addEdge(model.Edge{From: runtime.ID, Type: "can_call", To: tool.ID, EvidenceID: "evidence:" + tool.ID})
+		}
+		if tool.ID == "tool:mcp-package-launch" {
+			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:local-code-execution", EvidenceID: "evidence:" + tool.ID})
+		}
+		if tool.ID == "tool:agent-command-shell" {
+			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:local-code-execution", EvidenceID: "evidence:" + tool.ID})
+		}
+		if tool.ID == "tool:managed-agent-workflow" {
+			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:local-code-execution", EvidenceID: "evidence:" + tool.ID})
+		}
+		if tool.ID == "tool:agent-delegation" {
+			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:delegated-agent-authority", EvidenceID: "evidence:" + tool.ID})
+		}
+	}
+	for _, authority := range c.Authorities {
+		addNode(model.Node{ID: authority.ID, Type: "authority", Label: authority.Kind, Runtime: authority.Runtime, Source: authority.Source})
+		if authority.Runtime != "" {
+			addEdge(model.Edge{From: "runtime:" + authority.Runtime, Type: "has_authority", To: authority.ID})
+		}
+	}
+	for _, boundary := range c.Boundaries {
+		addNode(model.Node{ID: boundary.ID, Type: "boundary", Label: boundary.Kind, Source: boundary.Source})
+		for _, authority := range c.Authorities {
+			if authorityReachesBoundary(authority.ID, boundary.ID) {
+				addEdge(model.Edge{From: authority.ID, Type: "reaches", To: boundary.ID})
+			}
+		}
+	}
+	for _, control := range c.Controls {
+		addNode(model.Node{ID: control.ID, Type: "control", Label: control.Kind, Runtime: control.Runtime, Source: control.Source})
+		if control.ID == "control:mcp-reviewed-pinned" {
+			addEdge(model.Edge{From: control.ID, Type: "restricts", To: "tool:mcp-package-launch"})
+		}
+		for _, runtime := range c.Runtimes {
+			if controlAuthorizesRuntime(control.ID, runtime.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "authorizes", To: runtime.ID})
+			}
+			if controlIdentifiesRuntime(control.ID, runtime.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "identifies", To: runtime.ID})
+			}
+			if controlObservesRuntime(control.ID, runtime.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "observes", To: runtime.ID})
+			}
+			if controlTracesRuntime(control.ID, runtime.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "traces", To: runtime.ID})
+			}
+		}
+		for _, tool := range c.Tools {
+			if controlRestrictsTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: tool.ID})
+			}
+			if controlObservesTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "observes", To: tool.ID})
+			}
+			if controlTracesTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "traces", To: tool.ID})
+			}
+			if controlRequiresApprovalTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "requires_approval", To: tool.ID})
+			}
+			if controlLimitsTool(control.ID, tool.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "limits", To: tool.ID})
+			}
+		}
+		for _, authority := range c.Authorities {
+			if controlRestrictsAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: authority.ID})
+			}
+			if controlAuthorizesAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "authorizes", To: authority.ID})
+			}
+			if controlScopesAuthorityCredentials(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "scopes_credentials", To: authority.ID})
+			}
+			if controlObservesAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "observes", To: authority.ID})
+			}
+			if controlTracesAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "traces", To: authority.ID})
+			}
+			if controlRequiresApprovalAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "requires_approval", To: authority.ID})
+			}
+			if controlLimitsAuthority(control.ID, authority.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "limits", To: authority.ID})
+			}
+		}
+		if controlGovernsDeployment(control.ID) {
+			for _, runtime := range c.Runtimes {
+				addEdge(model.Edge{From: control.ID, Type: "governs", To: runtime.ID})
+			}
+			for _, tool := range c.Tools {
+				addEdge(model.Edge{From: control.ID, Type: "governs", To: tool.ID})
+			}
+			for _, authority := range c.Authorities {
+				addEdge(model.Edge{From: control.ID, Type: "governs", To: authority.ID})
+			}
+		}
+		if controlVerifiesSupplyChain(control.ID) {
+			for _, runtime := range c.Runtimes {
+				addEdge(model.Edge{From: control.ID, Type: "verifies", To: runtime.ID})
+			}
+			for _, tool := range c.Tools {
+				addEdge(model.Edge{From: control.ID, Type: "verifies", To: tool.ID})
+			}
+			for _, surface := range c.Surfaces {
+				if supplyChainSurface(surface) {
+					addEdge(model.Edge{From: control.ID, Type: "verifies", To: surface.ID})
+				}
+			}
+		}
+		if controlRestrictsConfig(control.ID) {
+			for _, runtime := range c.Runtimes {
+				if runtime.Scope == "" {
+					continue
+				}
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: "config:" + runtime.Kind + "-" + runtime.Scope})
+			}
+			for _, surface := range c.Surfaces {
+				if configIntegritySurface(surface) {
+					addEdge(model.Edge{From: control.ID, Type: "restricts", To: surface.ID})
+				}
+			}
+		}
+		for _, boundary := range c.Boundaries {
+			if controlRestrictsBoundary(control.ID, boundary.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: boundary.ID})
+			}
+			if controlFiltersOutput(control.ID, boundary.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "filters", To: boundary.ID})
+			}
+		}
+		for _, input := range c.TrustInputs {
+			if controlRestrictsTrustInput(control.ID, input.ID) {
+				addEdge(model.Edge{From: control.ID, Type: "restricts", To: input.ID})
+			}
+		}
+	}
+	sort.Slice(g.Nodes, func(i, j int) bool { return g.Nodes[i].ID < g.Nodes[j].ID })
+	sort.Slice(g.Edges, func(i, j int) bool { return g.Edges[i].Key() < g.Edges[j].Key() })
+	return g
+}
+
+func controlRestrictsBoundary(controlID, boundaryID string) bool {
+	switch controlID {
+	case "control:deny-secret-read":
+		return boundaryID == "boundary:secret-like-file" || boundaryID == "boundary:developer-secret-boundary" || boundaryID == "boundary:agent-private-context" || boundaryID == "boundary:memory-credential-retention"
+	case "control:memory-isolation", "control:context-retention", "control:context-integrity", "control:context-provenance":
+		return boundaryID == "boundary:agent-private-context" || boundaryID == "boundary:memory-credential-retention"
+	case "control:credential-isolation":
+		return boundaryID == "boundary:memory-credential-retention"
+	case "control:network-restricted", "control:egress-destination-allowlist", "control:webhook-allowlist", "control:per-tool-network-scope":
+		return boundaryID == "boundary:external-destination"
+	case "control:mcp-reviewed-pinned":
+		return boundaryID == "boundary:developer-execution-boundary"
+	case "control:tool-sandbox-execution":
+		return boundaryID == "boundary:developer-execution-boundary"
+	case "control:delegation-scope", "control:delegation-allowlist", "control:agent-to-agent-authorization", "control:origin-intent-verification", "control:delegated-credential-scope", "control:subagent-context-isolation":
+		return boundaryID == "boundary:agent-delegation-boundary"
+	case "control:containment-quarantine":
+		return boundaryID == "boundary:external-destination" || boundaryID == "boundary:developer-execution-boundary"
+	default:
+		return false
+	}
+}
+
+func controlFiltersOutput(controlID, boundaryID string) bool {
+	if !outputSensitiveBoundary(boundaryID) {
+		return false
+	}
+	switch controlID {
+	case "control:output-sensitive-data-filter",
+		"control:output-redaction",
+		"control:output-filter-logging",
+		"control:semantic-output-analysis",
+		"control:high-risk-output-review",
+		"control:egress-content-filter":
+		return true
+	default:
+		return false
+	}
+}
+
+func outputSensitiveBoundary(boundaryID string) bool {
+	switch boundaryID {
+	case "boundary:secret-like-file",
+		"boundary:developer-secret-boundary",
+		"boundary:agent-private-context",
+		"boundary:memory-credential-retention",
+		"boundary:credential-material",
+		"boundary:ci-secret-boundary":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlRestrictsAuthority(controlID, authorityID string) bool {
+	if authorityID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:session-termination",
+		"control:credential-revocation",
+		"control:dynamic-access-reduction":
+		return true
+	case "control:containment-quarantine":
+		return authorityID == "authority:external-communication" || authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
+	default:
+		return false
+	}
+}
+
+func controlAuthorizesAuthority(controlID, authorityID string) bool {
+	if authorityID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:per-action-authorization",
+		"control:continuous-authorization",
+		"control:dynamic-privilege-scoping",
+		"control:jit-elevation",
+		"control:standing-access-denied",
+		"control:automatic-access-revocation",
+		"control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy",
+		"control:network-segmentation",
+		"control:tool-scope-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlAuthorizesRuntime(controlID, runtimeID string) bool {
+	if runtimeID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlIdentifiesRuntime(controlID, runtimeID string) bool {
+	return runtimeID != "" && identityControl(controlID)
+}
+
+func controlScopesAuthorityCredentials(controlID, authorityID string) bool {
+	return authorityID != "" && credentialScopeControl(controlID)
+}
+
+func identityControl(controlID string) bool {
+	switch controlID {
+	case "control:cryptographic-identity",
+		"control:credential-isolation",
+		"control:hardware-bound-credential",
+		"control:identity-lifecycle":
+		return true
+	default:
+		return false
+	}
+}
+
+func credentialScopeControl(controlID string) bool {
+	switch controlID {
+	case "control:credential-helper",
+		"control:credential-isolation",
+		"control:short-lived-credential",
+		"control:jit-access",
+		"control:token-lifetime-policy",
+		"control:hardware-bound-credential",
+		"control:identity-lifecycle":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlRequiresApprovalTool(controlID, toolID string) bool {
+	if controlID != "control:approval-required" || toolID == "" {
+		return false
+	}
+	switch toolID {
+	case "tool:mcp-package-launch",
+		"tool:agent-command-shell",
+		"tool:agent-delegation",
+		"tool:managed-agent-workflow",
+		"tool:agent-plugin-surface":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlRequiresApprovalAuthority(controlID, authorityID string) bool {
+	if controlID != "control:approval-required" || authorityID == "" {
+		return false
+	}
+	switch authorityID {
+	case "authority:broad-local",
+		"authority:local-code-execution",
+		"authority:external-communication",
+		"authority:repository-write",
+		"authority:cloud-identity-token",
+		"authority:credential-access",
+		"authority:delegated-agent-authority":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlObservesRuntime(controlID, runtimeID string) bool {
+	return runtimeID != "" && observabilityLogControl(controlID)
+}
+
+func controlObservesTool(controlID, toolID string) bool {
+	return toolID != "" && observabilityLogControl(controlID)
+}
+
+func controlObservesAuthority(controlID, authorityID string) bool {
+	return authorityID != "" && observabilityLogControl(controlID)
+}
+
+func controlTracesRuntime(controlID, runtimeID string) bool {
+	return runtimeID != "" && observabilityTraceControl(controlID)
+}
+
+func controlTracesTool(controlID, toolID string) bool {
+	return toolID != "" && observabilityTraceControl(controlID)
+}
+
+func controlTracesAuthority(controlID, authorityID string) bool {
+	return authorityID != "" && observabilityTraceControl(controlID)
+}
+
+func observabilityLogControl(controlID string) bool {
+	switch controlID {
+	case "control:audit-logging",
+		"control:agent-action-log-evidence",
+		"control:tool-call-audit-evidence",
+		"control:approval-log-evidence",
+		"control:telemetry-export",
+		"control:immutable-audit-log":
+		return true
+	default:
+		return false
+	}
+}
+
+func observabilityTraceControl(controlID string) bool {
+	switch controlID {
+	case "control:request-traceability",
+		"control:observed-request-traceability",
+		"control:telemetry-export":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlLimitsTool(controlID, toolID string) bool {
+	if toolID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:resource-usage-audit",
+		"control:tool-circuit-breaker":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlLimitsAuthority(controlID, authorityID string) bool {
+	if authorityID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:resource-usage-audit",
+		"control:tool-circuit-breaker":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlGovernsDeployment(controlID string) bool {
+	switch controlID {
+	case "control:agent-inventory",
+		"control:deployment-owner",
+		"control:deployment-approval",
+		"control:risk-assessment",
+		"control:governance-audit",
+		"control:shadow-ai-discovery":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlVerifiesSupplyChain(controlID string) bool {
+	switch controlID {
+	case "control:ai-bom",
+		"control:model-provenance",
+		"control:training-data-lineage",
+		"control:dependency-health-scan",
+		"control:provider-risk-review",
+		"control:signed-ai-artifacts",
+		"control:runtime-component-validation",
+		"control:dependency-reachability-analysis":
+		return true
+	default:
+		return false
+	}
+}
+
+func supplyChainSurface(surface model.Surface) bool {
+	switch surface.Category {
+	case "mcp-tool-config", "plugin-skill", "supply-chain-bom":
+		return true
+	default:
+		return false
+	}
+}
+
+func controlRestrictsTrustInput(controlID, inputID string) bool {
+	if inputID == "" {
+		return false
+	}
+	switch controlID {
+	case "control:input-isolation", "control:trusted-source-policy":
+		return true
+	case "control:fork-pr-secret-isolation":
+		return inputID == "trustinput:managed-workflow-trigger"
+	default:
+		return false
+	}
+}
+
+func controlRestrictsTool(controlID, toolID string) bool {
+	if toolID == "" {
+		return false
+	}
+	if controlID == "control:mcp-reviewed-pinned" {
+		return toolID == "tool:mcp-package-launch"
+	}
+	switch controlID {
+	case "control:tool-allowlist",
+		"control:tool-descriptor-integrity",
+		"control:tool-argument-validation",
+		"control:tool-auth-required",
+		"control:signed-tool-artifacts",
+		"control:tool-deployment-verification",
+		"control:tool-sandbox-execution",
+		"control:tool-scope-policy":
+		return true
+	case "control:delegation-scope",
+		"control:delegation-allowlist",
+		"control:agent-to-agent-authorization",
+		"control:origin-intent-verification",
+		"control:delegated-credential-scope",
+		"control:subagent-context-isolation":
+		return toolID == "tool:agent-delegation"
+	default:
+		return false
+	}
+}
+
+func controlRestrictsConfig(controlID string) bool {
+	switch controlID {
+	case "control:config-version-control",
+		"control:config-review-required",
+		"control:signed-config",
+		"control:config-deployment-verification",
+		"control:managed-settings-enforced",
+		"control:immutable-agent-runtime":
+		return true
+	default:
+		return false
+	}
+}
+
+func configIntegritySurface(surface model.Surface) bool {
+	switch surface.Category {
+	case "runtime-config", "managed-remote-settings", "policy", "mcp-tool-config", "plugin-skill", "command-hook":
+		return true
+	default:
+		return false
+	}
+}
+
+func authorityReachesBoundary(authorityID, boundaryID string) bool {
+	switch boundaryID {
+	case "boundary:secret-like-file", "boundary:developer-secret-boundary":
+		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
+	case "boundary:agent-private-context":
+		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
+	case "boundary:memory-credential-retention":
+		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
+	case "boundary:developer-execution-boundary":
+		return authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
+	case "boundary:external-destination":
+		return authorityID == "authority:external-communication" || authorityID == "authority:broad-local"
+	case "boundary:agent-delegation-boundary":
+		return authorityID == "authority:delegated-agent-authority"
+	case "boundary:repository-integrity-boundary":
+		return authorityID == "authority:repository-write"
+	case "boundary:cloud-identity-boundary":
+		return authorityID == "authority:cloud-identity-token"
+	case "boundary:ci-secret-boundary":
+		return authorityID == "authority:credential-access" || authorityID == "authority:local-code-execution" || authorityID == "authority:broad-local"
+	default:
+		return false
+	}
+}
+
+func Evaluate(c model.Collection, g model.Graph, manifest model.Manifest) model.ExposureResult {
+	if strings.HasPrefix(manifest.ID, "data-egress-chain-") {
+		return evaluateDataEgressChain(c, g, manifest.Mode)
+	}
+	if strings.HasPrefix(manifest.ID, "mutable-tool-launch-") {
+		return evaluateMCP(c, g)
+	}
+	return evaluateSecret(c, g, manifest.Mode)
+}
+
+func EvaluateAll(c model.Collection, g model.Graph, mode string) []model.ExposureResult {
+	var out []model.ExposureResult
+	secret := evaluateSecret(c, g, mode)
+	if hasSecretEvidence(c) || len(secret.PathEdges) > 0 || secret.Status != model.StatusInconclusive {
+		out = append(out, secret)
+	}
+	mcp := evaluateMCP(c, g)
+	if len(mcp.PathEdges) > 0 || mcp.Status != model.StatusInconclusive {
+		out = append(out, mcp)
+	}
+	dataEgress := evaluateDataEgressChain(c, g, mode)
+	if hasDataEgressChainEvidence(c) || len(dataEgress.PathEdges) > 0 || dataEgress.Status != model.StatusInconclusive {
+		out = append(out, dataEgress)
+	}
+	if len(out) == 0 {
+		out = append(out, model.ExposureResult{
+			ID:        "no-exposure-path-established",
+			Title:     "No concrete exposure path established",
+			Status:    model.StatusInconclusive,
+			ProofMode: model.ProofInferred,
+			PathNodes: []string{},
+			PathEdges: []string{},
+			Observation: model.Observation{
+				Status:  model.ObservationInconclusive,
+				Summary: "Ariadne did not collect enough evidence to establish a supported exposure path.",
+			},
+			WhyItMatters:  "Absence of evidence is not proof of safety; it means Ariadne could not connect influence, authority, boundary, and control evidence for supported exposure families.",
+			WhatWasTested: "Whether the current path exposes secret-like file access or MCP package-launch local execution.",
+			Limitations: []string{
+				"Only Phase 1 exposure families are evaluated.",
+				"Runtime behavior is not executed or observed.",
+			},
+		})
+	}
+	return out
+}
+
+func hasDataEgressChainEvidence(c model.Collection) bool {
+	return hasAuthority(c, "authority:external-communication") ||
+		hasBoundary(c, "boundary:external-destination") ||
+		hasAnyControl(c, egressControlIDs()...)
+}
+
+func hasSecretEvidence(c model.Collection) bool {
+	if len(c.TrustInputs) > 0 {
+		return true
+	}
+	for _, boundary := range c.Boundaries {
+		if boundary.ID == "boundary:secret-like-file" || boundary.ID == "boundary:developer-secret-boundary" {
+			return true
+		}
+	}
+	return hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasControl(c, "control:deny-secret-read")
+}
+
+func evaluateSecret(c model.Collection, g model.Graph, mode string) model.ExposureResult {
+	runtimes := runtimeKinds(c)
+	hasTrustInput := false
+	for _, input := range c.TrustInputs {
+		if input.Risky {
+			hasTrustInput = true
+			break
+		}
+	}
+	hasFileRead := hasAuthority(c, "authority:file-read")
+	hasBroadLocal := hasAuthority(c, "authority:broad-local")
+	hasBoundary := len(c.Boundaries) > 0
+	if sources, workflowOnly := managedWorkflowRiskSources(c); workflowOnly {
+		hasFileRead = anySourceHasWorkflowSecretPath(c, sources)
+		hasBroadLocal = anySourceHasAuthority(c, sources, "authority:broad-local")
+		hasBoundary = hasFileRead
+	}
+	hasDeny := hasEnforcedControl(c, "control:deny-secret-read")
+	hasInputBreak := hasHardInputBreak(c)
+	hasForkPRIsolation := hasOnlyForkPRIsolatedWorkflowInputs(c)
+
+	result := model.ExposureResult{
+		ID:            "prompt-injection-to-secret-canary",
+		Title:         "Prompt/repo instruction to secret-like file access",
+		Runtimes:      runtimes,
+		PathEdges:     secretPathEdges(g, mode),
+		WhyItMatters:  "A local coding agent can convert untrusted instructions into file access near secret-like developer data.",
+		WhatWasTested: "Whether influence plus local agent authority creates a path to a fake secret boundary, and whether a deny-read control breaks that path.",
+		Limitations: []string{
+			"The story uses controlled fixtures and fake canaries.",
+			"This does not prove behavior against real secrets or unmanaged live sessions.",
+		},
+	}
+
+	switch {
+	case mode == "endpoint" && hasBroadLocal && hasBoundary:
+		result.Status = model.StatusExposed
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationNotAttempted, Summary: "Endpoint config declares broad local authority; no live behavior was executed."}
+	case hasTrustInput && hasFileRead && hasBoundary && hasForkPRIsolation:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Plain pull_request platform semantics isolate fork pull-request content from workflow secrets and write-capable credentials by default."}
+		result.ControlsBreakPath = []string{"isolate fork pull-request secrets and write-capable credentials"}
+	case hasTrustInput && hasFileRead && hasBoundary && hasInputBreak:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The deterministic path reaches an input-isolation or trusted-source control before runtime authority."}
+		result.ControlsBreakPath = []string{"isolate or trust-gate untrusted instructions"}
+		if hasDeny {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "deny-read secret-like paths")
+		}
+	case hasTrustInput && hasFileRead && hasBoundary && hasDeny:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The simulated path reaches a deny-read control before the fake secret boundary."}
+		result.ControlsBreakPath = []string{"deny-read secret-like paths"}
+	case hasTrustInput && hasFileRead && hasBoundary:
+		result.Status = model.StatusExposed
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "The simulated story path reaches the fake secret boundary without a breaking control."}
+	case hasTrustInput && !hasFileRead:
+		result.Status = model.StatusInconclusive
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "Risky trust input exists, but runtime file-read authority was not established."}
+	default:
+		result.Status = model.StatusInconclusive
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "A complete influence-to-boundary exposure path was not established."}
+	}
+	result.PathNodes = nodesFromEdges(result.PathEdges)
+	return result
+}
+
+func evaluateMCP(c model.Collection, g model.Graph) model.ExposureResult {
+	hasMCPPackageLaunch := hasTool(c, "tool:mcp-package-launch")
+	hasRiskyMCPPackageLaunch := hasRiskyTool(c, "tool:mcp-package-launch")
+	hasLocalCodeExecution := hasAuthority(c, "authority:local-code-execution")
+	hasExecutionBoundary := hasBoundary(c, "boundary:developer-execution-boundary")
+	hasReviewedPinnedControl := hasEnforcedControl(c, "control:mcp-reviewed-pinned")
+	result := model.ExposureResult{
+		ID:            "mutable-tool-launch-execution",
+		Title:         "MCP package launch to local code execution",
+		Runtimes:      runtimeKinds(c),
+		PathEdges:     mcpPathEdges(g),
+		WhyItMatters:  "Agent tool servers bridge model-driven tool use to local code. Mutable package-manager or interpreter launchers can run unreviewed code under the developer user.",
+		WhatWasTested: "Whether a local agent can call a tool launched through a mutable package/interpreter path, and whether review or pinning controls break that path.",
+		Limitations: []string{
+			"The story inspects declared MCP launch configuration only.",
+			"The MCP server is not executed and package identity is not resolved from a registry.",
+		},
+	}
+	switch {
+	case hasMCPPackageLaunch && hasReviewedPinnedControl:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The simulated MCP path reaches a reviewed/pinned control before local code execution."}
+		result.ControlsBreakPath = []string{"review and pin MCP servers"}
+	case hasRiskyMCPPackageLaunch && hasLocalCodeExecution && hasExecutionBoundary:
+		result.Status = model.StatusExposed
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "The simulated story path reaches local code execution through a mutable tool launcher."}
+	default:
+		result.Status = model.StatusInconclusive
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "A complete MCP package-launch-to-execution path was not established."}
+	}
+	result.PathNodes = nodesFromEdges(result.PathEdges)
+	return result
+}
+
+func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) model.ExposureResult {
+	hasRiskyTrustInput := false
+	for _, input := range c.TrustInputs {
+		if input.Risky {
+			hasRiskyTrustInput = true
+			break
+		}
+	}
+	hasPrivateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:credential-access") || hasAuthority(c, "authority:cloud-identity-token") || hasAuthority(c, "authority:repository-write")
+	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context") || hasBoundary(c, "boundary:memory-credential-retention") || hasBoundary(c, "boundary:credential-material") || hasBoundary(c, "boundary:ci-secret-boundary") || hasBoundary(c, "boundary:cloud-identity-boundary") || hasBoundary(c, "boundary:repository-integrity-boundary")
+	hasExternalCommunication := hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local")
+	hasExternalDestination := hasBoundary(c, "boundary:external-destination")
+	if sources, workflowOnly := managedWorkflowRiskSources(c); workflowOnly {
+		completePath := anySourceHasWorkflowEgressPath(c, sources)
+		hasPrivateAuthority = completePath
+		hasPrivateBoundary = completePath
+		hasExternalCommunication = completePath
+		hasExternalDestination = completePath
+	}
+	hasHardEgressControl := hasHardEgressBreak(c)
+	hasDenyRead := hasEnforcedControl(c, "control:deny-secret-read")
+	hasInputBreak := hasHardInputBreak(c)
+	hasForkPRIsolation := hasOnlyForkPRIsolatedWorkflowInputs(c)
+
+	result := model.ExposureResult{
+		ID:            "data-egress-chain",
+		Title:         "Data egress chain: untrusted influence to private data to external communication",
+		Runtimes:      runtimeKinds(c),
+		PathEdges:     dataEgressChainPathEdges(g, mode),
+		WhyItMatters:  "When an agent can see untrusted instructions, reach private data, and communicate externally, prompt injection can become unauthorized data movement.",
+		WhatWasTested: "Whether untrusted influence, private-data reachability, and external communication reachability all exist in the same agent graph, and whether controls break the path.",
+		Limitations: []string{
+			"The story uses deterministic graph evidence; it does not execute the agent or observe live data movement.",
+			"External communication means a declared web, network, remote MCP, or command-mediated communication path.",
+		},
+	}
+
+	switch {
+	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && hasForkPRIsolation:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Plain pull_request platform semantics isolate fork pull-request content from workflow secrets and write-capable credentials by default."}
+		result.ControlsBreakPath = []string{"isolate fork pull-request secrets and write-capable credentials"}
+	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && (hasInputBreak || hasHardEgressControl || hasDenyRead):
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The graph contains data-egress ingredients, but a control breaks influence, private-data, or external-communication reachability."}
+		if hasInputBreak {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "isolate or trust-gate untrusted instructions")
+		}
+		result.ControlsBreakPath = append(result.ControlsBreakPath, egressBreakDescriptions(c)...)
+		if hasDenyRead {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "deny-read secret-like paths")
+		}
+	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination:
+		result.Status = model.StatusExposed
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "The graph contains all three data-egress ingredients: untrusted influence, private-data reachability, and external communication reachability."}
+	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && !hasExternalCommunication:
+		result.Status = model.StatusInconclusive
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "Untrusted influence and private-data reachability exist, but external communication authority was not established."}
+	case hasRiskyTrustInput && hasExternalCommunication && !hasPrivateAuthority:
+		result.Status = model.StatusInconclusive
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "Untrusted influence and external communication exist, but private-data authority was not established."}
+	default:
+		result.Status = model.StatusInconclusive
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "A complete data-egress chain was not established."}
+	}
+	result.PathNodes = nodesFromEdges(result.PathEdges)
+	return result
+}
+
+func hasOnlyForkPRIsolatedWorkflowInputs(c model.Collection) bool {
+	found := false
+	for _, input := range c.TrustInputs {
+		if !input.Risky {
+			continue
+		}
+		found = true
+		if input.Kind != "managed-workflow-trigger" || !workflowSourceHasForkPRIsolation(c, input.Source) {
+			return false
+		}
+	}
+	return found
+}
+
+func managedWorkflowRiskSources(c model.Collection) ([]string, bool) {
+	seen := map[string]bool{}
+	var sources []string
+	found := false
+	for _, input := range c.TrustInputs {
+		if !input.Risky {
+			continue
+		}
+		found = true
+		if input.Kind != "managed-workflow-trigger" || input.Source == "" {
+			return nil, false
+		}
+		if !seen[input.Source] {
+			seen[input.Source] = true
+			sources = append(sources, input.Source)
+		}
+	}
+	sort.Strings(sources)
+	return sources, found
+}
+
+func anySourceHasAuthority(c model.Collection, sources []string, ids ...string) bool {
+	sourceSet := map[string]bool{}
+	for _, source := range sources {
+		sourceSet[source] = true
+	}
+	idSet := map[string]bool{}
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	for _, authority := range c.Authorities {
+		if sourceSet[authority.Source] && idSet[authority.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+func anySourceHasWorkflowSecretPath(c model.Collection, sources []string) bool {
+	for _, source := range sources {
+		if sourceHasAuthority(c, source, "authority:file-read") && sourceHasWorkflowPrivateBoundary(c, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func anySourceHasWorkflowEgressPath(c model.Collection, sources []string) bool {
+	for _, source := range sources {
+		privateAuthority := sourceHasAuthority(c, source, "authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write")
+		externalAuthority := sourceHasAuthority(c, source, "authority:external-communication", "authority:broad-local")
+		if privateAuthority && externalAuthority && sourceHasWorkflowPrivateBoundary(c, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceHasWorkflowPrivateBoundary(c model.Collection, source string) bool {
+	if sourceHasAuthority(c, source, "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write", "authority:broad-local") {
+		return true
+	}
+	return sourceHasAuthority(c, source, "authority:file-read") && hasAnyWorkflowReadableBoundary(c)
+}
+
+func sourceHasAuthority(c model.Collection, source string, ids ...string) bool {
+	for _, authority := range c.Authorities {
+		if authority.Source != source {
+			continue
+		}
+		for _, id := range ids {
+			if authority.ID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasAnyWorkflowReadableBoundary(c model.Collection) bool {
+	for _, boundary := range c.Boundaries {
+		switch boundary.ID {
+		case "boundary:secret-like-file", "boundary:ci-secret-boundary", "boundary:credential-material":
+			return true
+		}
+	}
+	return false
+}
+
+func workflowSourceHasForkPRIsolation(c model.Collection, source string) bool {
+	hasPlainPullRequest := false
+	hasSensitiveAuthority := false
+	for _, fact := range c.Facts {
+		if fact.Source != source {
+			continue
+		}
+		switch fact.Type {
+		case "managed-workflow-trigger-events":
+			for _, event := range fact.TriggerEvents {
+				switch event {
+				case "pull_request":
+					hasPlainPullRequest = true
+				case "pull_request_target", "workflow_run", "issue_comment", "issues", "discussion", "discussion_comment", "pull_request_review_comment":
+					return false
+				}
+			}
+		case "managed-workflow-sensitive-authority":
+			hasSensitiveAuthority = boolFact(fact.ReferencesSecrets) || boolFact(fact.OIDCTokenWrite) || boolFact(fact.WritePermissions)
+		}
+	}
+	if !hasPlainPullRequest || !hasSensitiveAuthority {
+		return false
+	}
+	for _, control := range c.Controls {
+		if control.ID == "control:fork-pr-secret-isolation" && control.Source == source && control.Enforcement == model.EnforcementEnforced {
+			return true
+		}
+	}
+	return false
+}
+
+func boolFact(value *bool) bool {
+	return value != nil && *value
+}
+
+func Compare(report model.Report, expected model.ExpectedResult) (bool, []string) {
+	var mismatches []string
+	if report.Exposure.Status != expected.Status {
+		mismatches = append(mismatches, fmt.Sprintf("status: got %s, expected %s", report.Exposure.Status, expected.Status))
+	}
+	if report.Exposure.ProofMode != expected.ProofMode {
+		mismatches = append(mismatches, fmt.Sprintf("proof_mode: got %s, expected %s", report.Exposure.ProofMode, expected.ProofMode))
+	}
+	for _, nodeID := range expected.RequiredNodes {
+		if !report.Graph.HasNode(nodeID) {
+			mismatches = append(mismatches, "missing graph node: "+nodeID)
+		}
+	}
+	for _, edgeKey := range expected.RequiredEdges {
+		if !report.Graph.HasEdge(edgeKey) {
+			mismatches = append(mismatches, "missing graph edge: "+edgeKey)
+		}
+	}
+	blob, _ := json.Marshal(report)
+	for _, forbidden := range expected.RedactionMustNotContain {
+		if forbidden != "" && strings.Contains(string(blob), forbidden) {
+			mismatches = append(mismatches, "redaction leaked forbidden value")
+		}
+	}
+	return len(mismatches) == 0, mismatches
+}
+
+func runtimeKinds(c model.Collection) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, runtime := range c.Runtimes {
+		if !seen[runtime.Kind] {
+			seen[runtime.Kind] = true
+			out = append(out, runtime.Kind)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func hasAuthority(c model.Collection, id string) bool {
+	for _, authority := range c.Authorities {
+		if authority.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTool(c model.Collection, id string) bool {
+	for _, tool := range c.Tools {
+		if tool.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRiskyTool(c model.Collection, id string) bool {
+	for _, tool := range c.Tools {
+		if tool.ID == id && tool.Risky {
+			return true
+		}
+	}
+	return false
+}
+
+func hasControl(c model.Collection, id string) bool {
+	for _, control := range c.Controls {
+		if control.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBoundary(c model.Collection, id string) bool {
+	for _, boundary := range c.Boundaries {
+		if boundary.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyControl(c model.Collection, ids ...string) bool {
+	for _, id := range ids {
+		if hasControl(c, id) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasEnforcedControl is the gate for protected verdicts and hard barriers.
+// Attested (self-declared) controls never satisfy it; unknown enforcement
+// fails closed.
+func hasEnforcedControl(c model.Collection, id string) bool {
+	for _, control := range c.Controls {
+		if control.ID == id && control.Enforcement == model.EnforcementEnforced {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyEnforcedControl(c model.Collection, ids ...string) bool {
+	for _, id := range ids {
+		if hasEnforcedControl(c, id) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasHardInputBreak(c model.Collection) bool {
+	return hasAnyEnforcedControl(c, "control:input-isolation", "control:trusted-source-policy")
+}
+
+func secretPathEdges(g model.Graph, mode string) []string {
+	var candidates []string
+	if mode == "endpoint" {
+		candidates = []string{
+			"config:codex-endpoint|configures|runtime:codex",
+			"config:claude-endpoint|configures|runtime:claude",
+			"runtime:codex|has_authority|authority:broad-local",
+			"runtime:claude|has_authority|authority:broad-local",
+			"authority:broad-local|reaches|boundary:developer-secret-boundary",
+			"control:deny-secret-read|restricts|boundary:developer-secret-boundary",
+		}
+	} else {
+		candidates = []string{
+			"trustinput:repo-instruction|influences|runtime:codex",
+			"trustinput:repo-instruction|influences|runtime:claude",
+			"trustinput:repo-instruction|influences|runtime:github-actions",
+			"trustinput:repo-instruction|influences|runtime:gitlab-ci",
+			"trustinput:managed-workflow-trigger|influences|runtime:github-actions",
+			"trustinput:managed-workflow-trigger|influences|runtime:gitlab-ci",
+			"runtime:codex|has_authority|authority:file-read",
+			"runtime:claude|has_authority|authority:file-read",
+			"runtime:github-actions|has_authority|authority:file-read",
+			"runtime:gitlab-ci|has_authority|authority:file-read",
+			"authority:file-read|reaches|boundary:secret-like-file",
+			"control:input-isolation|restricts|trustinput:repo-instruction",
+			"control:trusted-source-policy|restricts|trustinput:repo-instruction",
+			"control:fork-pr-secret-isolation|restricts|trustinput:managed-workflow-trigger",
+			"control:deny-secret-read|restricts|boundary:secret-like-file",
+		}
+	}
+	return existingEdges(g, candidates)
+}
+
+func mcpPathEdges(g model.Graph) []string {
+	return existingEdges(g, []string{
+		"runtime:codex|can_call|tool:mcp-package-launch",
+		"runtime:claude|can_call|tool:mcp-package-launch",
+		"tool:mcp-package-launch|grants|authority:local-code-execution",
+		"authority:local-code-execution|reaches|boundary:developer-execution-boundary",
+		"control:mcp-reviewed-pinned|restricts|tool:mcp-package-launch",
+		"control:mcp-reviewed-pinned|restricts|boundary:developer-execution-boundary",
+	})
+}
+
+func dataEgressChainPathEdges(g model.Graph, mode string) []string {
+	candidates := []string{
+		"trustinput:repo-instruction|influences|runtime:codex",
+		"trustinput:repo-instruction|influences|runtime:claude",
+		"trustinput:repo-instruction|influences|runtime:github-actions",
+		"trustinput:repo-instruction|influences|runtime:gitlab-ci",
+		"trustinput:managed-workflow-trigger|influences|runtime:github-actions",
+		"trustinput:managed-workflow-trigger|influences|runtime:gitlab-ci",
+		"runtime:codex|has_authority|authority:file-read",
+		"runtime:claude|has_authority|authority:file-read",
+		"runtime:github-actions|has_authority|authority:file-read",
+		"runtime:gitlab-ci|has_authority|authority:file-read",
+		"runtime:codex|has_authority|authority:broad-local",
+		"runtime:claude|has_authority|authority:broad-local",
+		"runtime:github-actions|has_authority|authority:broad-local",
+		"runtime:gitlab-ci|has_authority|authority:broad-local",
+		"runtime:github-actions|has_authority|authority:credential-access",
+		"runtime:gitlab-ci|has_authority|authority:credential-access",
+		"runtime:github-actions|has_authority|authority:cloud-identity-token",
+		"runtime:github-actions|has_authority|authority:repository-write",
+		"authority:file-read|reaches|boundary:secret-like-file",
+		"authority:file-read|reaches|boundary:developer-secret-boundary",
+		"authority:file-read|reaches|boundary:agent-private-context",
+		"authority:file-read|reaches|boundary:memory-credential-retention",
+		"authority:broad-local|reaches|boundary:secret-like-file",
+		"authority:broad-local|reaches|boundary:developer-secret-boundary",
+		"authority:broad-local|reaches|boundary:agent-private-context",
+		"authority:broad-local|reaches|boundary:memory-credential-retention",
+		"authority:credential-access|reaches|boundary:ci-secret-boundary",
+		"authority:cloud-identity-token|reaches|boundary:cloud-identity-boundary",
+		"authority:repository-write|reaches|boundary:repository-integrity-boundary",
+		"authority:local-code-execution|reaches|boundary:ci-secret-boundary",
+		"authority:broad-local|reaches|boundary:ci-secret-boundary",
+		"runtime:codex|has_authority|authority:external-communication",
+		"runtime:claude|has_authority|authority:external-communication",
+		"runtime:github-actions|has_authority|authority:external-communication",
+		"runtime:gitlab-ci|has_authority|authority:external-communication",
+		"authority:external-communication|reaches|boundary:external-destination",
+		"authority:broad-local|reaches|boundary:external-destination",
+		"control:input-isolation|restricts|trustinput:repo-instruction",
+		"control:trusted-source-policy|restricts|trustinput:repo-instruction",
+		"control:fork-pr-secret-isolation|restricts|trustinput:managed-workflow-trigger",
+		"control:network-restricted|restricts|boundary:external-destination",
+		"control:egress-destination-allowlist|restricts|boundary:external-destination",
+		"control:webhook-allowlist|restricts|boundary:external-destination",
+		"control:per-tool-network-scope|restricts|boundary:external-destination",
+		"control:deny-secret-read|restricts|boundary:secret-like-file",
+		"control:deny-secret-read|restricts|boundary:developer-secret-boundary",
+		"control:deny-secret-read|restricts|boundary:agent-private-context",
+		"control:deny-secret-read|restricts|boundary:memory-credential-retention",
+	}
+	return existingEdges(g, candidates)
+}
+
+func egressControlIDs() []string {
+	return []string{
+		"control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+		"control:egress-content-filter",
+		"control:egress-audit",
+	}
+}
+
+func hardEgressControlIDs() []string {
+	return []string{
+		"control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+	}
+}
+
+func hasHardEgressBreak(c model.Collection) bool {
+	return hasAnyEnforcedControl(c, hardEgressControlIDs()...)
+}
+
+func egressBreakDescriptions(c model.Collection) []string {
+	var out []string
+	if hasEnforcedControl(c, "control:network-restricted") {
+		out = append(out, "restrict external network communication")
+	}
+	if hasEnforcedControl(c, "control:egress-destination-allowlist") {
+		out = append(out, "allowlist external destinations")
+	}
+	if hasEnforcedControl(c, "control:webhook-allowlist") {
+		out = append(out, "allowlist webhook destinations")
+	}
+	if hasEnforcedControl(c, "control:per-tool-network-scope") {
+		out = append(out, "scope per-tool network access")
+	}
+	return out
+}
+
+func existingEdges(g model.Graph, candidates []string) []string {
+	out := []string{}
+	for _, key := range candidates {
+		if g.HasEdge(key) {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+func nodesFromEdges(edges []string) []string {
+	seen := map[string]bool{}
+	nodes := []string{}
+	for _, edge := range edges {
+		parts := strings.Split(edge, "|")
+		if len(parts) != 3 {
+			continue
+		}
+		for _, id := range []string{parts[0], parts[2]} {
+			if !seen[id] {
+				seen[id] = true
+				nodes = append(nodes, id)
+			}
+		}
+	}
+	sort.Strings(nodes)
+	return nodes
+}
+
+func pathNodes(g model.Graph) []string {
+	var ids []string
+	for _, node := range g.Nodes {
+		ids = append(ids, node.ID)
+	}
+	return ids
+}
+
+func pathEdges(g model.Graph) []string {
+	var keys []string
+	for _, edge := range g.Edges {
+		keys = append(keys, edge.Key())
+	}
+	return keys
+}
+
+func resolve(root, child string) string {
+	if child == "" {
+		return ""
+	}
+	if filepath.IsAbs(child) {
+		return child
+	}
+	return filepath.Join(root, child)
+}
+
+func randomID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("run-%d", time.Now().UnixNano())
+	}
+	return "run-" + hex.EncodeToString(b[:])
+}

@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-scan-v1.schema.json",
+  "title": "Ariadne Scan v1",
+  "type": "object",
+  "required": ["schema_version", "run_id", "generated_at", "run_kind", "summary", "fleet", "targets"],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "const": "scan" },
+    "targets_file": { "type": "string" },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "targets": { "type": "integer" },
+        "completed": { "type": "integer" },
+        "errors": { "type": "integer" },
+        "exposed": { "type": "integer" },
+        "protected": { "type": "integer" },
+        "inconclusive": { "type": "integer" },
+        "exposure_paths": { "type": "integer" },
+        "critical": { "type": "integer" },
+        "high": { "type": "integer" },
+        "medium": { "type": "integer" },
+        "low": { "type": "integer" },
+        "info": { "type": "integer" }
+      }
+    },
+    "fleet": { "$ref": "#/$defs/fleet" },
+    "interpretation": { "$ref": "#/$defs/interpretation" },
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target"],
+        "properties": {
+          "target": { "type": "object" },
+          "verdict": { "$ref": "https://ariadne.dev/schema/ariadne-verdict-v1.schema.json" },
+          "error": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "fleet": {
+      "type": "object",
+      "required": ["verdict_counts", "reckless_by_family", "worst_first_targets"],
+      "properties": {
+        "verdict_counts": {
+          "type": "object",
+          "required": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"],
+          "properties": {
+            "reckless": { "type": "integer", "minimum": 0 },
+            "tradeoffs_only": { "type": "integer", "minimum": 0 },
+            "hardened": { "type": "integer", "minimum": 0 },
+            "no_agents_found": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "reckless_by_family": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reckless_family_rollup" }
+        },
+        "worst_first_targets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/worst_first_target" }
+        }
+      }
+    },
+    "reckless_family_rollup": {
+      "type": "object",
+      "required": ["family", "count", "affected_targets", "representative_finding"],
+      "properties": {
+        "family": {
+          "type": "string",
+          "enum": ["data-egress-chain", "mutable-tool-launch-execution", "prompt-injection-to-secret-canary"]
+        },
+        "count": { "type": "integer", "minimum": 0 },
+        "affected_targets": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "representative_finding": { "$ref": "#/$defs/representative_finding" }
+      }
+    },
+    "representative_finding": {
+      "type": "object",
+      "required": ["target", "finding_id", "exposure_id", "title", "where", "why", "fix"],
+      "properties": {
+        "target": { "type": "string" },
+        "finding_id": { "type": "string" },
+        "exposure_id": {
+          "type": "string",
+          "enum": ["data-egress-chain", "mutable-tool-launch-execution", "prompt-injection-to-secret-canary"]
+        },
+        "title": { "type": "string" },
+        "where": { "$ref": "#/$defs/fleet_evidence_location" },
+        "why": { "type": "string" },
+        "fix": { "type": "string" }
+      }
+    },
+    "fleet_evidence_location": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "anchor": { "type": "string", "enum": ["file"] }
+      }
+    },
+    "worst_first_target": {
+      "type": "object",
+      "required": ["target", "verdict", "reckless_count", "tradeoff_count", "hardened_count", "inconclusive"],
+      "properties": {
+        "target": { "type": "string" },
+        "verdict": {
+          "type": "string",
+          "enum": ["reckless", "tradeoffs_only", "hardened", "no_agents_found"]
+        },
+        "reckless_count": { "type": "integer", "minimum": 0 },
+        "tradeoff_count": { "type": "integer", "minimum": 0 },
+        "hardened_count": { "type": "integer", "minimum": 0 },
+        "inconclusive": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "interpretation": {
+      "type": "object",
+      "required": ["mode", "engine", "summary", "issues", "limitations"],
+      "properties": {
+        "mode": { "type": "string" },
+        "engine": { "type": "string" },
+        "available_modes": { "type": "array", "items": { "type": "string" } },
+        "future_modes": { "type": "array", "items": { "type": "string" } },
+        "summary": { "$ref": "#/$defs/issue_summary" },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+        "limitations": { "type": "array", "items": { "type": "string" } },
+        "policy_source": { "type": "string" },
+        "review_source": { "type": "string" },
+        "request_digest": { "type": "string" },
+        "analyst": { "$ref": "#/$defs/llm_analyst" }
+      }
+    },
+    "issue_summary": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "critical": { "type": "integer" },
+        "high": { "type": "integer" },
+        "medium": { "type": "integer" },
+        "low": { "type": "integer" },
+        "info": { "type": "integer" },
+        "fix_now": { "type": "integer" },
+        "review": { "type": "integer" },
+        "monitor": { "type": "integer" },
+        "controlled": { "type": "integer" },
+        "expected": { "type": "integer" }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "required": ["id", "title", "severity", "priority", "disposition", "rule_id", "rule_source", "interpretation_mode"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+        "priority": { "type": "string", "enum": ["p0", "p1", "p2", "p3", "p4"] },
+        "disposition": { "type": "string", "enum": ["fix_now", "review", "monitor", "controlled", "expected_capability"] },
+        "category": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "exposure_status": { "type": "string", "enum": ["exposed", "protected", "inconclusive"] },
+        "rule_id": { "type": "string" },
+        "rule_source": { "type": "string" },
+        "interpretation_mode": { "type": "string" },
+        "affected_target": { "type": "string" },
+        "rationale": { "type": "string" },
+        "signals": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "type": "string" }
+      }
+    },
+    "llm_analyst": {
+      "type": "object",
+      "required": ["source_type", "derived_by", "review_source", "request_digest", "finding_explanations", "finding_ranking", "default_judgment_overrides"],
+      "properties": {
+        "source_type": { "const": "llm_review" },
+        "derived_by": { "const": "llm" },
+        "review_source": { "type": "string" },
+        "request_digest": { "type": "string" },
+        "reviewer": { "type": "string" },
+        "model": { "type": "string" },
+        "summary": { "type": "string" },
+        "finding_explanations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/llm_finding_explanation" }
+        },
+        "finding_ranking": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/llm_finding_ranking" }
+        },
+        "default_judgment_overrides": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/llm_default_judgment_override" }
+        },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "llm_finding_explanation": {
+      "type": "object",
+      "required": ["finding_id", "exposure_id", "operator_context"],
+      "properties": {
+        "finding_id": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "operator_context": { "type": "string" },
+        "fact_ids": { "type": "array", "items": { "type": "string" } },
+        "evidence_ref_ids": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "llm_finding_ranking": {
+      "type": "object",
+      "required": ["rank", "finding_id", "exposure_id", "rationale"],
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "finding_id": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "rationale": { "type": "string" },
+        "fact_ids": { "type": "array", "items": { "type": "string" } },
+        "evidence_ref_ids": { "type": "array", "items": { "type": "string" } },
+        "graph_edges": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "llm_default_judgment_override": {
+      "type": "object",
+      "required": ["rule", "exposure_id", "proposed_judgment", "reason", "basis_fact_ids"],
+      "properties": {
+        "rule": { "type": "string" },
+        "exposure_id": { "type": "string" },
+        "proposed_judgment": { "type": "string" },
+        "reason": { "type": "string" },
+        "basis_fact_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

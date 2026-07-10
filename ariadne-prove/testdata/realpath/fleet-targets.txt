@@ -1,0 +1,6 @@
+combined,combined-risk
+gemini-hardened,gemini-hardened-network
+tradeoffs,tradeoffs-only
+safe,safe-controls
+attested-only,attested-only-risk
+attested-absent,attested-only-risk-no-declaration

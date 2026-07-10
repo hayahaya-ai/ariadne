@@ -1,0 +1,14 @@
+{
+  "output_sensitive_data_filter": {
+    "pii_filter": true,
+    "credential_filter": true,
+    "sensitive_data_patterns": ["secret-like", "token-like"]
+  },
+  "output_redaction": {
+    "block_sensitive_output": true,
+    "redact_secret_like": true
+  },
+  "output_filter_logging": true,
+  "semantic_output_analysis": true,
+  "high_risk_output_review": true
+}

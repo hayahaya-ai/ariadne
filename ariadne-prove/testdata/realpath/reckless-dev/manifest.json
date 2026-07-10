@@ -1,0 +1,24 @@
+{
+  "id": "reckless-dev",
+  "title": "Reckless endpoint developer profile",
+  "persona": "developer / IT",
+  "user_question": "Does a broad local endpoint posture produce a reckless finding?",
+  "runtime": "all",
+  "mode": "endpoint",
+  "world": {
+    "home_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "findings": [
+        {
+          "family": "prompt-injection-to-secret-canary",
+          "source": ".claude/settings.json",
+          "line": 1,
+          "fix_surface": ".claude/settings.json"
+        }
+      ]
+    }
+  }
+}

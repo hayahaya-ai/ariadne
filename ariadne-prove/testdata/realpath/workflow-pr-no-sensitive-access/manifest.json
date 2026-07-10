@@ -1,0 +1,18 @@
+{
+  "id": "workflow-pr-no-sensitive-access",
+  "title": "Plain pull request without privileged workflow authority",
+  "persona": "developer / AppSec",
+  "user_question": "Does a pull-request workflow without secrets, OIDC, or write permissions create a secret-leg finding?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "min_tradeoffs": 1,
+      "findings": []
+    }
+  }
+}

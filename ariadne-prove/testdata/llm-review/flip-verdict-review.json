@@ -1,0 +1,7 @@
+{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture-flip-verdict",
+  "verdict": "hardened",
+  "finding_explanations": [],
+  "finding_ranking": []
+}

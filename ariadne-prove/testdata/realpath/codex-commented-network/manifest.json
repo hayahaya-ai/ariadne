@@ -1,0 +1,17 @@
+{
+  "id": "codex-commented-network",
+  "title": "Commented Codex network access is ignored",
+  "persona": "AppSec / SecOps",
+  "user_question": "Does commented-out network access stay out of reckless findings?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "findings": []
+    }
+  }
+}

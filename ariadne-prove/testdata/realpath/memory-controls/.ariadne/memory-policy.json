@@ -1,0 +1,17 @@
+{
+  "context_retention": {
+    "retention_days": 7
+  },
+  "memory_isolation": {
+    "session_isolation": true,
+    "workspace_isolation": true
+  },
+  "context_integrity": {
+    "content_hash": true,
+    "signature_validation": true
+  },
+  "context_provenance": {
+    "source_attribution": true,
+    "provenance_metadata": true
+  }
+}

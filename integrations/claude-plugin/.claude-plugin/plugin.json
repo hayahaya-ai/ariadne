@@ -1,0 +1,8 @@
+{
+  "name": "ariadne",
+  "version": "0.1.0",
+  "description": "Read and act on Ariadne's graded agent-risk verdict: facts are deterministic, judgments are labeled defaults you can override, fixes are applied by you and re-verified.",
+  "author": {
+    "name": "Ariadne"
+  }
+}

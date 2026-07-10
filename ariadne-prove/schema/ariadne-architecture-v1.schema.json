@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-architecture-v1.schema.json",
+  "title": "Ariadne Architecture v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "mode",
+    "agent",
+    "framework_version",
+    "status_filter",
+    "summary",
+    "overall_summary",
+    "evidence_coverage",
+    "evidence_plan",
+    "framework_coverage",
+    "maturity",
+    "boundary_coverage",
+    "flaws",
+    "closure_plan",
+    "closure_families",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "target_path": { "type": "string" },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "framework_version": { "const": "ariadne.zero_trust_agent/v1" },
+    "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "summary": { "$ref": "#/$defs/zero_trust_summary" },
+    "overall_summary": { "$ref": "#/$defs/zero_trust_summary" },
+    "evidence_coverage": { "$ref": "#/$defs/zero_trust_coverage" },
+    "evidence_plan": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_evidence_plan" }
+    },
+    "framework_coverage": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_framework_area" }
+    },
+    "maturity": { "$ref": "#/$defs/zero_trust_maturity" },
+    "boundary_coverage": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_boundary" }
+    },
+    "flaws": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/zero_trust_architecture" }
+    },
+    "closure_plan": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_closure" }
+    },
+    "closure_families": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_closure_family" }
+    },
+    "redaction": { "$ref": "#/$defs/redaction" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "zero_trust_summary": {
+      "type": "object",
+      "required": ["total", "breaking", "controlled", "unknown", "not_observed"],
+      "properties": {
+        "total": { "type": "integer" },
+        "breaking": { "type": "integer" },
+        "controlled": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "not_observed": { "type": "integer" }
+      }
+    },
+    "zero_trust_coverage": {
+      "type": "object",
+      "required": ["known", "gaps", "unknown", "not_observed", "gap_details"],
+      "properties": {
+        "known": { "type": "integer" },
+        "gaps": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "not_observed": { "type": "integer" },
+        "gap_details": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_gap" }
+        }
+      }
+    },
+    "zero_trust_gap": {
+      "type": "object",
+      "required": ["check_id", "boundary", "status", "missing_evidence", "why_it_matters", "next_collector"],
+      "properties": {
+        "check_id": { "type": "string" },
+        "boundary": { "type": "string" },
+        "status": { "$ref": "#/$defs/zero_trust_status" },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "why_it_matters": { "type": "string" },
+        "next_collector": { "type": "string" }
+      }
+    },
+    "zero_trust_maturity": {
+      "type": "object",
+      "required": ["target_tier", "summary", "requirements"],
+      "properties": {
+        "target_tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "summary": { "$ref": "#/$defs/zero_trust_maturity_summary" },
+        "requirements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_requirement" }
+        }
+      }
+    },
+    "zero_trust_maturity_summary": {
+      "type": "object",
+      "required": ["total", "met", "gaps", "breaking", "unknown", "not_observed", "hard_barriers", "friction_only"],
+      "properties": {
+        "total": { "type": "integer" },
+        "met": { "type": "integer" },
+        "gaps": { "type": "integer" },
+        "breaking": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "not_observed": { "type": "integer" },
+        "hard_barriers": { "type": "integer" },
+        "friction_only": { "type": "integer" }
+      }
+    },
+    "zero_trust_requirement": {
+      "type": "object",
+      "required": ["id", "tier", "principle", "capability", "status", "control_quality", "finding", "evidence", "actions"],
+      "properties": {
+        "id": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "principle": { "type": "string" },
+        "capability": { "type": "string" },
+        "status": { "$ref": "#/$defs/zero_trust_status" },
+        "control_quality": { "type": "string" },
+        "finding": { "type": "string" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_evidence" }
+        },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_boundary": {
+      "type": "object",
+      "required": ["check_id", "boundary", "principle", "tier", "design_test", "status_counts", "target_count", "breaking_targets", "controlled_targets", "unknown_targets", "not_observed_targets", "evidence_sources", "controls", "control_evidence_needed", "evidence_surfaces", "missing_evidence", "next_collectors", "actions", "limitations"],
+      "properties": {
+        "check_id": { "type": "string" },
+        "boundary": { "type": "string" },
+        "principle": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "design_test": { "type": "string" },
+        "status_counts": { "$ref": "#/$defs/zero_trust_summary" },
+        "target_count": { "type": "integer" },
+        "breaking_targets": { "type": "array", "items": { "type": "string" } },
+        "controlled_targets": { "type": "array", "items": { "type": "string" } },
+        "unknown_targets": { "type": "array", "items": { "type": "string" } },
+        "not_observed_targets": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "control_evidence_needed": { "type": "array", "items": { "type": "string" } },
+        "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "next_collectors": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_evidence_plan": {
+      "type": "object",
+      "required": ["next_collector", "gap_count", "target_count", "status_counts", "boundaries", "check_ids", "targets", "missing_evidence", "why_it_matters"],
+      "properties": {
+        "next_collector": { "type": "string" },
+        "gap_count": { "type": "integer" },
+        "target_count": { "type": "integer" },
+        "status_counts": { "$ref": "#/$defs/zero_trust_summary" },
+        "boundaries": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "why_it_matters": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_framework_area": {
+      "type": "object",
+      "required": ["id", "area", "source", "tier", "status_counts", "target_count", "targets", "check_ids", "flaws", "evidence_sources", "controls", "control_evidence_needed", "missing_evidence", "next_collectors", "limitations"],
+      "properties": {
+        "id": { "type": "string" },
+        "area": { "type": "string" },
+        "source": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "status_counts": { "$ref": "#/$defs/zero_trust_summary" },
+        "target_count": { "type": "integer" },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "control_evidence_needed": { "type": "array", "items": { "type": "string" } },
+        "missing_evidence": { "type": "array", "items": { "type": "string" } },
+        "next_collectors": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "zero_trust_architecture": {
+      "type": "object",
+      "required": ["id", "title", "status", "severity", "principle", "tier", "boundaries", "check_ids", "finding", "why_it_matters", "control_test", "evidence", "graph_edges", "control_evidence_needed", "evidence_surfaces", "actions"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "$ref": "#/$defs/zero_trust_status" },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+        "principle": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "boundaries": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "finding": { "type": "string" },
+        "why_it_matters": { "type": "string" },
+        "control_test": { "$ref": "#/$defs/architecture_control_test" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/zero_trust_evidence" }
+        },
+        "graph_edges": { "type": "array", "items": { "type": "string" } },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "control_evidence_needed": { "type": "array", "items": { "type": "string" } },
+        "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_control_test": {
+      "type": "object",
+      "required": ["question", "result", "summary", "hard_barriers_observed", "partial_or_friction_controls", "missing_hard_barriers", "attested_controls"],
+      "properties": {
+        "question": { "type": "string" },
+        "result": { "type": "string", "enum": ["hard_barrier_observed", "missing_hard_barrier", "partial_or_friction_only", "evidence_gap", "not_observed"] },
+        "summary": { "type": "string" },
+        "hard_barriers_observed": { "type": "array", "items": { "type": "string" } },
+        "partial_or_friction_controls": { "type": "array", "items": { "type": "string" } },
+        "missing_hard_barriers": { "type": "array", "items": { "type": "string" } },
+        "attested_controls": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_closure": {
+      "type": "object",
+      "required": ["control", "control_test_result", "severity", "flaw_count", "target_count", "flaws", "check_ids", "targets", "evidence_sources", "evidence_refs", "evidence_surfaces", "actions"],
+      "properties": {
+        "control": { "type": "string" },
+        "control_test_result": { "type": "string", "enum": ["missing_hard_barrier"] },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+        "flaw_count": { "type": "integer" },
+        "target_count": { "type": "integer" },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/evidence_reference" } },
+        "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_closure_family": {
+      "type": "object",
+      "required": ["id", "title", "severity", "control_count", "flaw_count", "target_count", "controls", "flaws", "check_ids", "targets", "evidence_sources", "evidence_refs", "evidence_surfaces", "actions"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+        "control_count": { "type": "integer" },
+        "flaw_count": { "type": "integer" },
+        "target_count": { "type": "integer" },
+        "controls": { "type": "array", "items": { "type": "string" } },
+        "flaws": { "type": "array", "items": { "type": "string" } },
+        "check_ids": { "type": "array", "items": { "type": "string" } },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/evidence_reference" } },
+        "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "evidence_reference": {
+      "type": "object",
+      "required": ["id", "kind", "summary"],
+      "properties": {
+        "target": { "type": "string" },
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "line_start": { "type": "integer", "minimum": 1 },
+        "line_end": { "type": "integer", "minimum": 1 },
+        "summary": { "type": "string" }
+      }
+    },
+    "zero_trust_evidence": {
+      "type": "object",
+      "required": ["id", "kind", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "line_start": { "type": "integer", "minimum": 1 },
+        "line_end": { "type": "integer", "minimum": 1 },
+        "summary": { "type": "string" }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": ["level", "sensitive_paths_included", "canary_values_included"],
+      "properties": {
+        "level": { "type": "string" },
+        "sensitive_paths_included": { "type": "boolean" },
+        "canary_values_included": { "type": "boolean" }
+      }
+    },
+    "zero_trust_status": {
+      "type": "string",
+      "enum": ["breaking", "controlled", "unknown", "not_observed"]
+    }
+  }
+}

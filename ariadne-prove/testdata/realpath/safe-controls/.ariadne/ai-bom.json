@@ -1,0 +1,17 @@
+{
+  "bom_format": "CycloneDX",
+  "specVersion": "1.6",
+  "metadata": {
+    "component": {
+      "type": "machine-learning-model",
+      "name": "approved-provider/stable-model",
+      "version": "stable"
+    }
+  },
+  "properties": [
+    { "name": "model_provenance", "value": "provider-attested" },
+    { "name": "training_data_lineage", "value": "provider-attested" },
+    { "name": "dependency_health", "value": "openssf-scorecard" },
+    { "name": "signed_ai_artifacts", "value": "sigstore" }
+  ]
+}

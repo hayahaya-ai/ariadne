@@ -1,0 +1,9 @@
+{
+  "delegation_scope": true,
+  "allowed_delegate_agents": ["security-reviewer"],
+  "agent_to_agent_authorization": true,
+  "origin_intent_verification": true,
+  "delegated_credential_scope": true,
+  "subagent_context_isolation": true,
+  "delegation_audit": true
+}

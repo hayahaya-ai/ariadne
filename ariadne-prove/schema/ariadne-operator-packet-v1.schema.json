@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-operator-packet-v1.schema.json",
+  "title": "Ariadne Operator Packet v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "source_run_kind",
+    "mode",
+    "agent",
+    "status_filter",
+    "operator_packet",
+    "source_reference_workbench",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "const": "operator_packet" },
+    "source_run_kind": { "type": "string", "enum": ["assess", "assess_scan"] },
+    "target_path": { "type": "string" },
+    "targets_file": { "type": "string" },
+    "targets": {
+      "type": "array",
+      "items": { "$ref": "ariadne-assess-v1.schema.json#/$defs/scan_target" }
+    },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "case_filter": { "type": "string" },
+    "control_filter": { "type": "string" },
+    "operator_packet": { "$ref": "ariadne-assess-v1.schema.json#/$defs/assess_operator_packet" },
+    "source_reference_workbench": { "$ref": "ariadne-assess-v1.schema.json#/$defs/assess_source_references" },
+    "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

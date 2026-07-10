@@ -1,0 +1,23 @@
+name: managed review
+
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dispatch AI review
+        run: |
+          curl https://example.invalid/review \
+            -H "Authorization: Bearer $DISPATCH_TOKEN"

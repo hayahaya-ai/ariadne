@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-case-action-v1.schema.json",
+  "title": "Ariadne Case Action v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "source_run_kind",
+    "mode",
+    "agent",
+    "status_filter",
+    "case",
+    "action_packet",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "const": "case_action" },
+    "source_run_kind": { "type": "string", "enum": ["case_board", "case_board_scan", "control_catalog", "control_catalog_scan"] },
+    "target_path": { "type": "string" },
+    "targets_file": { "type": "string" },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "case_filter": { "type": "string" },
+    "case": { "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_operator_case" },
+    "action_packet": { "$ref": "ariadne-control-catalog-v1.schema.json#/$defs/control_operator_action_packet" },
+    "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,20 +1,53 @@
-BIN ?= bin/ariadne
+PROJECT ?= ariadne-prove
+ROOT_BIN ?= bin/ariadne
 GOCACHE ?= /private/tmp/ariadne-gocache
 
-.PHONY: test build doctor scan-fixture clean
+.PHONY: check fmt test vet build root-build product-build verify-first-run eval stories inventory prove assess scan clean
+
+check: fmt vet test build
+
+fmt:
+	test -z "$$(gofmt -l cmd)"
+	$(MAKE) -C $(PROJECT) fmt
 
 test:
-	GOCACHE=$(GOCACHE) go test ./...
+	GOCACHE=$(GOCACHE) go test ./cmd/ariadne
+	$(MAKE) -C $(PROJECT) test
 
-build:
+vet:
+	GOCACHE=$(GOCACHE) go vet ./cmd/ariadne
+	$(MAKE) -C $(PROJECT) vet
+
+build: product-build root-build
+
+product-build:
+	$(MAKE) -C $(PROJECT) build
+
+root-build:
 	mkdir -p bin
-	GOCACHE=$(GOCACHE) go build -o $(BIN) ./cmd/ariadne
+	GOCACHE=$(GOCACHE) go build -o $(ROOT_BIN) ./cmd/ariadne
 
-doctor:
-	GOCACHE=$(GOCACHE) go run ./cmd/ariadne doctor --mode endpoint
+verify-first-run: build
+	ARIADNE_BIN=$(ROOT_BIN) bash scripts/verify-first-run.sh
 
-scan-fixture:
-	GOCACHE=$(GOCACHE) go run ./cmd/ariadne scan --mode repo --path testdata/fixtures/unsafe-codex
+eval:
+	$(MAKE) -C $(PROJECT) eval
+
+stories: build
+	$(ROOT_BIN) stories list
+
+inventory: build
+	$(ROOT_BIN) inventory --path $(PROJECT)/testdata/realpath/messy-ai-surfaces
+
+prove: build
+	$(ROOT_BIN) prove --path $(PROJECT)/testdata/realpath/combined-risk
+
+assess: build
+	$(ROOT_BIN) assess --path $(PROJECT)/testdata/realpath/combined-risk --format action
+
+scan: build
+	$(ROOT_BIN) scan --targets $(PROJECT)/testdata/realpath/targets.txt
 
 clean:
-	rm -rf bin coverage.out report.json report.md ariadne.sarif
+	$(MAKE) -C $(PROJECT) clean
+	rm -rf bin

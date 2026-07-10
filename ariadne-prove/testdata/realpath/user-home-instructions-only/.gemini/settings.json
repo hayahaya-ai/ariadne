@@ -1,0 +1,4 @@
+{
+  "tools": { "filesystem": { "allowed_directories": ["~"] } },
+  "network_access": true
+}

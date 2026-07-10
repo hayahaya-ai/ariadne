@@ -1,0 +1,32 @@
+{
+  "id": "endpoint-risk-inferred",
+  "title": "Endpoint agent config declares broad local authority",
+  "persona": "IT / SecOps",
+  "user_question": "Is this developer machine configured in a risky way?",
+  "runtime": "all",
+  "mode": "endpoint",
+  "world": {
+    "home_path": "world/home"
+  },
+  "expected": {
+    "status": "exposed",
+    "proof_mode": "inferred",
+    "required_nodes": [
+      "config:codex-endpoint",
+      "config:claude-endpoint",
+      "runtime:codex",
+      "runtime:claude",
+      "authority:broad-local",
+      "boundary:developer-secret-boundary"
+    ],
+    "required_edges": [
+      "config:codex-endpoint|configures|runtime:codex",
+      "config:claude-endpoint|configures|runtime:claude",
+      "runtime:codex|has_authority|authority:broad-local",
+      "runtime:claude|has_authority|authority:broad-local",
+      "authority:broad-local|reaches|boundary:developer-secret-boundary"
+    ],
+    "controls_break_path": ["managed policy", "deny-read secret-like paths"],
+    "redaction_must_not_contain": []
+  }
+}

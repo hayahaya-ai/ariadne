@@ -1,0 +1,12684 @@
+package report
+
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/hayahaya-ai/ariadne/ariadne-prove/internal/model"
+)
+
+const commandNameEnv = "ARIADNE_COMMAND"
+
+func Render(w io.Writer, r model.Report, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "dot", "graphviz":
+		return renderGraphDOT(w, graphTitle(r.RunKind, r.Story.ID), r.Graph)
+	case "mermaid":
+		return renderGraphMermaid(w, graphTitle(r.RunKind, r.Story.ID), r.Graph)
+	case "html", "dashboard":
+		return renderReportDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown format: %s", format)
+	}
+}
+
+func RenderAssess(w io.Writer, inventory model.InventoryReport, r model.Report, format string, statusFilter string) error {
+	assess, err := BuildAssessReport(inventory, r, statusFilter)
+	if err != nil {
+		return err
+	}
+	return renderAssess(w, assess, format)
+}
+
+func RenderAssessFocused(w io.Writer, inventory model.InventoryReport, r model.Report, format string, statusFilter string, focus AssessFocus) error {
+	assess, err := BuildAssessReport(inventory, r, statusFilter, focus)
+	if err != nil {
+		return err
+	}
+	return renderAssess(w, assess, format)
+}
+
+func RenderAssessReport(w io.Writer, assess model.AssessReport, format string) error {
+	return renderAssess(w, assess, format)
+}
+
+func RenderAssessScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
+	assess, err := BuildAssessScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	return renderAssess(w, assess, format)
+}
+
+func RenderAssessScanFocused(w io.Writer, r model.ScanReport, format string, statusFilter string, focus AssessFocus) error {
+	assess, err := BuildAssessScanReport(r, statusFilter, focus)
+	if err != nil {
+		return err
+	}
+	return renderAssess(w, assess, format)
+}
+
+type AssessFocus struct {
+	CaseFilter    string
+	ControlFilter string
+}
+
+func normalizeAssessFocus(options ...AssessFocus) AssessFocus {
+	if len(options) == 0 {
+		return AssessFocus{}
+	}
+	focus := options[0]
+	focus.CaseFilter = strings.TrimSpace(focus.CaseFilter)
+	focus.ControlFilter = normalizeAssessControlFilter(focus.ControlFilter)
+	return focus
+}
+
+func normalizeAssessControlFilter(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "control:") {
+		return value
+	}
+	return "control:" + value
+}
+
+func applyAssessFocusToCaseBoard(catalog *model.ControlCatalogReport, focus AssessFocus) error {
+	caseFilter := strings.TrimSpace(focus.CaseFilter)
+	controlFilter := normalizeAssessControlFilter(focus.ControlFilter)
+	if controlFilter != "" {
+		selected, ok := assessFindCaseForControl(catalog.OperatorCases, caseFilter, controlFilter)
+		if !ok {
+			if caseFilter != "" {
+				return fmt.Errorf("control %q not found in operator case %q", controlFilter, caseFilter)
+			}
+			return fmt.Errorf("control %q not found in operator cases", controlFilter)
+		}
+		caseFilter = selected.ID
+	}
+	if caseFilter != "" {
+		if err := filterControlCaseBoard(catalog, caseFilter); err != nil {
+			return err
+		}
+	}
+	if controlFilter != "" {
+		if err := focusControlCaseBoard(catalog, controlFilter); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func assessFindCaseForControl(cases []model.ControlOperatorCase, caseFilter string, control string) (model.ControlOperatorCase, bool) {
+	for _, item := range cases {
+		if caseFilter != "" && !controlOperatorCaseMatches(item, caseFilter) {
+			continue
+		}
+		if controlOperatorCaseHasControl(item, control) {
+			return item, true
+		}
+	}
+	return model.ControlOperatorCase{}, false
+}
+
+func controlOperatorCaseHasControl(item model.ControlOperatorCase, control string) bool {
+	for _, candidate := range item.StartingControls {
+		if candidate == control {
+			return true
+		}
+	}
+	for _, patch := range item.ProofPatches {
+		if patch.Control == control {
+			return true
+		}
+	}
+	return false
+}
+
+func focusControlCaseBoard(catalog *model.ControlCatalogReport, control string) error {
+	control = normalizeAssessControlFilter(control)
+	if control == "" {
+		return nil
+	}
+	if len(catalog.OperatorCases) == 0 {
+		return fmt.Errorf("control %q has no focused operator case", control)
+	}
+	selected := catalog.OperatorCases[0]
+	if !controlOperatorCaseHasControl(selected, control) {
+		return fmt.Errorf("control %q not found in operator case %q", control, selected.ID)
+	}
+	tasks := focusControlVerificationTasks(catalog.VerificationTasks, control)
+	selected.StartingControls = []string{control}
+	selected.StartingTaskIDs = controlVerificationTaskIDs(tasks)
+	selected.ProofPatches = focusControlProofPatches(selected.ProofPatches, control)
+	selected.ProofSurfaces = focusControlProofSurfaces(selected.ProofSurfaces, selected.ProofPatches, tasks)
+	if len(tasks) > 0 {
+		selected.EvidenceExamples = dedupeControlEvidenceExamples(tasks[0].EvidenceExamples)
+	}
+	selected.ControlCount = 1
+	selected.NextStep = assessFocusedControlNextStep(control, selected.ProofSurfaces, selected.EvidenceExamples)
+	catalog.OperatorCases = []model.ControlOperatorCase{selected}
+	catalog.Controls = focusArchitectureClosures(catalog.Controls, control)
+	catalog.Families = focusArchitectureClosureFamilies(catalog.Families, control)
+	catalog.Workstreams = focusControlBreakPathWorkstreams(catalog.Workstreams, control, tasks)
+	catalog.ProofSpecs = focusControlProofSpecs(catalog.ProofSpecs, control)
+	catalog.VerificationTasks = nonNilControlVerificationTasks(tasks)
+	catalog.Summary = summarizeControlCatalog(catalog.Controls)
+	return nil
+}
+
+func focusControlVerificationTasks(items []model.ControlVerificationTask, control string) []model.ControlVerificationTask {
+	var out []model.ControlVerificationTask
+	for _, item := range items {
+		if item.Control == control {
+			out = append(out, item)
+		}
+	}
+	return nonNilControlVerificationTasks(out)
+}
+
+func controlVerificationTaskIDs(items []model.ControlVerificationTask) []string {
+	var out []string
+	for _, item := range items {
+		if item.ID != "" {
+			out = append(out, item.ID)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func focusControlProofPatches(items []model.ControlProofPatch, control string) []model.ControlProofPatch {
+	var out []model.ControlProofPatch
+	for _, item := range items {
+		if item.Control == control {
+			out = append(out, item)
+		}
+	}
+	return dedupeControlProofPatches(out)
+}
+
+func focusControlProofSurfaces(existing []string, patches []model.ControlProofPatch, tasks []model.ControlVerificationTask) []string {
+	var out []string
+	for _, patch := range patches {
+		if patch.Surface != "" {
+			out = append(out, patch.Surface)
+		}
+	}
+	for _, task := range tasks {
+		out = append(out, task.ProofSurfaces...)
+	}
+	if len(out) == 0 {
+		out = append(out, existing...)
+	}
+	return uniqueStrings(out)
+}
+
+func focusArchitectureClosures(items []model.ArchitectureClosure, control string) []model.ArchitectureClosure {
+	var out []model.ArchitectureClosure
+	for _, item := range items {
+		if item.Control == control {
+			out = append(out, item)
+		}
+	}
+	return nonNilArchitectureClosures(out)
+}
+
+func focusArchitectureClosureFamilies(items []model.ArchitectureClosureFamily, control string) []model.ArchitectureClosureFamily {
+	var out []model.ArchitectureClosureFamily
+	for _, item := range items {
+		if !containsReportString(item.Controls, control) {
+			continue
+		}
+		item.Controls = []string{control}
+		item.ControlCount = 1
+		out = append(out, item)
+	}
+	return nonNilArchitectureClosureFamilies(out)
+}
+
+func focusControlBreakPathWorkstreams(items []model.ControlBreakPathWorkstream, control string, tasks []model.ControlVerificationTask) []model.ControlBreakPathWorkstream {
+	var out []model.ControlBreakPathWorkstream
+	taskIDs := controlVerificationTaskIDs(tasks)
+	for _, item := range items {
+		if !containsReportString(item.Controls, control) && !containsReportString(item.StartingControls, control) {
+			continue
+		}
+		item.Controls = []string{control}
+		item.StartingControls = []string{control}
+		item.StartingTaskIDs = taskIDs
+		item.ControlCount = 1
+		out = append(out, item)
+	}
+	return nonNilControlBreakPathWorkstreams(out)
+}
+
+func focusControlProofSpecs(items []model.ControlProofSpec, control string) []model.ControlProofSpec {
+	var out []model.ControlProofSpec
+	for _, item := range items {
+		if item.Control == control {
+			out = append(out, item)
+		}
+	}
+	return nonNilControlProofSpecs(out)
+}
+
+func assessFocusedControlNextStep(control string, proofSurfaces []string, examples []model.ControlEvidenceExample) string {
+	surface := firstString(proofSurfaces)
+	if len(examples) > 0 && examples[0].Surface != "" {
+		surface = examples[0].Surface
+	}
+	if surface != "" {
+		return fmt.Sprintf("Add or verify %s evidence at %s, then rerun this case. Declarations under .ariadne/ are recorded as attested evidence only; closing the case requires enforced evidence such as runtime permission semantics or managed configuration.", control, surface)
+	}
+	return fmt.Sprintf("Add or verify %s evidence, then rerun this case. Declarations under .ariadne/ are recorded as attested evidence only; closing the case requires enforced evidence such as runtime permission semantics or managed configuration.", control)
+}
+
+func containsReportString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func BuildAssessReport(inventory model.InventoryReport, r model.Report, statusFilter string, focusOptions ...AssessFocus) (model.AssessReport, error) {
+	focus := normalizeAssessFocus(focusOptions...)
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return model.AssessReport{}, err
+	}
+	caseBoard := BuildControlCaseBoardReport(architecture)
+	if err := applyAssessFocusToCaseBoard(&caseBoard, focus); err != nil {
+		if focus.ControlFilter == "" {
+			if closed, ok, closedErr := buildFocusedClosedCaseBoardReport(r, statusFilter, focus.CaseFilter); closedErr != nil {
+				return model.AssessReport{}, closedErr
+			} else if ok {
+				caseBoard = closed
+			} else {
+				return model.AssessReport{}, err
+			}
+		} else {
+			return model.AssessReport{}, err
+		}
+	}
+	if caseBoard.CaseFilter != "" {
+		focus.CaseFilter = caseBoard.CaseFilter
+	}
+	exposures := reportExposures(r)
+	exposure := buildAssessExposure(exposures)
+	lethalTrifecta := buildAssessLethalTrifecta(exposures)
+	closureEvidence := buildAssessClosureEvidence(exposures, []assessClosureTarget{{TargetID: "target", Flaws: r.ZeroTrust.ArchitectureFlaws}})
+	inventorySummary := buildAssessInventory(inventory)
+	summary := buildAssessSummary(inventorySummary, exposure, architecture.Summary, caseBoard.Summary, caseBoard.OperatorCases)
+	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
+	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
+	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan, r.TargetPath)
+	closurePlan := buildAssessClosurePlan(topCases, 5)
+	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, architecture.Flaws)
+	triage.EvidenceGapActions = assessPathEvidenceGapActions(r.TargetPath, r.Story.Mode, r.Story.Runtime, triage, inventorySummary)
+	controlState := buildAssessControlState(firstAction, triage)
+	signalQuality := buildAssessSignalQuality(summary, inventorySummary, triage, controlState, firstAction)
+	signalNoise := buildAssessSignalNoise(summary, inventorySummary, triage, controlState, signalQuality, firstAction)
+	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, r.TargetPath)
+	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
+	operatorPacket := buildAssessOperatorPacket(decision, signalQuality, controlState, firstAction, operatorWorkbench)
+	sourceReferences := buildAssessSourceReferenceWorkbench(r.TargetPath, operatorPacket, operatorWorkbench, decision, signalQuality, triage, firstAction, topCases)
+	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
+	nextCommands := assessPathCommands(r.TargetPath, r.Story.Mode, r.Story.Runtime, architecture.StatusFilter, caseBoard.OperatorCases, focus)
+	operatorWorkbench = attachAssessRunbookClosureCommand(operatorWorkbench, nextCommands)
+	return model.AssessReport{
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             r.RunID,
+		GeneratedAt:       r.GeneratedAt,
+		RunKind:           "assess",
+		TargetPath:        r.TargetPath,
+		Mode:              r.Story.Mode,
+		Agent:             r.Story.Runtime,
+		StatusFilter:      architecture.StatusFilter,
+		CaseFilter:        caseBoard.CaseFilter,
+		ControlFilter:     focus.ControlFilter,
+		Summary:           summary,
+		Decision:          decision,
+		Triage:            triage,
+		SourceReferences:  sourceReferences,
+		SignalNoise:       signalNoise,
+		SignalQuality:     signalQuality,
+		ControlState:      controlState,
+		Inventory:         inventorySummary,
+		Exposure:          exposure,
+		LethalTrifecta:    lethalTrifecta,
+		ClosureEvidence:   closureEvidence,
+		Architecture:      &architecture,
+		CaseBoard:         caseBoard,
+		TopCases:          topCases,
+		TopCaseProofPlan:  topCaseProofPlan,
+		FirstAction:       firstAction,
+		OperatorPacket:    operatorPacket,
+		OperatorWorkbench: operatorWorkbench,
+		CaseLifecycle:     caseLifecycle,
+		ClosurePlan:       closurePlan,
+		NextCommands:      nextCommands,
+		Redaction:         r.Redaction,
+		Warnings:          uniqueSortedStrings(append(append([]string{}, inventory.Warnings...), r.Warnings...)),
+		Limitations:       uniqueSortedStrings(append(append([]string{}, inventory.Limitations...), r.Limitations...)),
+	}, nil
+}
+
+func BuildAssessScanReport(r model.ScanReport, statusFilter string, focusOptions ...AssessFocus) (model.AssessReport, error) {
+	focus := normalizeAssessFocus(focusOptions...)
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return model.AssessReport{}, err
+	}
+	caseBoard := BuildControlCaseBoardScanReport(architecture)
+	if err := applyAssessFocusToCaseBoard(&caseBoard, focus); err != nil {
+		if focus.ControlFilter == "" {
+			if closed, ok, closedErr := buildFocusedClosedCaseBoardScanReport(r, statusFilter, focus.CaseFilter); closedErr != nil {
+				return model.AssessReport{}, closedErr
+			} else if ok {
+				caseBoard = closed
+			} else {
+				return model.AssessReport{}, err
+			}
+		} else {
+			return model.AssessReport{}, err
+		}
+	}
+	if caseBoard.CaseFilter != "" {
+		focus.CaseFilter = caseBoard.CaseFilter
+	}
+	var exposures []model.ExposureResult
+	var closureTargets []assessClosureTarget
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		exposures = append(exposures, reportExposures(target.Report)...)
+		closureTargets = append(closureTargets, assessClosureTarget{TargetID: target.Target.ID, Flaws: target.Report.ZeroTrust.ArchitectureFlaws})
+	}
+	exposure := model.AssessExposure{
+		Paths:        r.Summary.ExposurePaths,
+		Exposed:      r.Summary.Exposed,
+		Protected:    r.Summary.Protected,
+		Inconclusive: r.Summary.Inconclusive,
+		TopPaths:     []model.ExposureResult{},
+	}
+	lethalTrifecta := buildAssessLethalTrifecta(exposures)
+	inventorySummary := buildAssessScanInventory(r)
+	summary := buildAssessSummary(inventorySummary, exposure, zeroTrustSummaryFromArchitectureScan(architecture.Summary), caseBoard.Summary, caseBoard.OperatorCases)
+	summary.Targets = r.Summary.Targets
+	summary.CompletedTargets = r.Summary.Completed
+	summary.Errors = r.Summary.Errors
+	targets := make([]model.ScanTarget, 0, len(r.Targets))
+	for _, target := range r.Targets {
+		targets = append(targets, target.Target)
+	}
+	topCases := topControlOperatorCases(caseBoard.OperatorCases, 5)
+	topCaseProofPlan := buildTopCaseProofPlan(caseBoard)
+	firstAction := buildAssessFirstAction(topCases, topCaseProofPlan, "")
+	closurePlan := buildAssessClosurePlan(topCases, 5)
+	closureEvidence := buildAssessClosureEvidence(exposures, closureTargets)
+	triage := buildAssessTriage(summary, inventorySummary, exposure, closureEvidence, firstAction, assessScanArchitectureFlaws(architecture))
+	triage.EvidenceGapActions = assessScanEvidenceGapActions(r.TargetsFile, r.Mode, r.Agent, triage)
+	controlState := buildAssessControlState(firstAction, triage)
+	signalQuality := buildAssessSignalQuality(summary, inventorySummary, triage, controlState, firstAction)
+	signalNoise := buildAssessSignalNoise(summary, inventorySummary, triage, controlState, signalQuality, firstAction)
+	decision := buildAssessDecision(summary, inventorySummary, triage, controlState, firstAction, "")
+	operatorWorkbench := buildAssessOperatorWorkbench(firstAction, controlState, triage)
+	operatorPacket := buildAssessOperatorPacket(decision, signalQuality, controlState, firstAction, operatorWorkbench)
+	sourceReferences := buildAssessSourceReferenceWorkbench("", operatorPacket, operatorWorkbench, decision, signalQuality, triage, firstAction, topCases)
+	caseLifecycle := buildAssessCaseLifecycle(firstAction, controlState)
+	nextCommands := assessScanCommands(r.TargetsFile, r.Mode, r.Agent, architecture.StatusFilter, caseBoard.OperatorCases, focus)
+	return model.AssessReport{
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             r.RunID,
+		GeneratedAt:       r.GeneratedAt,
+		RunKind:           "assess_scan",
+		TargetsFile:       r.TargetsFile,
+		Targets:           targets,
+		Mode:              r.Mode,
+		Agent:             r.Agent,
+		StatusFilter:      architecture.StatusFilter,
+		CaseFilter:        caseBoard.CaseFilter,
+		ControlFilter:     focus.ControlFilter,
+		Summary:           summary,
+		Decision:          decision,
+		Triage:            triage,
+		SourceReferences:  sourceReferences,
+		SignalNoise:       signalNoise,
+		SignalQuality:     signalQuality,
+		ControlState:      controlState,
+		Inventory:         inventorySummary,
+		Exposure:          exposure,
+		LethalTrifecta:    lethalTrifecta,
+		ClosureEvidence:   closureEvidence,
+		ArchitectureScan:  &architecture,
+		CaseBoard:         caseBoard,
+		TopCases:          topCases,
+		TopCaseProofPlan:  topCaseProofPlan,
+		FirstAction:       firstAction,
+		OperatorPacket:    operatorPacket,
+		OperatorWorkbench: operatorWorkbench,
+		CaseLifecycle:     caseLifecycle,
+		ClosurePlan:       closurePlan,
+		NextCommands:      nextCommands,
+		Redaction:         r.Redaction,
+		Warnings:          append([]string{}, r.Warnings...),
+		Limitations:       uniqueSortedStrings(append(append([]string{}, r.Limitations...), inventorySummary.Limitations...)),
+	}, nil
+}
+
+func RenderArchitecture(w io.Writer, r model.Report, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderArchitectureTable(w, architecture)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(architecture)
+	case "html", "dashboard":
+		return renderArchitectureDashboard(w, architecture)
+	default:
+		return fmt.Errorf("unknown architecture format: %s", format)
+	}
+}
+
+func RenderArchitectureScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderArchitectureScanTable(w, architecture)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(architecture)
+	case "html", "dashboard":
+		return renderArchitectureScanDashboard(w, architecture)
+	default:
+		return fmt.Errorf("unknown architecture format: %s", format)
+	}
+}
+
+func RenderControls(w io.Writer, r model.Report, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCatalogReport(architecture)
+	return renderControlCatalog(w, catalog, format)
+}
+
+func RenderControlsScan(w io.Writer, r model.ScanReport, format string, statusFilter string) error {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCatalogScanReport(architecture)
+	return renderControlCatalog(w, catalog, format)
+}
+
+func RenderCases(w io.Writer, r model.Report, format string, statusFilter string, caseFilter string) error {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCaseBoardReport(architecture)
+	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
+		if closed, ok, closedErr := buildFocusedClosedCaseBoardReport(r, statusFilter, caseFilter); closedErr != nil {
+			return closedErr
+		} else if ok {
+			catalog = closed
+		} else {
+			catalog = buildFocusedAbsentCaseBoard(catalog, caseFilter)
+		}
+	}
+	return renderControlCaseBoard(w, catalog, format)
+}
+
+func RenderCasesScan(w io.Writer, r model.ScanReport, format string, statusFilter string, caseFilter string) error {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return err
+	}
+	catalog := BuildControlCaseBoardScanReport(architecture)
+	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
+		if closed, ok, closedErr := buildFocusedClosedCaseBoardScanReport(r, statusFilter, caseFilter); closedErr != nil {
+			return closedErr
+		} else if ok {
+			catalog = closed
+		} else {
+			catalog = buildFocusedAbsentCaseBoard(catalog, caseFilter)
+		}
+	}
+	return renderControlCaseBoard(w, catalog, format)
+}
+
+func RenderProofs(w io.Writer, r model.Report, format string, statusFilter string, caseFilter string) error {
+	plan, err := BuildProofPlanForReport(r, statusFilter, caseFilter)
+	if err != nil {
+		return err
+	}
+	return renderProofPlan(w, plan, format)
+}
+
+func BuildProofPlanForReport(r model.Report, statusFilter string, caseFilter string) (model.ProofPlanReport, error) {
+	architecture, err := BuildArchitectureReport(r, statusFilter)
+	if err != nil {
+		return model.ProofPlanReport{}, err
+	}
+	catalog := BuildControlCaseBoardReport(architecture)
+	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
+		if closed, ok, closedErr := buildFocusedClosedCaseBoardReport(r, statusFilter, caseFilter); closedErr != nil {
+			return model.ProofPlanReport{}, closedErr
+		} else if ok {
+			catalog = closed
+		} else {
+			catalog = buildFocusedAbsentCaseBoard(catalog, caseFilter)
+		}
+	}
+	return BuildProofPlanReport(catalog), nil
+}
+
+func RenderProofsScan(w io.Writer, r model.ScanReport, format string, statusFilter string, caseFilter string) error {
+	plan, err := BuildProofPlanForScanReport(r, statusFilter, caseFilter)
+	if err != nil {
+		return err
+	}
+	return renderProofPlan(w, plan, format)
+}
+
+func BuildProofPlanForScanReport(r model.ScanReport, statusFilter string, caseFilter string) (model.ProofPlanReport, error) {
+	architecture, err := BuildArchitectureScanReport(r, statusFilter)
+	if err != nil {
+		return model.ProofPlanReport{}, err
+	}
+	catalog := BuildControlCaseBoardScanReport(architecture)
+	if err := filterControlCaseBoard(&catalog, caseFilter); err != nil {
+		if closed, ok, closedErr := buildFocusedClosedCaseBoardScanReport(r, statusFilter, caseFilter); closedErr != nil {
+			return model.ProofPlanReport{}, closedErr
+		} else if ok {
+			catalog = closed
+		} else {
+			catalog = buildFocusedAbsentCaseBoard(catalog, caseFilter)
+		}
+	}
+	return BuildProofPlanReport(catalog), nil
+}
+
+func BuildControlCatalogReport(r model.ArchitectureReport) model.ControlCatalogReport {
+	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
+	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
+	workstreams := buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks)
+	catalog := model.ControlCatalogReport{
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             r.RunID,
+		GeneratedAt:       r.GeneratedAt,
+		RunKind:           "control_catalog",
+		TargetPath:        r.TargetPath,
+		Mode:              r.Mode,
+		Agent:             r.Agent,
+		StatusFilter:      r.StatusFilter,
+		Summary:           summarizeControlCatalog(r.ClosurePlan),
+		Controls:          append([]model.ArchitectureClosure{}, r.ClosurePlan...),
+		Families:          append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		OperatorCases:     buildControlOperatorCases(workstreams, verificationTasks),
+		Workstreams:       workstreams,
+		ProofSpecs:        proofSpecs,
+		VerificationTasks: verificationTasks,
+		Redaction:         r.Redaction,
+		Limitations:       append([]string{}, r.Limitations...),
+	}
+	if catalog.Controls == nil {
+		catalog.Controls = []model.ArchitectureClosure{}
+	}
+	if catalog.Families == nil {
+		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	if catalog.OperatorCases == nil {
+		catalog.OperatorCases = []model.ControlOperatorCase{}
+	}
+	if catalog.Workstreams == nil {
+		catalog.Workstreams = []model.ControlBreakPathWorkstream{}
+	}
+	if catalog.ProofSpecs == nil {
+		catalog.ProofSpecs = []model.ControlProofSpec{}
+	}
+	if catalog.VerificationTasks == nil {
+		catalog.VerificationTasks = []model.ControlVerificationTask{}
+	}
+	attachOperatorCaseCompareCommands(&catalog)
+	attachOperatorCasePatchExportCommands(&catalog)
+	attachOperatorCaseActionPackets(&catalog)
+	return catalog
+}
+
+func BuildControlCaseBoardReport(r model.ArchitectureReport) model.ControlCatalogReport {
+	catalog := BuildControlCatalogReport(r)
+	catalog.RunKind = "case_board"
+	rewriteControlCatalogAsCaseBoard(&catalog)
+	return catalog
+}
+
+func BuildControlCaseActionReport(catalog model.ControlCatalogReport) model.ControlCaseActionReport {
+	out := model.ControlCaseActionReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         catalog.RunID,
+		GeneratedAt:   catalog.GeneratedAt,
+		RunKind:       "case_action",
+		SourceRunKind: firstNonEmpty(catalog.RunKind, "case_board"),
+		TargetPath:    catalog.TargetPath,
+		TargetsFile:   catalog.TargetsFile,
+		Mode:          catalog.Mode,
+		Agent:         catalog.Agent,
+		StatusFilter:  catalog.StatusFilter,
+		CaseFilter:    catalog.CaseFilter,
+		Redaction:     catalog.Redaction,
+		Limitations:   nonNilStrings(catalog.Limitations),
+	}
+	if len(catalog.OperatorCases) == 0 {
+		out.ActionPacket = normalizeControlOperatorActionPacket(model.ControlOperatorActionPacket{
+			Available: false,
+			Status:    "no_case",
+			Limitations: []string{
+				"No operator case matched the requested filters.",
+			},
+		})
+		out.Limitations = nonNilStrings(uniqueStrings(append(out.Limitations, out.ActionPacket.Limitations...)))
+		return out
+	}
+	item := catalog.OperatorCases[0]
+	packet := item.ActionPacket
+	if !packet.Available && item.ID != "" {
+		packet = buildControlOperatorActionPacket(catalog, item)
+		item.ActionPacket = packet
+	}
+	out.Case = item
+	out.ActionPacket = normalizeControlOperatorActionPacket(packet)
+	if out.CaseFilter == "" {
+		out.CaseFilter = item.ID
+	}
+	out.Limitations = nonNilStrings(uniqueStrings(append(out.Limitations, out.ActionPacket.Limitations...)))
+	return out
+}
+
+func BuildProofPlanReport(catalog model.ControlCatalogReport) model.ProofPlanReport {
+	var patches []model.ControlProofPatch
+	var evidenceRefs []model.EvidenceReference
+	var rerunCommands []string
+	var successCriteria []string
+	targets := map[string]bool{}
+	flaws := map[string]bool{}
+	controls := map[string]bool{}
+	for _, item := range catalog.OperatorCases {
+		patches = append(patches, item.ProofPatches...)
+		evidenceRefs = append(evidenceRefs, item.EvidenceReferences...)
+		rerunCommands = append(rerunCommands, item.RerunCommands...)
+		successCriteria = append(successCriteria, item.SuccessCriteria...)
+		for _, target := range item.Targets {
+			targets[target] = true
+		}
+		for _, flaw := range item.Flaws {
+			flaws[flaw] = true
+		}
+		for _, control := range item.StartingControls {
+			controls[control] = true
+		}
+	}
+	if len(catalog.OperatorCases) == 0 {
+		for _, task := range catalog.VerificationTasks {
+			patches = append(patches, task.ProofPatches...)
+			evidenceRefs = append(evidenceRefs, task.EvidenceReferences...)
+			rerunCommands = append(rerunCommands, task.RerunCommands...)
+			successCriteria = append(successCriteria, task.SuccessCriteria...)
+			if task.Control != "" {
+				controls[task.Control] = true
+			}
+			for _, target := range task.Targets {
+				targets[target] = true
+			}
+		}
+	}
+	patches = dedupeControlProofPatches(patches)
+	evidenceRefs = dedupeEvidenceReferences(evidenceRefs)
+	rerunCommands = uniqueStrings(rerunCommands)
+	successCriteria = uniqueStrings(successCriteria)
+	compareCommands := proofPlanCompareCommands(catalog)
+	patchExportCommand := ""
+	if len(patches) > 0 {
+		patchExportCommand = proofPlanPatchExportCommand(catalog)
+	}
+	cases := append([]model.ControlOperatorCase{}, catalog.OperatorCases...)
+	if cases == nil {
+		cases = []model.ControlOperatorCase{}
+	}
+	if patches == nil {
+		patches = []model.ControlProofPatch{}
+	}
+	if evidenceRefs == nil {
+		evidenceRefs = []model.EvidenceReference{}
+	}
+	if rerunCommands == nil {
+		rerunCommands = []string{}
+	}
+	if successCriteria == nil {
+		successCriteria = []string{}
+	}
+	if compareCommands == nil {
+		compareCommands = []string{}
+	}
+	workflow := buildProofPlanWorkflow(cases, patches, evidenceRefs, rerunCommands, compareCommands, patchExportCommand, successCriteria)
+	limitations := uniqueSortedStrings(append([]string{
+		"Proof plans are deterministic evidence plans; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.",
+		"Add proof only when the named control is actually implemented or enforced in the environment.",
+	}, catalog.Limitations...))
+	runKind := "proof_plan"
+	if catalog.RunKind == "case_board_scan" || catalog.RunKind == "control_catalog_scan" {
+		runKind = "proof_plan_scan"
+	}
+	return model.ProofPlanReport{
+		SchemaVersion:      model.SchemaVersion,
+		RunID:              catalog.RunID,
+		GeneratedAt:        catalog.GeneratedAt,
+		RunKind:            runKind,
+		TargetPath:         catalog.TargetPath,
+		TargetsFile:        catalog.TargetsFile,
+		Mode:               catalog.Mode,
+		Agent:              catalog.Agent,
+		StatusFilter:       catalog.StatusFilter,
+		CaseFilter:         catalog.CaseFilter,
+		Summary:            model.ProofPlanSummary{Cases: len(catalog.OperatorCases), ProofPatches: len(patches), EvidenceReferences: len(evidenceRefs), Controls: len(controls), Targets: len(targets), Flaws: len(flaws)},
+		Cases:              cases,
+		ProofPatches:       patches,
+		EvidenceReferences: evidenceRefs,
+		RerunCommands:      rerunCommands,
+		CompareCommands:    compareCommands,
+		PatchExportCommand: patchExportCommand,
+		SuccessCriteria:    successCriteria,
+		Workflow:           workflow,
+		Redaction:          catalog.Redaction,
+		Limitations:        limitations,
+	}
+}
+
+func proofPlanCommand(catalog model.ControlCatalogReport, caseID string) string {
+	cli := ariadneCommand()
+	mode := firstNonEmpty(catalog.Mode, "repo")
+	agent := firstNonEmpty(catalog.Agent, "all")
+	status := firstNonEmpty(catalog.StatusFilter, "breaking")
+	var command string
+	switch catalog.RunKind {
+	case "case_board_scan", "control_catalog_scan":
+		command = fmt.Sprintf("%s proofs --targets %s --mode %s --agent %s --status %s", cli, targetsFileCommandArg(catalog.TargetsFile), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+	default:
+		path := firstNonEmpty(catalog.TargetPath, "<target-path>")
+		command = fmt.Sprintf("%s proofs --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+	}
+	caseID = strings.TrimSpace(caseID)
+	if caseID != "" {
+		command += " --case " + shellQuoteCommandArg(caseID)
+	}
+	return command
+}
+
+func proofPlanPatchExportCommand(catalog model.ControlCatalogReport) string {
+	switch catalog.RunKind {
+	case "case_board_scan", "control_catalog_scan":
+		return ""
+	}
+	caseID := strings.TrimSpace(catalog.CaseFilter)
+	if caseID == "" && len(catalog.OperatorCases) == 1 {
+		caseID = catalog.OperatorCases[0].ID
+	}
+	return proofPlanCommand(catalog, caseID) + " --patch-dir proof-patches"
+}
+
+func proofPlanCompareCommands(catalog model.ControlCatalogReport) []string {
+	before := "before-proof.json"
+	after := "after-proof.json"
+	caseID := strings.TrimSpace(catalog.CaseFilter)
+	if caseID == "" && len(catalog.OperatorCases) == 1 {
+		caseID = catalog.OperatorCases[0].ID
+	}
+	proofCommand := func(out string) string {
+		return proofPlanCommand(catalog, caseID) + " --format json --out " + shellQuoteCommandArg(out)
+	}
+	return []string{
+		proofCommand(before),
+		proofCommand(after),
+		fmt.Sprintf("%s compare --before %s --after %s --format receipt --out closure-receipt.txt", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
+		fmt.Sprintf("%s compare --before %s --after %s --format html --out case-compare.html", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
+	}
+}
+
+func buildProofPlanWorkflow(cases []model.ControlOperatorCase, patches []model.ControlProofPatch, evidenceRefs []model.EvidenceReference, rerunCommands []string, compareCommands []string, patchExportCommand string, successCriteria []string) []model.ProofWorkflowStep {
+	proofSurfaces := proofWorkflowSurfaces(cases, patches)
+	beforeCommands := firstStrings(compareCommands, 1)
+	afterCompareCommands := []string{}
+	if len(compareCommands) > 1 {
+		afterCompareCommands = append(afterCompareCommands, compareCommands[1:]...)
+	}
+	addProofCommands := nonNilStrings(nonEmptyStrings(patchExportCommand))
+	addProofSummary := "Add or verify the parser-recognized control evidence that should break the selected path."
+	addProofLimitations := []string{"Only add proof when the named control is actually implemented or enforced in the environment."}
+	if len(patches) == 0 {
+		addProofSummary = "No proof patch is needed for the selected case because Ariadne already observes matching control evidence or no parser-recognized patch applies."
+		addProofLimitations = []string{"No patch means there is no generated evidence file to apply; inspect the case state and evidence references instead."}
+	}
+	workflow := []model.ProofWorkflowStep{
+		{
+			ID:                 "save-baseline",
+			Title:              "Save Baseline Proof",
+			Summary:            "Run the first proof command before changing evidence so compare has a baseline artifact.",
+			Commands:           nonNilStrings(beforeCommands),
+			EvidenceReferences: dedupeEvidenceReferences(evidenceRefs),
+			ProofSurfaces:      nonNilStrings(proofSurfaces),
+			SuccessCriteria:    []string{"before-proof.json represents the current open or controlled state before evidence changes."},
+			Limitations:        []string{"The baseline is a structured Ariadne proof artifact; it does not execute the agent or prove live exploitability."},
+		},
+		{
+			ID:                 "add-or-verify-proof",
+			Title:              "Add Or Verify Proof",
+			Summary:            addProofSummary,
+			Commands:           addProofCommands,
+			EvidenceReferences: dedupeEvidenceReferences(evidenceRefs),
+			ProofSurfaces:      nonNilStrings(proofSurfaces),
+			SuccessCriteria:    []string{"The named control evidence exists at a parser-recognized proof surface and reflects a real implemented control."},
+			Limitations:        addProofLimitations,
+		},
+		{
+			ID:                 "rerun-case",
+			Title:              "Rerun Case",
+			Summary:            "Rerun the focused case or architecture command after evidence changes so Ariadne recomputes facts, graph paths, and missing controls.",
+			Commands:           nonNilStrings(rerunCommands),
+			EvidenceReferences: []model.EvidenceReference{},
+			ProofSurfaces:      nonNilStrings(proofSurfaces),
+			SuccessCriteria:    nonNilStrings(successCriteria),
+			Limitations:        []string{"Rerun results are deterministic local analysis of collected evidence."},
+		},
+		{
+			ID:                 "compare-before-after",
+			Title:              "Compare Before And After",
+			Summary:            "Save the after proof artifact and compare it with the baseline to prove whether the case closed, reopened, or stayed open.",
+			Commands:           nonNilStrings(afterCompareCommands),
+			EvidenceReferences: []model.EvidenceReference{},
+			ProofSurfaces:      nonNilStrings(proofSurfaces),
+			SuccessCriteria:    nonNilStrings(successCriteria),
+			Limitations:        []string{"Compare uses structured Ariadne JSON only; it does not rerun collectors or prove live enforcement."},
+		},
+	}
+	for i := range workflow {
+		workflow[i].Commands = uniqueStrings(workflow[i].Commands)
+		workflow[i].EvidenceReferences = dedupeEvidenceReferences(workflow[i].EvidenceReferences)
+		workflow[i].ProofSurfaces = uniqueStrings(workflow[i].ProofSurfaces)
+		workflow[i].SuccessCriteria = uniqueStrings(workflow[i].SuccessCriteria)
+		workflow[i].Limitations = uniqueStrings(workflow[i].Limitations)
+	}
+	return workflow
+}
+
+func proofWorkflowSurfaces(cases []model.ControlOperatorCase, patches []model.ControlProofPatch) []string {
+	var surfaces []string
+	surfaces = append(surfaces, proofPatchSurfaceLines(patches)...)
+	for _, item := range cases {
+		surfaces = append(surfaces, item.ProofSurfaces...)
+	}
+	return uniqueStrings(surfaces)
+}
+
+func operatorCaseCompareCommands(catalog model.ControlCatalogReport, caseID string) []string {
+	caseID = strings.TrimSpace(caseID)
+	if caseID == "" {
+		return []string{}
+	}
+	focused := catalog
+	focused.CaseFilter = caseID
+	return proofPlanCompareCommands(focused)
+}
+
+func attachOperatorCaseCompareCommands(catalog *model.ControlCatalogReport) {
+	if catalog == nil {
+		return
+	}
+	for i := range catalog.OperatorCases {
+		catalog.OperatorCases[i].CompareCommands = operatorCaseCompareCommands(*catalog, catalog.OperatorCases[i].ID)
+	}
+}
+
+func operatorCasePatchExportCommand(catalog model.ControlCatalogReport, item model.ControlOperatorCase) string {
+	if len(item.ProofPatches) == 0 {
+		return ""
+	}
+	switch catalog.RunKind {
+	case "case_board_scan", "control_catalog_scan":
+		return ""
+	}
+	caseID := strings.TrimSpace(item.ID)
+	if caseID == "" {
+		return ""
+	}
+	return proofPlanCommand(catalog, caseID) + " --patch-dir proof-patches"
+}
+
+func attachOperatorCasePatchExportCommands(catalog *model.ControlCatalogReport) {
+	if catalog == nil {
+		return
+	}
+	for i := range catalog.OperatorCases {
+		catalog.OperatorCases[i].PatchExportCommand = operatorCasePatchExportCommand(*catalog, catalog.OperatorCases[i])
+	}
+}
+
+func attachOperatorCaseActionPackets(catalog *model.ControlCatalogReport) {
+	if catalog == nil {
+		return
+	}
+	for i := range catalog.OperatorCases {
+		catalog.OperatorCases[i].ActionPacket = buildControlOperatorActionPacket(*catalog, catalog.OperatorCases[i])
+	}
+}
+
+func buildControlOperatorActionPacket(catalog model.ControlCatalogReport, item model.ControlOperatorCase) model.ControlOperatorActionPacket {
+	if strings.TrimSpace(item.ID) == "" {
+		return normalizeControlOperatorActionPacket(model.ControlOperatorActionPacket{})
+	}
+	generated, suggested, destinations, apply := controlOperatorCaseProofBundle(catalog.TargetPath, item)
+	packet := model.ControlOperatorActionPacket{
+		Available:             true,
+		Status:                controlOperatorActionPacketStatus(item),
+		CaseID:                item.ID,
+		CaseTitle:             item.Title,
+		State:                 item.State,
+		CurrentControl:        firstString(item.StartingControls),
+		ProofSurface:          firstString(firstNonEmptyStrings(proofPatchBundleSurfaces(item.ProofPatches), item.ProofSurfaces)),
+		OpenFirst:             dedupeEvidenceReferences(item.EvidenceReferences),
+		EvidenceSources:       evidenceReferenceSources(item.EvidenceReferences, false),
+		GeneratedProofPaths:   generated,
+		SuggestedDestinations: suggested,
+		DestinationPaths:      destinations,
+		ApplyCommands:         apply,
+		DoneCriteria:          item.SuccessCriteria,
+		Limitations:           item.Limitations,
+	}
+	packet.Commands = buildControlOperatorActionCommands(item, packet)
+	return normalizeControlOperatorActionPacket(packet)
+}
+
+func controlOperatorActionPacketStatus(item model.ControlOperatorCase) string {
+	if controlOperatorCaseIsClosed(item) {
+		return "controlled"
+	}
+	return "action_required"
+}
+
+func controlOperatorCaseProofBundle(targetPath string, item model.ControlOperatorCase) ([]string, []string, []string, []string) {
+	exportDir := proofPatchExportDirFromCommand(item.PatchExportCommand)
+	if exportDir == "" {
+		return []string{}, []string{}, []string{}, []string{}
+	}
+	surfaces := proofPatchBundleSurfaces(item.ProofPatches)
+	if len(surfaces) == 0 {
+		surfaces = append([]string{}, item.ProofSurfaces...)
+	}
+	generated := make([]string, 0, len(surfaces))
+	suggested := make([]string, 0, len(surfaces))
+	destinations := make([]string, 0, len(surfaces))
+	apply := make([]string, 0, len(surfaces))
+	for _, surface := range surfaces {
+		relPath := proofPatchExportSurfaceRelPath(surface)
+		destinationPath := proofPatchSuggestedDestinationPath(targetPath, surface)
+		generated = append(generated, filepath.Clean(filepath.Join(exportDir, relPath)))
+		suggested = append(suggested, surface)
+		destinations = append(destinations, destinationPath)
+		apply = append(apply, proofPatchApplyCommand(exportDir, relPath, destinationPath))
+	}
+	return nonNilStrings(uniqueStrings(generated)), nonNilStrings(uniqueStrings(suggested)), nonNilStrings(uniqueStrings(destinations)), nonNilStrings(uniqueStrings(nonEmptyStrings(apply...)))
+}
+
+func buildControlOperatorActionCommands(item model.ControlOperatorCase, packet model.ControlOperatorActionPacket) []model.ControlOperatorActionCommand {
+	var commands []model.ControlOperatorActionCommand
+	commands = appendControlOperatorActionCommand(commands, "open_evidence", "Open evidence", "", firstStrings(packet.EvidenceSources, 6))
+	if len(item.CompareCommands) > 0 {
+		commands = appendControlOperatorActionCommand(commands, "save_baseline", "Save baseline proof", item.CompareCommands[0], []string{"before-proof.json"})
+	}
+	commands = appendControlOperatorActionCommand(commands, "export_proof", "Export proof files", item.PatchExportCommand, firstNonEmptyStrings(packet.GeneratedProofPaths, packet.SuggestedDestinations))
+	if len(packet.ApplyCommands) > 0 {
+		commands = appendControlOperatorActionCommand(commands, "review_apply", "Review or apply proof", packet.ApplyCommands[0], firstNonEmptyStrings(packet.DestinationPaths, packet.SuggestedDestinations))
+	}
+	if len(item.RerunCommands) > 0 {
+		commands = appendControlOperatorActionCommand(commands, "rerun_case", "Rerun focused case", item.RerunCommands[0], []string{})
+	}
+	if len(item.CompareCommands) > 1 {
+		commands = appendControlOperatorActionCommand(commands, "save_after", "Save after proof", item.CompareCommands[1], []string{"after-proof.json"})
+	}
+	commands = appendControlOperatorActionCommand(commands, "compare_receipt", "Create closure receipt", assessClosureCompareCommand(item.CompareCommands), []string{"closure-receipt.txt"})
+	commands = appendControlOperatorActionCommand(commands, "compare_html", "Create HTML compare", controlOperatorCaseHTMLCompareCommand(item.CompareCommands), []string{"case-compare.html"})
+	if commands == nil {
+		return []model.ControlOperatorActionCommand{}
+	}
+	return commands
+}
+
+func appendControlOperatorActionCommand(commands []model.ControlOperatorActionCommand, id string, title string, command string, files []string) []model.ControlOperatorActionCommand {
+	command = strings.TrimSpace(command)
+	files = nonNilStrings(uniqueStrings(nonEmptyStrings(files...)))
+	if command == "" && len(files) == 0 {
+		return commands
+	}
+	return append(commands, model.ControlOperatorActionCommand{
+		Step:    len(commands) + 1,
+		ID:      id,
+		Title:   title,
+		Command: command,
+		Files:   files,
+	})
+}
+
+func controlOperatorCaseHTMLCompareCommand(commands []string) string {
+	for _, command := range commands {
+		if strings.Contains(command, "--format html") || strings.Contains(command, "case-compare.html") {
+			return command
+		}
+	}
+	return ""
+}
+
+func normalizeControlOperatorActionPacket(packet model.ControlOperatorActionPacket) model.ControlOperatorActionPacket {
+	packet.OpenFirst = dedupeEvidenceReferences(packet.OpenFirst)
+	packet.EvidenceSources = nonNilStrings(uniqueStrings(packet.EvidenceSources))
+	packet.GeneratedProofPaths = nonNilStrings(uniqueStrings(packet.GeneratedProofPaths))
+	packet.SuggestedDestinations = nonNilStrings(uniqueStrings(packet.SuggestedDestinations))
+	packet.DestinationPaths = nonNilStrings(uniqueStrings(packet.DestinationPaths))
+	packet.ApplyCommands = nonNilStrings(uniqueStrings(packet.ApplyCommands))
+	packet.DoneCriteria = nonNilStrings(uniqueStrings(packet.DoneCriteria))
+	packet.Limitations = nonNilStrings(uniqueStrings(packet.Limitations))
+	if packet.Commands == nil {
+		packet.Commands = []model.ControlOperatorActionCommand{}
+	}
+	return packet
+}
+
+func BuildCaseCompareReport(beforeRaw []byte, afterRaw []byte, beforeSource string, afterSource string) (model.CaseCompareReport, error) {
+	beforeCases, err := extractComparableCases(beforeRaw)
+	if err != nil {
+		return model.CaseCompareReport{}, fmt.Errorf("before report: %w", err)
+	}
+	afterCases, err := extractComparableCases(afterRaw)
+	if err != nil {
+		return model.CaseCompareReport{}, fmt.Errorf("after report: %w", err)
+	}
+	beforeByID := casesByID(beforeCases)
+	afterByID := casesByID(afterCases)
+	idSet := map[string]bool{}
+	for id := range beforeByID {
+		idSet[id] = true
+	}
+	for id := range afterByID {
+		idSet[id] = true
+	}
+	ids := mapKeysSorted(idSet)
+	out := model.CaseCompareReport{
+		SchemaVersion: model.SchemaVersion,
+		RunKind:       "case_compare",
+		BeforeSource:  beforeSource,
+		AfterSource:   afterSource,
+		Limitations: []string{
+			"Compare uses structured Ariadne JSON only; it does not rerun collectors or prove live enforcement.",
+			"Closed means the after report contains deterministic closed/control evidence for the case, or the case stayed closed in the compared artifact.",
+		},
+	}
+	for _, id := range ids {
+		before, beforeOK := beforeByID[id]
+		after, afterOK := afterByID[id]
+		item := compareCase(before, beforeOK, after, afterOK)
+		out.Cases = append(out.Cases, item)
+		incrementCaseCompareSummary(&out.Summary, item.Disposition)
+	}
+	out.Summary.Cases = len(out.Cases)
+	if out.Cases == nil {
+		out.Cases = []model.CaseCompareResult{}
+	}
+	out.Outcome = buildCaseCompareOutcome(out.Cases, out.Summary)
+	out.ClosureReceipts = buildCaseCompareClosureReceipts(out.Cases, beforeSource, afterSource, caseCompareArtifactHashes(beforeRaw, afterRaw, beforeSource, afterSource))
+	out.Decision = buildCaseCompareDecision(out.Summary, out.Outcome, out.Cases)
+	return out, nil
+}
+
+func RenderCaseCompare(w io.Writer, r model.CaseCompareReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderCaseCompareTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "receipt", "receipts", "closure-receipt", "closure-receipts":
+		return renderCaseCompareReceipt(w, r)
+	case "html", "dashboard":
+		return renderCaseCompareDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown compare format: %s", format)
+	}
+}
+
+type caseReportEnvelope struct {
+	RunKind       string                      `json:"run_kind"`
+	Cases         []model.ControlOperatorCase `json:"cases"`
+	OperatorCases []model.ControlOperatorCase `json:"operator_cases"`
+	CaseBoard     *model.ControlCatalogReport `json:"case_board"`
+}
+
+func extractComparableCases(raw []byte) ([]model.ControlOperatorCase, error) {
+	var env caseReportEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, err
+	}
+	if env.Cases != nil {
+		return nonNilControlOperatorCases(env.Cases), nil
+	}
+	if env.OperatorCases != nil {
+		return nonNilControlOperatorCases(env.OperatorCases), nil
+	}
+	if env.CaseBoard != nil {
+		return nonNilControlOperatorCases(env.CaseBoard.OperatorCases), nil
+	}
+	return nil, fmt.Errorf("unsupported report shape; expected proofs.cases, cases.operator_cases, or assess.case_board.operator_cases")
+}
+
+func casesByID(items []model.ControlOperatorCase) map[string]model.ControlOperatorCase {
+	out := map[string]model.ControlOperatorCase{}
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := out[id]; exists {
+			continue
+		}
+		out[id] = item
+	}
+	return out
+}
+
+func compareCase(before model.ControlOperatorCase, beforeOK bool, after model.ControlOperatorCase, afterOK bool) model.CaseCompareResult {
+	beforeState := normalizedCaseState(before, beforeOK)
+	afterState := normalizedCaseState(after, afterOK)
+	item := model.CaseCompareResult{
+		ID:                    firstNonEmpty(caseIDOrEmpty(after, afterOK), caseIDOrEmpty(before, beforeOK)),
+		Title:                 firstNonEmpty(caseTitleOrEmpty(after, afterOK), caseTitleOrEmpty(before, beforeOK)),
+		Severity:              firstNonEmpty(caseSeverityOrEmpty(after, afterOK), caseSeverityOrEmpty(before, beforeOK)),
+		BeforeState:           beforeState,
+		AfterState:            afterState,
+		BeforeStateReason:     caseStateReasonOrEmpty(before, beforeOK),
+		AfterStateReason:      caseStateReasonOrEmpty(after, afterOK),
+		BeforeControls:        normalizedCaseControls(before, beforeOK),
+		AfterControls:         normalizedCaseControls(after, afterOK),
+		BeforeProofPatches:    caseProofPatchCount(before, beforeOK),
+		AfterProofPatches:     caseProofPatchCount(after, afterOK),
+		BeforeEvidenceRefs:    caseEvidenceRefCount(before, beforeOK),
+		AfterEvidenceRefs:     caseEvidenceRefCount(after, afterOK),
+		BeforeEvidence:        caseEvidenceReferences(before, beforeOK),
+		AfterEvidence:         caseEvidenceReferences(after, afterOK),
+		BeforeTargets:         normalizedCaseTargets(before, beforeOK),
+		AfterTargets:          normalizedCaseTargets(after, afterOK),
+		BeforeFlaws:           normalizedCaseFlaws(before, beforeOK),
+		AfterFlaws:            normalizedCaseFlaws(after, afterOK),
+		BeforeRerunCommands:   caseRerunCommands(before, beforeOK),
+		AfterRerunCommands:    caseRerunCommands(after, afterOK),
+		BeforeCompareCommands: caseCompareCommands(before, beforeOK),
+		AfterCompareCommands:  caseCompareCommands(after, afterOK),
+		BeforeNextStep:        caseNextStepOrEmpty(before, beforeOK),
+		AfterNextStep:         caseNextStepOrEmpty(after, afterOK),
+	}
+	item.AddedControls = subtractStrings(item.AfterControls, item.BeforeControls)
+	item.RemovedControls = subtractStrings(item.BeforeControls, item.AfterControls)
+	item.AddedEvidence = subtractEvidenceReferences(item.AfterEvidence, item.BeforeEvidence)
+	item.RemovedEvidence = subtractEvidenceReferences(item.BeforeEvidence, item.AfterEvidence)
+	item.Disposition = caseCompareDisposition(beforeOK, beforeState, before, afterOK, afterState, after, item)
+	item.ProofVerdict = caseCompareProofVerdict(item)
+	return item
+}
+
+func caseCompareProofVerdict(item model.CaseCompareResult) model.CaseCompareProofVerdict {
+	status := caseCompareProofVerdictStatus(item)
+	summary := caseCompareProofVerdictSummary(item, status)
+	controlEvidence := item.AddedControls
+	if len(controlEvidence) == 0 {
+		controlEvidence = item.AfterControls
+	}
+	evidenceSources := evidenceReferenceSources(item.AddedEvidence, false)
+	if len(evidenceSources) == 0 {
+		evidenceSources = evidenceReferenceSources(item.AfterEvidence, false)
+	}
+	return model.CaseCompareProofVerdict{
+		Status:          status,
+		Summary:         summary,
+		ControlEvidence: uniqueSortedStrings(controlEvidence),
+		EvidenceSources: uniqueSortedStrings(evidenceSources),
+		RemainingAction: caseCompareProofVerdictRemainingAction(item, status),
+		RerunCommands:   nonNilStrings(uniqueStrings(item.AfterRerunCommands)),
+		CompareCommands: nonNilStrings(uniqueStrings(item.AfterCompareCommands)),
+		DecisionRules: []string{
+			"Compare uses before/after Ariadne JSON artifacts; it does not rerun collectors.",
+			"Closure requires the after artifact to report the case closed or absent from the selected open-case board.",
+			"Control and evidence source lists are deterministic parser outputs.",
+		},
+		Limitations: []string{
+			"A closed compare verdict does not prove live runtime enforcement.",
+		},
+	}
+}
+
+func caseCompareProofVerdictStatus(item model.CaseCompareResult) string {
+	switch item.Disposition {
+	case "closed":
+		return "proof_closed"
+	case "stayed_closed":
+		return "proof_already_closed"
+	case "reopened":
+		return "proof_regressed"
+	case "stayed_open":
+		return "proof_still_open"
+	case "added":
+		return "proof_added"
+	case "removed":
+		return "proof_removed"
+	default:
+		return "proof_changed"
+	}
+}
+
+func caseCompareProofVerdictSummary(item model.CaseCompareResult, status string) string {
+	caseName := firstNonEmpty(item.Title, item.ID, "case")
+	switch status {
+	case "proof_closed":
+		return fmt.Sprintf("%s closed: after artifact reports closed and proof patches changed from %d to %d.", caseName, item.BeforeProofPatches, item.AfterProofPatches)
+	case "proof_already_closed":
+		return fmt.Sprintf("%s stayed closed in the after artifact.", caseName)
+	case "proof_regressed":
+		return fmt.Sprintf("%s reopened: after artifact reports open after previously closed evidence.", caseName)
+	case "proof_still_open":
+		return fmt.Sprintf("%s is still open: after artifact still reports an unclosed proof path.", caseName)
+	case "proof_added":
+		return fmt.Sprintf("%s appeared in the after artifact; review whether this is newly detected exposure or a scope change.", caseName)
+	case "proof_removed":
+		return fmt.Sprintf("%s is absent from the after artifact; confirm whether the case closed or the comparison scope changed.", caseName)
+	default:
+		return fmt.Sprintf("%s changed but final state is %s.", caseName, firstNonEmpty(item.AfterState, "unknown"))
+	}
+}
+
+func caseCompareProofVerdictRemainingAction(item model.CaseCompareResult, status string) string {
+	switch status {
+	case "proof_closed", "proof_already_closed":
+		return "No remaining action for this case in the compared artifact; keep the compare artifact as closure evidence."
+	case "proof_still_open":
+		return firstNonEmpty(item.AfterNextStep, "Continue the proof loop for remaining missing hard barriers, then rerun and compare again.")
+	case "proof_regressed":
+		return "Review removed controls or evidence, restore hard-barrier proof, rerun the case, and compare again."
+	case "proof_removed":
+		return "Confirm the target, case filter, and status filter did not change before treating absence as closure."
+	case "proof_added":
+		return firstNonEmpty(item.AfterNextStep, "Triage the newly present case and run the focused proof loop.")
+	default:
+		return firstNonEmpty(item.AfterNextStep, "Review the changed case facts, rerun if needed, and compare again.")
+	}
+}
+
+func buildCaseCompareClosureReceipts(cases []model.CaseCompareResult, beforeSource string, afterSource string, artifactHashes []model.CaseCompareArtifactHash) []model.CaseCompareClosureReceipt {
+	if len(cases) == 0 {
+		return []model.CaseCompareClosureReceipt{}
+	}
+	receipts := make([]model.CaseCompareClosureReceipt, 0, len(cases))
+	for _, item := range cases {
+		verdict := item.ProofVerdict
+		caseID := firstNonEmpty(item.ID, "case")
+		receipts = append(receipts, model.CaseCompareClosureReceipt{
+			ReceiptID:            "closure-receipt:" + caseID,
+			CaseID:               item.ID,
+			CaseTitle:            item.Title,
+			Severity:             item.Severity,
+			Disposition:          item.Disposition,
+			ProofStatus:          verdict.Status,
+			BeforeState:          item.BeforeState,
+			AfterState:           item.AfterState,
+			Summary:              firstNonEmpty(verdict.Summary, caseCompareClosureReceiptSummary(item)),
+			ControlEvidence:      nonNilStrings(uniqueSortedStrings(verdict.ControlEvidence)),
+			EvidenceSources:      nonNilStrings(uniqueSortedStrings(verdict.EvidenceSources)),
+			EvidenceRefs:         caseCompareClosureReceiptEvidenceReferences(item),
+			ArtifactSources:      nonNilStrings(nonEmptyStrings(beforeSource, afterSource)),
+			ArtifactHashes:       nonNilCaseCompareArtifactHashes(artifactHashes),
+			RemainingAction:      verdict.RemainingAction,
+			RerunCommands:        nonNilStrings(uniqueStrings(verdict.RerunCommands)),
+			CompareCommands:      nonNilStrings(uniqueStrings(verdict.CompareCommands)),
+			VerificationCommands: nonNilStrings(caseCompareClosureReceiptVerificationCommands(beforeSource, afterSource)),
+			DecisionRules:        nonNilStrings(uniqueStrings(verdict.DecisionRules)),
+			Limitations:          nonNilStrings(uniqueStrings(verdict.Limitations)),
+		})
+	}
+	return receipts
+}
+
+func caseCompareClosureReceiptVerificationCommands(beforeSource string, afterSource string) []string {
+	before := firstNonEmpty(beforeSource, "before-proof.json")
+	after := firstNonEmpty(afterSource, "after-proof.json")
+	return []string{
+		fmt.Sprintf("%s compare --before %s --after %s --format receipt --out closure-receipt.txt", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
+		fmt.Sprintf("%s compare --before %s --after %s --format html --out case-compare.html", ariadneCommand(), shellQuoteCommandArg(before), shellQuoteCommandArg(after)),
+	}
+}
+
+func caseCompareClosureReceiptEvidenceReferences(item model.CaseCompareResult) []model.EvidenceReference {
+	refs := append([]model.EvidenceReference{}, item.AddedEvidence...)
+	if len(refs) == 0 {
+		refs = append(refs, item.AfterEvidence...)
+	}
+	if len(refs) == 0 {
+		refs = append(refs, item.RemovedEvidence...)
+	}
+	if len(refs) == 0 {
+		refs = append(refs, item.BeforeEvidence...)
+	}
+	return nonNilEvidenceReferences(rankEvidenceReferencesForOperator(dedupeEvidenceReferences(refs)))
+}
+
+func caseCompareArtifactHashes(beforeRaw []byte, afterRaw []byte, beforeSource string, afterSource string) []model.CaseCompareArtifactHash {
+	hashes := []model.CaseCompareArtifactHash{
+		caseCompareArtifactHash("before", beforeSource, beforeRaw),
+		caseCompareArtifactHash("after", afterSource, afterRaw),
+	}
+	return nonNilCaseCompareArtifactHashes(hashes)
+}
+
+func caseCompareArtifactHash(role string, source string, contents []byte) model.CaseCompareArtifactHash {
+	sum := sha256.Sum256(contents)
+	return model.CaseCompareArtifactHash{
+		Role:      role,
+		Source:    source,
+		SHA256:    fmt.Sprintf("%x", sum[:]),
+		SizeBytes: len(contents),
+	}
+}
+
+func nonNilCaseCompareArtifactHashes(items []model.CaseCompareArtifactHash) []model.CaseCompareArtifactHash {
+	if items == nil {
+		return []model.CaseCompareArtifactHash{}
+	}
+	out := make([]model.CaseCompareArtifactHash, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Role) == "" && strings.TrimSpace(item.Source) == "" && strings.TrimSpace(item.SHA256) == "" && item.SizeBytes == 0 {
+			continue
+		}
+		out = append(out, item)
+	}
+	if out == nil {
+		return []model.CaseCompareArtifactHash{}
+	}
+	return out
+}
+
+func caseCompareClosureReceiptSummary(item model.CaseCompareResult) string {
+	return fmt.Sprintf("%s: %s -> %s (%s)", firstNonEmpty(item.Title, item.ID, "case"), firstNonEmpty(item.BeforeState, "unknown"), firstNonEmpty(item.AfterState, "unknown"), firstNonEmpty(item.Disposition, "changed"))
+}
+
+func caseCompareDisposition(beforeOK bool, beforeState string, before model.ControlOperatorCase, afterOK bool, afterState string, after model.ControlOperatorCase, item model.CaseCompareResult) string {
+	if !beforeOK && afterOK {
+		return "added"
+	}
+	if beforeOK && !afterOK {
+		return "removed"
+	}
+	if beforeState == "open" && afterState == "closed" {
+		return "closed"
+	}
+	if beforeState == "closed" && afterState == "open" {
+		return "reopened"
+	}
+	changed := caseCompareChanged(before, after, item)
+	if beforeState == "closed" && afterState == "closed" {
+		if changed {
+			return "changed"
+		}
+		return "stayed_closed"
+	}
+	if beforeState == "open" && afterState == "open" {
+		if changed {
+			return "changed"
+		}
+		return "stayed_open"
+	}
+	if changed {
+		return "changed"
+	}
+	return "changed"
+}
+
+func caseCompareChanged(before model.ControlOperatorCase, after model.ControlOperatorCase, item model.CaseCompareResult) bool {
+	return !equalStrings(item.BeforeControls, item.AfterControls) ||
+		!equalStrings(item.BeforeTargets, item.AfterTargets) ||
+		!equalStrings(item.BeforeFlaws, item.AfterFlaws) ||
+		item.BeforeProofPatches != item.AfterProofPatches ||
+		item.BeforeEvidenceRefs != item.AfterEvidenceRefs ||
+		!equalEvidenceReferences(item.BeforeEvidence, item.AfterEvidence) ||
+		strings.TrimSpace(before.StateReason) != strings.TrimSpace(after.StateReason) ||
+		strings.TrimSpace(before.NextStep) != strings.TrimSpace(after.NextStep)
+}
+
+func normalizedCaseState(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return "absent"
+	}
+	state := strings.ToLower(strings.TrimSpace(item.State))
+	switch state {
+	case "closed", "controlled", "no_missing_hard_barrier":
+		return "closed"
+	case "open":
+		return "open"
+	}
+	if item.ControlCount == 0 && len(item.ProofPatches) == 0 && len(item.StartingControls) > 0 {
+		return "closed"
+	}
+	return "open"
+}
+
+func normalizedCaseControls(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueSortedStrings(item.StartingControls)
+}
+
+func normalizedCaseTargets(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueSortedStrings(item.Targets)
+}
+
+func normalizedCaseFlaws(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueSortedStrings(item.Flaws)
+}
+
+func caseIDOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.ID
+}
+
+func caseTitleOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.Title
+}
+
+func caseSeverityOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.Severity
+}
+
+func caseStateReasonOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.StateReason
+}
+
+func caseNextStepOrEmpty(item model.ControlOperatorCase, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return item.NextStep
+}
+
+func caseProofPatchCount(item model.ControlOperatorCase, ok bool) int {
+	if !ok {
+		return 0
+	}
+	return len(item.ProofPatches)
+}
+
+func caseEvidenceRefCount(item model.ControlOperatorCase, ok bool) int {
+	if !ok {
+		return 0
+	}
+	return len(dedupeEvidenceReferences(item.EvidenceReferences))
+}
+
+func caseEvidenceReferences(item model.ControlOperatorCase, ok bool) []model.EvidenceReference {
+	if !ok {
+		return []model.EvidenceReference{}
+	}
+	return dedupeEvidenceReferences(item.EvidenceReferences)
+}
+
+func caseRerunCommands(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueStrings(item.RerunCommands)
+}
+
+func caseCompareCommands(item model.ControlOperatorCase, ok bool) []string {
+	if !ok {
+		return []string{}
+	}
+	return uniqueStrings(item.CompareCommands)
+}
+
+func subtractEvidenceReferences(values []model.EvidenceReference, remove []model.EvidenceReference) []model.EvidenceReference {
+	removed := map[string]bool{}
+	for _, item := range dedupeEvidenceReferences(remove) {
+		removed[evidenceReferenceKey(item)] = true
+	}
+	var out []model.EvidenceReference
+	for _, item := range dedupeEvidenceReferences(values) {
+		if !removed[evidenceReferenceKey(item)] {
+			out = append(out, item)
+		}
+	}
+	if out == nil {
+		return []model.EvidenceReference{}
+	}
+	return out
+}
+
+func equalEvidenceReferences(a []model.EvidenceReference, b []model.EvidenceReference) bool {
+	a = dedupeEvidenceReferences(a)
+	b = dedupeEvidenceReferences(b)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if evidenceReferenceKey(a[i]) != evidenceReferenceKey(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func evidenceReferenceKey(value model.EvidenceReference) string {
+	return fmt.Sprintf("%s|%s|%s|%s|%d|%d|%s", value.Target, value.ID, value.Kind, value.Source, value.LineStart, value.LineEnd, value.Summary)
+}
+
+func incrementCaseCompareSummary(summary *model.CaseCompareSummary, disposition string) {
+	switch disposition {
+	case "closed":
+		summary.Closed++
+	case "reopened":
+		summary.Reopened++
+	case "stayed_open":
+		summary.StayedOpen++
+	case "stayed_closed":
+		summary.StayedClosed++
+	case "changed":
+		summary.Changed++
+	case "added":
+		summary.Added++
+	case "removed":
+		summary.Removed++
+	}
+}
+
+func buildCaseCompareOutcome(cases []model.CaseCompareResult, summary model.CaseCompareSummary) model.CaseCompareOutcome {
+	out := model.CaseCompareOutcome{
+		TotalCases:      len(cases),
+		MaterialChanges: summary.Closed + summary.Reopened + summary.Changed + summary.Added + summary.Removed,
+	}
+	for _, item := range cases {
+		caseSummary := caseCompareOutcomeCase(item)
+		switch item.AfterState {
+		case "open":
+			out.AfterOpen++
+			out.ActionCases = append(out.ActionCases, caseSummary)
+		case "closed":
+			out.AfterClosed++
+			out.ClosedCases = append(out.ClosedCases, caseSummary)
+		case "absent":
+			out.AfterAbsent++
+			out.AbsentCases = append(out.AbsentCases, caseSummary)
+		}
+	}
+	out.Summary = fmt.Sprintf("%d case(s) compared: %d open after rerun, %d closed after rerun, %d absent after rerun, %d material change(s).",
+		out.TotalCases,
+		out.AfterOpen,
+		out.AfterClosed,
+		out.AfterAbsent,
+		out.MaterialChanges,
+	)
+	out.NextAction = caseCompareOutcomeNextAction(out)
+	if out.ActionCases == nil {
+		out.ActionCases = []model.CaseCompareOutcomeCase{}
+	}
+	if out.ClosedCases == nil {
+		out.ClosedCases = []model.CaseCompareOutcomeCase{}
+	}
+	if out.AbsentCases == nil {
+		out.AbsentCases = []model.CaseCompareOutcomeCase{}
+	}
+	return out
+}
+
+func caseCompareOutcomeCase(item model.CaseCompareResult) model.CaseCompareOutcomeCase {
+	nextStep := item.AfterNextStep
+	if nextStep == "" && item.AfterState == "open" {
+		nextStep = item.BeforeNextStep
+	}
+	return model.CaseCompareOutcomeCase{
+		ID:                item.ID,
+		Title:             item.Title,
+		Severity:          item.Severity,
+		Disposition:       item.Disposition,
+		BeforeState:       item.BeforeState,
+		AfterState:        item.AfterState,
+		StateReason:       firstNonEmpty(item.AfterStateReason, item.BeforeStateReason),
+		NextStep:          nextStep,
+		AfterEvidenceRefs: item.AfterEvidenceRefs,
+		AfterProofPatches: item.AfterProofPatches,
+	}
+}
+
+func caseCompareOutcomeNextAction(out model.CaseCompareOutcome) string {
+	if len(out.ActionCases) > 0 {
+		item := out.ActionCases[0]
+		return fmt.Sprintf("%s: %s", firstNonEmpty(item.ID, item.Title, "case"), firstNonEmpty(item.NextStep, item.StateReason, "case remains open in the after artifact"))
+	}
+	if out.TotalCases == 0 {
+		return "No comparable cases found; create before/after Ariadne JSON for the same case scope."
+	}
+	if out.AfterAbsent > 0 {
+		return "No open case remains in the after artifact; confirm absent cases are expected scope changes before treating them as resolved."
+	}
+	return "No open case remains in the after artifact."
+}
+
+func caseCompareOutcomeCaseLines(cases []model.CaseCompareOutcomeCase, limit int) []string {
+	var out []string
+	for _, item := range limitCaseCompareOutcomeCases(cases, limit) {
+		out = append(out, fmt.Sprintf("%s %s (%s): %s -> %s",
+			strings.ToUpper(strings.ReplaceAll(item.Disposition, "_", " ")),
+			firstNonEmpty(item.Title, item.ID),
+			item.ID,
+			item.BeforeState,
+			item.AfterState,
+		))
+	}
+	if limit > 0 && len(cases) > limit {
+		out = append(out, fmt.Sprintf("%d more case(s) omitted", len(cases)-limit))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func limitCaseCompareOutcomeCases(cases []model.CaseCompareOutcomeCase, limit int) []model.CaseCompareOutcomeCase {
+	if limit <= 0 || len(cases) <= limit {
+		return cases
+	}
+	return cases[:limit]
+}
+
+func renderCaseCompareTable(w io.Writer, r model.CaseCompareReport) error {
+	fmt.Fprintf(w, "Ariadne case compare:\n")
+	fmt.Fprintf(w, "  Before: %s\n", firstNonEmpty(r.BeforeSource, "<before>"))
+	fmt.Fprintf(w, "  After: %s\n", firstNonEmpty(r.AfterSource, "<after>"))
+	fmt.Fprintf(w, "  Summary: %d case(s); %d closed, %d reopened, %d stayed open, %d stayed closed, %d changed, %d added, %d removed\n\n",
+		r.Summary.Cases,
+		r.Summary.Closed,
+		r.Summary.Reopened,
+		r.Summary.StayedOpen,
+		r.Summary.StayedClosed,
+		r.Summary.Changed,
+		r.Summary.Added,
+		r.Summary.Removed,
+	)
+	renderCaseCompareDecision(w, r.Decision)
+	fmt.Fprintf(w, "Outcome:\n")
+	fmt.Fprintf(w, "  %s\n", firstNonEmpty(r.Outcome.Summary, "No outcome summary recorded."))
+	fmt.Fprintf(w, "  Next action: %s\n", firstNonEmpty(r.Outcome.NextAction, "No next action recorded."))
+	if len(r.Outcome.ActionCases) > 0 {
+		fmt.Fprintf(w, "  Still open after rerun:\n")
+		for _, line := range caseCompareOutcomeCaseLines(r.Outcome.ActionCases, 5) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+	if len(r.Outcome.ClosedCases) > 0 {
+		fmt.Fprintf(w, "  Closed after rerun:\n")
+		for _, line := range caseCompareOutcomeCaseLines(r.Outcome.ClosedCases, 5) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+	if len(r.Outcome.AbsentCases) > 0 {
+		fmt.Fprintf(w, "  Absent after rerun:\n")
+		for _, line := range caseCompareOutcomeCaseLines(r.Outcome.AbsentCases, 5) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+	fmt.Fprintln(w)
+	renderCaseCompareClosureReceipts(w, r.ClosureReceipts, 5)
+	if len(r.Cases) == 0 {
+		fmt.Fprintf(w, "Cases:\n  - no comparable cases found\n\n")
+		return nil
+	}
+	fmt.Fprintf(w, "Cases:\n")
+	for _, item := range r.Cases {
+		fmt.Fprintf(w, "  - %s %s (%s): %s -> %s\n", strings.ToUpper(item.Disposition), firstNonEmpty(item.Title, item.ID), item.ID, item.BeforeState, item.AfterState)
+		if item.AfterStateReason != "" {
+			fmt.Fprintf(w, "    After reason: %s\n", item.AfterStateReason)
+		}
+		if len(item.BeforeControls) > 0 {
+			fmt.Fprintf(w, "    %s: %s\n", caseCompareControlsLabel("before", item.BeforeState), strings.Join(item.BeforeControls, "; "))
+		}
+		if len(item.AfterControls) > 0 {
+			fmt.Fprintf(w, "    %s: %s\n", caseCompareControlsLabel("after", item.AfterState), strings.Join(item.AfterControls, "; "))
+		}
+		if len(item.AddedControls) > 0 {
+			fmt.Fprintf(w, "    New control IDs after rerun: %s\n", strings.Join(item.AddedControls, "; "))
+		}
+		if len(item.RemovedControls) > 0 {
+			fmt.Fprintf(w, "    Removed control IDs after rerun: %s\n", strings.Join(item.RemovedControls, "; "))
+		}
+		fmt.Fprintf(w, "    Proof patches: %d -> %d; evidence refs: %d -> %d\n", item.BeforeProofPatches, item.AfterProofPatches, item.BeforeEvidenceRefs, item.AfterEvidenceRefs)
+		renderCaseCompareProofVerdict(w, item.ProofVerdict)
+		if len(item.AfterEvidence) > 0 {
+			fmt.Fprintf(w, "    After evidence: %s\n", strings.Join(evidenceReferenceLines(item.AfterEvidence, 3), "; "))
+		}
+		if len(item.AddedEvidence) > 0 {
+			fmt.Fprintf(w, "    Added evidence: %s\n", strings.Join(evidenceReferenceLines(item.AddedEvidence, 3), "; "))
+		}
+		if len(item.RemovedEvidence) > 0 {
+			fmt.Fprintf(w, "    Removed evidence: %s\n", strings.Join(evidenceReferenceLines(item.RemovedEvidence, 3), "; "))
+		}
+		if item.AfterNextStep != "" {
+			fmt.Fprintf(w, "    After next step: %s\n", item.AfterNextStep)
+		}
+		if len(item.AfterRerunCommands) > 0 {
+			fmt.Fprintf(w, "    After rerun: %s\n", strings.Join(limitStrings(item.AfterRerunCommands, 2), "; "))
+		}
+		if len(item.AfterCompareCommands) > 0 {
+			fmt.Fprintf(w, "    After compare loop: %s\n", strings.Join(limitStrings(item.AfterCompareCommands, 3), "; "))
+		}
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range limitStrings(r.Limitations, 4) {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func renderCaseCompareReceipt(w io.Writer, r model.CaseCompareReport) error {
+	fmt.Fprintf(w, "Ariadne closure receipts\n")
+	fmt.Fprintf(w, "Before: %s\n", firstNonEmpty(r.BeforeSource, "<before>"))
+	fmt.Fprintf(w, "After: %s\n", firstNonEmpty(r.AfterSource, "<after>"))
+	if r.Decision.Status != "" || r.Decision.Headline != "" {
+		fmt.Fprintf(w, "Verdict: %s\n", readableToken(firstNonEmpty(r.Decision.Status, "unknown")))
+		if r.Decision.Headline != "" {
+			fmt.Fprintf(w, "Readout: %s\n", r.Decision.Headline)
+		}
+	}
+	fmt.Fprintf(w, "Outcome: %s\n", firstNonEmpty(r.Outcome.Summary, "No outcome summary recorded."))
+	fmt.Fprintf(w, "Next action: %s\n\n", firstNonEmpty(r.Outcome.NextAction, "No next action recorded."))
+	renderCaseCompareClosureReceipts(w, r.ClosureReceipts, 0)
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "Limits:\n")
+		for _, limitation := range limitStrings(r.Limitations, 3) {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func renderCaseCompareClosureReceipts(w io.Writer, receipts []model.CaseCompareClosureReceipt, limit int) {
+	if len(receipts) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Closure receipts:\n")
+	if limit <= 0 || limit > len(receipts) {
+		limit = len(receipts)
+	}
+	for _, receipt := range receipts[:limit] {
+		fmt.Fprintf(w, "  - %s (%s): %s -> %s / %s\n",
+			firstNonEmpty(receipt.CaseTitle, receipt.CaseID, receipt.ReceiptID),
+			firstNonEmpty(receipt.CaseID, "case"),
+			firstNonEmpty(receipt.BeforeState, "unknown"),
+			firstNonEmpty(receipt.AfterState, "unknown"),
+			readableToken(firstNonEmpty(receipt.ProofStatus, receipt.Disposition, "unknown")),
+		)
+		if receipt.Summary != "" {
+			fmt.Fprintf(w, "    summary: %s\n", receipt.Summary)
+		}
+		if len(receipt.ControlEvidence) > 0 {
+			fmt.Fprintf(w, "    control evidence: %s\n", strings.Join(firstStrings(receipt.ControlEvidence, 5), "; "))
+		}
+		if len(receipt.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "    evidence source: %s\n", strings.Join(firstStrings(receipt.EvidenceSources, 5), "; "))
+		}
+		if len(receipt.EvidenceRefs) > 0 {
+			fmt.Fprintf(w, "    evidence ref: %s\n", strings.Join(evidenceReferenceLines(receipt.EvidenceRefs, 3), "; "))
+		}
+		if len(receipt.ArtifactSources) > 0 {
+			fmt.Fprintf(w, "    artifacts: %s\n", strings.Join(firstStrings(receipt.ArtifactSources, 2), " -> "))
+		}
+		if len(receipt.ArtifactHashes) > 0 {
+			for _, artifact := range receipt.ArtifactHashes {
+				fmt.Fprintf(w, "    artifact hash: %s %s sha256:%s bytes:%d\n",
+					firstNonEmpty(artifact.Role, "artifact"),
+					firstNonEmpty(artifact.Source, "<source>"),
+					artifact.SHA256,
+					artifact.SizeBytes,
+				)
+			}
+		}
+		if len(receipt.VerificationCommands) > 0 {
+			for _, command := range limitStrings(receipt.VerificationCommands, 2) {
+				fmt.Fprintf(w, "    verification command: %s\n", command)
+			}
+		}
+		if receipt.RemainingAction != "" {
+			fmt.Fprintf(w, "    remaining action: %s\n", receipt.RemainingAction)
+		}
+	}
+	if len(receipts) > limit {
+		fmt.Fprintf(w, "  - %d more closure receipt(s) in JSON output\n", len(receipts)-limit)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderCaseCompareProofVerdict(w io.Writer, verdict model.CaseCompareProofVerdict) {
+	if verdict.Status == "" && verdict.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "    Proof verdict: %s\n", readableToken(firstNonEmpty(verdict.Status, "not recorded")))
+	if verdict.Summary != "" {
+		fmt.Fprintf(w, "      Summary: %s\n", verdict.Summary)
+	}
+	if len(verdict.ControlEvidence) > 0 {
+		fmt.Fprintf(w, "      Control evidence: %s\n", strings.Join(firstStrings(verdict.ControlEvidence, 5), "; "))
+	}
+	if len(verdict.EvidenceSources) > 0 {
+		fmt.Fprintf(w, "      Evidence source: %s\n", strings.Join(firstStrings(verdict.EvidenceSources, 5), "; "))
+	}
+	if verdict.RemainingAction != "" {
+		fmt.Fprintf(w, "      Remaining action: %s\n", verdict.RemainingAction)
+	}
+	for _, rule := range firstStrings(verdict.DecisionRules, 2) {
+		fmt.Fprintf(w, "      Decision rule: %s\n", rule)
+	}
+}
+
+func caseCompareControlsLabel(position string, state string) string {
+	state = strings.ToLower(strings.TrimSpace(state))
+	switch strings.ToLower(strings.TrimSpace(position)) {
+	case "before":
+		switch state {
+		case "open":
+			return "Missing controls before"
+		case "closed":
+			return "Observed controls before"
+		case "absent":
+			return "Controls before"
+		default:
+			return "Controls before"
+		}
+	case "after":
+		switch state {
+		case "open":
+			return "Still missing controls after"
+		case "closed":
+			return "Observed controls after"
+		case "absent":
+			return "Controls after"
+		default:
+			return "Controls after"
+		}
+	default:
+		return "Controls"
+	}
+}
+
+func buildCaseCompareDecision(summary model.CaseCompareSummary, outcome model.CaseCompareOutcome, cases []model.CaseCompareResult) model.CaseCompareDecision {
+	status := "no_material_change"
+	switch {
+	case outcome.TotalCases == 0:
+		status = "no_comparable_cases"
+	case summary.Reopened > 0:
+		status = "regression"
+	case outcome.AfterOpen > 0:
+		status = "action_required"
+	case summary.Closed > 0:
+		status = "proof_succeeded"
+	case summary.Removed > 0:
+		status = "proof_succeeded"
+	case outcome.AfterClosed > 0:
+		status = "already_controlled"
+	case outcome.AfterAbsent > 0:
+		status = "no_open_cases"
+	}
+	top := selectCaseCompareDecisionCase(status, cases)
+	decision := model.CaseCompareDecision{
+		Status:               status,
+		Headline:             caseCompareDecisionHeadline(status, summary, outcome),
+		TopCaseID:            top.ID,
+		TopCaseTitle:         top.Title,
+		TopCaseSeverity:      top.Severity,
+		TopCaseDisposition:   top.Disposition,
+		BeforeState:          top.BeforeState,
+		AfterState:           top.AfterState,
+		AfterOpen:            outcome.AfterOpen,
+		AfterClosed:          outcome.AfterClosed,
+		MaterialChanges:      outcome.MaterialChanges,
+		ProofPatchesBefore:   totalCaseCompareProofPatches(cases, true),
+		ProofPatchesAfter:    totalCaseCompareProofPatches(cases, false),
+		AddedControls:        firstStrings(uniqueStrings(caseCompareAddedControls(cases)), 8),
+		AddedEvidenceSources: firstStrings(uniqueStrings(caseCompareAddedEvidenceSources(cases)), 8),
+		OpenCases:            caseCompareOutcomeCaseIDs(outcome.ActionCases),
+		ClosedCases:          caseCompareOutcomeCaseIDs(outcome.ClosedCases),
+		NextAction:           outcome.NextAction,
+		Limitations: []string{
+			"Decision is derived from before/after Ariadne JSON artifacts; compare does not rerun collectors or prove live enforcement.",
+		},
+	}
+	decision.AddedControls = nonNilStrings(decision.AddedControls)
+	decision.AddedEvidenceSources = nonNilStrings(decision.AddedEvidenceSources)
+	decision.OpenCases = nonNilStrings(decision.OpenCases)
+	decision.ClosedCases = nonNilStrings(decision.ClosedCases)
+	decision.Limitations = nonNilStrings(decision.Limitations)
+	return decision
+}
+
+func selectCaseCompareDecisionCase(status string, cases []model.CaseCompareResult) model.CaseCompareResult {
+	preferred := []string{}
+	switch status {
+	case "regression":
+		preferred = []string{"reopened"}
+	case "action_required":
+		preferred = []string{"reopened", "stayed_open", "added"}
+	case "proof_succeeded":
+		preferred = []string{"closed", "removed"}
+	case "already_controlled":
+		preferred = []string{"stayed_closed"}
+	case "no_open_cases":
+		preferred = []string{"removed"}
+	default:
+		preferred = []string{"changed", "closed", "reopened", "stayed_open", "stayed_closed", "added", "removed"}
+	}
+	for _, disposition := range preferred {
+		for _, item := range cases {
+			if strings.EqualFold(item.Disposition, disposition) {
+				return item
+			}
+		}
+	}
+	if len(cases) > 0 {
+		return cases[0]
+	}
+	return model.CaseCompareResult{}
+}
+
+func caseCompareDecisionHeadline(status string, summary model.CaseCompareSummary, outcome model.CaseCompareOutcome) string {
+	switch status {
+	case "proof_succeeded":
+		return fmt.Sprintf("Proof worked: %d case(s) closed, %d removed from the selected queue, and %d case(s) remain open after rerun.", summary.Closed, summary.Removed, outcome.AfterOpen)
+	case "regression":
+		return fmt.Sprintf("Regression: %d case(s) reopened and %d case(s) remain open after rerun.", summary.Reopened, outcome.AfterOpen)
+	case "action_required":
+		return fmt.Sprintf("Proof incomplete: %d case(s) remain open after rerun.", outcome.AfterOpen)
+	case "already_controlled":
+		return "No open case remains; compared cases were already controlled in the after artifact."
+	case "no_open_cases":
+		return "No open case remains in the after artifact; confirm absent cases are expected scope changes."
+	case "no_comparable_cases":
+		return "No comparable cases were found in the before and after artifacts."
+	default:
+		return fmt.Sprintf("No material case-state change was observed across %d compared case(s).", outcome.TotalCases)
+	}
+}
+
+func totalCaseCompareProofPatches(cases []model.CaseCompareResult, before bool) int {
+	total := 0
+	for _, item := range cases {
+		if before {
+			total += item.BeforeProofPatches
+		} else {
+			total += item.AfterProofPatches
+		}
+	}
+	return total
+}
+
+func caseCompareAddedControls(cases []model.CaseCompareResult) []string {
+	var out []string
+	for _, item := range cases {
+		out = append(out, item.AddedControls...)
+	}
+	return out
+}
+
+func caseCompareAddedEvidenceSources(cases []model.CaseCompareResult) []string {
+	var out []string
+	for _, item := range cases {
+		out = append(out, evidenceReferenceSources(item.AddedEvidence, false)...)
+	}
+	return out
+}
+
+func caseCompareOutcomeCaseIDs(cases []model.CaseCompareOutcomeCase) []string {
+	out := make([]string, 0, len(cases))
+	for _, item := range cases {
+		out = append(out, firstNonEmpty(item.ID, item.Title))
+	}
+	return uniqueStrings(out)
+}
+
+func renderCaseCompareDecision(w io.Writer, decision model.CaseCompareDecision) {
+	if decision.Status == "" && decision.Headline == "" {
+		return
+	}
+	fmt.Fprintf(w, "Decision:\n")
+	if decision.Status != "" {
+		fmt.Fprintf(w, "  - Verdict: %s\n", readableToken(decision.Status))
+	}
+	if decision.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", decision.Headline)
+	}
+	if decision.TopCaseID != "" {
+		if decision.TopCaseTitle != "" {
+			fmt.Fprintf(w, "  - Top case: %s (%s)\n", decision.TopCaseTitle, decision.TopCaseID)
+		} else {
+			fmt.Fprintf(w, "  - Top case: %s\n", decision.TopCaseID)
+		}
+	}
+	if decision.BeforeState != "" || decision.AfterState != "" {
+		fmt.Fprintf(w, "  - Case transition: %s -> %s", firstNonEmpty(decision.BeforeState, "unknown"), firstNonEmpty(decision.AfterState, "unknown"))
+		if decision.TopCaseDisposition != "" {
+			fmt.Fprintf(w, " (%s)", readableToken(decision.TopCaseDisposition))
+		}
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintf(w, "  - After rerun: %d open; %d closed; %d material change(s)\n", decision.AfterOpen, decision.AfterClosed, decision.MaterialChanges)
+	fmt.Fprintf(w, "  - Proof patches: %d -> %d\n", decision.ProofPatchesBefore, decision.ProofPatchesAfter)
+	renderAssessDecisionLines(w, "Added control", decision.AddedControls, 5)
+	renderAssessDecisionLines(w, "Added evidence", decision.AddedEvidenceSources, 5)
+	renderAssessDecisionLines(w, "Open after rerun", decision.OpenCases, 5)
+	renderAssessDecisionLines(w, "Closed after rerun", decision.ClosedCases, 5)
+	if decision.NextAction != "" {
+		fmt.Fprintf(w, "  - Next action: %s\n", decision.NextAction)
+	}
+	renderAssessDecisionLines(w, "Decision limit", decision.Limitations, 2)
+	fmt.Fprintln(w)
+}
+
+func BuildControlCatalogScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
+	proofSpecs := buildControlProofSpecs(r.ClosurePlan)
+	verificationTasks := buildControlVerificationTasks(r.ClosurePlan, proofSpecs, controlVerificationCommandContext{RunKind: "control_catalog_scan", TargetsFile: r.TargetsFile, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter})
+	workstreams := buildControlBreakPathWorkstreams(r.ClosureFamilies, verificationTasks)
+	catalog := model.ControlCatalogReport{
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             r.RunID,
+		GeneratedAt:       r.GeneratedAt,
+		RunKind:           "control_catalog_scan",
+		TargetsFile:       r.TargetsFile,
+		Mode:              r.Mode,
+		Agent:             r.Agent,
+		StatusFilter:      r.StatusFilter,
+		Summary:           summarizeControlCatalog(r.ClosurePlan),
+		Controls:          append([]model.ArchitectureClosure{}, r.ClosurePlan...),
+		Families:          append([]model.ArchitectureClosureFamily{}, r.ClosureFamilies...),
+		OperatorCases:     buildControlOperatorCases(workstreams, verificationTasks),
+		Workstreams:       workstreams,
+		ProofSpecs:        proofSpecs,
+		VerificationTasks: verificationTasks,
+		Redaction:         r.Redaction,
+		Limitations:       append([]string{}, r.Limitations...),
+	}
+	if catalog.Controls == nil {
+		catalog.Controls = []model.ArchitectureClosure{}
+	}
+	if catalog.Families == nil {
+		catalog.Families = []model.ArchitectureClosureFamily{}
+	}
+	if catalog.OperatorCases == nil {
+		catalog.OperatorCases = []model.ControlOperatorCase{}
+	}
+	if catalog.Workstreams == nil {
+		catalog.Workstreams = []model.ControlBreakPathWorkstream{}
+	}
+	if catalog.ProofSpecs == nil {
+		catalog.ProofSpecs = []model.ControlProofSpec{}
+	}
+	if catalog.VerificationTasks == nil {
+		catalog.VerificationTasks = []model.ControlVerificationTask{}
+	}
+	attachOperatorCaseCompareCommands(&catalog)
+	attachOperatorCasePatchExportCommands(&catalog)
+	return catalog
+}
+
+func BuildControlCaseBoardScanReport(r model.ArchitectureScanReport) model.ControlCatalogReport {
+	catalog := BuildControlCatalogScanReport(r)
+	catalog.RunKind = "case_board_scan"
+	rewriteControlCatalogAsCaseBoard(&catalog)
+	return catalog
+}
+
+func BuildArchitectureReport(r model.Report, statusFilter string) (model.ArchitectureReport, error) {
+	filter := strings.ToLower(strings.TrimSpace(statusFilter))
+	if filter == "" {
+		filter = "breaking"
+	}
+	if !validArchitectureStatusFilter(filter) {
+		return model.ArchitectureReport{}, fmt.Errorf("unknown architecture status filter: %s", statusFilter)
+	}
+	flaws := make([]model.ZeroTrustArchitecture, 0, len(r.ZeroTrust.ArchitectureFlaws))
+	for _, flaw := range r.ZeroTrust.ArchitectureFlaws {
+		if architectureStatusAllowed(flaw.Status, filter) {
+			flaws = append(flaws, flaw)
+		}
+	}
+	if flaws == nil {
+		flaws = []model.ZeroTrustArchitecture{}
+	}
+	closurePlan := buildArchitectureClosurePlan([]architectureClosureInput{{TargetID: "target", Flaws: flaws}})
+	return model.ArchitectureReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            r.RunID,
+		GeneratedAt:      r.GeneratedAt,
+		TargetPath:       r.TargetPath,
+		Mode:             r.Story.Mode,
+		Agent:            r.Story.Runtime,
+		FrameworkVersion: r.ZeroTrust.FrameworkVersion,
+		StatusFilter:     filter,
+		Summary:          summarizeArchitectureFlaws(flaws),
+		OverallSummary:   r.ZeroTrust.ArchitectureSummary,
+		EvidenceCoverage: r.ZeroTrust.Coverage,
+		EvidencePlan: buildArchitectureEvidencePlan([]architectureCoverageInput{{
+			TargetID:  "target",
+			ZeroTrust: r.ZeroTrust,
+		}}),
+		FrameworkCoverage: buildArchitectureFrameworkCoverage([]architectureCoverageInput{{
+			TargetID:  "target",
+			ZeroTrust: r.ZeroTrust,
+		}}),
+		Maturity: r.ZeroTrust.Maturity,
+		BoundaryCoverage: buildArchitectureBoundaryCoverage([]architectureCoverageInput{{
+			TargetID:  "target",
+			ZeroTrust: r.ZeroTrust,
+		}}),
+		Flaws:           flaws,
+		ClosurePlan:     closurePlan,
+		ClosureFamilies: buildArchitectureClosureFamilies(closurePlan),
+		Redaction:       r.Redaction,
+		Limitations:     append([]string{}, r.Limitations...),
+	}, nil
+}
+
+func BuildArchitectureScanReport(r model.ScanReport, statusFilter string) (model.ArchitectureScanReport, error) {
+	filter := strings.ToLower(strings.TrimSpace(statusFilter))
+	if filter == "" {
+		filter = "breaking"
+	}
+	if !validArchitectureStatusFilter(filter) {
+		return model.ArchitectureScanReport{}, fmt.Errorf("unknown architecture status filter: %s", statusFilter)
+	}
+	out := model.ArchitectureScanReport{
+		SchemaVersion: model.SchemaVersion,
+		RunID:         r.RunID,
+		GeneratedAt:   r.GeneratedAt,
+		RunKind:       "architecture_scan",
+		TargetsFile:   r.TargetsFile,
+		Mode:          r.Mode,
+		Agent:         r.Agent,
+		StatusFilter:  filter,
+		Redaction:     r.Redaction,
+		Limitations:   append([]string{}, r.Limitations...),
+	}
+	out.Summary.Targets = r.Summary.Targets
+	groups := map[string]*model.ArchitectureFlawGroup{}
+	var closureInputs []architectureClosureInput
+	var coverageInputs []architectureCoverageInput
+	for _, target := range r.Targets {
+		targetReport := model.ArchitectureTargetReport{Target: target.Target}
+		if target.Error != "" {
+			targetReport.Error = target.Error
+			out.Summary.Errors++
+			out.Targets = append(out.Targets, targetReport)
+			continue
+		}
+		out.Summary.Completed++
+		coverageInputs = append(coverageInputs, architectureCoverageInput{
+			TargetID:  target.Target.ID,
+			ZeroTrust: target.Report.ZeroTrust,
+		})
+		for _, flaw := range target.Report.ZeroTrust.ArchitectureFlaws {
+			if !architectureStatusAllowed(flaw.Status, filter) {
+				continue
+			}
+			targetReport.Flaws = append(targetReport.Flaws, flaw)
+			incrementZeroTrustSummary(&targetReport.Summary, flaw.Status)
+			incrementArchitectureScanSummary(&out.Summary, flaw.Status)
+			group := groups[flaw.ID]
+			if group == nil {
+				group = &model.ArchitectureFlawGroup{
+					ID:                    flaw.ID,
+					Title:                 flaw.Title,
+					Severity:              flaw.Severity,
+					Principle:             flaw.Principle,
+					Tier:                  flaw.Tier,
+					ControlTestResults:    map[string]int{},
+					ControlEvidenceNeeded: append([]string{}, flaw.ControlEvidenceNeeded...),
+					EvidenceSurfaces:      append([]string{}, flaw.EvidenceSurfaces...),
+					Actions:               append([]string{}, flaw.Actions...),
+				}
+				groups[flaw.ID] = group
+			}
+			incrementZeroTrustSummary(&group.StatusCounts, flaw.Status)
+			if flaw.ControlTest.Result != "" {
+				if group.ControlTestResults == nil {
+					group.ControlTestResults = map[string]int{}
+				}
+				group.ControlTestResults[flaw.ControlTest.Result]++
+			}
+			group.Targets = append(group.Targets, target.Target.ID)
+			group.EvidenceSources = append(group.EvidenceSources, zeroTrustEvidenceSources(flaw.Evidence)...)
+		}
+		targetReport.Summary.Total = len(targetReport.Flaws)
+		if targetReport.Flaws == nil {
+			targetReport.Flaws = []model.ZeroTrustArchitecture{}
+		}
+		closureInputs = append(closureInputs, architectureClosureInput{
+			TargetID: target.Target.ID,
+			Flaws:    targetReport.Flaws,
+		})
+		out.Targets = append(out.Targets, targetReport)
+	}
+	out.Summary.DistinctFlaws = len(groups)
+	for _, group := range groups {
+		group.Targets = uniqueSortedStrings(group.Targets)
+		group.TargetCount = len(group.Targets)
+		group.ControlEvidenceNeeded = uniqueSortedStrings(group.ControlEvidenceNeeded)
+		group.EvidenceSurfaces = uniqueSortedStrings(group.EvidenceSurfaces)
+		group.EvidenceSources = uniqueSortedStrings(group.EvidenceSources)
+		group.Actions = uniqueSortedStrings(group.Actions)
+		out.Groups = append(out.Groups, *group)
+	}
+	sort.Slice(out.Groups, func(i, j int) bool {
+		if out.Groups[i].Severity == out.Groups[j].Severity {
+			return out.Groups[i].Title < out.Groups[j].Title
+		}
+		return severityRank(out.Groups[i].Severity) > severityRank(out.Groups[j].Severity)
+	})
+	out.EvidencePlan = buildArchitectureEvidencePlan(coverageInputs)
+	out.FrameworkCoverage = buildArchitectureFrameworkCoverage(coverageInputs)
+	out.BoundaryCoverage = buildArchitectureBoundaryCoverage(coverageInputs)
+	out.ClosurePlan = buildArchitectureClosurePlan(closureInputs)
+	out.ClosureFamilies = buildArchitectureClosureFamilies(out.ClosurePlan)
+	if out.Groups == nil {
+		out.Groups = []model.ArchitectureFlawGroup{}
+	}
+	if out.BoundaryCoverage == nil {
+		out.BoundaryCoverage = []model.ArchitectureBoundary{}
+	}
+	if out.EvidencePlan == nil {
+		out.EvidencePlan = []model.ArchitectureEvidencePlan{}
+	}
+	if out.FrameworkCoverage == nil {
+		out.FrameworkCoverage = []model.ArchitectureFrameworkArea{}
+	}
+	if out.ClosurePlan == nil {
+		out.ClosurePlan = []model.ArchitectureClosure{}
+	}
+	if out.ClosureFamilies == nil {
+		out.ClosureFamilies = []model.ArchitectureClosureFamily{}
+	}
+	if out.Targets == nil {
+		out.Targets = []model.ArchitectureTargetReport{}
+	}
+	return out, nil
+}
+
+func RenderInventory(w io.Writer, r model.InventoryReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderInventoryTable(w, r)
+	case "coverage", "matrix", "surface-map":
+		return renderInventoryCoverage(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "dot", "graphviz":
+		return renderGraphDOT(w, "Ariadne inventory graph", r.Graph)
+	case "mermaid":
+		return renderGraphMermaid(w, "Ariadne inventory graph", r.Graph)
+	case "html", "dashboard":
+		return renderInventoryDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown format: %s", format)
+	}
+}
+
+func RenderScan(w io.Writer, r model.ScanReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderScanTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "jsonl":
+		return renderScanJSONL(w, r)
+	case "dot", "graphviz":
+		return renderScanDOT(w, r)
+	case "mermaid":
+		return renderScanMermaid(w, r)
+	case "html", "dashboard":
+		return renderScanDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown format: %s", format)
+	}
+}
+
+func renderAssess(w io.Writer, r model.AssessReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderAssessTable(w, r)
+	case "summary", "brief":
+		return renderAssessSummary(w, r)
+	case "operator", "packet":
+		return renderAssessOperatorPacket(w, r)
+	case "operator-json", "packet-json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(BuildAssessOperatorPacketReport(r))
+	case "source-inspection", "sources":
+		return renderAssessSourceInspection(w, r)
+	case "source-inspection-json", "sources-json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(BuildAssessSourceInspectionReport(r))
+	case "runbook", "operator-runbook":
+		return RenderAssessRunbookForTarget(w, r.OperatorWorkbench.Runbook, r.TargetPath)
+	case "runbook-json", "operator-runbook-json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(BuildAssessOperatorRunbookReport(r))
+	case "action":
+		return renderAssessAction(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderAssessDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown assess format: %s", format)
+	}
+}
+
+func BuildAssessSourceInspectionReport(r model.AssessReport) model.AssessSourceInspectionReport {
+	return model.AssessSourceInspectionReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            r.RunID,
+		GeneratedAt:      r.GeneratedAt,
+		RunKind:          "source_inspection",
+		SourceRunKind:    r.RunKind,
+		TargetPath:       r.TargetPath,
+		TargetsFile:      r.TargetsFile,
+		Targets:          r.Targets,
+		Mode:             r.Mode,
+		Agent:            r.Agent,
+		StatusFilter:     r.StatusFilter,
+		CaseFilter:       r.CaseFilter,
+		ControlFilter:    r.ControlFilter,
+		SourceReferences: r.SourceReferences,
+		Redaction:        r.Redaction,
+		Warnings:         r.Warnings,
+		Limitations:      nonNilStrings(uniqueSortedStrings(append(append([]string{}, r.SourceReferences.Limitations...), r.Limitations...))),
+	}
+}
+
+func BuildAssessOperatorRunbookReport(r model.AssessReport) model.AssessOperatorRunbookReport {
+	return model.AssessOperatorRunbookReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            r.RunID,
+		GeneratedAt:      r.GeneratedAt,
+		RunKind:          "operator_runbook",
+		SourceRunKind:    r.RunKind,
+		TargetPath:       r.TargetPath,
+		TargetsFile:      r.TargetsFile,
+		Targets:          r.Targets,
+		Mode:             r.Mode,
+		Agent:            r.Agent,
+		StatusFilter:     r.StatusFilter,
+		CaseFilter:       r.CaseFilter,
+		ControlFilter:    r.ControlFilter,
+		Runbook:          r.OperatorWorkbench.Runbook,
+		SourceReferences: r.SourceReferences,
+		Redaction:        r.Redaction,
+		Warnings:         r.Warnings,
+		Limitations:      nonNilStrings(uniqueSortedStrings(append(append([]string{}, r.OperatorWorkbench.Runbook.Limitations...), r.Limitations...))),
+	}
+}
+
+func BuildAssessOperatorPacketReport(r model.AssessReport) model.AssessOperatorPacketReport {
+	return model.AssessOperatorPacketReport{
+		SchemaVersion:    model.SchemaVersion,
+		RunID:            r.RunID,
+		GeneratedAt:      r.GeneratedAt,
+		RunKind:          "operator_packet",
+		SourceRunKind:    r.RunKind,
+		TargetPath:       r.TargetPath,
+		TargetsFile:      r.TargetsFile,
+		Targets:          r.Targets,
+		Mode:             r.Mode,
+		Agent:            r.Agent,
+		StatusFilter:     r.StatusFilter,
+		CaseFilter:       r.CaseFilter,
+		ControlFilter:    r.ControlFilter,
+		Packet:           r.OperatorPacket,
+		SourceReferences: r.SourceReferences,
+		Redaction:        r.Redaction,
+		Warnings:         r.Warnings,
+		Limitations:      nonNilStrings(uniqueSortedStrings(append(append([]string{}, r.OperatorPacket.Limitations...), r.Limitations...))),
+	}
+}
+
+func renderAssessSourceInspection(w io.Writer, r model.AssessReport) error {
+	refs := r.SourceReferences
+	fmt.Fprintf(w, "Ariadne Source Inspection\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Mode: %s  Agent: %s  Filter: %s\n", r.Mode, r.Agent, r.StatusFilter)
+	renderAssessFocusLine(w, r)
+	if !refs.Available || len(refs.Rows) == 0 {
+		fmt.Fprintf(w, "\nNo source-backed evidence references are available for the selected assessment.\n")
+		renderAssessDecisionLines(w, "Evidence gap action", r.Decision.EvidenceGapActions, 4)
+		return nil
+	}
+	if refs.Summary != "" {
+		fmt.Fprintf(w, "\nReadout:\n  - %s\n", refs.Summary)
+	}
+	fmt.Fprintf(w, "\nSource action checklist:\n")
+	for _, action := range rankAssessSourceActions(refs.ActionBoard) {
+		renderAssessSourceInspectionAction(w, action)
+	}
+	fmt.Fprintf(w, "\nEvidence reference rows:\n")
+	for _, row := range refs.Rows {
+		renderAssessSourceReferenceRow(w, row)
+	}
+	if len(refs.Limitations) > 0 || len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimits:\n")
+		renderAssessRunbookStringList(w, uniqueSortedStrings(append(append([]string{}, refs.Limitations...), r.Limitations...)))
+	}
+	return nil
+}
+
+func renderAssessSourceInspectionAction(w io.Writer, action model.AssessSourceAction) {
+	source := firstNonEmpty(action.DisplaySource, action.Source, action.LocalPath, "source")
+	role := readableToken(firstNonEmpty(action.Role, "evidence"))
+	kind := firstNonEmpty(action.ActionKind, "inspect_evidence")
+	fmt.Fprintf(w, "  - %s [%s/%s]\n", source, role, kind)
+	if action.RecommendedAction != "" {
+		fmt.Fprintf(w, "    action: %s\n", action.RecommendedAction)
+	}
+	if action.LocalPath != "" {
+		fmt.Fprintf(w, "    file: %s\n", action.LocalPath)
+	}
+	if lineLabels := usefulSourceActionLineLabels(action.LineLabels); len(lineLabels) > 0 {
+		fmt.Fprintf(w, "    lines: %s\n", strings.Join(lineLabels, ", "))
+	}
+	if action.MetadataOnly {
+		fmt.Fprintf(w, "    handling: metadata-only; do not dump private history, cache, transcript, or paste contents by default\n")
+	}
+	for _, control := range action.RelatedControls {
+		fmt.Fprintf(w, "    control: %s\n", control)
+	}
+	for _, fact := range firstStrings(action.Facts, 4) {
+		fmt.Fprintf(w, "    fact: %s\n", fact)
+	}
+	for _, command := range action.InspectCommands {
+		fmt.Fprintf(w, "    inspect: %s\n", command)
+	}
+}
+
+func RenderAssessRunbook(w io.Writer, runbook model.AssessOperatorRunbook) error {
+	return RenderAssessRunbookForTarget(w, runbook, "")
+}
+
+func RenderAssessRunbookForTarget(w io.Writer, runbook model.AssessOperatorRunbook, root string) error {
+	fmt.Fprintf(w, "Ariadne Operator Runbook\n")
+	if !runbook.Available {
+		fmt.Fprintf(w, "No operator runbook is available for the current assessment filter.\n")
+		return nil
+	}
+	fmt.Fprintf(w, "Case: %s", firstNonEmpty(runbook.Case.ID, "not recorded"))
+	if runbook.Case.Title != "" {
+		fmt.Fprintf(w, " (%s)", runbook.Case.Title)
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "State: %s\n", firstNonEmpty(runbook.Case.State, "unknown"))
+	if runbook.CurrentControl != "" {
+		fmt.Fprintf(w, "Control: %s\n", runbook.CurrentControl)
+	}
+	if runbook.ProofSurface != "" {
+		fmt.Fprintf(w, "Proof surface: %s\n", runbook.ProofSurface)
+	}
+	renderAssessControlProofProfile(w, runbook.CurrentControl, 6)
+	fmt.Fprintf(w, "\nOpen first:\n")
+	if len(runbook.OpenFirst) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		rows := buildAssessSourceReferenceRows(root, runbook.OpenFirst)
+		renderAssessSourceReferenceRowList(w, rows, 6, "none")
+	}
+	fmt.Fprintf(w, "\nWhy this case:\n")
+	renderAssessRunbookStringList(w, runbook.WhyThisCase)
+	fmt.Fprintf(w, "\nDo next:\n")
+	renderAssessRunbookStepLine(w, runbook.CurrentStep)
+	if runbook.NextStep.ID != "" {
+		renderAssessRunbookStepLine(w, runbook.NextStep)
+	}
+	fmt.Fprintf(w, "\nFiles:\n")
+	renderAssessRunbookStringList(w, runbook.Files)
+	fmt.Fprintf(w, "\nArtifacts:\n")
+	renderAssessRunbookStringList(w, runbook.Artifacts)
+	fmt.Fprintf(w, "\nCommands:\n")
+	renderAssessRunbookStringList(w, runbook.Commands)
+	fmt.Fprintf(w, "\nDone when:\n")
+	renderAssessRunbookStringList(w, runbook.DoneCriteria)
+	fmt.Fprintf(w, "\nClosure workflow:\n")
+	if len(runbook.ClosureWorkflow) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, step := range runbook.ClosureWorkflow {
+			renderAssessRunbookStepLine(w, step)
+		}
+	}
+	if len(runbook.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimits:\n")
+		renderAssessRunbookStringList(w, runbook.Limitations)
+	}
+	return nil
+}
+
+func renderAssessRunbookStepLine(w io.Writer, step model.AssessClosureLoopStep) {
+	if step.ID == "" {
+		return
+	}
+	label := firstNonEmpty(step.Title, step.ID)
+	status := firstNonEmpty(step.Status, "unknown")
+	if step.Step > 0 {
+		fmt.Fprintf(w, "  - %d. %s [%s]", step.Step, label, status)
+	} else {
+		fmt.Fprintf(w, "  - %s [%s]", label, status)
+	}
+	if step.Summary != "" {
+		fmt.Fprintf(w, ": %s", step.Summary)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessRunbookStringList(w io.Writer, items []string) {
+	printed := false
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		printed = true
+		fmt.Fprintf(w, "  - %s\n", item)
+	}
+	if !printed {
+		fmt.Fprintf(w, "  - none\n")
+	}
+}
+
+func renderAssessOperatorPacket(w io.Writer, r model.AssessReport) error {
+	packet := r.OperatorPacket
+	fmt.Fprintf(w, "Ariadne Operator Packet\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Mode: %s  Agent: %s  Filter: %s\n", r.Mode, r.Agent, r.StatusFilter)
+	renderAssessFocusLine(w, r)
+	if !packet.Available {
+		fmt.Fprintf(w, "\nNo operator packet is available for the selected evidence.\n")
+		renderAssessDecisionLines(w, "Evidence gap action", r.Decision.EvidenceGapActions, 4)
+		return nil
+	}
+
+	fmt.Fprintf(w, "\nStart here:\n")
+	if packet.Status != "" {
+		fmt.Fprintf(w, "  - Verdict: %s\n", readableToken(packet.Status))
+	}
+	if packet.CaseID != "" {
+		fmt.Fprintf(w, "  - Case: %s (%s)\n", firstNonEmpty(packet.CaseTitle, packet.CaseID), packet.CaseID)
+	}
+	if packet.Severity != "" || packet.State != "" {
+		fmt.Fprintf(w, "  - State: %s / %s\n", strings.ToUpper(firstNonEmpty(packet.Severity, "unknown")), readableToken(firstNonEmpty(packet.State, "unknown")))
+	}
+	if packet.CurrentStep != "" {
+		fmt.Fprintf(w, "  - Current step: %s\n", packet.CurrentStep)
+	}
+	if packet.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", packet.CurrentControl)
+	}
+	if packet.ProofSurface != "" {
+		fmt.Fprintf(w, "  - Proof surface: %s\n", packet.ProofSurface)
+	}
+	if packet.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", packet.Headline)
+	}
+
+	renderAssessOperatorPacketLines(w, "Actionable fact", packet.WhyActionable, 4)
+	renderAssessOperatorPacketLines(w, "Normal context", packet.NormalContext, 3)
+	renderAssessSignalContract(w, r.SignalNoise)
+
+	renderAssessSourceReferenceRowsTerminal(w, "Open first source references:", r.SourceReferences, 6)
+	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
+	renderAssessOperatorPacketEvidence(w, packet.EvidenceToOpen, packet.EvidenceSources)
+	if len(packet.GraphPath) > 0 {
+		fmt.Fprintf(w, "\nPath:\n")
+		for _, line := range firstStrings(packet.GraphPath, 6) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+	}
+
+	fmt.Fprintf(w, "\nControls:\n")
+	renderAssessOperatorPacketBucketLines(w, "Missing control", packet.MissingControls, 6, "none for this packet")
+	renderAssessOperatorPacketBucketLines(w, "Observed control", packet.PresentControls, 5, "none observed for this packet")
+	renderAssessOperatorPacketBucketLines(w, "Target control", packet.TargetControls, 6, "none for this packet")
+	renderAssessControlProofProfile(w, firstNonEmpty(packet.CurrentControl, firstString(packet.TargetControls), firstString(packet.MissingControls)), 6)
+
+	renderAssessOperatorPacketProofState(w, packet.ProofState)
+	if len(packet.Commands) > 0 {
+		fmt.Fprintf(w, "\nCommands:\n")
+		for _, command := range packet.Commands {
+			if command.Command == "" {
+				continue
+			}
+			fmt.Fprintf(w, "  - %d. %s: %s\n", command.Step, command.Title, command.Command)
+			for _, file := range firstStrings(command.Files, 3) {
+				fmt.Fprintf(w, "    file: %s\n", file)
+			}
+		}
+	}
+	renderAssessOperatorPacketLines(w, "Done when", packet.DoneCriteria, 4)
+	renderAssessOperatorPacketLines(w, "Decision rule", packet.DecisionRules, 3)
+	renderAssessOperatorPacketLines(w, "Limitation", packet.Limitations, 3)
+	return nil
+}
+
+func renderAssessOperatorPacketEvidence(w io.Writer, refs []model.EvidenceReference, sources []string) {
+	if len(refs) == 0 {
+		return
+	}
+	inspectable, metadataOnly := splitOperatorPacketEvidence(refs)
+	if len(inspectable) > 0 {
+		fmt.Fprintf(w, "\nEvidence to inspect:\n")
+		for _, ref := range firstOrderedEvidenceReferences(inspectable, 5) {
+			fmt.Fprintf(w, "  - %s\n", evidenceReferenceLine(ref))
+		}
+	}
+	if len(metadataOnly) > 0 {
+		fmt.Fprintf(w, "\nMetadata-only context:\n")
+		fmt.Fprintf(w, "  - These private/history/cache surfaces are summarized; inspect metadata only by default.\n")
+		for _, ref := range firstOrderedEvidenceReferences(metadataOnly, 4) {
+			fmt.Fprintf(w, "  - %s\n", evidenceReferenceLine(ref))
+		}
+	}
+	renderEvidenceSourceListBlock(w, sources, 12)
+}
+
+func splitOperatorPacketEvidence(refs []model.EvidenceReference) ([]model.EvidenceReference, []model.EvidenceReference) {
+	var inspectable []model.EvidenceReference
+	var metadataOnly []model.EvidenceReference
+	for _, ref := range refs {
+		if sourceReferenceMetadataOnly(ref) {
+			metadataOnly = append(metadataOnly, ref)
+			continue
+		}
+		inspectable = append(inspectable, ref)
+	}
+	return nonNilEvidenceReferences(inspectable), nonNilEvidenceReferences(metadataOnly)
+}
+
+func renderAssessOperatorPacketLines(w io.Writer, label string, values []string, limit int) {
+	for _, value := range firstStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
+}
+
+func renderAssessOperatorPacketBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
+	if len(values) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s: %s\n", label, empty)
+		}
+		return
+	}
+	renderAssessOperatorPacketLines(w, label, values, limit)
+}
+
+func renderAssessOperatorPacketProofState(w io.Writer, state model.AssessWorkbenchProofState) {
+	if state.CurrentState == "" && state.ClosureCondition == "" && state.BaselineArtifact == "" && state.CompareArtifact == "" {
+		return
+	}
+	fmt.Fprintf(w, "\nProof checkpoint:\n")
+	if state.CurrentState != "" {
+		fmt.Fprintf(w, "  - Current state: %s\n", readableToken(state.CurrentState))
+	}
+	if state.ClosureCondition != "" {
+		fmt.Fprintf(w, "  - Closure condition: %s\n", state.ClosureCondition)
+	}
+	var artifacts []string
+	for _, artifact := range []string{state.BaselineArtifact, state.AfterArtifact, state.CompareArtifact} {
+		if artifact != "" {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	if len(artifacts) > 0 {
+		fmt.Fprintf(w, "  - Artifacts: %s\n", strings.Join(artifacts, " -> "))
+	}
+}
+
+func renderAssessSummary(w io.Writer, r model.AssessReport) error {
+	fmt.Fprintf(w, "Ariadne Summary\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Mode: %s  Agent: %s  Filter: %s\n", r.Mode, r.Agent, r.StatusFilter)
+	renderAssessFocusLine(w, r)
+	fmt.Fprintf(w, "Open cases: %d  Missing hard barriers: %d  Exposed paths: %d\n\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
+
+	fmt.Fprintf(w, "Decision:\n")
+	if r.Decision.Status != "" {
+		fmt.Fprintf(w, "  - Verdict: %s\n", readableToken(r.Decision.Status))
+	}
+	if r.Decision.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", r.Decision.Headline)
+	}
+	if r.Decision.TopCaseID != "" {
+		fmt.Fprintf(w, "  - Start here: %s (%s)\n", firstNonEmpty(r.Decision.TopCaseTitle, r.Decision.TopCaseID), r.Decision.TopCaseID)
+	}
+	if r.Decision.WhyPrioritized != "" {
+		fmt.Fprintf(w, "  - Why first: %s\n", r.Decision.WhyPrioritized)
+	}
+	if r.Decision.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", r.Decision.CurrentControl)
+	}
+	if r.Decision.CurrentProofSurface != "" {
+		fmt.Fprintf(w, "  - Proof surface: %s\n", r.Decision.CurrentProofSurface)
+	}
+
+	fmt.Fprintf(w, "\nWhat was inspected:\n")
+	fmt.Fprintf(w, "  - AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)\n", r.Inventory.Surfaces, r.Inventory.Facts, r.Inventory.GraphNodes, r.Inventory.GraphEdges)
+	fmt.Fprintf(w, "  - Runtimes: %d; trust inputs: %d; tools: %d; authorities: %d; controls: %d; boundaries: %d\n", r.Inventory.Runtimes, r.Inventory.TrustInputs, r.Inventory.Tools, r.Inventory.Authorities, r.Inventory.Controls, r.Inventory.Boundaries)
+	for _, line := range firstStrings(r.Decision.RiskReasons, 2) {
+		fmt.Fprintf(w, "  - Risk basis: %s\n", line)
+	}
+	for _, line := range firstStrings(r.Decision.NormalCapabilities, 1) {
+		fmt.Fprintf(w, "  - Normal capability: %s\n", line)
+	}
+
+	renderAssessSummarySignalQuality(w, r.SignalQuality)
+	renderAssessSummaryLethalTrifecta(w, r.LethalTrifecta)
+
+	fmt.Fprintf(w, "\nEvidence:\n")
+	renderAssessEvidenceSources(w, r.Decision.EvidenceSources, 8)
+	renderAssessSummarySourceReferences(w, r.SourceReferences, 1)
+
+	if len(r.Decision.PathSummary) > 0 {
+		fmt.Fprintf(w, "\nPath:\n")
+		for _, line := range firstStrings(r.Decision.PathSummary, 5) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+	}
+
+	fmt.Fprintf(w, "\nControls:\n")
+	renderAssessSummaryBucketLines(w, "Missing hard barrier", r.Decision.MissingHardBarriers, 5, "none for the current case")
+	renderAssessSummaryBucketLines(w, "Present hard barrier", r.Decision.PresentHardBarriers, 4, "none observed for the current case")
+	if len(r.Decision.AttestedControls) > 0 {
+		renderAssessSummaryBucketLines(w, "Attested only (declared, not enforced; does not close the case)", r.Decision.AttestedControls, 5, "")
+	}
+	renderAssessSummaryBucketLines(w, "Partial/friction control", r.Decision.PartialOrFrictionControls, 4, "none observed for the current case")
+	renderAssessSummaryBucketLines(w, "Unknown evidence", r.Decision.UnknownEvidence, 4, "none for the current case")
+
+	renderAssessSummaryNextAction(w, r)
+	renderAssessSummaryLimitations(w, r.Limitations)
+	return nil
+}
+
+func renderAssessSummarySourceReferences(w io.Writer, refs model.AssessSourceReferences, limit int) {
+	if !refs.Available || len(refs.Rows) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Source references:\n")
+	rows := refs.Rows
+	if limit <= 0 || limit > len(rows) {
+		limit = len(rows)
+	}
+	for _, row := range rows[:limit] {
+		source := firstNonEmpty(row.DisplaySource, row.Source, row.LocalPath, "source")
+		kind := firstNonEmpty(row.Kind, "evidence")
+		meta := ""
+		if row.MetadataOnly {
+			meta = " metadata-only"
+		}
+		fmt.Fprintf(w, "  - %s [%s%s]: %s\n", source, kind, meta, compactExample(firstNonEmpty(row.Fact, "deterministic evidence reference")))
+		var details []string
+		if row.LocalPath != "" {
+			details = append(details, "file: "+row.LocalPath)
+		}
+		if row.Line != "" && row.Line != "not recorded" {
+			details = append(details, "line: "+row.Line)
+		}
+		if row.InspectCommand != "" {
+			details = append(details, "inspect: "+row.InspectCommand)
+		}
+		if len(details) > 0 {
+			fmt.Fprintf(w, "    %s\n", strings.Join(details, "  "))
+		}
+	}
+}
+
+func renderAssessSourceReferenceRowsTerminal(w io.Writer, title string, refs model.AssessSourceReferences, limit int) {
+	if !refs.Available || len(refs.Rows) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "%s\n", title)
+	renderAssessSourceReferenceRowList(w, refs.Rows, limit, "")
+}
+
+func renderAssessSourceReferenceRowList(w io.Writer, rows []model.AssessSourceRefRow, limit int, empty string) {
+	if len(rows) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s\n", empty)
+		}
+		return
+	}
+	if limit <= 0 || limit > len(rows) {
+		limit = len(rows)
+	}
+	for _, row := range rows[:limit] {
+		renderAssessSourceReferenceRow(w, row)
+	}
+	if len(rows) > limit {
+		fmt.Fprintf(w, "  - %d more source reference(s) in JSON and dashboard output\n", len(rows)-limit)
+	}
+}
+
+func renderAssessSourceReferenceRow(w io.Writer, row model.AssessSourceRefRow) {
+	source := firstNonEmpty(row.DisplaySource, row.Source, row.LocalPath, "source")
+	kind := firstNonEmpty(row.Kind, "evidence")
+	meta := ""
+	if row.MetadataOnly {
+		meta = " metadata-only"
+	}
+	fact := compactExample(firstNonEmpty(row.Fact, "deterministic evidence reference"))
+	fmt.Fprintf(w, "  - %s [%s%s]: %s\n", source, kind, meta, fact)
+	if row.LocalPath != "" {
+		fmt.Fprintf(w, "    file: %s\n", row.LocalPath)
+	}
+	if row.Line != "" && row.Line != "not recorded" {
+		fmt.Fprintf(w, "    line: %s\n", row.Line)
+	}
+	if row.InspectCommand != "" {
+		fmt.Fprintf(w, "    inspect: %s\n", row.InspectCommand)
+	}
+}
+
+func renderAssessSourceActionBoardTerminal(w io.Writer, actions []model.AssessSourceAction, limit int) {
+	if len(actions) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(actions) {
+		limit = len(actions)
+	}
+	display := sourceActionsForTerminal(actions, limit)
+	fmt.Fprintf(w, "\nSource action board:\n")
+	for _, action := range display {
+		source := firstNonEmpty(action.DisplaySource, action.Source, action.LocalPath, "source")
+		role := readableToken(firstNonEmpty(action.Role, "evidence"))
+		kind := firstNonEmpty(action.ActionKind, "inspect_evidence")
+		fmt.Fprintf(w, "  - %s [%s/%s]: %s\n", source, role, kind, firstNonEmpty(action.RecommendedAction, "Inspect or verify this source."))
+		for _, fact := range firstStrings(action.Facts, 1) {
+			fmt.Fprintf(w, "    fact: %s\n", fact)
+		}
+		if lineLabels := usefulSourceActionLineLabels(action.LineLabels); len(lineLabels) > 0 {
+			fmt.Fprintf(w, "    lines: %s\n", strings.Join(lineLabels, ", "))
+		}
+		for _, control := range firstStrings(action.RelatedControls, 2) {
+			fmt.Fprintf(w, "    control: %s\n", control)
+		}
+		for _, command := range firstStrings(action.InspectCommands, 2) {
+			fmt.Fprintf(w, "    open/verify: %s\n", command)
+		}
+	}
+	if len(actions) > len(display) {
+		fmt.Fprintf(w, "  - %d more source action(s) omitted from terminal output\n", len(actions)-len(display))
+	}
+}
+
+func sourceActionsForTerminal(actions []model.AssessSourceAction, limit int) []model.AssessSourceAction {
+	ranked := rankAssessSourceActions(actions)
+	if limit <= 0 || len(ranked) <= limit {
+		return ranked
+	}
+	return append([]model.AssessSourceAction{}, ranked[:limit]...)
+}
+
+func usefulSourceActionLineLabels(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range firstStrings(values, 4) {
+		value = strings.TrimSpace(value)
+		if value == "" || strings.EqualFold(value, "not applicable") || strings.EqualFold(value, "not recorded") {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
+func renderAssessSummaryBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
+	if len(values) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s: %s\n", label, empty)
+		}
+		return
+	}
+	for _, value := range firstStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
+}
+
+func renderAssessSummarySignalQuality(w io.Writer, quality model.AssessSignalQuality) {
+	if quality.Status == "" && quality.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "\nSignal quality:\n")
+	if quality.Summary != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", quality.Summary)
+	}
+	for _, value := range firstStrings(quality.ActionableBecause, 2) {
+		fmt.Fprintf(w, "  - Actionable because: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.ExpectedCapabilities, 1) {
+		fmt.Fprintf(w, "  - Expected capability: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.NoiseFilters, 1) {
+		fmt.Fprintf(w, "  - Noise filter: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.ControlBreakpoints, 1) {
+		fmt.Fprintf(w, "  - Close/downgrade by: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.EvidenceGaps, 2) {
+		fmt.Fprintf(w, "  - Evidence gap: %s\n", value)
+	}
+	for _, value := range firstStrings(quality.DecisionRules, 1) {
+		fmt.Fprintf(w, "  - Decision rule: %s\n", value)
+	}
+}
+
+func renderAssessSummaryLethalTrifecta(w io.Writer, trifecta model.AssessLethalTrifecta) {
+	if trifecta.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "\nLethal trifecta:\n")
+	fmt.Fprintf(w, "  - %s: %s\n", readableToken(string(trifecta.Status)), trifecta.Summary)
+	fmt.Fprintf(w, "  - Ingredients: %s\n", lethalTrifectaIngredientSummary(trifecta.Ingredients))
+	if len(trifecta.ControlsBreakPath) > 0 {
+		fmt.Fprintf(w, "  - Break path: %s\n", strings.Join(firstStrings(trifecta.ControlsBreakPath, 3), "; "))
+	}
+}
+
+func lethalTrifectaIngredientSummary(ingredients []model.TrifectaIngredient) string {
+	if len(ingredients) == 0 {
+		return "none observed"
+	}
+	var parts []string
+	for _, ingredient := range ingredients {
+		state := "missing"
+		if ingredient.Present {
+			state = "present"
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", ingredient.Label, state))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func renderAssessSummaryNextAction(w io.Writer, r model.AssessReport) {
+	action := r.FirstAction
+	if !action.Available {
+		fmt.Fprintf(w, "\nNext action:\n")
+		if r.Triage.NextAction != "" {
+			fmt.Fprintf(w, "  - %s\n", r.Triage.NextAction)
+		} else {
+			fmt.Fprintf(w, "  - No current proof action is available from the selected evidence.\n")
+		}
+		renderAssessDecisionLines(w, "Evidence gap action", r.Decision.EvidenceGapActions, 4)
+		return
+	}
+	current := action.CurrentAction
+	fmt.Fprintf(w, "\nNext action:\n")
+	if current.Instruction != "" {
+		fmt.Fprintf(w, "  - Do this: %s\n", current.Instruction)
+	} else if action.NextStep != "" {
+		fmt.Fprintf(w, "  - Do this: %s\n", action.NextStep)
+	}
+	if current.Control != "" || current.Surface != "" {
+		detail := current.Control
+		if detail == "" {
+			detail = "not recorded"
+		}
+		if current.Surface != "" {
+			detail = fmt.Sprintf("%s; proof surface: %s", detail, current.Surface)
+		}
+		fmt.Fprintf(w, "  - Control: %s\n", detail)
+	}
+	if closureCommand := assessClosureCommandFromNextCommands(r.NextCommands); closureCommand != "" {
+		fmt.Fprintf(w, "  - Create closure workspace: %s\n", closureCommand)
+	}
+	if example := assessCurrentEvidenceExampleLine(action); example != "" {
+		fmt.Fprintf(w, "  - Accepted evidence: %s\n", example)
+	}
+	if patch := assessCurrentProofPatchLine(action); patch != "" {
+		fmt.Fprintf(w, "  - Proof patch: %s\n", patch)
+	}
+	renderAssessSummaryProofBundle(w, action)
+	if r.Decision.BeforeProofCommand != "" {
+		fmt.Fprintf(w, "  - Before proof: %s\n", r.Decision.BeforeProofCommand)
+	}
+	if current.PatchExportCommand != "" {
+		fmt.Fprintf(w, "  - Export proof files: %s\n", current.PatchExportCommand)
+	} else if r.Decision.ProofCommand != "" {
+		fmt.Fprintf(w, "  - Proof command: %s\n", r.Decision.ProofCommand)
+	}
+	if len(action.ApplyCommands) <= 1 && current.ApplyCommand != "" {
+		fmt.Fprintf(w, "  - Review/apply: %s\n", current.ApplyCommand)
+	} else if len(action.ApplyCommands) <= 1 && r.Decision.ApplyCommand != "" {
+		fmt.Fprintf(w, "  - Review/apply: %s\n", r.Decision.ApplyCommand)
+	}
+	if len(action.GeneratedProofPaths) > 1 {
+		fmt.Fprintf(w, "  - Full case proof bundle: %s\n", strings.Join(firstStrings(action.GeneratedProofPaths, 4), "; "))
+	}
+	if len(action.ApplyCommands) > 1 {
+		for _, command := range firstStrings(action.ApplyCommands, 4) {
+			fmt.Fprintf(w, "  - Review/apply bundle: %s\n", command)
+		}
+	}
+	if rerun := assessCurrentRerunCommand(action); rerun != "" {
+		fmt.Fprintf(w, "  - Rerun: %s\n", rerun)
+	} else if r.Decision.RerunCommand != "" {
+		fmt.Fprintf(w, "  - Rerun: %s\n", r.Decision.RerunCommand)
+	}
+	if r.Decision.AfterProofCommand != "" {
+		fmt.Fprintf(w, "  - After proof: %s\n", r.Decision.AfterProofCommand)
+	}
+	if r.Decision.CompareCommand != "" {
+		fmt.Fprintf(w, "  - Compare: %s\n", r.Decision.CompareCommand)
+	} else if current.CompareCommand != "" {
+		fmt.Fprintf(w, "  - Compare: %s\n", current.CompareCommand)
+	}
+	renderAssessDecisionLines(w, "Done when", r.Decision.DoneCriteria, 3)
+	if len(r.NextCommands) > 0 {
+		fmt.Fprintf(w, "\nMore detail:\n")
+		for _, command := range firstStrings(assessNonClosureCommands(r.NextCommands), 3) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	}
+}
+
+func assessNonClosureCommands(commands []string) []string {
+	var out []string
+	for _, command := range commands {
+		if isAriadneSubcommand(command, "closure") {
+			continue
+		}
+		out = append(out, command)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func renderAssessSummaryProofBundle(w io.Writer, action model.AssessFirstAction) {
+	if !action.Available || len(action.ProofPatches) <= 1 {
+		return
+	}
+	controls := proofPatchControls(action.ProofPatches)
+	files := action.GeneratedProofPaths
+	if len(files) == 0 {
+		files = proofPatchBundleSurfaces(action.ProofPatches)
+	}
+	if len(controls) > 0 {
+		fmt.Fprintf(w, "  - Closure bundle controls: %s\n", strings.Join(firstStrings(controls, 6), "; "))
+	}
+	if len(files) > 0 {
+		fmt.Fprintf(w, "  - Closure bundle files: %s\n", strings.Join(firstStrings(files, 4), "; "))
+	}
+	fmt.Fprintf(w, "  - Closure rule: rerun must show every bundle control is no longer a missing hard barrier for this case.\n")
+}
+
+func proofPatchControls(patches []model.ControlProofPatch) []string {
+	var out []string
+	for _, patch := range patches {
+		if control := strings.TrimSpace(patch.Control); control != "" {
+			out = append(out, control)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func renderAssessSummaryLimitations(w io.Writer, limitations []string) {
+	if len(limitations) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nLimitations:\n")
+	for _, limitation := range firstStrings(limitations, 3) {
+		fmt.Fprintf(w, "  - %s\n", limitation)
+	}
+}
+
+func renderAssessAction(w io.Writer, r model.AssessReport) error {
+	fmt.Fprintf(w, "Ariadne Action\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
+	renderAssessFocusLine(w, r)
+	caseLabel := "Open cases"
+	if assessFirstActionClosed(r.FirstAction) {
+		caseLabel = "Focused cases"
+	}
+	fmt.Fprintf(w, "%s: %d; missing hard barriers: %d; exposed paths: %d\n\n", caseLabel, r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls, r.Summary.Exposed)
+
+	renderAssessDecision(w, r.Decision)
+	renderAssessInventorySummary(w, r.Inventory, 4)
+	renderAssessSignalQuality(w, r.SignalQuality)
+	renderAssessSignalContract(w, r.SignalNoise)
+	renderAssessLethalTrifecta(w, r.LethalTrifecta)
+	renderAssessTriage(w, r.Triage)
+	renderAssessControlState(w, r.ControlState)
+	renderAssessWorkbenchSignalChain(w, r.OperatorWorkbench.SignalChain, 4)
+	renderAssessWorkbenchProofState(w, r.OperatorWorkbench.ProofState)
+	renderAssessCaseLifecycle(w, r.CaseLifecycle, 9)
+	renderAssessClosurePlan(w, r.ClosurePlan, 3)
+	action := r.FirstAction
+	if !action.Available {
+		fmt.Fprintf(w, "Current action:\n")
+		if len(r.Triage.EvidenceGapActions) > 0 {
+			fmt.Fprintf(w, "  - collect missing evidence\n")
+			for _, item := range limitStrings(r.Triage.EvidenceGapActions, 4) {
+				fmt.Fprintf(w, "    - %s\n", item)
+			}
+			fmt.Fprintln(w)
+		} else {
+			fmt.Fprintf(w, "  - none\n\n")
+		}
+		renderAssessActionLimitations(w, r.Limitations)
+		return nil
+	}
+	fmt.Fprintf(w, "Case:\n")
+	fmt.Fprintf(w, "  - %s (%s)\n", action.Title, action.CaseID)
+	if action.WhyFirst != "" {
+		fmt.Fprintf(w, "  - %s\n", action.WhyFirst)
+	}
+	if action.CurrentAction.Available {
+		fmt.Fprintf(w, "\nCurrent action:\n")
+		fmt.Fprintf(w, "  - Step: %s\n", firstNonEmpty(action.CurrentAction.WorkflowStepTitle, "not recorded"))
+		if action.CurrentAction.Control != "" {
+			fmt.Fprintf(w, "  - Control: %s\n", action.CurrentAction.Control)
+		}
+		if action.CurrentAction.Surface != "" {
+			fmt.Fprintf(w, "  - Proof surface: %s\n", action.CurrentAction.Surface)
+		}
+		if action.CurrentAction.Instruction != "" {
+			fmt.Fprintf(w, "  - Instruction: %s\n", action.CurrentAction.Instruction)
+		}
+	}
+	renderAssessControlProofProfile(w, firstNonEmpty(action.CurrentAction.Control, firstString(action.StartingControls)), 6)
+	actionEvidenceRefs := rankEvidenceReferencesForOperator(action.CurrentAction.EvidenceReferences, action.ProofSurfaces...)
+	if len(actionEvidenceRefs) > 0 {
+		fmt.Fprintf(w, "\nEvidence to inspect:\n")
+		for _, line := range operatorEvidenceReferenceLinesBySource(actionEvidenceRefs, 4) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+		renderEvidenceSourceListBlock(w, evidenceReferenceSources(actionEvidenceRefs, false), 16)
+	}
+	renderAssessSourceReferenceRowsTerminal(w, "\nOpen first source references:", r.SourceReferences, 6)
+	renderAssessSourceActionBoardTerminal(w, r.SourceReferences.ActionBoard, 8)
+	if example := assessCurrentEvidenceExampleLine(action); example != "" {
+		fmt.Fprintf(w, "\nAccepted evidence:\n  - %s\n", example)
+	}
+	if patch := assessCurrentProofPatchLine(action); patch != "" {
+		fmt.Fprintf(w, "\nProof patch:\n  - %s\n", patch)
+	}
+	if action.CurrentAction.PatchExportCommand != "" {
+		fmt.Fprintf(w, "\nExport suggested files:\n  - %s\n", action.CurrentAction.PatchExportCommand)
+	}
+	if action.CurrentAction.GeneratedProofPath != "" || action.CurrentAction.DestinationPath != "" || action.CurrentAction.ApplyCommand != "" {
+		fmt.Fprintf(w, "\nReview/apply generated proof:\n")
+		if action.CurrentAction.GeneratedProofPath != "" {
+			fmt.Fprintf(w, "  - Generated file: %s\n", action.CurrentAction.GeneratedProofPath)
+		}
+		if action.CurrentAction.DestinationPath != "" {
+			fmt.Fprintf(w, "  - Suggested destination: %s\n", action.CurrentAction.DestinationPath)
+		}
+		if action.CurrentAction.ApplyCommand != "" {
+			fmt.Fprintf(w, "  - Review/apply: %s\n", action.CurrentAction.ApplyCommand)
+		}
+	}
+	if len(action.GeneratedProofPaths) > 0 || len(action.ApplyCommands) > 0 {
+		fmt.Fprintf(w, "\nReview/apply full proof bundle:\n")
+		for _, path := range action.GeneratedProofPaths {
+			fmt.Fprintf(w, "  - Generated file: %s\n", path)
+		}
+		for _, path := range action.DestinationPaths {
+			fmt.Fprintf(w, "  - Suggested destination: %s\n", path)
+		}
+		for _, command := range action.ApplyCommands {
+			fmt.Fprintf(w, "  - Review/apply: %s\n", command)
+		}
+	}
+	if rerun := assessCurrentRerunCommand(action); rerun != "" {
+		fmt.Fprintf(w, "\nRerun:\n  - %s\n", rerun)
+	}
+	if len(action.CompareCommands) > 0 {
+		fmt.Fprintf(w, "\nCompare loop:\n")
+		for _, command := range limitStrings(action.CompareCommands, 3) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	} else if action.CurrentAction.CompareCommand != "" {
+		fmt.Fprintf(w, "\nCompare loop:\n  - %s\n", action.CurrentAction.CompareCommand)
+	}
+	if len(action.SuccessCriteria) > 0 {
+		fmt.Fprintf(w, "\nDone when:\n")
+		for _, criterion := range limitStrings(action.SuccessCriteria, 3) {
+			fmt.Fprintf(w, "  - %s\n", criterion)
+		}
+	}
+	renderAssessActionLimitations(w, r.Limitations)
+	return nil
+}
+
+func assessCurrentEvidenceExampleLine(action model.AssessFirstAction) string {
+	if action.CurrentAction.EvidenceExample != nil {
+		lines := controlEvidenceExampleLines([]model.ControlEvidenceExample{*action.CurrentAction.EvidenceExample}, 1)
+		if len(lines) > 0 {
+			return lines[0]
+		}
+	}
+	index := action.CurrentAction.EvidenceExampleIndex
+	if index < 0 || index >= len(action.EvidenceExamples) {
+		return ""
+	}
+	lines := controlEvidenceExampleLines([]model.ControlEvidenceExample{action.EvidenceExamples[index]}, 1)
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
+}
+
+func assessCurrentProofPatchLine(action model.AssessFirstAction) string {
+	if action.CurrentAction.ProofPatch != nil {
+		lines := controlProofPatchLines([]model.ControlProofPatch{*action.CurrentAction.ProofPatch}, 1)
+		if len(lines) > 0 {
+			return lines[0]
+		}
+	}
+	index := action.CurrentAction.ProofPatchIndex
+	if index < 0 || index >= len(action.ProofPatches) {
+		return ""
+	}
+	lines := controlProofPatchLines([]model.ControlProofPatch{action.ProofPatches[index]}, 1)
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
+}
+
+func assessCurrentRerunCommand(action model.AssessFirstAction) string {
+	if action.CurrentAction.RerunCommand != "" {
+		return action.CurrentAction.RerunCommand
+	}
+	if len(action.RerunCommands) > 0 {
+		return action.RerunCommands[0]
+	}
+	return ""
+}
+
+func renderAssessActionLimitations(w io.Writer, limitations []string) {
+	if len(limitations) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nLimitations:\n")
+	for _, limitation := range limitStrings(limitations, 3) {
+		fmt.Fprintf(w, "  - %s\n", limitation)
+	}
+}
+
+func buildAssessInventory(r model.InventoryReport) model.AssessInventory {
+	return model.AssessInventory{
+		TargetPath:        r.TargetPath,
+		Surfaces:          len(r.Collection.Surfaces),
+		Facts:             len(r.Collection.Facts),
+		GraphNodes:        len(r.Graph.Nodes),
+		GraphEdges:        len(r.Graph.Edges),
+		Runtimes:          len(r.Collection.Runtimes),
+		TrustInputs:       len(r.Collection.TrustInputs),
+		Tools:             len(r.Collection.Tools),
+		Authorities:       len(r.Collection.Authorities),
+		Controls:          len(r.Collection.Controls),
+		Boundaries:        len(r.Collection.Boundaries),
+		SurfaceCategories: assessSurfaceCounts(r.Collection.Surfaces, func(surface model.Surface) string { return surface.Category }),
+		HandlingModes:     assessSurfaceCounts(r.Collection.Surfaces, func(surface model.Surface) string { return surface.HandlingMode }),
+		SurfaceMap:        append([]model.SurfaceMap{}, r.SurfaceMap...),
+		FactHighlights:    assessFactHighlights(r.Collection.Facts, 12),
+		Limitations:       append([]string{}, r.Limitations...),
+	}
+}
+
+type assessScanSurfaceGroup struct {
+	Runtime      string
+	Scope        string
+	SourceRefs   map[string]bool
+	Categories   map[string]int
+	Authorities  map[string]bool
+	Tools        map[string]bool
+	Controls     map[string]bool
+	BoundaryRefs map[string]bool
+}
+
+func buildAssessScanInventory(r model.ScanReport) model.AssessInventory {
+	inventory := model.AssessInventory{
+		TargetPath:        r.TargetsFile,
+		SurfaceCategories: []model.AssessCount{},
+		HandlingModes:     []model.AssessCount{},
+		SurfaceMap:        []model.SurfaceMap{},
+		FactHighlights:    []model.AssessFact{},
+		Limitations: []string{
+			"Fleet inspected summary is aggregated from completed target reports.",
+			"Surface counts are unique target/source references, not raw file counts.",
+			"Low-level collector handling modes are unavailable in scan assessment reports.",
+		},
+	}
+	sourceRefs := map[string]bool{}
+	categoryCounts := map[string]int{}
+	runtimes := map[string]bool{}
+	trustInputs := map[string]bool{}
+	tools := map[string]bool{}
+	authorities := map[string]bool{}
+	controls := map[string]bool{}
+	boundaries := map[string]bool{}
+	groups := map[string]*assessScanSurfaceGroup{}
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		targetID := assessScanTargetID(target)
+		inventory.Facts += len(target.Report.Evidence)
+		inventory.GraphNodes += len(target.Report.Graph.Nodes)
+		inventory.GraphEdges += len(target.Report.Graph.Edges)
+		for _, evidence := range target.Report.Evidence {
+			kind := strings.TrimSpace(evidence.Kind)
+			if kind != "" {
+				categoryCounts[kind]++
+			}
+			source := strings.TrimSpace(evidence.Source)
+			if source == "" {
+				continue
+			}
+			ref := assessScanSourceRef(targetID, source)
+			sourceRefs[ref] = true
+			group := assessScanSurfaceGroupFor(groups, assessScanRuntime(evidence.Runtime, source), "fleet")
+			group.SourceRefs[ref] = true
+			if kind != "" {
+				group.Categories[kind]++
+			}
+		}
+		for _, node := range target.Report.Graph.Nodes {
+			nodeKey := assessScanSourceRef(targetID, firstNonEmpty(node.ID, node.Label, node.Type))
+			nodeType := strings.TrimSpace(node.Type)
+			switch {
+			case nodeType == "runtime":
+				runtimes[nodeKey] = true
+			case nodeType == "trust-input" || nodeType == "trust_input":
+				trustInputs[nodeKey] = true
+			case nodeType == "tool" || nodeType == "mcp-tool-config" || nodeType == "agent-delegation":
+				tools[nodeKey] = true
+			case nodeType == "authority":
+				authorities[nodeKey] = true
+			case nodeType == "control":
+				controls[nodeKey] = true
+			case nodeType == "boundary" || nodeType == "sensitive-boundary":
+				boundaries[nodeKey] = true
+			}
+			source := strings.TrimSpace(node.Source)
+			runtime := assessScanRuntime(node.Runtime, source)
+			if source != "" {
+				ref := assessScanSourceRef(targetID, source)
+				sourceRefs[ref] = true
+				group := assessScanSurfaceGroupFor(groups, runtime, "fleet")
+				group.SourceRefs[ref] = true
+				switch {
+				case nodeType == "boundary" || nodeType == "sensitive-boundary":
+					group.BoundaryRefs[ref] = true
+				}
+			}
+			group := assessScanSurfaceGroupFor(groups, runtime, "fleet")
+			name := assessScanNodeName(node)
+			switch {
+			case nodeType == "tool" || nodeType == "mcp-tool-config" || nodeType == "agent-delegation":
+				group.Tools[name] = true
+			case nodeType == "authority":
+				group.Authorities[name] = true
+			case nodeType == "control":
+				group.Controls[name] = true
+			}
+		}
+	}
+	inventory.Surfaces = len(sourceRefs)
+	inventory.Runtimes = len(runtimes)
+	inventory.TrustInputs = len(trustInputs)
+	inventory.Tools = len(tools)
+	inventory.Authorities = len(authorities)
+	inventory.Controls = len(controls)
+	inventory.Boundaries = len(boundaries)
+	inventory.SurfaceCategories = assessCountsFromMap(categoryCounts)
+	inventory.SurfaceMap = assessScanSurfaceMaps(groups)
+	inventory.FactHighlights = assessScanFactHighlights(r, 5)
+	return inventory
+}
+
+func assessFactHighlights(facts []model.Fact, limit int) []model.AssessFact {
+	if limit <= 0 || limit > len(facts) {
+		limit = len(facts)
+	}
+	out := make([]model.AssessFact, 0, limit)
+	for _, fact := range facts[:limit] {
+		out = append(out, model.AssessFact{
+			ID:            fact.ID,
+			Type:          fact.Type,
+			Runtime:       fact.Runtime,
+			Scope:         fact.Scope,
+			Source:        fact.Source,
+			EvidenceGrade: fact.EvidenceGrade,
+			Redaction:     fact.Redaction,
+			Summary:       fact.Summary,
+			Limitations:   nonNilStrings(fact.Limitations),
+		})
+	}
+	if out == nil {
+		return []model.AssessFact{}
+	}
+	return out
+}
+
+func assessScanFactHighlights(r model.ScanReport, perTargetLimit int) []model.AssessFact {
+	if perTargetLimit <= 0 {
+		perTargetLimit = 5
+	}
+	var groups [][]model.AssessFact
+	maxGroup := 0
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		targetID := assessScanTargetID(target)
+		group := assessScanTargetFactHighlights(targetID, target.Report.Evidence, perTargetLimit)
+		if len(group) == 0 {
+			continue
+		}
+		if len(group) > maxGroup {
+			maxGroup = len(group)
+		}
+		groups = append(groups, group)
+	}
+	out := make([]model.AssessFact, 0, len(groups)*perTargetLimit)
+	for i := 0; i < maxGroup; i++ {
+		for _, group := range groups {
+			if i < len(group) {
+				out = append(out, group[i])
+			}
+		}
+	}
+	if out == nil {
+		return []model.AssessFact{}
+	}
+	return out
+}
+
+func assessScanTargetFactHighlights(targetID string, evidence []model.Evidence, limit int) []model.AssessFact {
+	out := make([]model.AssessFact, 0, limit)
+	seenControlSources := map[string]bool{}
+	seenKeys := map[string]bool{}
+	for _, item := range evidence {
+		kind := strings.TrimSpace(item.Kind)
+		source := strings.TrimSpace(item.Source)
+		summary := strings.TrimSpace(item.Summary)
+		if kind == "" && source == "" && summary == "" {
+			continue
+		}
+		if kind == "control" && source != "" {
+			if seenControlSources[source] {
+				continue
+			}
+			seenControlSources[source] = true
+		}
+		key := kind + "\x00" + source + "\x00" + summary
+		if seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+		out = append(out, model.AssessFact{
+			ID:            item.ID,
+			Type:          firstNonEmpty(kind, "evidence"),
+			Runtime:       item.Runtime,
+			Scope:         "fleet",
+			Target:        targetID,
+			Source:        source,
+			EvidenceGrade: firstNonEmpty(item.Grade, "observed"),
+			Redaction:     "summary-only",
+			Summary:       summary,
+			Limitations: []string{
+				"Derived from scan report evidence; raw collector redaction status is not retained in fleet assessment.",
+			},
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	if out == nil {
+		return []model.AssessFact{}
+	}
+	return out
+}
+
+func assessScanSurfaceGroupFor(groups map[string]*assessScanSurfaceGroup, runtime string, scope string) *assessScanSurfaceGroup {
+	runtime = firstNonEmpty(strings.TrimSpace(runtime), "generic")
+	scope = firstNonEmpty(strings.TrimSpace(scope), "fleet")
+	key := runtime + "\x00" + scope
+	group, ok := groups[key]
+	if ok {
+		return group
+	}
+	group = &assessScanSurfaceGroup{
+		Runtime:      runtime,
+		Scope:        scope,
+		SourceRefs:   map[string]bool{},
+		Categories:   map[string]int{},
+		Authorities:  map[string]bool{},
+		Tools:        map[string]bool{},
+		Controls:     map[string]bool{},
+		BoundaryRefs: map[string]bool{},
+	}
+	groups[key] = group
+	return group
+}
+
+func assessScanSurfaceMaps(groups map[string]*assessScanSurfaceGroup) []model.SurfaceMap {
+	items := make([]model.SurfaceMap, 0, len(groups))
+	for _, group := range groups {
+		if len(group.SourceRefs) == 0 && len(group.Authorities) == 0 && len(group.Tools) == 0 && len(group.Controls) == 0 {
+			continue
+		}
+		items = append(items, model.SurfaceMap{
+			Runtime:            group.Runtime,
+			Scope:              group.Scope,
+			SurfaceCount:       len(group.SourceRefs),
+			BoundaryIndicators: len(group.BoundaryRefs),
+			SourceRefs:         mapKeysSorted(group.SourceRefs),
+			Categories:         assessCountsFromMap(group.Categories),
+			Authorities:        mapKeysSorted(group.Authorities),
+			Tools:              mapKeysSorted(group.Tools),
+			Controls:           mapKeysSorted(group.Controls),
+			Limitations: []string{
+				"Aggregated from scan report graph and evidence references.",
+			},
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].SurfaceCount == items[j].SurfaceCount {
+			if items[i].Runtime == items[j].Runtime {
+				return items[i].Scope < items[j].Scope
+			}
+			return items[i].Runtime < items[j].Runtime
+		}
+		return items[i].SurfaceCount > items[j].SurfaceCount
+	})
+	if items == nil {
+		return []model.SurfaceMap{}
+	}
+	return items
+}
+
+func assessCountsFromMap(counts map[string]int) []model.AssessCount {
+	normalized := map[string]int{}
+	for key, count := range counts {
+		key = strings.TrimSpace(key)
+		if key != "" && count > 0 {
+			normalized[key] += count
+		}
+	}
+	keys := make([]string, 0, len(normalized))
+	for key := range normalized {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]model.AssessCount, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, model.AssessCount{Name: key, Count: normalized[key]})
+	}
+	if out == nil {
+		return []model.AssessCount{}
+	}
+	return out
+}
+
+func assessScanTargetID(target model.ScanTargetResult) string {
+	return firstNonEmpty(target.Target.ID, target.Target.Path, "target")
+}
+
+func assessScanSourceRef(targetID string, source string) string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return ""
+	}
+	return firstNonEmpty(strings.TrimSpace(targetID), "target") + ":" + source
+}
+
+func assessScanRuntime(runtime string, source string) string {
+	if strings.TrimSpace(runtime) != "" {
+		return strings.TrimSpace(runtime)
+	}
+	source = strings.ToLower(strings.TrimSpace(source))
+	switch {
+	case strings.Contains(source, ".claude/") || strings.HasPrefix(source, ".claude/"):
+		return "claude"
+	case strings.Contains(source, ".codex/") || strings.HasPrefix(source, ".codex/"):
+		return "codex"
+	case strings.Contains(source, ".cursor/"),
+		strings.HasPrefix(source, ".cursor/"),
+		source == ".cursorrules",
+		strings.HasSuffix(source, "/.cursorrules"):
+		return "cursor"
+	case strings.Contains(source, ".windsurf/"),
+		strings.HasPrefix(source, ".windsurf/"),
+		source == ".windsurfrules",
+		strings.HasSuffix(source, "/.windsurfrules"):
+		return "windsurf"
+	case strings.Contains(source, ".continue/") || strings.HasPrefix(source, ".continue/"):
+		return "continue"
+	case strings.Contains(source, ".aider") || strings.HasPrefix(source, ".aider"):
+		return "aider"
+	case strings.Contains(source, ".gemini/") || strings.HasPrefix(source, ".gemini/"):
+		return "gemini"
+	case strings.Contains(source, "opencode") || strings.Contains(source, ".opencode/"):
+		return "opencode"
+	case source == "mcp.json",
+		source == ".mcp.json",
+		strings.HasSuffix(source, "/mcp.json"),
+		strings.HasSuffix(source, "/.mcp.json"),
+		strings.Contains(source, "mcp-policy"):
+		return "mcp"
+	default:
+		return "generic"
+	}
+}
+
+func assessScanNodeName(node model.Node) string {
+	value := firstNonEmpty(node.Label, node.ID, node.Type)
+	if idx := strings.Index(value, ":"); idx >= 0 && idx+1 < len(value) {
+		value = value[idx+1:]
+	}
+	return value
+}
+
+func buildAssessExposure(exposures []model.ExposureResult) model.AssessExposure {
+	out := model.AssessExposure{Paths: len(exposures)}
+	for _, exposure := range exposures {
+		switch exposure.Status {
+		case model.StatusExposed:
+			out.Exposed++
+		case model.StatusProtected:
+			out.Protected++
+		case model.StatusInconclusive:
+			out.Inconclusive++
+		}
+	}
+	out.TopPaths = append([]model.ExposureResult{}, exposures...)
+	if len(out.TopPaths) > 5 {
+		out.TopPaths = out.TopPaths[:5]
+	}
+	if out.TopPaths == nil {
+		out.TopPaths = []model.ExposureResult{}
+	}
+	return out
+}
+
+func buildAssessLethalTrifecta(exposures []model.ExposureResult) model.AssessLethalTrifecta {
+	exposure, ok := selectLethalTrifectaExposure(exposures)
+	if !ok {
+		return model.AssessLethalTrifecta{
+			Status:      model.StatusInconclusive,
+			ProofMode:   model.ProofInferred,
+			Summary:     "Lethal trifecta evidence was not established for this target.",
+			Ingredients: lethalTrifectaIngredients(model.ExposureResult{}),
+			DecisionRules: []string{
+				"The lethal trifecta requires untrusted content, private-data access, and external communication in the same supported agent graph.",
+				"Missing one ingredient is not treated as a complete data-egress chain.",
+				"Observed hard barriers can downgrade or protect the chain.",
+			},
+			Limitations: []string{
+				"This is deterministic graph evidence only; Ariadne does not execute the agent or observe live data movement.",
+			},
+		}
+	}
+	ingredients := lethalTrifectaIngredients(exposure)
+	complete := true
+	for _, ingredient := range ingredients {
+		if !ingredient.Present {
+			complete = false
+			break
+		}
+	}
+	out := model.AssessLethalTrifecta{
+		Status:             exposure.Status,
+		Present:            exposure.Status == model.StatusExposed && complete,
+		Protected:          exposure.Status == model.StatusProtected,
+		Complete:           complete,
+		ProofMode:          exposure.ProofMode,
+		Summary:            lethalTrifectaSummary(exposure, complete),
+		Ingredients:        ingredients,
+		GraphEdges:         nonNilStrings(uniqueStrings(exposure.PathEdges)),
+		EvidenceReferences: nonNilEvidenceReferences(exposure.EvidenceReferences),
+		ControlsBreakPath:  lethalTrifectaControlsBreakPath(exposure),
+		DecisionRules: []string{
+			"The lethal trifecta requires untrusted content, private-data access, and external communication in the same supported agent graph.",
+			"Missing one ingredient is not treated as a complete data-egress chain.",
+			"Observed hard barriers can downgrade or protect the chain.",
+		},
+		Limitations: nonNilStrings(uniqueStrings(append([]string{
+			"This is deterministic graph evidence only; Ariadne does not execute the agent or observe live data movement.",
+		}, exposure.Limitations...))),
+	}
+	return out
+}
+
+func lethalTrifectaControlsBreakPath(exposure model.ExposureResult) []string {
+	if len(exposure.ControlsBreakPath) > 0 {
+		return nonNilStrings(uniqueStrings(exposure.ControlsBreakPath))
+	}
+	if exposure.Status == model.StatusExposed {
+		return []string{
+			"isolate or trust-gate untrusted instructions",
+			"deny-read secret-like paths or private agent context",
+			"restrict external network communication and output destinations",
+		}
+	}
+	return []string{}
+}
+
+func selectLethalTrifectaExposure(exposures []model.ExposureResult) (model.ExposureResult, bool) {
+	var selected model.ExposureResult
+	found := false
+	best := -1
+	for _, exposure := range exposures {
+		if exposure.ID != "data-egress-chain" {
+			continue
+		}
+		score := lethalTrifectaStatusScore(exposure.Status)
+		if !found || score > best {
+			selected = exposure
+			found = true
+			best = score
+		}
+	}
+	return selected, found
+}
+
+func lethalTrifectaStatusScore(status model.Status) int {
+	switch status {
+	case model.StatusExposed:
+		return 3
+	case model.StatusProtected:
+		return 2
+	case model.StatusInconclusive:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func lethalTrifectaSummary(exposure model.ExposureResult, complete bool) string {
+	switch exposure.Status {
+	case model.StatusExposed:
+		return "Lethal trifecta present: untrusted content, private-data reachability, and external communication are connected without an observed hard barrier."
+	case model.StatusProtected:
+		return "Lethal trifecta ingredients are present, but observed controls break influence, private-data, or external-communication reachability."
+	case model.StatusInconclusive:
+		if complete {
+			return "Lethal trifecta ingredients were observed, but the path remains inconclusive under the current proof mode."
+		}
+		return "Lethal trifecta incomplete or unproven: one or more ingredients are missing from the supported graph."
+	default:
+		return "Lethal trifecta status is unknown."
+	}
+}
+
+func lethalTrifectaIngredients(exposure model.ExposureResult) []model.TrifectaIngredient {
+	edges := exposure.PathEdges
+	refs := exposure.EvidenceReferences
+	return []model.TrifectaIngredient{
+		{
+			ID:                 "untrusted_content",
+			Label:              "Exposure to untrusted content",
+			Present:            len(lethalTrifectaUntrustedContentEdges(edges)) > 0,
+			Summary:            "Attacker-controlled or repo-controlled instructions can influence the agent runtime.",
+			GraphEdges:         nonNilStrings(lethalTrifectaUntrustedContentEdges(edges)),
+			EvidenceReferences: nonNilEvidenceReferences(refs),
+		},
+		{
+			ID:                 "private_data",
+			Label:              "Access to private data",
+			Present:            len(lethalTrifectaPrivateDataEdges(edges)) > 0,
+			Summary:            "The graph reaches secret-like files, developer secret boundaries, private agent context, or retained credential material.",
+			GraphEdges:         nonNilStrings(lethalTrifectaPrivateDataEdges(edges)),
+			EvidenceReferences: nonNilEvidenceReferences(refs),
+		},
+		{
+			ID:                 "external_communication",
+			Label:              "Ability to externally communicate",
+			Present:            len(lethalTrifectaExternalCommunicationEdges(edges)) > 0,
+			Summary:            "The graph reaches an external destination through broad local or external communication authority.",
+			GraphEdges:         nonNilStrings(lethalTrifectaExternalCommunicationEdges(edges)),
+			EvidenceReferences: nonNilEvidenceReferences(refs),
+		},
+	}
+}
+
+func lethalTrifectaUntrustedContentEdges(edges []string) []string {
+	var out []string
+	for _, edge := range edges {
+		if strings.HasPrefix(edge, "trustinput:") && strings.Contains(edge, "|influences|") {
+			out = append(out, edge)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func lethalTrifectaPrivateDataEdges(edges []string) []string {
+	return graphEdgesToAny(edges,
+		"boundary:secret-like-file",
+		"boundary:developer-secret-boundary",
+		"boundary:agent-private-context",
+		"boundary:memory-credential-retention",
+		"boundary:credential-material",
+	)
+}
+
+func lethalTrifectaExternalCommunicationEdges(edges []string) []string {
+	return graphEdgesToAny(edges, "boundary:external-destination")
+}
+
+func graphEdgesToAny(edges []string, targets ...string) []string {
+	targetSet := map[string]bool{}
+	for _, target := range targets {
+		targetSet[target] = true
+	}
+	var out []string
+	for _, edge := range edges {
+		parts := strings.Split(edge, "|")
+		if len(parts) == 3 && targetSet[parts[2]] {
+			out = append(out, edge)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+type assessClosureTarget struct {
+	TargetID string
+	Flaws    []model.ZeroTrustArchitecture
+}
+
+func buildAssessClosureEvidence(exposures []model.ExposureResult, targets []assessClosureTarget) model.AssessClosureEvidence {
+	out := model.AssessClosureEvidence{}
+	for _, exposure := range exposures {
+		if exposure.Status == model.StatusProtected {
+			out.ProtectedExposurePaths++
+		}
+	}
+	for _, target := range targets {
+		for _, flaw := range target.Flaws {
+			path := assessClosurePath(target.TargetID, flaw)
+			switch {
+			case flaw.Status == model.ZeroTrustControlled || flaw.ControlTest.Result == "hard_barrier_observed":
+				out.ControlledArchitectureFlaws++
+				out.ControlledPaths = append(out.ControlledPaths, path)
+				out.HardBarriersObserved = append(out.HardBarriersObserved, flaw.ControlTest.HardBarriersObserved...)
+			case flaw.ControlTest.Result == "partial_or_friction_only":
+				out.PartialArchitectureFlaws++
+				out.PartialPaths = append(out.PartialPaths, path)
+				out.PartialOrFrictionControls = append(out.PartialOrFrictionControls, flaw.ControlTest.PartialOrFrictionControls...)
+				out.RemainingMissingHardBarriers = append(out.RemainingMissingHardBarriers, flaw.ControlTest.MissingHardBarriers...)
+			}
+		}
+	}
+	out.HardBarriersObserved = uniqueSortedStrings(out.HardBarriersObserved)
+	out.PartialOrFrictionControls = uniqueSortedStrings(out.PartialOrFrictionControls)
+	out.RemainingMissingHardBarriers = uniqueSortedStrings(out.RemainingMissingHardBarriers)
+	if out.ControlledPaths == nil {
+		out.ControlledPaths = []model.AssessClosurePath{}
+	}
+	if out.PartialPaths == nil {
+		out.PartialPaths = []model.AssessClosurePath{}
+	}
+	return out
+}
+
+func assessClosurePath(targetID string, flaw model.ZeroTrustArchitecture) model.AssessClosurePath {
+	return model.AssessClosurePath{
+		Target:                       targetID,
+		ID:                           flaw.ID,
+		Title:                        flaw.Title,
+		Status:                       flaw.Status,
+		ControlTestResult:            flaw.ControlTest.Result,
+		Controls:                     nonNilStrings(flaw.Controls),
+		HardBarriersObserved:         nonNilStrings(flaw.ControlTest.HardBarriersObserved),
+		PartialOrFrictionControls:    nonNilStrings(flaw.ControlTest.PartialOrFrictionControls),
+		RemainingMissingHardBarriers: nonNilStrings(flaw.ControlTest.MissingHardBarriers),
+		GraphEdges:                   nonNilStrings(flaw.GraphEdges),
+		EvidenceReferences:           assessEvidenceReferences(targetID, flaw.Evidence),
+	}
+}
+
+func assessEvidenceReferences(targetID string, evidence []model.ZeroTrustEvidence) []model.EvidenceReference {
+	refs := make([]model.EvidenceReference, 0, len(evidence))
+	for _, item := range evidence {
+		refs = append(refs, model.EvidenceReference{
+			Target:  targetID,
+			ID:      item.ID,
+			Kind:    item.Kind,
+			Source:  item.Source,
+			Summary: item.Summary,
+		})
+	}
+	return dedupeEvidenceReferences(refs)
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return append([]string{}, values...)
+}
+
+func buildAssessSummary(inventory model.AssessInventory, exposure model.AssessExposure, architecture model.ZeroTrustSummary, controls model.ControlCatalogSummary, cases []model.ControlOperatorCase) model.AssessSummary {
+	summary := model.AssessSummary{
+		Targets:                      1,
+		CompletedTargets:             1,
+		Surfaces:                     inventory.Surfaces,
+		Facts:                        inventory.Facts,
+		GraphNodes:                   inventory.GraphNodes,
+		GraphEdges:                   inventory.GraphEdges,
+		ExposurePaths:                exposure.Paths,
+		Exposed:                      exposure.Exposed,
+		Protected:                    exposure.Protected,
+		Inconclusive:                 exposure.Inconclusive,
+		ArchitectureFlaws:            architecture.Total,
+		BreakingArchitectureFlaws:    architecture.Breaking,
+		ControlledArchitectureFlaws:  architecture.Controlled,
+		UnknownArchitectureFlaws:     architecture.Unknown,
+		NotObservedArchitectureFlaws: architecture.NotObserved,
+		OperatorCases:                len(cases),
+		MissingHardBarrierControls:   controls.Controls,
+		CriticalMissingHardBarriers:  controls.Critical,
+		HighMissingHardBarriers:      controls.High,
+		MediumMissingHardBarriers:    controls.Medium,
+		LowMissingHardBarriers:       controls.Low,
+	}
+	if len(cases) > 0 {
+		summary.TopCaseID = cases[0].ID
+		summary.TopCaseTitle = cases[0].Title
+		summary.TopCaseNextStep = cases[0].NextStep
+	}
+	return summary
+}
+
+func buildAssessTriage(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, flaws []model.ZeroTrustArchitecture) model.AssessTriage {
+	closedAction := assessFirstActionClosed(action)
+	triage := model.AssessTriage{
+		Status:                    assessTriageStatus(summary, exposure, action),
+		HardRiskSignals:           []string{},
+		NormalCapabilities:        []string{},
+		MissingHardBarriers:       []string{},
+		AttestedControls:          []string{},
+		PartialOrFrictionControls: []string{},
+		PresentHardBarriers:       []string{},
+		UnknownEvidence:           []string{},
+		EvidenceGapActions:        []string{},
+		SignalDetails:             []model.AssessSignal{},
+		EvidenceReferences:        []model.EvidenceReference{},
+		ProofLoop:                 []string{},
+	}
+	if action.Available {
+		triage.StartHere = action.CaseID
+		if closedAction {
+			triage.Headline = fmt.Sprintf("%s is closed because Ariadne observed hard-barrier evidence.", firstNonEmpty(action.Title, action.CaseID))
+		} else {
+			triage.Headline = fmt.Sprintf("Start with %s because Ariadne ranked it as the first open operator case.", firstNonEmpty(action.Title, action.CaseID))
+		}
+		triage.NextAction = action.NextStep
+		triage.EvidenceReferences = dedupeEvidenceReferences(action.EvidenceReferences)
+		if closedAction {
+			triage.PresentHardBarriers = append(triage.PresentHardBarriers, action.StartingControls...)
+		} else {
+			if action.WhyFirst != "" {
+				triage.HardRiskSignals = append(triage.HardRiskSignals, action.WhyFirst)
+			}
+			if len(action.EvidenceReferences) > 0 {
+				triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d evidence reference(s) support the top case.", len(dedupeEvidenceReferences(action.EvidenceReferences))))
+			}
+			triage.MissingHardBarriers = append(triage.MissingHardBarriers, action.StartingControls...)
+		}
+		triage.ProofLoop = assessTriageProofLoop(action)
+	} else {
+		triage.Headline = "No open operator case matched this filter."
+		triage.NextAction = "Review controlled, unknown, or not-observed results if the question is evidence coverage rather than active break paths."
+	}
+	if !closedAction && summary.BreakingArchitectureFlaws > 0 {
+		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d breaking architecture flaw(s) remain after deterministic graph correlation.", summary.BreakingArchitectureFlaws))
+	}
+	if !closedAction && exposure.Exposed > 0 {
+		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d exposed path(s) reach a sensitive boundary without a breaking control.", exposure.Exposed))
+	}
+	if !closedAction && summary.MissingHardBarrierControls > 0 {
+		triage.HardRiskSignals = append(triage.HardRiskSignals, fmt.Sprintf("%d missing hard-barrier control(s) are keeping cases open.", summary.MissingHardBarrierControls))
+	}
+	triage.NormalCapabilities = assessNormalCapabilityLines(inventory)
+	if !closedAction {
+		triage.MissingHardBarriers = append(triage.MissingHardBarriers, closure.RemainingMissingHardBarriers...)
+	}
+	triage.MissingHardBarriers = uniqueStrings(triage.MissingHardBarriers)
+	for _, flaw := range flaws {
+		triage.AttestedControls = append(triage.AttestedControls, flaw.ControlTest.AttestedControls...)
+	}
+	triage.AttestedControls = uniqueStrings(triage.AttestedControls)
+	triage.PartialOrFrictionControls = uniqueStrings(closure.PartialOrFrictionControls)
+	triage.PresentHardBarriers = uniqueStrings(append(triage.PresentHardBarriers, closure.HardBarriersObserved...))
+	if !closedAction && summary.UnknownArchitectureFlaws > 0 {
+		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d architecture flaw(s) need more deterministic evidence before Ariadne can classify them.", summary.UnknownArchitectureFlaws))
+	}
+	if !closedAction && exposure.Inconclusive > 0 {
+		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d exposure path(s) are inconclusive because authority, boundary, or control evidence is incomplete.", exposure.Inconclusive))
+	}
+	if !closedAction && summary.NotObservedArchitectureFlaws > 0 {
+		triage.UnknownEvidence = append(triage.UnknownEvidence, fmt.Sprintf("%d architecture area(s) were not observed in collected surfaces.", summary.NotObservedArchitectureFlaws))
+	}
+	triage.HardRiskSignals = uniqueStrings(triage.HardRiskSignals)
+	triage.UnknownEvidence = uniqueStrings(triage.UnknownEvidence)
+	if triage.Headline == "" {
+		triage.Headline = assessTriageHeadline(triage.Status)
+	}
+	if triage.NextAction == "" {
+		triage.NextAction = assessTriageNextAction(triage.Status)
+	}
+	triage.SignalDetails = buildAssessSignalDetails(summary, inventory, exposure, closure, action, triage, flaws)
+	return triage
+}
+
+func buildAssessControlState(action model.AssessFirstAction, triage model.AssessTriage) model.AssessControlState {
+	state := model.AssessControlState{
+		Available:                 action.Available,
+		Scope:                     "top_case",
+		MissingHardBarriers:       nonNilStrings(uniqueStrings(triage.MissingHardBarriers)),
+		PresentHardBarriers:       nonNilStrings(uniqueStrings(triage.PresentHardBarriers)),
+		AttestedControls:          nonNilStrings(uniqueStrings(triage.AttestedControls)),
+		PartialOrFrictionControls: nonNilStrings(uniqueStrings(triage.PartialOrFrictionControls)),
+		UnknownEvidence:           nonNilStrings(uniqueStrings(triage.UnknownEvidence)),
+		ProofSurfaces:             []string{},
+		EvidenceSources:           []string{},
+		PathSummary:               []string{},
+		GraphEdges:                []string{},
+		Summary:                   []string{},
+		Limitations: []string{
+			"Control state is deterministic evidence state; it does not prove live enforcement unless runtime enforcement evidence is observed.",
+		},
+	}
+	if action.Available {
+		state.CaseID = action.CaseID
+		state.CaseTitle = action.Title
+		state.CurrentControl = action.CurrentAction.Control
+		state.CurrentProofSurface = action.CurrentAction.Surface
+		if assessFirstActionClosed(action) {
+			state.ProofSurfaces = nonNilStrings(assessActionEvidenceSurfaces(action))
+		} else {
+			state.ProofSurfaces = nonNilStrings(uniqueStrings(action.ProofSurfaces))
+		}
+		state.EvidenceSources = nonNilStrings(evidenceReferenceSources(action.EvidenceReferences, false))
+	}
+	state.GraphEdges = assessControlStateGraphEdges(triage.SignalDetails)
+	state.PathSummary = assessControlStatePathSummary(state.GraphEdges, state.MissingHardBarriers, state.PresentHardBarriers)
+	if len(state.MissingHardBarriers) > 0 {
+		state.Summary = append(state.Summary, fmt.Sprintf("Missing hard-barrier evidence for %s.", strings.Join(limitStrings(state.MissingHardBarriers, 4), ", ")))
+	}
+	if len(state.PresentHardBarriers) > 0 {
+		state.Summary = append(state.Summary, fmt.Sprintf("Observed hard-barrier evidence for %s.", strings.Join(limitStrings(state.PresentHardBarriers, 4), ", ")))
+	}
+	if len(state.PartialOrFrictionControls) > 0 {
+		state.Summary = append(state.Summary, fmt.Sprintf("Partial or friction-only controls observed: %s.", strings.Join(limitStrings(state.PartialOrFrictionControls, 4), ", ")))
+	}
+	if len(state.UnknownEvidence) > 0 {
+		state.Summary = append(state.Summary, fmt.Sprintf("%d evidence gap(s) remain; Ariadne does not treat unknown evidence as safe.", len(state.UnknownEvidence)))
+	}
+	if len(state.Summary) == 0 && action.Available {
+		state.Summary = append(state.Summary, "No missing, partial, present, or unknown control-state facts were returned for this focused case.")
+	}
+	if len(state.Summary) == 0 && !action.Available {
+		state.Summary = append(state.Summary, "No focused control state is available for this filter.")
+	}
+	if !state.Available && (len(state.MissingHardBarriers) > 0 || len(state.PresentHardBarriers) > 0 || len(state.PartialOrFrictionControls) > 0 || len(state.UnknownEvidence) > 0) {
+		state.Available = true
+	}
+	state.Summary = uniqueStrings(state.Summary)
+	state.PathSummary = uniqueStrings(state.PathSummary)
+	state.GraphEdges = uniqueStrings(state.GraphEdges)
+	state.Limitations = uniqueStrings(state.Limitations)
+	return state
+}
+
+func buildAssessSignalQuality(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction) model.AssessSignalQuality {
+	closedAction := assessFirstActionClosed(action)
+	quality := model.AssessSignalQuality{
+		Status:               firstNonEmpty(triage.Status, "unknown"),
+		ActionableBecause:    []string{},
+		ExpectedCapabilities: []string{},
+		NoiseFilters:         []string{},
+		ControlBreakpoints:   []string{},
+		EvidenceGaps:         []string{},
+		GraphEdges:           []string{},
+		EvidenceReferences:   []model.EvidenceReference{},
+		DecisionRules: []string{
+			"Capability alone is not exposure.",
+			"Action required needs graph evidence connecting influence, authority, boundary reachability, and a missing hard barrier.",
+			"Protected or controlled needs observed hard-barrier evidence that breaks the modeled path.",
+			"Unknown evidence remains unknown; Ariadne does not count it as safe.",
+		},
+		Limitations: []string{
+			"Signal quality is derived from deterministic inventory, graph, case, and control evidence; it is not an independent live enforcement test.",
+		},
+	}
+	switch {
+	case closedAction:
+		quality.Summary = "Controlled signal: Ariadne observed hard-barrier evidence for the focused path."
+	case action.Available && len(state.MissingHardBarriers) > 0:
+		quality.Summary = "Actionable signal: expected agent capability is connected to a sensitive boundary and missing hard-barrier evidence."
+	case action.Available:
+		quality.Summary = "Focused signal: Ariadne found a case to inspect, but the current control state should be reviewed before treating it as open risk."
+	case len(triage.UnknownEvidence) > 0:
+		quality.Summary = "Evidence-gap signal: Ariadne lacks enough deterministic evidence to classify every path."
+	default:
+		quality.Summary = "No open graph-supported action matched the current filter."
+	}
+	if action.Available {
+		quality.ActionableBecause = append(quality.ActionableBecause, fmt.Sprintf("Top case is %s (%s).", firstNonEmpty(action.Title, action.CaseID), action.CaseID))
+	}
+	if !closedAction {
+		quality.ActionableBecause = append(quality.ActionableBecause, firstStrings(triage.HardRiskSignals, 3)...)
+	}
+	if len(state.GraphEdges) > 0 {
+		quality.ActionableBecause = append(quality.ActionableBecause, fmt.Sprintf("Graph path has %d supporting edge(s) for the focused case.", len(state.GraphEdges)))
+		quality.GraphEdges = append(quality.GraphEdges, state.GraphEdges...)
+	} else {
+		quality.GraphEdges = append(quality.GraphEdges, assessControlStateGraphEdges(triage.SignalDetails)...)
+	}
+	if len(state.MissingHardBarriers) > 0 {
+		quality.ActionableBecause = append(quality.ActionableBecause, "Missing hard barriers: "+strings.Join(limitStrings(state.MissingHardBarriers, 5), "; "))
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Prove hard-barrier controls: "+strings.Join(limitStrings(state.MissingHardBarriers, 5), "; "))
+	}
+	if len(state.PresentHardBarriers) > 0 {
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Observed hard barriers: "+strings.Join(limitStrings(state.PresentHardBarriers, 5), "; "))
+	}
+	if len(state.PartialOrFrictionControls) > 0 {
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Partial or friction controls observed but not counted as closure: "+strings.Join(limitStrings(state.PartialOrFrictionControls, 4), "; "))
+	}
+	if action.CurrentAction.Surface != "" {
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Primary proof surface: "+action.CurrentAction.Surface)
+	} else if state.CurrentProofSurface != "" {
+		quality.ControlBreakpoints = append(quality.ControlBreakpoints, "Primary proof surface: "+state.CurrentProofSurface)
+	}
+	quality.ExpectedCapabilities = append(quality.ExpectedCapabilities, triage.NormalCapabilities...)
+	if len(quality.ExpectedCapabilities) == 0 && inventory.Runtimes+inventory.Authorities+inventory.Tools+inventory.TrustInputs > 0 {
+		quality.ExpectedCapabilities = append(quality.ExpectedCapabilities, fmt.Sprintf("Observed %d runtime, %d authority, %d tool, and %d trust-input surface(s); this is not a finding by itself.", inventory.Runtimes, inventory.Authorities, inventory.Tools, inventory.TrustInputs))
+	}
+	quality.NoiseFilters = append(quality.NoiseFilters,
+		"Runtime, tool, authority, and trust-input surfaces are expected agent capability until correlated into a supported path.",
+		"A config file or instruction file is evidence, not a finding, unless the graph shows reachable authority and boundary impact.",
+		"Partial or friction-only controls reduce context but do not close an open path without hard-barrier evidence.",
+	)
+	quality.EvidenceGaps = append(quality.EvidenceGaps, triage.UnknownEvidence...)
+	quality.EvidenceGaps = append(quality.EvidenceGaps, triage.EvidenceGapActions...)
+	quality.EvidenceReferences = append(quality.EvidenceReferences, triage.EvidenceReferences...)
+	if len(quality.EvidenceReferences) == 0 {
+		quality.EvidenceReferences = append(quality.EvidenceReferences, action.EvidenceReferences...)
+	}
+	quality.ActionableBecause = nonNilStrings(uniqueStrings(quality.ActionableBecause))
+	quality.ExpectedCapabilities = nonNilStrings(uniqueStrings(quality.ExpectedCapabilities))
+	quality.NoiseFilters = nonNilStrings(uniqueStrings(quality.NoiseFilters))
+	quality.ControlBreakpoints = nonNilStrings(uniqueStrings(quality.ControlBreakpoints))
+	quality.EvidenceGaps = nonNilStrings(uniqueStrings(quality.EvidenceGaps))
+	quality.GraphEdges = nonNilStrings(uniqueStrings(quality.GraphEdges))
+	quality.EvidenceReferences = nonNilEvidenceReferences(dedupeEvidenceReferences(quality.EvidenceReferences))
+	quality.DecisionRules = nonNilStrings(uniqueStrings(quality.DecisionRules))
+	quality.Limitations = nonNilStrings(uniqueStrings(quality.Limitations))
+	if len(quality.ActionableBecause) == 0 && summary.OperatorCases == 0 {
+		quality.ActionableBecause = append(quality.ActionableBecause, "No open operator case was produced for the current filter.")
+	}
+	return quality
+}
+
+func buildAssessSignalNoise(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, quality model.AssessSignalQuality, action model.AssessFirstAction) model.AssessSignalNoise {
+	closedAction := assessFirstActionClosed(action)
+	out := model.AssessSignalNoise{
+		Status:             firstNonEmpty(quality.Status, triage.Status, "unknown"),
+		ExpectedCapability: []model.AssessSignalNoiseItem{},
+		ExposureTransition: []model.AssessSignalNoiseItem{},
+		ControlEvidence:    []model.AssessSignalNoiseItem{},
+		DowngradeEvidence:  []model.AssessSignalNoiseItem{},
+		EvidenceGaps:       []model.AssessSignalNoiseItem{},
+		DecisionRules:      append([]string{}, quality.DecisionRules...),
+		Limitations: []string{
+			"Signal/noise separation is deterministic: Ariadne reports observed capability facts separately from graph-supported exposure transitions and control evidence.",
+		},
+	}
+	switch {
+	case closedAction:
+		out.Summary = "Expected agent capability is present, but Ariadne observed hard-barrier evidence for the focused path."
+	case action.Available && len(state.MissingHardBarriers) > 0:
+		out.Summary = "Expected agent capability becomes actionable signal only where graph evidence reaches a boundary and hard-barrier evidence is missing."
+	case action.Available:
+		out.Summary = "A focused case exists, but Ariadne separates expected capability from exposure until the control state is reviewed."
+	case len(triage.UnknownEvidence) > 0:
+		out.Summary = "Ariadne found evidence gaps; unknown evidence is not counted as safe or exposed."
+	default:
+		out.Summary = "No supported exposure transition was produced for the current filter."
+	}
+
+	if inventory.Runtimes > 0 {
+		out.ExpectedCapability = append(out.ExpectedCapability, model.AssessSignalNoiseItem{
+			ID:                 "capability:runtimes",
+			Category:           "expected_capability",
+			Disposition:        "normal",
+			Summary:            fmt.Sprintf("%d agent runtime surface(s) were observed. Runtime presence is expected capability, not exposure by itself.", inventory.Runtimes),
+			RiskBoundary:       "Runtime presence becomes relevant only when graph evidence shows influence, authority, boundary reachability, and control state.",
+			EvidenceReferences: signalNoiseEvidenceReferencesByKind(action.EvidenceReferences, "runtime"),
+			Sources:            signalNoiseSourcesFor(inventory, action.EvidenceReferences, "runtime"),
+		})
+	}
+	if inventory.Authorities > 0 {
+		out.ExpectedCapability = append(out.ExpectedCapability, model.AssessSignalNoiseItem{
+			ID:                 "capability:authorities",
+			Category:           "expected_capability",
+			Disposition:        "normal_until_correlated",
+			Summary:            fmt.Sprintf("%d authority surface(s) were observed. Authority is normal for useful agents but is not a finding until correlated into a supported path.", inventory.Authorities),
+			RiskBoundary:       "Authority becomes actionable when untrusted influence can use it to reach a sensitive boundary without an observed hard barrier.",
+			EvidenceReferences: signalNoiseEvidenceReferencesByKind(action.EvidenceReferences, "authority"),
+			Sources:            signalNoiseSourcesFor(inventory, action.EvidenceReferences, "authority"),
+		})
+	}
+	if inventory.Tools > 0 {
+		out.ExpectedCapability = append(out.ExpectedCapability, model.AssessSignalNoiseItem{
+			ID:                 "capability:tools",
+			Category:           "expected_capability",
+			Disposition:        "normal_until_scope_or_integrity_gap",
+			Summary:            fmt.Sprintf("%d tool surface(s) were observed. Tools are normal capability unless scope, integrity, approval, or egress controls are missing.", inventory.Tools),
+			RiskBoundary:       "Tool capability becomes exposure when the graph shows reachable authority or boundary impact without hard-barrier evidence.",
+			EvidenceReferences: signalNoiseEvidenceReferencesByKind(action.EvidenceReferences, "tool"),
+			Sources:            signalNoiseSourcesFor(inventory, action.EvidenceReferences, "tool"),
+		})
+	}
+	if inventory.TrustInputs > 0 {
+		out.ExpectedCapability = append(out.ExpectedCapability, model.AssessSignalNoiseItem{
+			ID:                 "capability:trust-inputs",
+			Category:           "expected_capability",
+			Disposition:        "normal_input_until_privileged_influence",
+			Summary:            fmt.Sprintf("%d trust input surface(s) were observed. Instructions are expected inputs unless they can steer privileged runtime authority.", inventory.TrustInputs),
+			RiskBoundary:       "Input becomes actionable when it influences a runtime that has authority reaching sensitive boundaries.",
+			EvidenceReferences: signalNoiseEvidenceReferencesByKind(action.EvidenceReferences, "trust_input"),
+			Sources:            signalNoiseSourcesFor(inventory, action.EvidenceReferences, "trust_input"),
+		})
+	}
+
+	if len(state.GraphEdges) > 0 || len(state.PathSummary) > 0 {
+		disposition := "review"
+		if len(state.MissingHardBarriers) > 0 {
+			disposition = "actionable_signal"
+		}
+		if closedAction {
+			disposition = "controlled"
+		}
+		out.ExposureTransition = append(out.ExposureTransition, model.AssessSignalNoiseItem{
+			ID:                 "transition:capability-to-boundary",
+			Category:           "exposure_transition",
+			Disposition:        disposition,
+			Summary:            "Graph evidence connects expected agent capability to a sensitive boundary for the focused case.",
+			RiskBoundary:       "This is where capability stops being noise: Ariadne has a supported graph path, then evaluates whether control evidence breaks it.",
+			GraphEdges:         state.GraphEdges,
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            state.EvidenceSources,
+			Controls:           firstNonEmptyStrings(state.MissingHardBarriers, state.PresentHardBarriers),
+		})
+	}
+	if len(state.MissingHardBarriers) > 0 {
+		out.ExposureTransition = append(out.ExposureTransition, model.AssessSignalNoiseItem{
+			ID:                 "transition:missing-hard-barrier",
+			Category:           "exposure_transition",
+			Disposition:        "actionable_signal",
+			Summary:            "The focused path remains actionable because hard-barrier evidence is missing for the modeled controls.",
+			RiskBoundary:       "A missing hard barrier does not create capability; it explains why an already supported path remains open.",
+			GraphEdges:         state.GraphEdges,
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            state.EvidenceSources,
+			Controls:           state.MissingHardBarriers,
+		})
+	}
+
+	if len(state.MissingHardBarriers) > 0 {
+		out.ControlEvidence = append(out.ControlEvidence, model.AssessSignalNoiseItem{
+			ID:          "control:missing-hard-barriers",
+			Category:    "control_evidence",
+			Disposition: "missing",
+			Summary:     "Ariadne did not observe parser-recognized hard-barrier evidence for the focused path.",
+			Sources:     firstNonEmptyStrings(state.ProofSurfaces, nonEmptyStrings(action.CurrentAction.Surface)),
+			Controls:    state.MissingHardBarriers,
+		})
+	}
+	if len(state.PresentHardBarriers) > 0 {
+		out.ControlEvidence = append(out.ControlEvidence, model.AssessSignalNoiseItem{
+			ID:                 "control:observed-hard-barriers",
+			Category:           "control_evidence",
+			Disposition:        "observed",
+			Summary:            "Ariadne observed hard-barrier evidence for the focused path.",
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            firstNonEmptyStrings(assessActionEvidenceSurfaces(action), state.EvidenceSources),
+			Controls:           state.PresentHardBarriers,
+		})
+	}
+	if len(state.PartialOrFrictionControls) > 0 {
+		out.ControlEvidence = append(out.ControlEvidence, model.AssessSignalNoiseItem{
+			ID:                 "control:partial-or-friction",
+			Category:           "control_evidence",
+			Disposition:        "partial_or_friction",
+			Summary:            "Ariadne observed partial or friction controls, but they do not close the path without hard-barrier evidence.",
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            state.EvidenceSources,
+			Controls:           state.PartialOrFrictionControls,
+		})
+	}
+
+	if action.Available {
+		out.DowngradeEvidence = append(out.DowngradeEvidence, model.AssessSignalNoiseItem{
+			ID:                 "downgrade:prove-hard-barrier",
+			Category:           "downgrade_evidence",
+			Disposition:        "would_close_or_downgrade",
+			Summary:            "Ariadne would close or downgrade this case if rerun evidence shows parser-recognized hard-barrier controls for the focused path.",
+			RiskBoundary:       "The case changes state only after deterministic evidence changes the control state or graph path.",
+			EvidenceReferences: action.EvidenceReferences,
+			Sources:            firstNonEmptyStrings(state.ProofSurfaces, nonEmptyStrings(action.CurrentAction.Surface)),
+			Controls:           firstNonEmptyStrings(state.MissingHardBarriers, state.PresentHardBarriers),
+		})
+	}
+	if len(state.GraphEdges) > 0 {
+		out.DowngradeEvidence = append(out.DowngradeEvidence, model.AssessSignalNoiseItem{
+			ID:           "downgrade:remove-supported-path",
+			Category:     "downgrade_evidence",
+			Disposition:  "would_downgrade",
+			Summary:      "Ariadne would downgrade the signal if rerun evidence removes the supported influence, authority, boundary, or reachability edges.",
+			RiskBoundary: "Expected capability returns to noise when the graph no longer connects it to boundary impact.",
+			GraphEdges:   state.GraphEdges,
+			Sources:      state.EvidenceSources,
+		})
+	}
+
+	if len(state.UnknownEvidence) > 0 {
+		out.EvidenceGaps = append(out.EvidenceGaps, model.AssessSignalNoiseItem{
+			ID:          "gap:unknown-evidence",
+			Category:    "evidence_gap",
+			Disposition: "unknown",
+			Summary:     "Some paths need more deterministic evidence before Ariadne can classify them.",
+			Controls:    state.UnknownEvidence,
+		})
+	}
+	if len(triage.EvidenceGapActions) > 0 {
+		out.EvidenceGaps = append(out.EvidenceGaps, model.AssessSignalNoiseItem{
+			ID:          "gap:next-collector-actions",
+			Category:    "evidence_gap",
+			Disposition: "needs_collection",
+			Summary:     "These commands or collection steps would produce stronger deterministic evidence.",
+			Sources:     triage.EvidenceGapActions,
+		})
+	}
+	if summary.NotObservedArchitectureFlaws > 0 || summary.UnknownArchitectureFlaws > 0 {
+		out.EvidenceGaps = append(out.EvidenceGaps, model.AssessSignalNoiseItem{
+			ID:          "gap:architecture-coverage",
+			Category:    "evidence_gap",
+			Disposition: "coverage_gap",
+			Summary:     fmt.Sprintf("%d unknown and %d not-observed architecture area(s) remain in the current evidence set.", summary.UnknownArchitectureFlaws, summary.NotObservedArchitectureFlaws),
+		})
+	}
+	return normalizeAssessSignalNoise(out)
+}
+
+func normalizeAssessSignalNoise(out model.AssessSignalNoise) model.AssessSignalNoise {
+	out.ExpectedCapability = normalizeAssessSignalNoiseItems(out.ExpectedCapability)
+	out.ExposureTransition = normalizeAssessSignalNoiseItems(out.ExposureTransition)
+	out.ControlEvidence = normalizeAssessSignalNoiseItems(out.ControlEvidence)
+	out.DowngradeEvidence = normalizeAssessSignalNoiseItems(out.DowngradeEvidence)
+	out.EvidenceGaps = normalizeAssessSignalNoiseItems(out.EvidenceGaps)
+	out.DecisionRules = nonNilStrings(uniqueStrings(out.DecisionRules))
+	out.Limitations = nonNilStrings(uniqueStrings(out.Limitations))
+	return out
+}
+
+func normalizeAssessSignalNoiseItems(items []model.AssessSignalNoiseItem) []model.AssessSignalNoiseItem {
+	out := make([]model.AssessSignalNoiseItem, 0, len(items))
+	for _, item := range items {
+		item.GraphEdges = nonNilStrings(uniqueStrings(item.GraphEdges))
+		item.EvidenceReferences = nonNilEvidenceReferences(rankEvidenceReferencesForOperator(item.EvidenceReferences))
+		item.Sources = nonNilStrings(uniqueStrings(item.Sources))
+		item.Controls = nonNilStrings(uniqueStrings(item.Controls))
+		item.Limitations = nonNilStrings(uniqueStrings(item.Limitations))
+		out = append(out, item)
+	}
+	if out == nil {
+		return []model.AssessSignalNoiseItem{}
+	}
+	return out
+}
+
+func signalNoiseEvidenceReferencesByKind(refs []model.EvidenceReference, kinds ...string) []model.EvidenceReference {
+	kindSet := map[string]bool{}
+	for _, kind := range kinds {
+		kindSet[strings.ToLower(strings.TrimSpace(kind))] = true
+	}
+	var out []model.EvidenceReference
+	for _, ref := range refs {
+		if kindSet[strings.ToLower(strings.TrimSpace(ref.Kind))] {
+			out = append(out, ref)
+		}
+	}
+	return dedupeEvidenceReferences(out)
+}
+
+func signalNoiseSourcesFor(inventory model.AssessInventory, refs []model.EvidenceReference, capability string) []string {
+	var out []string
+	out = append(out, signalNoiseSourcesFromEvidence(refs, capability)...)
+	out = append(out, signalNoiseSourcesFromFacts(inventory.FactHighlights, capability)...)
+	if capability == "authority" || capability == "tool" {
+		out = append(out, signalNoiseSourcesFromSurfaceMap(inventory.SurfaceMap, capability)...)
+	}
+	return uniqueStrings(out)
+}
+
+func signalNoiseSourcesFromEvidence(refs []model.EvidenceReference, capability string) []string {
+	var out []string
+	for _, ref := range refs {
+		if ref.Source == "" {
+			continue
+		}
+		kind := strings.ToLower(strings.TrimSpace(ref.Kind))
+		id := strings.ToLower(strings.TrimSpace(ref.ID))
+		if kind == capability || strings.Contains(id, strings.ReplaceAll(capability, "_", "-")) {
+			out = append(out, ref.Source)
+		}
+	}
+	return out
+}
+
+func signalNoiseSourcesFromSurfaceMap(maps []model.SurfaceMap, capability string) []string {
+	var out []string
+	for _, item := range maps {
+		switch capability {
+		case "runtime":
+			if item.Runtime != "" {
+				out = append(out, item.SourceRefs...)
+			}
+		case "authority":
+			if len(item.Authorities) > 0 {
+				out = append(out, item.SourceRefs...)
+			}
+		case "tool":
+			if len(item.Tools) > 0 {
+				out = append(out, item.SourceRefs...)
+			}
+		case "trust_input":
+			for _, category := range item.Categories {
+				if strings.Contains(strings.ToLower(category.Name), "trust") {
+					out = append(out, item.SourceRefs...)
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+func signalNoiseSourcesFromFacts(facts []model.AssessFact, capability string) []string {
+	var out []string
+	capability = strings.ReplaceAll(strings.ToLower(capability), "_", "-")
+	for _, fact := range facts {
+		if fact.Source == "" {
+			continue
+		}
+		factType := strings.ReplaceAll(strings.ToLower(fact.Type), "_", "-")
+		factID := strings.ToLower(fact.ID)
+		if strings.Contains(factType, capability) || strings.Contains(factID, capability) {
+			out = append(out, fact.Source)
+		}
+	}
+	return out
+}
+
+func buildAssessDecision(summary model.AssessSummary, inventory model.AssessInventory, triage model.AssessTriage, state model.AssessControlState, action model.AssessFirstAction, targetPath string) model.AssessDecision {
+	generatedProofPaths, suggestedDestinations, destinationPaths, applyCommands := assessDecisionProofBundle(action, targetPath)
+	rankedEvidenceRefs := rankEvidenceReferencesForOperator(action.EvidenceReferences, action.ProofSurfaces...)
+	primaryEvidenceRefs := operatorPrimaryEvidenceReferences(rankedEvidenceRefs)
+	primaryEvidenceSources := evidenceReferenceSources(primaryEvidenceRefs, false)
+	decision := model.AssessDecision{
+		Status:                    firstNonEmpty(triage.Status, "no_supported_signal"),
+		Headline:                  firstNonEmpty(triage.Headline, assessTriageHeadline(triage.Status)),
+		StartHere:                 triage.StartHere,
+		TopCaseID:                 action.CaseID,
+		TopCaseTitle:              action.Title,
+		CaseSeverity:              action.Severity,
+		CaseState:                 action.State,
+		CurrentControl:            firstNonEmpty(action.CurrentAction.Control, state.CurrentControl),
+		CurrentProofSurface:       firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
+		WhyPrioritized:            action.WhyFirst,
+		InspectionSummary:         assessDecisionInspectionSummary(inventory, 3),
+		RiskReasons:               assessDecisionRiskReasons(triage.HardRiskSignals),
+		NormalCapabilities:        firstStrings(uniqueStrings(triage.NormalCapabilities), 2),
+		EvidenceSources:           firstStrings(uniqueStrings(firstNonEmptyStrings(primaryEvidenceSources, state.EvidenceSources)), 8),
+		EvidenceReferences:        firstOrderedEvidenceReferences(primaryEvidenceRefs, 5),
+		PathSummary:               firstStrings(uniqueStrings(state.PathSummary), 6),
+		MissingHardBarriers:       firstStrings(uniqueStrings(state.MissingHardBarriers), 5),
+		PresentHardBarriers:       firstStrings(uniqueStrings(state.PresentHardBarriers), 5),
+		AttestedControls:          firstStrings(uniqueStrings(state.AttestedControls), 5),
+		PartialOrFrictionControls: firstStrings(uniqueStrings(state.PartialOrFrictionControls), 5),
+		UnknownEvidence:           firstStrings(uniqueStrings(state.UnknownEvidence), 4),
+		EvidenceGapActions:        firstStrings(uniqueStrings(triage.EvidenceGapActions), 4),
+		Instruction:               firstNonEmpty(action.CurrentAction.Instruction, action.NextStep, triage.NextAction),
+		ProofSurface:              firstNonEmpty(action.CurrentAction.Surface, state.CurrentProofSurface),
+		ProofCommand:              firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand),
+		GeneratedProofPath:        action.CurrentAction.GeneratedProofPath,
+		GeneratedProofPaths:       generatedProofPaths,
+		SuggestedDestination:      action.CurrentAction.SuggestedDestination,
+		SuggestedDestinations:     suggestedDestinations,
+		DestinationPath:           action.CurrentAction.DestinationPath,
+		DestinationPaths:          destinationPaths,
+		ApplyCommand:              action.CurrentAction.ApplyCommand,
+		ApplyCommands:             applyCommands,
+		RerunCommand:              action.CurrentAction.RerunCommand,
+		CompareCommand:            action.CurrentAction.CompareCommand,
+		DoneCriteria:              firstStrings(uniqueStrings(firstNonEmptyStrings(action.CurrentAction.SuccessCriteria, action.SuccessCriteria)), 3),
+		Limitations: []string{
+			"Decision is derived from deterministic inventory, graph, case, and proof data; inspect detailed sections for complete evidence.",
+		},
+	}
+	if decision.StartHere == "" {
+		decision.StartHere = firstNonEmpty(summary.TopCaseID, action.CaseID)
+	}
+	if len(decision.EvidenceSources) == 0 && len(action.EvidenceReferences) > 0 {
+		decision.EvidenceSources = firstStrings(uniqueStrings(evidenceReferenceSources(rankedEvidenceRefs, false)), 16)
+	}
+	if len(decision.EvidenceReferences) == 0 && len(triage.EvidenceReferences) > 0 {
+		decision.EvidenceReferences = firstOrderedEvidenceReferences(rankEvidenceReferencesForOperator(triage.EvidenceReferences, action.ProofSurfaces...), 5)
+	}
+	if len(decision.PathSummary) == 0 && len(state.Summary) > 0 {
+		decision.PathSummary = firstStrings(uniqueStrings(state.Summary), 3)
+	}
+	if decision.ProofSurface == "" {
+		decision.ProofSurface = firstString(action.ProofSurfaces)
+	}
+	if decision.RerunCommand == "" && len(action.RerunCommands) > 0 {
+		decision.RerunCommand = action.RerunCommands[0]
+	}
+	if len(action.CompareCommands) > 0 {
+		decision.BeforeProofCommand = action.CompareCommands[0]
+	}
+	if len(action.CompareCommands) > 1 {
+		decision.AfterProofCommand = action.CompareCommands[1]
+	}
+	if decision.CompareCommand == "" && len(action.CompareCommands) > 0 {
+		decision.CompareCommand = action.CompareCommands[len(action.CompareCommands)-1]
+	}
+	if !action.Available {
+		decision.TopCaseID = summary.TopCaseID
+		decision.TopCaseTitle = summary.TopCaseTitle
+		decision.CaseSeverity = ""
+		decision.CaseState = ""
+		decision.CurrentControl = ""
+		decision.CurrentProofSurface = ""
+		decision.WhyPrioritized = ""
+		decision.ProofCommand = ""
+		decision.GeneratedProofPath = ""
+		decision.GeneratedProofPaths = []string{}
+		decision.SuggestedDestination = ""
+		decision.SuggestedDestinations = []string{}
+		decision.DestinationPath = ""
+		decision.DestinationPaths = []string{}
+		decision.ApplyCommand = ""
+		decision.ApplyCommands = []string{}
+		decision.RerunCommand = ""
+		decision.BeforeProofCommand = ""
+		decision.AfterProofCommand = ""
+		decision.CompareCommand = ""
+	}
+	decision.InspectionSummary = nonNilStrings(decision.InspectionSummary)
+	decision.RiskReasons = nonNilStrings(decision.RiskReasons)
+	decision.NormalCapabilities = nonNilStrings(decision.NormalCapabilities)
+	decision.EvidenceSources = nonNilStrings(decision.EvidenceSources)
+	decision.EvidenceReferences = nonNilEvidenceReferences(decision.EvidenceReferences)
+	decision.PathSummary = nonNilStrings(decision.PathSummary)
+	decision.MissingHardBarriers = nonNilStrings(decision.MissingHardBarriers)
+	decision.PresentHardBarriers = nonNilStrings(decision.PresentHardBarriers)
+	decision.AttestedControls = nonNilStrings(decision.AttestedControls)
+	decision.PartialOrFrictionControls = nonNilStrings(decision.PartialOrFrictionControls)
+	decision.UnknownEvidence = nonNilStrings(decision.UnknownEvidence)
+	decision.EvidenceGapActions = nonNilStrings(decision.EvidenceGapActions)
+	decision.GeneratedProofPaths = nonNilStrings(decision.GeneratedProofPaths)
+	decision.SuggestedDestinations = nonNilStrings(decision.SuggestedDestinations)
+	decision.DestinationPaths = nonNilStrings(decision.DestinationPaths)
+	decision.ApplyCommands = nonNilStrings(decision.ApplyCommands)
+	decision.DoneCriteria = nonNilStrings(decision.DoneCriteria)
+	decision.Limitations = uniqueStrings(decision.Limitations)
+	return decision
+}
+
+func buildAssessOperatorWorkbench(action model.AssessFirstAction, state model.AssessControlState, triage model.AssessTriage) model.AssessOperatorWorkbench {
+	workbench := model.AssessOperatorWorkbench{
+		Available:      action.Available,
+		EvidenceToOpen: []model.EvidenceReference{},
+		GraphPath:      []string{},
+		Actions:        []model.AssessWorkbenchAction{},
+		DoneCriteria:   []string{},
+		ChangeReadout:  []string{},
+		Limitations: []string{
+			"Operator workbench is derived from deterministic inventory, graph, case, and proof data; it does not add an independent judgment layer.",
+		},
+	}
+	if !action.Available {
+		workbench.Mode = "no_current_case"
+		workbench.Limitations = append(workbench.Limitations, "No operator case is available for the current filter.")
+		return normalizeAssessOperatorWorkbench(workbench)
+	}
+
+	current := action.CurrentAction
+	closed := assessFirstActionClosed(action)
+	workbench.Mode = "open_case"
+	proofMode := "add_or_verify"
+	if closed {
+		workbench.Mode = "closed_case"
+		proofMode = "observed"
+	}
+
+	evidenceRefs := current.EvidenceReferences
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = action.EvidenceReferences
+	}
+	proofSurfaces := append([]string{}, action.ProofSurfaces...)
+	if closed {
+		proofSurfaces = assessActionEvidenceSurfaces(action)
+	}
+	if current.Surface != "" && !containsReportString(proofSurfaces, current.Surface) {
+		proofSurfaces = append([]string{current.Surface}, proofSurfaces...)
+	}
+	controls := append([]string{}, action.StartingControls...)
+	if current.Control != "" && !containsReportString(controls, current.Control) {
+		controls = append([]string{current.Control}, controls...)
+	}
+	generatedProofPaths := append([]string{}, action.GeneratedProofPaths...)
+	if current.GeneratedProofPath != "" && !containsReportString(generatedProofPaths, current.GeneratedProofPath) {
+		generatedProofPaths = append([]string{current.GeneratedProofPath}, generatedProofPaths...)
+	}
+	suggestedDestinations := append([]string{}, action.SuggestedDestinations...)
+	if current.SuggestedDestination != "" && !containsReportString(suggestedDestinations, current.SuggestedDestination) {
+		suggestedDestinations = append([]string{current.SuggestedDestination}, suggestedDestinations...)
+	}
+	destinationPaths := append([]string{}, action.DestinationPaths...)
+	if current.DestinationPath != "" && !containsReportString(destinationPaths, current.DestinationPath) {
+		destinationPaths = append([]string{current.DestinationPath}, destinationPaths...)
+	}
+	applyCommands := append([]string{}, action.ApplyCommands...)
+	if current.ApplyCommand != "" && !containsReportString(applyCommands, current.ApplyCommand) {
+		applyCommands = append([]string{current.ApplyCommand}, applyCommands...)
+	}
+	currentStep := firstNonEmpty(current.WorkflowStepTitle, current.WorkflowStepID)
+	workbench.Case = model.AssessWorkbenchCase{
+		ID:          action.CaseID,
+		Title:       action.Title,
+		Severity:    action.Severity,
+		State:       firstNonEmpty(action.State, "open"),
+		WhyFirst:    action.WhyFirst,
+		NextStep:    action.NextStep,
+		CurrentStep: currentStep,
+	}
+	workbench.EvidenceToOpen = rankEvidenceReferencesForOperator(evidenceRefs, proofSurfaces...)
+	workbench.GraphPath = firstNonEmptyStrings(state.PathSummary, state.GraphEdges)
+	workbench.SignalChain = buildAssessWorkbenchSignalChain(action, state)
+	workbench.Proof = model.AssessWorkbenchProof{
+		Mode:                  proofMode,
+		Control:               current.Control,
+		Controls:              controls,
+		Surface:               current.Surface,
+		Surfaces:              proofSurfaces,
+		Instruction:           firstNonEmpty(current.Instruction, action.NextStep),
+		ProofPatch:            current.ProofPatch,
+		EvidenceExample:       current.EvidenceExample,
+		GeneratedProofPath:    current.GeneratedProofPath,
+		GeneratedProofPaths:   generatedProofPaths,
+		SuggestedDestination:  current.SuggestedDestination,
+		SuggestedDestinations: suggestedDestinations,
+		DestinationPath:       current.DestinationPath,
+		DestinationPaths:      destinationPaths,
+		ApplyCommand:          current.ApplyCommand,
+		ApplyCommands:         applyCommands,
+	}
+	workbench.ProofState = buildAssessWorkbenchProofState(action, state, workbench.Proof.Controls, closed)
+	workbench.Verify = model.AssessWorkbenchVerification{
+		Commands: assessOperatorWorkbenchProofLoop(triage, action),
+	}
+	workbench.DoneCriteria = firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria)
+	workbench.ClosureLoop = buildAssessClosureLoop(workbench, action, state)
+	workbench.Runbook = buildAssessOperatorRunbook(workbench)
+	workbench.Actions = buildAssessWorkbenchActions(workbench, action, state)
+	workbench.ChangeReadout = []string{
+		"Save a before proof artifact, add or verify the proof evidence, rerun the case, save an after proof artifact, then compare before and after.",
+		"The compare report is the readout for whether the case closed, stayed open, reopened, or changed.",
+	}
+	workbench.Limitations = append(workbench.Limitations, state.Limitations...)
+	return normalizeAssessOperatorWorkbench(workbench)
+}
+
+func normalizeAssessOperatorWorkbench(workbench model.AssessOperatorWorkbench) model.AssessOperatorWorkbench {
+	workbench.SignalChain = normalizeAssessSignalNoiseItems(workbench.SignalChain)
+	workbench.GraphPath = nonNilStrings(uniqueStrings(workbench.GraphPath))
+	workbench.Proof.Controls = nonNilStrings(uniqueStrings(workbench.Proof.Controls))
+	workbench.Proof.Surfaces = nonNilStrings(uniqueStrings(workbench.Proof.Surfaces))
+	workbench.EvidenceToOpen = nonNilEvidenceReferences(rankEvidenceReferencesForOperator(workbench.EvidenceToOpen, workbench.Proof.Surfaces...))
+	workbench.Proof.GeneratedProofPaths = nonNilStrings(uniqueStrings(workbench.Proof.GeneratedProofPaths))
+	workbench.Proof.SuggestedDestinations = nonNilStrings(uniqueStrings(workbench.Proof.SuggestedDestinations))
+	workbench.Proof.DestinationPaths = nonNilStrings(uniqueStrings(workbench.Proof.DestinationPaths))
+	workbench.Proof.ApplyCommands = nonNilStrings(uniqueStrings(workbench.Proof.ApplyCommands))
+	workbench.ProofState = normalizeAssessWorkbenchProofState(workbench.ProofState)
+	workbench.Verify.Commands = nonNilStrings(uniqueStrings(workbench.Verify.Commands))
+	workbench.ClosureLoop = nonNilAssessClosureLoopSteps(workbench.ClosureLoop)
+	workbench.Runbook = normalizeAssessOperatorRunbook(workbench.Runbook)
+	workbench.Actions = nonNilAssessWorkbenchActions(workbench.Actions)
+	workbench.DoneCriteria = nonNilStrings(uniqueStrings(workbench.DoneCriteria))
+	workbench.ChangeReadout = nonNilStrings(uniqueStrings(workbench.ChangeReadout))
+	workbench.Limitations = nonNilStrings(uniqueStrings(workbench.Limitations))
+	return workbench
+}
+
+func buildAssessWorkbenchSignalChain(action model.AssessFirstAction, state model.AssessControlState) []model.AssessSignalNoiseItem {
+	if !action.Available {
+		return []model.AssessSignalNoiseItem{}
+	}
+	evidenceRefs := action.CurrentAction.EvidenceReferences
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = action.EvidenceReferences
+	}
+	evidenceRefs = rankEvidenceReferencesForOperator(evidenceRefs, action.ProofSurfaces...)
+	capabilityRefs := operatorCapabilityEvidenceReferences(evidenceRefs)
+	if len(capabilityRefs) == 0 {
+		capabilityRefs = evidenceRefs
+	}
+	capabilitySources := evidenceReferenceSources(capabilityRefs, false)
+	evidenceSources := evidenceReferenceSources(evidenceRefs, false)
+	controls := firstNonEmptyStrings(state.MissingHardBarriers, state.PresentHardBarriers)
+	proofSurfaces := firstNonEmptyStrings(
+		nonEmptyStrings(action.CurrentAction.Surface),
+		firstNonEmptyStrings(state.ProofSurfaces, action.ProofSurfaces),
+	)
+	closed := assessFirstActionClosed(action)
+
+	transitionDisposition := "review"
+	if len(state.MissingHardBarriers) > 0 {
+		transitionDisposition = "actionable_signal"
+	}
+	if closed {
+		transitionDisposition = "controlled"
+	}
+
+	controlDisposition := "not_observed"
+	controlSummary := "No parser-recognized hard-barrier control evidence was observed for the focused path."
+	controlSet := state.MissingHardBarriers
+	switch {
+	case len(state.MissingHardBarriers) > 0:
+		controlDisposition = "missing"
+		controlSummary = "Hard-barrier evidence is missing for the focused path."
+	case len(state.PresentHardBarriers) > 0:
+		controlDisposition = "observed"
+		controlSummary = "Parser-recognized hard-barrier evidence is present for the focused path."
+		controlSet = state.PresentHardBarriers
+	case len(state.PartialOrFrictionControls) > 0:
+		controlDisposition = "partial_or_friction"
+		controlSummary = "Only partial or friction controls were observed; Ariadne does not count them as path-breaking evidence."
+		controlSet = state.PartialOrFrictionControls
+	case len(state.UnknownEvidence) > 0:
+		controlDisposition = "unknown"
+		controlSummary = "Control state has unknown evidence; Ariadne does not treat unknown evidence as safe."
+		controlSet = state.UnknownEvidence
+	}
+
+	nextDisposition := "pending"
+	nextSummary := "Add or verify parser-recognized hard-barrier evidence, then rerun and compare proof state."
+	if closed {
+		nextDisposition = "completed"
+		nextSummary = "Keep the observed hard-barrier evidence in place and rerun if the environment changes."
+	}
+
+	return normalizeAssessSignalNoiseItems([]model.AssessSignalNoiseItem{
+		{
+			ID:                 "workbench:normal-capability",
+			Category:           "expected_capability",
+			Disposition:        "normal_until_correlated",
+			Summary:            "Agent runtimes, authority, tools, and instructions are expected capability until correlated into a supported boundary path.",
+			RiskBoundary:       "Capability becomes action only when graph evidence connects influence, authority, boundary reachability, and control state.",
+			EvidenceReferences: capabilityRefs,
+			Sources:            capabilitySources,
+		},
+		{
+			ID:                 "workbench:exposure-transition",
+			Category:           "exposure_transition",
+			Disposition:        transitionDisposition,
+			Summary:            "Graph evidence connects capability to the focused case boundary.",
+			RiskBoundary:       "This is where Ariadne separates normal agent capability from actionable exposure.",
+			GraphEdges:         state.GraphEdges,
+			EvidenceReferences: evidenceRefs,
+			Sources:            evidenceSources,
+			Controls:           controls,
+		},
+		{
+			ID:                 "workbench:control-state",
+			Category:           "control_evidence",
+			Disposition:        controlDisposition,
+			Summary:            controlSummary,
+			RiskBoundary:       "A path is downgraded only when deterministic control evidence breaks or removes the supported path.",
+			GraphEdges:         state.GraphEdges,
+			EvidenceReferences: evidenceRefs,
+			Sources:            firstNonEmptyStrings(proofSurfaces, evidenceSources),
+			Controls:           controlSet,
+		},
+		{
+			ID:          "workbench:next-proof-action",
+			Category:    "next_action",
+			Disposition: nextDisposition,
+			Summary:     nextSummary,
+			Sources:     proofSurfaces,
+			Controls:    firstNonEmptyStrings(controls, nonEmptyStrings(action.CurrentAction.Control)),
+			Limitations: []string{"Proof evidence is deterministic evidence Ariadne can parse; it is not a live enforcement claim unless runtime enforcement evidence is observed."},
+		},
+	})
+}
+
+func buildAssessWorkbenchProofState(action model.AssessFirstAction, state model.AssessControlState, targetControls []string, closed bool) model.AssessWorkbenchProofState {
+	if !action.Available {
+		return normalizeAssessWorkbenchProofState(model.AssessWorkbenchProofState{})
+	}
+	current := action.CurrentAction
+	baselineCommand := firstString(action.CompareCommands)
+	afterCommand := ""
+	if len(action.CompareCommands) > 1 {
+		afterCommand = action.CompareCommands[1]
+	}
+	compareCommand := current.CompareCommand
+	if compareCommand == "" && len(action.CompareCommands) > 2 {
+		compareCommand = assessClosureCompareCommand(action.CompareCommands)
+	}
+	currentState := firstNonEmpty(action.State, "open")
+	closureCondition := "Rerun must show every target control is no longer a missing hard barrier for this case."
+	if closed {
+		currentState = "closed"
+		closureCondition = "Focused case remains closed while observed hard-barrier evidence stays present."
+	}
+	return normalizeAssessWorkbenchProofState(model.AssessWorkbenchProofState{
+		CurrentState:           currentState,
+		CurrentControl:         firstNonEmpty(current.Control, state.CurrentControl),
+		CurrentMissingControls: state.MissingHardBarriers,
+		CurrentPresentControls: state.PresentHardBarriers,
+		TargetControls:         targetControls,
+		BaselineArtifact:       assessLifecycleOutArtifact(baselineCommand, "before-proof.json"),
+		AfterArtifact:          assessLifecycleOutArtifact(afterCommand, "after-proof.json"),
+		CompareArtifact:        assessLifecycleOutArtifact(compareCommand, "closure-receipt.txt"),
+		BaselineCommand:        baselineCommand,
+		AfterCommand:           afterCommand,
+		CompareCommand:         compareCommand,
+		ClosureCondition:       closureCondition,
+		SuccessCriteria:        firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria),
+		Limitations: []string{
+			"Proof state is a deterministic checkpoint; it does not execute agents or prove live enforcement by itself.",
+		},
+	})
+}
+
+func normalizeAssessWorkbenchProofState(state model.AssessWorkbenchProofState) model.AssessWorkbenchProofState {
+	state.CurrentMissingControls = nonNilStrings(uniqueStrings(state.CurrentMissingControls))
+	state.CurrentPresentControls = nonNilStrings(uniqueStrings(state.CurrentPresentControls))
+	state.TargetControls = nonNilStrings(uniqueStrings(state.TargetControls))
+	state.SuccessCriteria = nonNilStrings(uniqueStrings(state.SuccessCriteria))
+	state.Limitations = nonNilStrings(uniqueStrings(state.Limitations))
+	return state
+}
+
+func buildAssessClosureLoop(workbench model.AssessOperatorWorkbench, action model.AssessFirstAction, state model.AssessControlState) []model.AssessClosureLoopStep {
+	if !workbench.Available {
+		return []model.AssessClosureLoopStep{}
+	}
+	controls := firstNonEmptyStrings(workbench.Proof.Controls, firstNonEmptyStrings(state.MissingHardBarriers, state.PresentHardBarriers))
+	proofFiles := firstNonEmptyStrings(
+		firstNonEmptyStrings(workbench.Proof.GeneratedProofPaths, workbench.Proof.DestinationPaths),
+		firstNonEmptyStrings(workbench.Proof.SuggestedDestinations, workbench.Proof.Surfaces),
+	)
+	closed := workbench.Mode == "closed_case"
+	if closed {
+		return nonNilAssessClosureLoopSteps([]model.AssessClosureLoopStep{
+			{
+				Step:         1,
+				ID:           "inspect_observed_evidence",
+				Title:        "Inspect Observed Evidence",
+				Status:       "current",
+				Summary:      "Confirm the hard-barrier evidence Ariadne observed for this focused case.",
+				Files:        firstNonEmptyStrings(evidenceReferenceSources(workbench.EvidenceToOpen, false), proofFiles),
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Observed hard-barrier evidence remains present."}),
+			},
+			{
+				Step:         2,
+				ID:           "rerun_if_changed",
+				Title:        "Rerun If Evidence Changes",
+				Status:       "pending",
+				Summary:      "Rerun the focused case after repo, runtime, policy, or proof evidence changes.",
+				Commands:     firstNonEmptyStrings(nonEmptyStrings(assessCurrentRerunCommand(action)), firstStrings(action.RerunCommands, 1)),
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Rerun keeps the case controlled or closed."}),
+			},
+			{
+				Step:         3,
+				ID:           "compare_if_changed",
+				Title:        "Compare If Evidence Changes",
+				Status:       "pending",
+				Summary:      "Compare before and after proof artifacts if closure state needs to be proven again.",
+				Commands:     action.CompareCommands,
+				Artifacts:    nonEmptyStrings(workbench.ProofState.BaselineArtifact, workbench.ProofState.AfterArtifact, workbench.ProofState.CompareArtifact),
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Compare output shows the focused case stayed closed or controlled."}),
+			},
+		})
+	}
+	applyCommands := firstNonEmptyStrings(nonEmptyStrings(action.CurrentAction.PatchExportCommand, workbench.Proof.ApplyCommand), workbench.Proof.ApplyCommands)
+	return nonNilAssessClosureLoopSteps([]model.AssessClosureLoopStep{
+		{
+			Step:         1,
+			ID:           "save_baseline_proof",
+			Title:        "Save Baseline Proof",
+			Status:       "current",
+			Summary:      "Save proof state before changing evidence so compare has a baseline.",
+			Commands:     nonEmptyStrings(workbench.ProofState.BaselineCommand),
+			Artifacts:    nonEmptyStrings(workbench.ProofState.BaselineArtifact),
+			Controls:     controls,
+			DoneCriteria: []string{"Baseline proof artifact exists before evidence changes."},
+		},
+		{
+			Step:         2,
+			ID:           "add_or_verify_proof",
+			Title:        "Add Or Verify Proof",
+			Status:       "pending",
+			Summary:      firstNonEmpty(workbench.Proof.Instruction, action.NextStep, "Add or verify parser-recognized hard-barrier evidence."),
+			Commands:     applyCommands,
+			Files:        proofFiles,
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Accepted evidence is present at the proof surface."}),
+			Limitations:  []string{"Suggested proof files are review-first evidence artifacts; they are not automatic remediation."},
+		},
+		{
+			Step:         3,
+			ID:           "rerun_case",
+			Title:        "Rerun Case",
+			Status:       "pending",
+			Summary:      "Rerun the focused case so Ariadne recomputes deterministic facts, graph paths, and control state.",
+			Commands:     firstNonEmptyStrings(nonEmptyStrings(assessCurrentRerunCommand(action)), firstStrings(action.RerunCommands, 1)),
+			Controls:     controls,
+			DoneCriteria: []string{"Rerun reflects the added or verified control evidence."},
+		},
+		{
+			Step:         4,
+			ID:           "save_after_proof",
+			Title:        "Save After Proof",
+			Status:       "pending",
+			Summary:      "Save proof state after rerun so compare can show the actual case transition.",
+			Commands:     nonEmptyStrings(workbench.ProofState.AfterCommand),
+			Artifacts:    nonEmptyStrings(workbench.ProofState.AfterArtifact),
+			Controls:     controls,
+			DoneCriteria: []string{"After proof artifact exists after rerun."},
+		},
+		{
+			Step:         5,
+			ID:           "compare_state",
+			Title:        "Compare State",
+			Status:       "pending",
+			Summary:      "Compare before and after proof artifacts to decide whether the case closed, stayed open, reopened, or changed.",
+			Commands:     nonEmptyStrings(workbench.ProofState.CompareCommand),
+			Artifacts:    nonEmptyStrings(workbench.ProofState.CompareArtifact),
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Compare output shows whether the focused case closed or stayed open."}),
+		},
+		{
+			Step:         6,
+			ID:           "closure_decision",
+			Title:        "Closure Decision",
+			Status:       "pending",
+			Summary:      "Use compare output and rerun case state as the closure readout.",
+			Artifacts:    nonEmptyStrings(workbench.ProofState.CompareArtifact),
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Case no longer appears as open for the selected status filter."}),
+			Limitations:  []string{"Closure is deterministic evidence state; live runtime enforcement requires separate observed enforcement evidence when applicable."},
+		},
+	})
+}
+
+func nonNilAssessClosureLoopSteps(items []model.AssessClosureLoopStep) []model.AssessClosureLoopStep {
+	if items == nil {
+		return []model.AssessClosureLoopStep{}
+	}
+	out := make([]model.AssessClosureLoopStep, 0, len(items))
+	for _, item := range items {
+		item.Commands = nonNilStrings(uniqueStrings(item.Commands))
+		item.Artifacts = nonNilStrings(uniqueStrings(item.Artifacts))
+		item.Files = nonNilStrings(uniqueStrings(item.Files))
+		item.Controls = nonNilStrings(uniqueStrings(item.Controls))
+		item.DoneCriteria = nonNilStrings(uniqueStrings(item.DoneCriteria))
+		item.Limitations = nonNilStrings(uniqueStrings(item.Limitations))
+		out = append(out, item)
+	}
+	return out
+}
+
+func buildAssessOperatorRunbook(workbench model.AssessOperatorWorkbench) model.AssessOperatorRunbook {
+	runbook := model.AssessOperatorRunbook{
+		Available:       workbench.Available && len(workbench.ClosureLoop) > 0,
+		Mode:            workbench.Mode,
+		Case:            workbench.Case,
+		CurrentControl:  firstNonEmpty(workbench.Proof.Control, firstString(workbench.Proof.Controls)),
+		ProofSurface:    firstNonEmpty(workbench.Proof.Surface, firstString(workbench.Proof.Surfaces)),
+		OpenFirst:       workbench.EvidenceToOpen,
+		WhyThisCase:     nonEmptyStrings(workbench.Case.Title+" ("+workbench.Case.ID+")", workbench.Case.WhyFirst, workbench.Case.NextStep),
+		DoneCriteria:    firstNonEmptyStrings(workbench.DoneCriteria, workbench.ProofState.SuccessCriteria),
+		ClosureWorkflow: workbench.ClosureLoop,
+		Limitations: []string{
+			"Runbook is a derived operator view over deterministic workbench facts; it does not add a separate risk judgment.",
+		},
+	}
+	if !runbook.Available {
+		return normalizeAssessOperatorRunbook(runbook)
+	}
+	current := assessRunbookCurrentStep(workbench.ClosureLoop)
+	next := assessRunbookNextStep(workbench.ClosureLoop, current.Step)
+	runbook.CurrentStep = current
+	runbook.NextStep = next
+	runbook.Files = uniqueStrings(append(append([]string{}, current.Files...), next.Files...))
+	runbook.Artifacts = uniqueStrings(append(append([]string{}, current.Artifacts...), next.Artifacts...))
+	runbook.Commands = firstNonEmptyStrings(current.Commands, next.Commands)
+	runbook.DoneCriteria = firstNonEmptyStrings(current.DoneCriteria, runbook.DoneCriteria)
+	return normalizeAssessOperatorRunbook(runbook)
+}
+
+func attachAssessRunbookClosureCommand(workbench model.AssessOperatorWorkbench, nextCommands []string) model.AssessOperatorWorkbench {
+	closureCommand := assessClosureCommandFromNextCommands(nextCommands)
+	if closureCommand == "" || !workbench.Runbook.Available {
+		return workbench
+	}
+	if !containsReportString(workbench.Runbook.Commands, closureCommand) {
+		workbench.Runbook.Commands = append([]string{closureCommand}, workbench.Runbook.Commands...)
+	}
+	workbench.Runbook = normalizeAssessOperatorRunbook(workbench.Runbook)
+	return workbench
+}
+
+func assessRunbookCurrentStep(steps []model.AssessClosureLoopStep) model.AssessClosureLoopStep {
+	for _, step := range steps {
+		if strings.EqualFold(step.Status, "current") {
+			return step
+		}
+	}
+	if len(steps) == 0 {
+		return model.AssessClosureLoopStep{}
+	}
+	return steps[0]
+}
+
+func assessRunbookNextStep(steps []model.AssessClosureLoopStep, current int) model.AssessClosureLoopStep {
+	for _, step := range steps {
+		if step.Step > current {
+			return step
+		}
+	}
+	return model.AssessClosureLoopStep{}
+}
+
+func normalizeAssessOperatorRunbook(runbook model.AssessOperatorRunbook) model.AssessOperatorRunbook {
+	runbook.OpenFirst = nonNilEvidenceReferences(rankEvidenceReferencesForOperator(runbook.OpenFirst))
+	runbook.WhyThisCase = nonNilStrings(uniqueStrings(runbook.WhyThisCase))
+	runbook.Files = nonNilStrings(uniqueStrings(runbook.Files))
+	runbook.Artifacts = nonNilStrings(uniqueStrings(runbook.Artifacts))
+	runbook.Commands = nonNilStrings(uniqueStrings(runbook.Commands))
+	runbook.DoneCriteria = nonNilStrings(uniqueStrings(runbook.DoneCriteria))
+	runbook.ClosureWorkflow = nonNilAssessClosureLoopSteps(runbook.ClosureWorkflow)
+	runbook.Limitations = nonNilStrings(uniqueStrings(runbook.Limitations))
+	runbook.CurrentStep = normalizeAssessRunbookStep(runbook.CurrentStep)
+	runbook.NextStep = normalizeAssessRunbookStep(runbook.NextStep)
+	return runbook
+}
+
+func normalizeAssessRunbookStep(step model.AssessClosureLoopStep) model.AssessClosureLoopStep {
+	step = nonNilAssessClosureLoopSteps([]model.AssessClosureLoopStep{step})[0]
+	if step.ID == "" && step.Status == "" {
+		step.Status = "not_applicable"
+	}
+	return step
+}
+
+func buildAssessOperatorPacket(decision model.AssessDecision, quality model.AssessSignalQuality, state model.AssessControlState, action model.AssessFirstAction, workbench model.AssessOperatorWorkbench) model.AssessOperatorPacket {
+	available := action.Available || workbench.Available || decision.Status != ""
+	if !available {
+		return normalizeAssessOperatorPacket(model.AssessOperatorPacket{})
+	}
+	evidenceRefs := workbench.EvidenceToOpen
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = action.CurrentAction.EvidenceReferences
+	}
+	if len(evidenceRefs) == 0 {
+		evidenceRefs = decision.EvidenceReferences
+	}
+	evidenceRefs = rankEvidenceReferencesForOperator(evidenceRefs, workbench.Proof.Surfaces...)
+	graphPath := workbench.GraphPath
+	if len(graphPath) == 0 {
+		graphPath = state.PathSummary
+	}
+	if len(graphPath) == 0 {
+		graphPath = decision.PathSummary
+	}
+	targetControls := workbench.ProofState.TargetControls
+	if len(targetControls) == 0 {
+		targetControls = workbench.Proof.Controls
+	}
+	if len(targetControls) == 0 {
+		targetControls = action.StartingControls
+	}
+	proofState := workbench.ProofState
+	if proofState.CurrentState == "" && action.Available {
+		proofState = buildAssessWorkbenchProofState(action, state, targetControls, assessFirstActionClosed(action))
+	}
+	normalContext := append([]string{}, firstNonEmptyStrings(quality.ExpectedCapabilities, decision.NormalCapabilities)...)
+	normalContext = append(normalContext, firstStrings(quality.NoiseFilters, 1)...)
+	return normalizeAssessOperatorPacket(model.AssessOperatorPacket{
+		Available:       true,
+		Status:          decision.Status,
+		Headline:        firstNonEmpty(decision.Headline, quality.Summary),
+		CaseID:          firstNonEmpty(workbench.Case.ID, action.CaseID, decision.TopCaseID),
+		CaseTitle:       firstNonEmpty(workbench.Case.Title, action.Title, decision.TopCaseTitle),
+		Severity:        firstNonEmpty(workbench.Case.Severity, action.Severity, decision.CaseSeverity),
+		State:           firstNonEmpty(workbench.Case.State, action.State, decision.CaseState),
+		CurrentStep:     firstNonEmpty(workbench.Case.CurrentStep, action.CurrentAction.WorkflowStepTitle),
+		CurrentControl:  firstNonEmpty(workbench.Proof.Control, action.CurrentAction.Control, decision.CurrentControl, state.CurrentControl),
+		ProofSurface:    firstNonEmpty(workbench.Proof.Surface, action.CurrentAction.Surface, decision.ProofSurface, state.CurrentProofSurface),
+		WhyActionable:   firstNonEmptyStrings(quality.ActionableBecause, decision.RiskReasons),
+		NormalContext:   normalContext,
+		EvidenceToOpen:  evidenceRefs,
+		EvidenceSources: evidenceReferenceSources(evidenceRefs, false),
+		GraphPath:       graphPath,
+		MissingControls: firstNonEmptyStrings(state.MissingHardBarriers, decision.MissingHardBarriers),
+		PresentControls: firstNonEmptyStrings(state.PresentHardBarriers, decision.PresentHardBarriers),
+		TargetControls:  targetControls,
+		ProofState:      proofState,
+		Commands:        buildAssessOperatorPacketCommands(action, decision, proofState),
+		DoneCriteria:    firstNonEmptyStrings(workbench.DoneCriteria, decision.DoneCriteria),
+		DecisionRules:   quality.DecisionRules,
+		Limitations: firstNonEmptyStrings(workbench.Limitations, []string{
+			"Operator packet is derived from deterministic inventory, graph, control, proof, and compare data; it does not execute agents.",
+		}),
+	})
+}
+
+func buildAssessOperatorPacketCommands(action model.AssessFirstAction, decision model.AssessDecision, proofState model.AssessWorkbenchProofState) []model.AssessOperatorCommand {
+	var out []model.AssessOperatorCommand
+	add := func(id string, title string, command string, files []string) {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			return
+		}
+		out = append(out, model.AssessOperatorCommand{
+			Step:    len(out) + 1,
+			ID:      id,
+			Title:   title,
+			Command: command,
+			Files:   files,
+		})
+	}
+	add("save_baseline", "Save baseline proof", firstNonEmpty(proofState.BaselineCommand, decision.BeforeProofCommand), []string{proofState.BaselineArtifact})
+	add("export_proof", "Export suggested proof files", firstNonEmpty(action.CurrentAction.PatchExportCommand, action.PatchExportCommand, decision.ProofCommand), action.GeneratedProofPaths)
+	for idx, command := range action.ApplyCommands {
+		id := "review_apply"
+		if len(action.ApplyCommands) > 1 {
+			id = fmt.Sprintf("review_apply_%d", idx+1)
+		}
+		files := []string{}
+		if idx < len(action.DestinationPaths) {
+			files = []string{action.DestinationPaths[idx]}
+		}
+		add(id, "Review or apply proof evidence", command, files)
+	}
+	if len(action.ApplyCommands) == 0 {
+		add("review_apply", "Review or apply proof evidence", firstNonEmpty(action.CurrentAction.ApplyCommand, decision.ApplyCommand), []string{firstNonEmpty(action.CurrentAction.DestinationPath, decision.DestinationPath)})
+	}
+	add("rerun_case", "Rerun focused case", firstNonEmpty(action.CurrentAction.RerunCommand, firstString(action.RerunCommands), decision.RerunCommand), []string{})
+	add("save_after", "Save after proof", firstNonEmpty(proofState.AfterCommand, decision.AfterProofCommand), []string{proofState.AfterArtifact})
+	add("compare_state", "Compare before and after", firstNonEmpty(proofState.CompareCommand, action.CurrentAction.CompareCommand, decision.CompareCommand), []string{proofState.CompareArtifact})
+	return nonNilAssessOperatorCommands(out)
+}
+
+func normalizeAssessOperatorPacket(packet model.AssessOperatorPacket) model.AssessOperatorPacket {
+	packet.WhyActionable = nonNilStrings(uniqueStrings(packet.WhyActionable))
+	packet.NormalContext = nonNilStrings(uniqueStrings(packet.NormalContext))
+	packet.EvidenceToOpen = nonNilEvidenceReferences(packet.EvidenceToOpen)
+	packet.EvidenceSources = nonNilStrings(uniqueStrings(packet.EvidenceSources))
+	packet.GraphPath = nonNilStrings(uniqueStrings(packet.GraphPath))
+	packet.MissingControls = nonNilStrings(uniqueStrings(packet.MissingControls))
+	packet.PresentControls = nonNilStrings(uniqueStrings(packet.PresentControls))
+	packet.TargetControls = nonNilStrings(uniqueStrings(packet.TargetControls))
+	packet.ProofState = normalizeAssessWorkbenchProofState(packet.ProofState)
+	packet.Commands = nonNilAssessOperatorCommands(packet.Commands)
+	packet.DoneCriteria = nonNilStrings(uniqueStrings(packet.DoneCriteria))
+	packet.DecisionRules = nonNilStrings(uniqueStrings(packet.DecisionRules))
+	packet.Limitations = nonNilStrings(uniqueStrings(packet.Limitations))
+	return packet
+}
+
+func nonNilAssessOperatorCommands(commands []model.AssessOperatorCommand) []model.AssessOperatorCommand {
+	if len(commands) == 0 {
+		return []model.AssessOperatorCommand{}
+	}
+	out := make([]model.AssessOperatorCommand, 0, len(commands))
+	seen := map[string]bool{}
+	for _, command := range commands {
+		if command.Command == "" {
+			continue
+		}
+		key := command.ID + "\x00" + command.Command
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if command.Step <= 0 {
+			command.Step = len(out) + 1
+		}
+		command.Files = nonNilStrings(uniqueStrings(command.Files))
+		out = append(out, command)
+	}
+	if out == nil {
+		return []model.AssessOperatorCommand{}
+	}
+	return out
+}
+
+func assessOperatorPacketCommandStrings(commands []model.AssessOperatorCommand) []string {
+	var out []string
+	for _, command := range commands {
+		if strings.TrimSpace(command.Command) != "" {
+			out = append(out, command.Command)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func buildAssessWorkbenchActions(workbench model.AssessOperatorWorkbench, action model.AssessFirstAction, state model.AssessControlState) []model.AssessWorkbenchAction {
+	if !workbench.Available {
+		return []model.AssessWorkbenchAction{}
+	}
+	evidenceRefs := rankEvidenceReferencesForOperator(workbench.EvidenceToOpen, workbench.Proof.Surfaces...)
+	evidenceFiles := evidenceReferenceSources(evidenceRefs, false)
+	proofFiles := firstNonEmptyStrings(
+		firstNonEmptyStrings(workbench.Proof.GeneratedProofPaths, workbench.Proof.DestinationPaths),
+		firstNonEmptyStrings(workbench.Proof.SuggestedDestinations, workbench.Proof.Surfaces),
+	)
+	controls := firstNonEmptyStrings(
+		workbench.Proof.Controls,
+		firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(workbench.Proof.Control)),
+	)
+	closed := workbench.Mode == "closed_case"
+
+	actions := []model.AssessWorkbenchAction{
+		{
+			Step:               1,
+			ID:                 "open_evidence",
+			Title:              "Open Evidence",
+			Status:             "current",
+			Instruction:        "Open the cited evidence and confirm the graph path before changing controls.",
+			EvidenceReferences: evidenceRefs,
+			Files:              evidenceFiles,
+			Controls:           controls,
+			DoneCriteria:       []string{"You can point to the exact evidence refs and graph path supporting the case."},
+		},
+	}
+	if closed {
+		actions = append(actions,
+			model.AssessWorkbenchAction{
+				Step:         2,
+				ID:           "verify_observed_control",
+				Title:        "Verify Observed Control",
+				Status:       "current",
+				Instruction:  "Keep the observed hard-barrier evidence in place and rerun if the repo, runtime, or policy changes.",
+				Files:        firstNonEmptyStrings(proofFiles, evidenceFiles),
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Observed hard-barrier evidence remains present for the focused case."}),
+			},
+			model.AssessWorkbenchAction{
+				Step:         3,
+				ID:           "rerun_if_changed",
+				Title:        "Rerun If Evidence Changes",
+				Status:       "pending",
+				Instruction:  "Rerun the focused case when evidence changes so Ariadne can confirm the closure still holds.",
+				Commands:     workbench.Verify.Commands,
+				Controls:     controls,
+				DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Rerun keeps the focused case closed or controlled."}),
+			},
+		)
+		return nonNilAssessWorkbenchActions(actions)
+	}
+
+	actions = append(actions,
+		model.AssessWorkbenchAction{
+			Step:         2,
+			ID:           "add_or_verify_control_evidence",
+			Title:        "Add Or Verify Control Evidence",
+			Status:       "pending",
+			Instruction:  firstNonEmpty(workbench.Proof.Instruction, action.NextStep, "Add or verify hard-barrier evidence for the focused control."),
+			Files:        proofFiles,
+			Commands:     firstNonEmptyStrings(nonEmptyStrings(workbench.Proof.ApplyCommand), workbench.Proof.ApplyCommands),
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(firstNonEmptyStrings(action.SuccessCriteria, workbench.DoneCriteria), []string{"Accepted evidence is present at the proof surface."}),
+		},
+		model.AssessWorkbenchAction{
+			Step:         3,
+			ID:           "rerun_case",
+			Title:        "Rerun Case",
+			Status:       "pending",
+			Instruction:  "Rerun the focused case so Ariadne recomputes deterministic facts, graph paths, and control state.",
+			Commands:     firstNonEmptyStrings(nonEmptyStrings(action.CurrentAction.RerunCommand), firstStrings(action.RerunCommands, 1)),
+			Controls:     controls,
+			DoneCriteria: []string{"The rerun reflects the new or verified control evidence."},
+		},
+		model.AssessWorkbenchAction{
+			Step:         4,
+			ID:           "compare_proof_state",
+			Title:        "Compare Proof State",
+			Status:       "pending",
+			Instruction:  "Compare before and after proof artifacts to decide whether the case closed, stayed open, reopened, or changed.",
+			Commands:     firstNonEmptyStrings(nonEmptyStrings(action.CurrentAction.CompareCommand), action.CompareCommands),
+			Controls:     controls,
+			DoneCriteria: firstNonEmptyStrings(workbench.DoneCriteria, []string{"Compare output shows whether the focused case closed or stayed open."}),
+		},
+	)
+	return nonNilAssessWorkbenchActions(actions)
+}
+
+func nonNilAssessWorkbenchActions(items []model.AssessWorkbenchAction) []model.AssessWorkbenchAction {
+	if items == nil {
+		return []model.AssessWorkbenchAction{}
+	}
+	out := make([]model.AssessWorkbenchAction, 0, len(items))
+	for _, item := range items {
+		item.EvidenceReferences = nonNilEvidenceReferences(rankEvidenceReferencesForOperator(item.EvidenceReferences))
+		item.Files = nonNilStrings(uniqueStrings(item.Files))
+		item.Commands = nonNilStrings(uniqueStrings(item.Commands))
+		item.Controls = nonNilStrings(uniqueStrings(item.Controls))
+		item.DoneCriteria = nonNilStrings(uniqueStrings(item.DoneCriteria))
+		item.Limitations = nonNilStrings(uniqueStrings(item.Limitations))
+		out = append(out, item)
+	}
+	return out
+}
+
+func assessOperatorWorkbenchProofLoop(triage model.AssessTriage, action model.AssessFirstAction) []string {
+	if len(triage.ProofLoop) > 0 {
+		return append([]string{}, triage.ProofLoop...)
+	}
+	return assessTriageProofLoop(action)
+}
+
+func buildAssessCaseLifecycle(action model.AssessFirstAction, state model.AssessControlState) model.AssessCaseLifecycle {
+	lifecycle := model.AssessCaseLifecycle{
+		Available:   action.Available,
+		Steps:       []model.AssessCaseLifecycleStep{},
+		Readout:     []string{},
+		Limitations: []string{"Case lifecycle is derived from deterministic case, proof, rerun, and compare commands; it does not execute the workflow."},
+	}
+	if !action.Available {
+		lifecycle.Summary = "No operator case is available for the current filter."
+		lifecycle.Readout = append(lifecycle.Readout, "No lifecycle can be produced until Ariadne has a focused operator case.")
+		return normalizeAssessCaseLifecycle(lifecycle)
+	}
+	closed := assessFirstActionClosed(action)
+	lifecycle.CaseID = action.CaseID
+	lifecycle.CaseTitle = action.Title
+	lifecycle.CaseState = firstNonEmpty(action.State, "open")
+	if closed {
+		lifecycle.Summary = "Focused case is closed because Ariadne observed hard-barrier evidence."
+		lifecycle.CurrentStepID = "rerun_if_evidence_changes"
+		lifecycle.Steps = buildClosedAssessCaseLifecycleSteps(action, state)
+		lifecycle.Readout = append(lifecycle.Readout,
+			"Observed hard-barrier evidence is the closure proof for this focused case.",
+			"Rerun and compare if the repo, runtime, policy, or proof evidence changes.",
+		)
+	} else {
+		lifecycle.Summary = "Focused case is open until proof evidence is added or verified, the case is rerun, and before/after proof artifacts are compared."
+		lifecycle.CurrentStepID = "open_proof_action"
+		lifecycle.Steps = buildOpenAssessCaseLifecycleSteps(action, state)
+		lifecycle.Readout = append(lifecycle.Readout,
+			"Start with the current proof action, save a baseline proof artifact, add or verify hard-barrier evidence, rerun the case, save an after proof artifact, then compare.",
+			"The compare artifact is the lifecycle readout for whether the case closed, stayed open, reopened, or changed.",
+		)
+	}
+	return normalizeAssessCaseLifecycle(lifecycle)
+}
+
+func buildOpenAssessCaseLifecycleSteps(action model.AssessFirstAction, state model.AssessControlState) []model.AssessCaseLifecycleStep {
+	current := action.CurrentAction
+	var steps []model.AssessCaseLifecycleStep
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:                 "inspect_evidence",
+		Title:              "Inspect Evidence",
+		Status:             "completed",
+		Summary:            "Ariadne collected deterministic evidence for the focused case.",
+		EvidenceReferences: action.EvidenceReferences,
+		ProofSurfaces:      state.EvidenceSources,
+		Controls:           state.MissingHardBarriers,
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "open_proof_action",
+		Title:           "Open Proof Action",
+		Status:          "current",
+		Summary:         "Open the focused proof action to inspect the exact proof task before changing evidence.",
+		Commands:        nonEmptyStrings(assessProofActionCommand(action)),
+		ProofSurfaces:   firstNonEmptyStrings(state.ProofSurfaces, nonEmptyStrings(current.Surface)),
+		Controls:        firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria: []string{"The proof action names the focused case, current control, proof surface, accepted evidence, and compare loop."},
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "save_baseline",
+		Title:     "Save Baseline Proof",
+		Status:    "pending",
+		Summary:   "Save the before-state proof artifact before adding or changing control evidence.",
+		Commands:  firstStrings(action.CompareCommands, 1),
+		Artifacts: nonEmptyStrings(assessLifecycleOutArtifact(firstString(action.CompareCommands), "before-proof.json")),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "export_proof",
+		Title:           "Export Suggested Proof",
+		Status:          "pending",
+		Summary:         "Export parser-recognized proof files for the missing hard-barrier controls.",
+		Commands:        nonEmptyStrings(firstNonEmpty(current.PatchExportCommand, action.PatchExportCommand)),
+		Artifacts:       firstNonEmptyStrings(action.GeneratedProofPaths, nonEmptyStrings(current.GeneratedProofPath)),
+		ProofSurfaces:   firstNonEmptyStrings(action.SuggestedDestinations, nonEmptyStrings(current.SuggestedDestination, current.Surface)),
+		Controls:        firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria: []string{"Generated proof files exist for the focused proof surfaces."},
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "review_apply",
+		Title:           "Review Or Apply Proof",
+		Status:          "pending",
+		Summary:         "Review generated proof files and copy accepted evidence into the suggested destination surfaces.",
+		Commands:        firstNonEmptyStrings(action.ApplyCommands, nonEmptyStrings(current.ApplyCommand)),
+		Artifacts:       firstNonEmptyStrings(action.DestinationPaths, nonEmptyStrings(current.DestinationPath)),
+		ProofSurfaces:   firstNonEmptyStrings(action.SuggestedDestinations, nonEmptyStrings(current.SuggestedDestination, current.Surface)),
+		Controls:        firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria: []string{"Accepted evidence is present at the suggested destination surfaces."},
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "rerun_case",
+		Title:     "Rerun Case",
+		Status:    "pending",
+		Summary:   "Rerun the focused case so Ariadne recomputes deterministic facts, graph paths, and control state.",
+		Commands:  nonEmptyStrings(assessCurrentRerunCommand(action)),
+		Artifacts: []string{},
+	})
+	afterCommand := ""
+	if len(action.CompareCommands) > 1 {
+		afterCommand = action.CompareCommands[1]
+	}
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "save_after",
+		Title:     "Save After Proof",
+		Status:    "pending",
+		Summary:   "Save the after-state proof artifact after rerun.",
+		Commands:  nonEmptyStrings(afterCommand),
+		Artifacts: nonEmptyStrings(assessLifecycleOutArtifact(afterCommand, "after-proof.json")),
+	})
+	compareCommand := ""
+	if len(action.CompareCommands) > 2 {
+		compareCommand = assessClosureCompareCommand(action.CompareCommands)
+	}
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "compare_state",
+		Title:     "Compare Proof State",
+		Status:    "pending",
+		Summary:   "Compare before and after proof artifacts to determine whether the case closed, stayed open, reopened, or changed.",
+		Commands:  nonEmptyStrings(compareCommand),
+		Artifacts: nonEmptyStrings(assessLifecycleOutArtifact(compareCommand, "closure-receipt.txt")),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "close_or_keep_open",
+		Title:           "Close Or Keep Open",
+		Status:          "pending",
+		Summary:         "Use the compare readout and rerun case state as the closure decision.",
+		Controls:        firstNonEmptyStrings(state.MissingHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria: firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria),
+	})
+	return steps
+}
+
+func buildClosedAssessCaseLifecycleSteps(action model.AssessFirstAction, state model.AssessControlState) []model.AssessCaseLifecycleStep {
+	current := action.CurrentAction
+	var steps []model.AssessCaseLifecycleStep
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:                 "inspect_evidence",
+		Title:              "Inspect Evidence",
+		Status:             "completed",
+		Summary:            "Ariadne collected deterministic evidence for the focused case.",
+		EvidenceReferences: action.EvidenceReferences,
+		ProofSurfaces:      state.EvidenceSources,
+		Controls:           firstNonEmptyStrings(state.PresentHardBarriers, nonEmptyStrings(current.Control)),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:                 "observed_hard_barrier",
+		Title:              "Observed Hard Barrier",
+		Status:             "completed",
+		Summary:            "Parser-recognized hard-barrier evidence currently closes the focused path.",
+		EvidenceReferences: action.EvidenceReferences,
+		ProofSurfaces:      firstNonEmptyStrings(assessActionEvidenceSurfaces(action), state.ProofSurfaces),
+		Controls:           firstNonEmptyStrings(state.PresentHardBarriers, nonEmptyStrings(current.Control)),
+		SuccessCriteria:    firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:       "rerun_if_evidence_changes",
+		Title:    "Rerun If Evidence Changes",
+		Status:   "current",
+		Summary:  "Rerun the focused case if repo, runtime, policy, or proof evidence changes.",
+		Commands: nonEmptyStrings(assessCurrentRerunCommand(action)),
+		Controls: firstNonEmptyStrings(state.PresentHardBarriers, nonEmptyStrings(current.Control)),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:        "compare_if_evidence_changes",
+		Title:     "Compare If Evidence Changes",
+		Status:    "pending",
+		Summary:   "Compare before and after proof artifacts if evidence changes and the closure state needs to be proven again.",
+		Commands:  append([]string{}, action.CompareCommands...),
+		Artifacts: nonEmptyStrings("before-proof.json", "after-proof.json", "closure-receipt.txt", "case-compare.html"),
+	})
+	steps = append(steps, model.AssessCaseLifecycleStep{
+		ID:              "keep_closed",
+		Title:           "Keep Closed",
+		Status:          "pending",
+		Summary:         "Keep the parser-recognized hard-barrier evidence in place and rerun when relevant evidence changes.",
+		SuccessCriteria: firstNonEmptyStrings(current.SuccessCriteria, action.SuccessCriteria),
+	})
+	return steps
+}
+
+func normalizeAssessCaseLifecycle(lifecycle model.AssessCaseLifecycle) model.AssessCaseLifecycle {
+	lifecycle.Steps = normalizeAssessCaseLifecycleSteps(lifecycle.Steps)
+	lifecycle.Readout = nonNilStrings(uniqueStrings(lifecycle.Readout))
+	lifecycle.Limitations = nonNilStrings(uniqueStrings(lifecycle.Limitations))
+	if lifecycle.CurrentStepID == "" {
+		for _, step := range lifecycle.Steps {
+			if step.Status == "current" {
+				lifecycle.CurrentStepID = step.ID
+				break
+			}
+		}
+	}
+	return lifecycle
+}
+
+func normalizeAssessCaseLifecycleSteps(steps []model.AssessCaseLifecycleStep) []model.AssessCaseLifecycleStep {
+	out := make([]model.AssessCaseLifecycleStep, 0, len(steps))
+	for _, step := range steps {
+		step.Commands = nonNilStrings(uniqueStrings(step.Commands))
+		step.Artifacts = nonNilStrings(uniqueStrings(step.Artifacts))
+		step.EvidenceReferences = nonNilEvidenceReferences(dedupeEvidenceReferences(step.EvidenceReferences))
+		step.ProofSurfaces = nonNilStrings(uniqueStrings(step.ProofSurfaces))
+		step.Controls = nonNilStrings(uniqueStrings(step.Controls))
+		step.SuccessCriteria = nonNilStrings(uniqueStrings(step.SuccessCriteria))
+		step.Limitations = nonNilStrings(uniqueStrings(step.Limitations))
+		out = append(out, step)
+	}
+	if out == nil {
+		return []model.AssessCaseLifecycleStep{}
+	}
+	return out
+}
+
+func assessLifecycleOutArtifact(command string, fallback string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	idx := strings.LastIndex(command, " --out ")
+	if idx < 0 {
+		return fallback
+	}
+	value := strings.TrimSpace(command[idx+len(" --out "):])
+	if value == "" {
+		return fallback
+	}
+	if space := strings.IndexByte(value, ' '); space >= 0 {
+		value = value[:space]
+	}
+	value = strings.Trim(value, `"'`)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func assessDecisionProofBundle(action model.AssessFirstAction, targetPath string) ([]string, []string, []string, []string) {
+	if !action.Available || action.PatchExportCommand == "" {
+		return []string{}, []string{}, []string{}, []string{}
+	}
+	exportDir := proofPatchExportDirFromCommand(action.PatchExportCommand)
+	if exportDir == "" {
+		return []string{}, []string{}, []string{}, []string{}
+	}
+	surfaces := proofPatchBundleSurfaces(action.ProofPatches)
+	generated := make([]string, 0, len(surfaces))
+	suggested := make([]string, 0, len(surfaces))
+	destinations := make([]string, 0, len(surfaces))
+	apply := make([]string, 0, len(surfaces))
+	for _, surface := range surfaces {
+		relPath := proofPatchExportSurfaceRelPath(surface)
+		destinationPath := proofPatchSuggestedDestinationPath(targetPath, surface)
+		generated = append(generated, filepath.Clean(filepath.Join(exportDir, relPath)))
+		suggested = append(suggested, surface)
+		destinations = append(destinations, destinationPath)
+		apply = append(apply, proofPatchApplyCommand(exportDir, relPath, destinationPath))
+	}
+	return uniqueStrings(generated), uniqueStrings(suggested), uniqueStrings(destinations), uniqueStrings(apply)
+}
+
+func proofPatchBundleSurfaces(patches []model.ControlProofPatch) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, patch := range patches {
+		surface := strings.TrimSpace(patch.Surface)
+		if surface == "" || strings.Contains(surface, "supported control evidence") || seen[surface] {
+			continue
+		}
+		seen[surface] = true
+		out = append(out, surface)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func assessDecisionInspectionSummary(inventory model.AssessInventory, surfaceMapLimit int) []string {
+	if inventory.Surfaces == 0 && inventory.Facts == 0 && inventory.GraphNodes == 0 {
+		return []string{}
+	}
+	out := []string{
+		fmt.Sprintf("AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)", inventory.Surfaces, inventory.Facts, inventory.GraphNodes, inventory.GraphEdges),
+		fmt.Sprintf("Runtimes: %d; trust inputs: %d; tools: %d; authorities: %d; controls: %d; boundaries: %d", inventory.Runtimes, inventory.TrustInputs, inventory.Tools, inventory.Authorities, inventory.Controls, inventory.Boundaries),
+	}
+	if len(inventory.SurfaceCategories) > 0 {
+		out = append(out, "Surface categories: "+assessCountLine(inventory.SurfaceCategories))
+	}
+	if len(inventory.HandlingModes) > 0 {
+		out = append(out, "Handling modes: "+assessCountLine(inventory.HandlingModes))
+	}
+	if len(inventory.SurfaceMap) > 0 {
+		out = append(out, "Runtime surface map: "+strings.Join(limitStrings(surfaceMapSummaryLines(inventory.SurfaceMap), surfaceMapLimit), "; "))
+	}
+	return out
+}
+
+func firstEvidenceReferences(values []model.EvidenceReference, limit int) []model.EvidenceReference {
+	values = dedupeEvidenceReferences(values)
+	if limit <= 0 || len(values) <= limit {
+		return values
+	}
+	return append([]model.EvidenceReference{}, values[:limit]...)
+}
+
+func firstOrderedEvidenceReferences(values []model.EvidenceReference, limit int) []model.EvidenceReference {
+	values = nonNilEvidenceReferences(values)
+	if limit <= 0 || len(values) <= limit {
+		return values
+	}
+	return append([]model.EvidenceReference{}, values[:limit]...)
+}
+
+func nonNilEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	if values == nil {
+		return []model.EvidenceReference{}
+	}
+	return append([]model.EvidenceReference{}, values...)
+}
+
+func assessDecisionRiskReasons(signals []string) []string {
+	signals = uniqueStrings(signals)
+	var out []string
+	for _, marker := range []string{
+		"Ranked #",
+		"exposed path(s)",
+		"missing hard-barrier control(s)",
+		"breaking architecture flaw(s)",
+	} {
+		for _, signal := range signals {
+			if strings.Contains(signal, marker) && !containsReportString(out, signal) {
+				out = append(out, signal)
+			}
+			if len(out) >= 3 {
+				return out
+			}
+		}
+	}
+	for _, signal := range signals {
+		if strings.Contains(signal, "evidence reference(s)") {
+			continue
+		}
+		if !containsReportString(out, signal) {
+			out = append(out, signal)
+		}
+		if len(out) >= 3 {
+			return out
+		}
+	}
+	return firstStrings(out, 3)
+}
+
+func firstNonEmptyStrings(primary []string, fallback []string) []string {
+	if len(primary) > 0 {
+		return primary
+	}
+	return fallback
+}
+
+func assessControlStateGraphEdges(signals []model.AssessSignal) []string {
+	var out []string
+	for _, signal := range signals {
+		switch signal.ID {
+		case "signal:top-operator-case", "signal:exposed-boundary-paths", "signal:breaking-architecture-paths", "signal:missing-hard-barriers", "signal:present-hard-barriers", "signal:partial-friction-controls":
+			out = append(out, signal.GraphEdges...)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func assessControlStatePathSummary(edges []string, missing []string, present []string) []string {
+	var out []string
+	for _, relation := range []string{"influences", "configures", "has_authority", "can_call", "grants", "reaches", "restricts"} {
+		edge := firstGraphEdgeByRelation(edges, relation)
+		if relation == "reaches" {
+			edge = firstGraphEdgeByRelationTarget(edges, relation,
+				"boundary:external-destination",
+				"boundary:secret-like-file",
+				"boundary:developer-secret-boundary",
+				"boundary:agent-private-context",
+				"boundary:developer-execution-boundary",
+			)
+		}
+		if edge != "" {
+			out = append(out, "Supported graph edge: "+readableGraphEdge(edge))
+		}
+	}
+	if len(missing) > 0 {
+		out = append(out, "Missing hard barrier: "+strings.Join(limitStrings(missing, 4), ", "))
+	}
+	if len(present) > 0 {
+		out = append(out, "Observed hard barrier: "+strings.Join(limitStrings(present, 4), ", "))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func firstGraphEdgeByRelation(edges []string, relation string) string {
+	for _, edge := range edges {
+		parts := strings.Split(edge, "|")
+		if len(parts) == 3 && parts[1] == relation {
+			return edge
+		}
+	}
+	return ""
+}
+
+func firstGraphEdgeByRelationTarget(edges []string, relation string, targets ...string) string {
+	for _, target := range targets {
+		for _, edge := range edges {
+			parts := strings.Split(edge, "|")
+			if len(parts) == 3 && parts[1] == relation && parts[2] == target {
+				return edge
+			}
+		}
+	}
+	return firstGraphEdgeByRelation(edges, relation)
+}
+
+func readableGraphEdge(edge string) string {
+	parts := strings.Split(edge, "|")
+	if len(parts) != 3 {
+		return edge
+	}
+	return fmt.Sprintf("%s -> %s (%s)", readableGraphNode(parts[0]), readableGraphNode(parts[2]), readableToken(parts[1]))
+}
+
+func readableGraphNode(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) != 2 {
+		return readableToken(strings.ReplaceAll(value, "-", " "))
+	}
+	kind := strings.ReplaceAll(parts[0], "trustinput", "trust input")
+	label := strings.ReplaceAll(parts[1], "-", " ")
+	return strings.TrimSpace(readableToken(kind) + " " + readableToken(label))
+}
+
+func buildAssessSignalDetails(summary model.AssessSummary, inventory model.AssessInventory, exposure model.AssessExposure, closure model.AssessClosureEvidence, action model.AssessFirstAction, triage model.AssessTriage, flaws []model.ZeroTrustArchitecture) []model.AssessSignal {
+	var signals []model.AssessSignal
+	actionEvidence := dedupeEvidenceReferences(action.EvidenceReferences)
+	actionGraphEdges := assessGraphEdgesForCase(action, flaws, exposure.TopPaths)
+	closedAction := assessFirstActionClosed(action)
+	if closedAction && len(actionGraphEdges) == 0 {
+		actionGraphEdges = assessClosurePathGraphEdges(closure.ControlledPaths)
+	}
+	if action.Available {
+		category := "risk"
+		disposition := "action_required"
+		summaryText := fmt.Sprintf("%s (%s) is the highest-ranked open operator case.", firstNonEmpty(action.Title, action.CaseID), action.CaseID)
+		whyItMatters := firstNonEmpty(action.WhyFirst, "The ranked case board correlated influence, authority, boundary reachability, and missing hard barriers.")
+		if closedAction {
+			category = "present_control"
+			disposition = "breaks_path"
+			summaryText = fmt.Sprintf("%s (%s) is closed with observed hard-barrier evidence.", firstNonEmpty(action.Title, action.CaseID), action.CaseID)
+			whyItMatters = firstNonEmpty(action.WhyFirst, "Ariadne observed deterministic control evidence for this focused case, so the case is not part of the missing-hard-barrier queue.")
+		}
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:top-operator-case",
+			Category:           category,
+			Disposition:        disposition,
+			Summary:            summaryText,
+			WhyItMatters:       whyItMatters,
+			RiskBoundary:       assessTopCaseRiskBoundary(closedAction),
+			GraphEdges:         actionGraphEdges,
+			EvidenceReferences: actionEvidence,
+			RelatedControls:    uniqueStrings(action.StartingControls),
+			Limitations:        []string{},
+		})
+	}
+	if !closedAction && summary.BreakingArchitectureFlaws > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:breaking-architecture-paths",
+			Category:           "risk",
+			Disposition:        "action_required",
+			Summary:            fmt.Sprintf("%d breaking architecture flaw(s) remain after deterministic graph correlation.", summary.BreakingArchitectureFlaws),
+			WhyItMatters:       "A breaking architecture path means Ariadne found a supported path that still lacks the hard barrier modeled for that path.",
+			RiskBoundary:       "Normal agent capability becomes risk when deterministic graph correlation shows the path is still breaking after control evidence is applied.",
+			GraphEdges:         assessGraphEdgesForStatus(flaws, model.ZeroTrustBreaking),
+			EvidenceReferences: actionEvidence,
+			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
+			Limitations:        []string{},
+		})
+	}
+	if !closedAction && exposure.Exposed > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:exposed-boundary-paths",
+			Category:           "risk",
+			Disposition:        "action_required",
+			Summary:            fmt.Sprintf("%d exposed path(s) reach a sensitive boundary without a breaking control.", exposure.Exposed),
+			WhyItMatters:       "Exposure is reported only after influence, runtime authority, boundary reachability, and missing control evidence are connected.",
+			RiskBoundary:       "Normal authority crosses into exposure when influence can reach a sensitive boundary and no observed control edge breaks that path.",
+			GraphEdges:         assessExposureGraphEdges(exposure.TopPaths, model.StatusExposed),
+			EvidenceReferences: actionEvidence,
+			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
+			Limitations:        []string{},
+		})
+	}
+	if inventory.Runtimes+inventory.Authorities+inventory.Tools+inventory.TrustInputs > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:          "signal:normal-agent-capability",
+			Category:    "normal_capability",
+			Disposition: "expected_capability",
+			Summary: fmt.Sprintf("Observed %d runtime, %d authority, %d tool, and %d trust-input surface(s).",
+				inventory.Runtimes, inventory.Authorities, inventory.Tools, inventory.TrustInputs),
+			WhyItMatters: "These are expected for useful agents; Ariadne treats them as risk only when graph correlation shows untrusted influence can reach sensitive boundaries without hard barriers.",
+			RiskBoundary: "Expected capability only; not a finding by itself unless it connects to untrusted influence, sensitive boundary reachability, and missing hard barriers.",
+			Limitations:  []string{"Normal capability counts come from inventory summaries; inspect inventory JSON for the full surface map."},
+		})
+	}
+	if !closedAction && len(triage.MissingHardBarriers) > 0 {
+		missingSummary := fmt.Sprintf("%d starting hard-barrier control(s) are missing or unproven for the top case.", len(triage.MissingHardBarriers))
+		if summary.MissingHardBarrierControls > len(triage.MissingHardBarriers) {
+			missingSummary = fmt.Sprintf("%s %d missing hard-barrier control instance(s) remain across all open cases.", missingSummary, summary.MissingHardBarrierControls)
+		}
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:missing-hard-barriers",
+			Category:           "missing_control",
+			Disposition:        "missing_hard_barrier",
+			Summary:            missingSummary,
+			WhyItMatters:       "Ariadne prioritizes controls that break the modeled path, not soft guidance or friction-only mitigations.",
+			RiskBoundary:       "Missing controls become action-required when they are hard barriers for a graph-supported open case, not merely because a checklist item is absent.",
+			GraphEdges:         actionGraphEdges,
+			EvidenceReferences: actionEvidence,
+			RelatedControls:    uniqueStrings(triage.MissingHardBarriers),
+			Limitations:        []string{},
+		})
+	}
+	if len(closure.HardBarriersObserved) > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:present-hard-barriers",
+			Category:           "present_control",
+			Disposition:        "breaks_path",
+			Summary:            fmt.Sprintf("%d hard-barrier control(s) were observed closing supported paths.", len(closure.HardBarriersObserved)),
+			WhyItMatters:       "Observed hard barriers explain why some paths are protected or controlled instead of open.",
+			RiskBoundary:       "Capability stays acceptable when observed control evidence removes or restricts the supported path to the sensitive boundary.",
+			GraphEdges:         assessClosurePathGraphEdges(closure.ControlledPaths),
+			EvidenceReferences: assessClosurePathEvidenceReferences(closure.ControlledPaths),
+			RelatedControls:    uniqueStrings(closure.HardBarriersObserved),
+			Limitations:        []string{},
+		})
+	}
+	if len(closure.PartialOrFrictionControls) > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:                 "signal:partial-friction-controls",
+			Category:           "partial_control",
+			Disposition:        "does_not_break_path",
+			Summary:            fmt.Sprintf("%d partial or friction-only control(s) were observed.", len(closure.PartialOrFrictionControls)),
+			WhyItMatters:       "Partial controls may reduce misuse but do not by themselves close the modeled exposure path.",
+			RiskBoundary:       "Friction is not enough when the underlying authority path still exists; Ariadne keeps the case open until a hard barrier is observed.",
+			GraphEdges:         assessClosurePathGraphEdges(closure.PartialPaths),
+			EvidenceReferences: assessClosurePathEvidenceReferences(closure.PartialPaths),
+			RelatedControls:    uniqueStrings(closure.PartialOrFrictionControls),
+			Limitations:        []string{},
+		})
+	}
+	if len(triage.UnknownEvidence) > 0 {
+		signals = append(signals, model.AssessSignal{
+			ID:           "signal:unknown-evidence-gaps",
+			Category:     "evidence_gap",
+			Disposition:  "needs_evidence",
+			Summary:      fmt.Sprintf("%d evidence gap(s) remain before Ariadne can classify every path.", len(triage.UnknownEvidence)),
+			WhyItMatters: "Unknown evidence should not be treated as either safe or exposed until the deterministic collector observes enough authority, boundary, or control facts.",
+			RiskBoundary: "Unknown means Ariadne lacks required facts; it is neither a safe finding nor an exposed finding until authority, boundary, or control evidence is collected.",
+			Limitations:  uniqueStrings(triage.UnknownEvidence),
+		})
+	}
+	return nonNilAssessSignals(signals)
+}
+
+func assessTopCaseRiskBoundary(closed bool) string {
+	if closed {
+		return "The selected capability is treated as controlled because Ariadne observed hard-barrier evidence that breaks the modeled path."
+	}
+	return "Normal agent capability becomes the top risk only after Ariadne connects it to a ranked open case with evidence-backed missing hard barriers."
+}
+
+func assessClosurePathEvidenceReferences(paths []model.AssessClosurePath) []model.EvidenceReference {
+	var refs []model.EvidenceReference
+	for _, path := range paths {
+		refs = append(refs, path.EvidenceReferences...)
+	}
+	return dedupeEvidenceReferences(refs)
+}
+
+func assessClosurePathGraphEdges(paths []model.AssessClosurePath) []string {
+	var out []string
+	for _, path := range paths {
+		out = append(out, path.GraphEdges...)
+	}
+	return uniqueStrings(out)
+}
+
+func assessScanArchitectureFlaws(architecture model.ArchitectureScanReport) []model.ZeroTrustArchitecture {
+	var out []model.ZeroTrustArchitecture
+	for _, target := range architecture.Targets {
+		out = append(out, target.Flaws...)
+	}
+	if out == nil {
+		return []model.ZeroTrustArchitecture{}
+	}
+	return out
+}
+
+func assessGraphEdgesForCase(action model.AssessFirstAction, flaws []model.ZeroTrustArchitecture, exposures []model.ExposureResult) []string {
+	var out []string
+	caseFlaws := map[string]bool{}
+	for _, flaw := range action.Flaws {
+		caseFlaws[flaw] = true
+	}
+	for _, flaw := range flaws {
+		if len(caseFlaws) > 0 && !caseFlaws[flaw.ID] && !caseFlaws[flaw.Title] {
+			continue
+		}
+		out = append(out, flaw.GraphEdges...)
+	}
+	if len(out) == 0 {
+		out = append(out, assessExposureGraphEdges(exposures, model.StatusExposed)...)
+	}
+	return uniqueStrings(out)
+}
+
+func assessGraphEdgesForStatus(flaws []model.ZeroTrustArchitecture, status model.ZeroTrustStatus) []string {
+	var out []string
+	for _, flaw := range flaws {
+		if flaw.Status == status {
+			out = append(out, flaw.GraphEdges...)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func assessExposureGraphEdges(exposures []model.ExposureResult, status model.Status) []string {
+	var out []string
+	for _, exposure := range exposures {
+		if exposure.Status == status {
+			out = append(out, exposure.PathEdges...)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func nonNilAssessSignals(items []model.AssessSignal) []model.AssessSignal {
+	if items == nil {
+		return []model.AssessSignal{}
+	}
+	for idx := range items {
+		items[idx].GraphEdges = uniqueStrings(items[idx].GraphEdges)
+		items[idx].EvidenceReferences = dedupeEvidenceReferences(items[idx].EvidenceReferences)
+		items[idx].RelatedControls = uniqueStrings(items[idx].RelatedControls)
+		items[idx].Limitations = uniqueStrings(items[idx].Limitations)
+		items[idx].RiskBoundary = strings.TrimSpace(items[idx].RiskBoundary)
+		if items[idx].GraphEdges == nil {
+			items[idx].GraphEdges = []string{}
+		}
+		if items[idx].EvidenceReferences == nil {
+			items[idx].EvidenceReferences = []model.EvidenceReference{}
+		}
+		if items[idx].RelatedControls == nil {
+			items[idx].RelatedControls = []string{}
+		}
+		if items[idx].Limitations == nil {
+			items[idx].Limitations = []string{}
+		}
+	}
+	return items
+}
+
+func assessTriageStatus(summary model.AssessSummary, exposure model.AssessExposure, action model.AssessFirstAction) string {
+	if assessFirstActionClosed(action) {
+		return "controlled"
+	}
+	if action.Available || summary.MissingHardBarrierControls > 0 || summary.BreakingArchitectureFlaws > 0 || exposure.Exposed > 0 {
+		return "action_required"
+	}
+	if summary.UnknownArchitectureFlaws > 0 || exposure.Inconclusive > 0 {
+		return "needs_evidence"
+	}
+	if summary.ControlledArchitectureFlaws > 0 || exposure.Protected > 0 {
+		return "controlled"
+	}
+	return "no_supported_signal"
+}
+
+func assessFirstActionClosed(action model.AssessFirstAction) bool {
+	if !action.Available {
+		return false
+	}
+	state := strings.ToLower(strings.TrimSpace(action.State))
+	return state == "closed" || state == "controlled" || state == "no_missing_hard_barrier"
+}
+
+func assessTriageHeadline(status string) string {
+	switch status {
+	case "action_required":
+		return "Ariadne found graph-backed signal that needs an operator action."
+	case "needs_evidence":
+		return "Ariadne needs more deterministic evidence before prioritizing a closure case."
+	case "controlled":
+		return "Ariadne observed controls that close the supported paths for this filter."
+	default:
+		return "Ariadne did not find a supported exposure or architecture break path for this filter."
+	}
+}
+
+func assessTriageNextAction(status string) string {
+	switch status {
+	case "action_required":
+		return "Inspect the top case evidence, add or verify the suggested proof evidence, then rerun and compare."
+	case "needs_evidence":
+		return "Collect the missing deterministic evidence before treating this as either exposed or protected."
+	case "controlled":
+		return "Save the controlled evidence and rerun after material config changes."
+	default:
+		return "Run inventory or broaden the target if you expected AI-agent surfaces."
+	}
+}
+
+func assessNormalCapabilityLines(inventory model.AssessInventory) []string {
+	var lines []string
+	if inventory.Runtimes > 0 {
+		lines = append(lines, fmt.Sprintf("%d agent runtime surface(s) were observed; runtime presence is expected and is not a finding by itself.", inventory.Runtimes))
+	}
+	if inventory.Authorities > 0 {
+		lines = append(lines, fmt.Sprintf("%d authority surface(s) were observed; authority is normal for useful agents but becomes risk when untrusted influence can reach sensitive boundaries without hard barriers.", inventory.Authorities))
+	}
+	if inventory.Tools > 0 {
+		lines = append(lines, fmt.Sprintf("%d tool surface(s) were observed; tools are normal capability unless scope, integrity, approval, or egress controls are missing.", inventory.Tools))
+	}
+	if inventory.TrustInputs > 0 {
+		lines = append(lines, fmt.Sprintf("%d trust input surface(s) were observed; instructions are expected inputs unless they can steer privileged runtime authority.", inventory.TrustInputs))
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "No standalone normal-capability counts are available in this view; triage is based on case-board and closure evidence.")
+	}
+	return lines
+}
+
+func assessTriageProofLoop(action model.AssessFirstAction) []string {
+	var out []string
+	if command := assessProofActionCommand(action); command != "" {
+		out = append(out, "Open focused proof action: "+command)
+	}
+	if len(action.CompareCommands) > 0 {
+		out = append(out, "Save baseline proof before changes: "+action.CompareCommands[0])
+	}
+	if action.CurrentAction.PatchExportCommand != "" {
+		out = append(out, "Export suggested proof files: "+action.CurrentAction.PatchExportCommand)
+	} else if action.PatchExportCommand != "" {
+		out = append(out, "Export suggested proof files: "+action.PatchExportCommand)
+	}
+	if len(action.ApplyCommands) > 0 {
+		for _, command := range action.ApplyCommands {
+			out = append(out, "Review/apply generated proof bundle: "+command)
+		}
+	} else if action.CurrentAction.ApplyCommand != "" {
+		out = append(out, "Review/apply generated proof file: "+action.CurrentAction.ApplyCommand)
+	}
+	if rerun := assessCurrentRerunCommand(action); rerun != "" {
+		out = append(out, "Rerun after evidence changes: "+rerun)
+	}
+	if len(action.CompareCommands) > 1 {
+		out = append(out, "Save after proof after rerun: "+action.CompareCommands[1])
+	}
+	if len(action.CompareCommands) > 2 {
+		out = append(out, "Compare proof state: "+assessClosureCompareCommand(action.CompareCommands))
+	}
+	if len(action.CompareCommands) > 3 {
+		primary := assessClosureCompareCommand(action.CompareCommands)
+		for _, command := range action.CompareCommands[2:] {
+			if command == primary {
+				continue
+			}
+			out = append(out, "Additional compare proof state: "+command)
+		}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func assessProofActionCommand(action model.AssessFirstAction) string {
+	if action.CurrentAction.PatchExportCommand != "" {
+		return proofActionCommandFromPatchExport(action.CurrentAction.PatchExportCommand)
+	}
+	if action.PatchExportCommand != "" {
+		return proofActionCommandFromPatchExport(action.PatchExportCommand)
+	}
+	return ""
+}
+
+func proofActionCommandFromPatchExport(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	if strings.Contains(command, " --format action") {
+		return command
+	}
+	if idx := strings.Index(command, " --patch-dir "); idx >= 0 {
+		return strings.TrimSpace(command[:idx]) + " --format action"
+	}
+	return command + " --format action"
+}
+
+func proofPatchExportDirFromCommand(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	idx := strings.LastIndex(command, " --patch-dir ")
+	if idx < 0 {
+		return ""
+	}
+	value := strings.TrimSpace(command[idx+len(" --patch-dir "):])
+	if value == "" {
+		return ""
+	}
+	if space := strings.IndexByte(value, ' '); space >= 0 {
+		value = value[:space]
+	}
+	return strings.Trim(value, `"'`)
+}
+
+func zeroTrustSummaryFromArchitectureScan(summary model.ArchitectureScanSummary) model.ZeroTrustSummary {
+	return model.ZeroTrustSummary{
+		Total:       summary.MatchingFlaws,
+		Breaking:    summary.Breaking,
+		Controlled:  summary.Controlled,
+		Unknown:     summary.Unknown,
+		NotObserved: summary.NotObserved,
+	}
+}
+
+func assessSurfaceCounts(surfaces []model.Surface, keyFn func(model.Surface) string) []model.AssessCount {
+	counts := map[string]int{}
+	for _, surface := range surfaces {
+		key := strings.TrimSpace(keyFn(surface))
+		if key == "" {
+			key = "unknown"
+		}
+		counts[key]++
+	}
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]model.AssessCount, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, model.AssessCount{Name: key, Count: counts[key]})
+	}
+	if out == nil {
+		return []model.AssessCount{}
+	}
+	return out
+}
+
+func buildTopCaseProofPlan(catalog model.ControlCatalogReport) *model.ProofPlanReport {
+	if len(catalog.OperatorCases) == 0 {
+		return nil
+	}
+	focused := catalog
+	if err := filterControlCaseBoard(&focused, catalog.OperatorCases[0].ID); err != nil {
+		return nil
+	}
+	plan := BuildProofPlanReport(focused)
+	return &plan
+}
+
+func buildAssessFirstAction(cases []model.ControlOperatorCase, proofPlan *model.ProofPlanReport, targetPath string) model.AssessFirstAction {
+	action := model.AssessFirstAction{
+		Available:             false,
+		EvidenceReferences:    []model.EvidenceReference{},
+		StartingControls:      []string{},
+		ProofSurfaces:         []string{},
+		EvidenceExamples:      []model.ControlEvidenceExample{},
+		ProofPatches:          []model.ControlProofPatch{},
+		RerunCommands:         []string{},
+		CompareCommands:       []string{},
+		PatchExportCommand:    "",
+		GeneratedProofPaths:   []string{},
+		SuggestedDestinations: []string{},
+		DestinationPaths:      []string{},
+		ApplyCommands:         []string{},
+		SuccessCriteria:       []string{},
+		Targets:               []string{},
+		Flaws:                 []string{},
+		Workflow:              []model.AssessWorkflowStep{},
+		CurrentAction:         emptyAssessCurrentAction(),
+	}
+	if len(cases) == 0 {
+		return action
+	}
+	item := cases[0]
+	action.Available = true
+	action.CaseID = item.ID
+	action.Title = item.Title
+	action.Severity = item.Severity
+	action.State = item.State
+	action.WhyFirst = item.PriorityReason
+	action.NextStep = item.NextStep
+	action.Targets = append([]string{}, item.Targets...)
+	action.Flaws = append([]string{}, item.Flaws...)
+	action.EvidenceReferences = append([]model.EvidenceReference{}, item.EvidenceReferences...)
+	action.StartingControls = append([]string{}, item.StartingControls...)
+	action.ProofSurfaces = append([]string{}, item.ProofSurfaces...)
+	action.EvidenceExamples = append([]model.ControlEvidenceExample{}, item.EvidenceExamples...)
+	action.ProofPatches = append([]model.ControlProofPatch{}, item.ProofPatches...)
+	action.RerunCommands = append([]string{}, item.RerunCommands...)
+	action.CompareCommands = append([]string{}, item.CompareCommands...)
+	action.SuccessCriteria = append([]string{}, item.SuccessCriteria...)
+	if proofPlan != nil {
+		if len(action.RerunCommands) == 0 {
+			action.RerunCommands = append([]string{}, proofPlan.RerunCommands...)
+		}
+		if len(action.CompareCommands) == 0 {
+			action.CompareCommands = append([]string{}, proofPlan.CompareCommands...)
+		}
+		action.PatchExportCommand = proofPlan.PatchExportCommand
+	}
+	if action.EvidenceReferences == nil {
+		action.EvidenceReferences = []model.EvidenceReference{}
+	}
+	if action.StartingControls == nil {
+		action.StartingControls = []string{}
+	}
+	if action.ProofSurfaces == nil {
+		action.ProofSurfaces = []string{}
+	}
+	if action.EvidenceExamples == nil {
+		action.EvidenceExamples = []model.ControlEvidenceExample{}
+	}
+	if action.ProofPatches == nil {
+		action.ProofPatches = []model.ControlProofPatch{}
+	}
+	if action.RerunCommands == nil {
+		action.RerunCommands = []string{}
+	}
+	if action.CompareCommands == nil {
+		action.CompareCommands = []string{}
+	}
+	if action.SuccessCriteria == nil {
+		action.SuccessCriteria = []string{}
+	}
+	if action.Targets == nil {
+		action.Targets = []string{}
+	}
+	if action.Flaws == nil {
+		action.Flaws = []string{}
+	}
+	action.Workflow = buildAssessFirstActionWorkflow(action)
+	action.CurrentAction = buildAssessCurrentAction(action, targetPath)
+	action.GeneratedProofPaths, action.SuggestedDestinations, action.DestinationPaths, action.ApplyCommands = assessDecisionProofBundle(action, targetPath)
+	return action
+}
+
+func buildAssessClosurePlan(cases []model.ControlOperatorCase, limit int) []model.AssessClosurePlanItem {
+	if limit <= 0 {
+		limit = 5
+	}
+	var out []model.AssessClosurePlanItem
+	seen := map[string]bool{}
+	for _, item := range cases {
+		control := firstString(item.StartingControls)
+		if control == "" && len(item.ProofPatches) > 0 {
+			control = item.ProofPatches[0].Control
+		}
+		if control == "" {
+			continue
+		}
+		key := item.ID + "\x00" + control
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		patch := assessClosurePlanProofPatch(control, item.ProofPatches)
+		proofSurface := assessClosurePlanProofSurface(item, patch)
+		planItem := model.AssessClosurePlanItem{
+			Rank:               len(out) + 1,
+			Control:            control,
+			CaseID:             item.ID,
+			CaseTitle:          item.Title,
+			Severity:           item.Severity,
+			State:              item.State,
+			WhyThisControl:     assessClosurePlanWhy(item, control),
+			WhatItCloses:       assessClosurePlanCloses(item),
+			AffectedFlaws:      item.FlawCount,
+			AffectedTargets:    item.TargetCount,
+			EvidenceReferences: dedupeEvidenceReferences(item.EvidenceReferences),
+			ProofSurface:       proofSurface,
+			ProofPatch:         patch,
+			RerunCommand:       firstString(item.RerunCommands),
+			CompareCommand:     assessClosurePlanCompareCommand(item.CompareCommands),
+			DoneCriteria:       nonNilStrings(item.SuccessCriteria),
+			Limitations:        nonNilStrings(item.Limitations),
+		}
+		if len(planItem.DoneCriteria) == 0 {
+			planItem.DoneCriteria = []string{"The case no longer appears as open for the selected status filter after rerun.", "The selected control is no longer returned as a missing hard barrier."}
+		}
+		out = append(out, planItem)
+		if len(out) >= limit {
+			break
+		}
+	}
+	if out == nil {
+		return []model.AssessClosurePlanItem{}
+	}
+	return out
+}
+
+func assessClosurePlanProofPatch(control string, patches []model.ControlProofPatch) *model.ControlProofPatch {
+	if len(patches) == 0 {
+		return nil
+	}
+	for _, patch := range patches {
+		if patch.Control == control {
+			item := patch
+			return &item
+		}
+	}
+	item := patches[0]
+	return &item
+}
+
+func assessClosurePlanProofSurface(item model.ControlOperatorCase, patch *model.ControlProofPatch) string {
+	if patch != nil && patch.Surface != "" {
+		return patch.Surface
+	}
+	if controlOperatorCaseIsClosed(item) {
+		if source := firstControlEvidenceReferenceSource(item.EvidenceReferences); source != "" {
+			return source
+		}
+	}
+	return firstString(item.ProofSurfaces)
+}
+
+func firstControlEvidenceReferenceSource(refs []model.EvidenceReference) string {
+	if source := firstString(evidenceReferenceSources(refs, true)); source != "" {
+		return source
+	}
+	return firstString(evidenceReferenceSources(refs, false))
+}
+
+func assessActionEvidenceSurfaces(action model.AssessFirstAction) []string {
+	surfaces := evidenceReferenceSources(action.EvidenceReferences, true)
+	if len(surfaces) == 0 {
+		surfaces = evidenceReferenceSources(action.EvidenceReferences, false)
+	}
+	if len(surfaces) == 0 {
+		surfaces = append(surfaces, action.ProofSurfaces...)
+	}
+	return uniqueStrings(surfaces)
+}
+
+func evidenceReferenceSources(refs []model.EvidenceReference, controlsOnly bool) []string {
+	var out []string
+	for _, ref := range refs {
+		source := strings.TrimSpace(ref.Source)
+		if source == "" {
+			continue
+		}
+		if controlsOnly && !strings.EqualFold(strings.TrimSpace(ref.Kind), "control") {
+			continue
+		}
+		out = append(out, source)
+	}
+	return uniqueStrings(out)
+}
+
+func evidenceReferenceSourcesForControl(refs []model.EvidenceReference, control string) []string {
+	control = strings.TrimSpace(control)
+	var out []string
+	for _, ref := range refs {
+		source := strings.TrimSpace(ref.Source)
+		if source == "" || control == "" {
+			continue
+		}
+		if ref.ID == control || strings.Contains(ref.ID, control) || strings.Contains(ref.Summary, strings.TrimPrefix(control, "control:")) {
+			out = append(out, source)
+		}
+	}
+	return uniqueStrings(out)
+}
+
+func rankEvidenceReferencesForOperator(values []model.EvidenceReference, proofSurfaces ...string) []model.EvidenceReference {
+	values = dedupeEvidenceReferences(values)
+	if len(values) == 0 {
+		return []model.EvidenceReference{}
+	}
+	proofSet := map[string]bool{}
+	for _, surface := range proofSurfaces {
+		surface = strings.ToLower(strings.TrimSpace(surface))
+		if surface != "" {
+			proofSet[surface] = true
+		}
+	}
+	sort.SliceStable(values, func(i, j int) bool {
+		leftRank := operatorEvidenceReferenceRank(values[i], proofSet)
+		rightRank := operatorEvidenceReferenceRank(values[j], proofSet)
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if values[i].Source != values[j].Source {
+			return values[i].Source < values[j].Source
+		}
+		if values[i].LineStart != values[j].LineStart {
+			return values[i].LineStart < values[j].LineStart
+		}
+		if values[i].Kind != values[j].Kind {
+			return values[i].Kind < values[j].Kind
+		}
+		if values[i].Target != values[j].Target {
+			return values[i].Target < values[j].Target
+		}
+		return values[i].ID < values[j].ID
+	})
+	return values
+}
+
+func operatorCapabilityEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	if refs := signalNoiseEvidenceReferencesByKind(values, "runtime", "authority", "tool", "trust_input", "config", "instruction"); len(refs) > 0 {
+		return rankEvidenceReferencesForOperator(refs)
+	}
+	var refs []model.EvidenceReference
+	for _, ref := range values {
+		if operatorEvidenceReferenceRank(ref, nil) <= 2 {
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) > 0 {
+		return rankEvidenceReferencesForOperator(refs)
+	}
+	return firstEvidenceReferences(rankEvidenceReferencesForOperator(values), 4)
+}
+
+func operatorPrimaryEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	values = rankEvidenceReferencesForOperator(values)
+	var out []model.EvidenceReference
+	for _, ref := range values {
+		source := strings.TrimSpace(ref.Source)
+		if operatorEvidenceReferenceRank(ref, nil) <= 3 || (source != "" && !evidenceSourceLooksFile(source)) {
+			out = append(out, ref)
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	return values
+}
+
+func operatorEvidenceReferenceRank(value model.EvidenceReference, proofSet map[string]bool) int {
+	source := strings.ToLower(strings.TrimSpace(value.Source))
+	kind := strings.ToLower(strings.TrimSpace(value.Kind))
+	id := strings.ToLower(strings.TrimSpace(value.ID))
+	if kind == "summary" || id == "evidence:omitted" {
+		return 99
+	}
+	if proofSet != nil && (proofSet[source] || proofSet[id]) {
+		return 0
+	}
+	if kind == "control" || strings.HasPrefix(source, ".ariadne/") || strings.Contains(source, "policy") {
+		return 1
+	}
+	if kind == "runtime" {
+		return 6
+	}
+	if operatorSourceLooksPrivateContext(source) || operatorKindLooksPrivateContext(kind) {
+		return 8
+	}
+	if operatorSourceLooksConfig(source) || operatorKindLooksActionable(kind) {
+		return 2
+	}
+	if strings.Contains(id, "credential") || strings.Contains(id, "secret") || operatorSourceLooksSensitiveBoundary(source) {
+		return 3
+	}
+	if kind == "boundary" {
+		return 4
+	}
+	return 5
+}
+
+func operatorKindLooksActionable(kind string) bool {
+	switch kind {
+	case "authority", "tool", "trust_input", "config", "instruction", "mcp", "plugin", "command", "hook", "permission", "sandbox", "approval":
+		return true
+	default:
+		return strings.Contains(kind, "config") || strings.Contains(kind, "permission") || strings.Contains(kind, "authority")
+	}
+}
+
+func operatorKindLooksPrivateContext(kind string) bool {
+	return strings.Contains(kind, "history") ||
+		strings.Contains(kind, "cache") ||
+		strings.Contains(kind, "transcript") ||
+		strings.Contains(kind, "session") ||
+		strings.Contains(kind, "paste") ||
+		strings.Contains(kind, "memory")
+}
+
+func operatorSourceLooksConfig(source string) bool {
+	base := source
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return strings.Contains(source, "settings") ||
+		strings.Contains(source, "config") ||
+		strings.Contains(source, "mcp.json") ||
+		strings.Contains(source, ".mcp.json") ||
+		strings.Contains(source, "rules") ||
+		base == "claude.md" ||
+		base == "agents.md" ||
+		strings.HasPrefix(base, ".aider.conf")
+}
+
+func operatorSourceLooksSensitiveBoundary(source string) bool {
+	base := source
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return base == ".env" ||
+		strings.Contains(base, ".pem") ||
+		strings.Contains(base, "id_rsa") ||
+		strings.Contains(base, "id_ed25519") ||
+		strings.Contains(base, "credentials") ||
+		strings.Contains(base, "secret")
+}
+
+func operatorSourceLooksPrivateContext(source string) bool {
+	return strings.Contains(source, "history") ||
+		strings.Contains(source, "cache") ||
+		strings.Contains(source, "transcript") ||
+		strings.Contains(source, "session") ||
+		strings.Contains(source, "paste") ||
+		strings.Contains(source, ".jsonl")
+}
+
+func assessClosurePlanCompareCommand(commands []string) string {
+	return assessClosureCompareCommand(commands)
+}
+
+func assessClosureCompareCommand(commands []string) string {
+	if len(commands) == 0 {
+		return ""
+	}
+	for _, command := range commands {
+		if strings.Contains(command, "--format receipt") || strings.Contains(command, "closure-receipt.txt") {
+			return command
+		}
+	}
+	return commands[len(commands)-1]
+}
+
+func assessClosurePlanWhy(item model.ControlOperatorCase, control string) string {
+	if controlOperatorCaseIsClosed(item) {
+		return fmt.Sprintf("%s is already closed for this focused view. Keep %s evidence in place and rerun if the repo, runtime, or policy evidence changes.", firstNonEmpty(item.Title, item.ID), control)
+	}
+	reason := item.PriorityReason
+	if reason == "" {
+		reason = fmt.Sprintf("%s is the highest ranked available case for this closure row.", firstNonEmpty(item.Title, item.ID))
+	}
+	return fmt.Sprintf("%s Start with %s because it is the first parser-recognized hard-barrier proof task for this case.", reason, control)
+}
+
+func assessClosurePlanCloses(item model.ControlOperatorCase) string {
+	title := firstNonEmpty(item.Title, item.ID)
+	if controlOperatorCaseIsClosed(item) {
+		return fmt.Sprintf("%s has observed hard-barrier evidence across %d affected architecture flaw(s) and %d target(s); no proof patch is needed while that evidence remains present.", title, item.FlawCount, item.TargetCount)
+	}
+	return fmt.Sprintf("%s covers %d affected architecture flaw(s) across %d target(s); the case is closed only when rerun evidence removes the missing hard barrier.", title, item.FlawCount, item.TargetCount)
+}
+
+func emptyAssessCurrentAction() model.AssessCurrentAction {
+	return model.AssessCurrentAction{
+		Available:            false,
+		EvidenceReferences:   []model.EvidenceReference{},
+		ProofPatchIndex:      -1,
+		EvidenceExampleIndex: -1,
+		SuccessCriteria:      []string{},
+	}
+}
+
+func buildAssessCurrentAction(action model.AssessFirstAction, targetPath string) model.AssessCurrentAction {
+	current := emptyAssessCurrentAction()
+	if !action.Available {
+		return current
+	}
+	step, ok := currentAssessWorkflowStep(action.Workflow)
+	if !ok {
+		return current
+	}
+	current.Available = true
+	current.WorkflowStepID = step.ID
+	current.WorkflowStepTitle = step.Title
+	current.Instruction = firstNonEmpty(action.NextStep, step.Summary)
+	current.EvidenceReferences = append([]model.EvidenceReference{}, action.EvidenceReferences...)
+	current.SuccessCriteria = append([]string{}, action.SuccessCriteria...)
+	if assessFirstActionClosed(action) {
+		current.Control = firstString(action.StartingControls)
+		current.Surface = firstControlEvidenceReferenceSource(action.EvidenceReferences)
+	}
+	if len(action.ProofPatches) > 0 {
+		patch := action.ProofPatches[0]
+		current.ProofPatchIndex = 0
+		current.ProofPatch = &patch
+		current.Control = patch.Control
+		current.Surface = patch.Surface
+		if current.Instruction == "" {
+			current.Instruction = patch.Summary
+		}
+	}
+	if len(action.EvidenceExamples) > 0 {
+		example := action.EvidenceExamples[0]
+		current.EvidenceExampleIndex = 0
+		current.EvidenceExample = &example
+		if current.Surface == "" {
+			current.Surface = example.Surface
+		}
+	}
+	if len(action.RerunCommands) > 0 {
+		current.RerunCommand = action.RerunCommands[0]
+	}
+	if len(action.CompareCommands) > 0 {
+		current.CompareCommand = assessClosureCompareCommand(action.CompareCommands)
+	}
+	current.PatchExportCommand = action.PatchExportCommand
+	attachAssessCurrentActionApplyStep(&current, targetPath)
+	return current
+}
+
+func attachAssessCurrentActionApplyStep(current *model.AssessCurrentAction, targetPath string) {
+	if current == nil || current.PatchExportCommand == "" || current.Surface == "" {
+		return
+	}
+	exportDir := proofPatchExportDirFromCommand(current.PatchExportCommand)
+	if exportDir == "" {
+		return
+	}
+	relPath := proofPatchExportSurfaceRelPath(current.Surface)
+	destinationPath := proofPatchSuggestedDestinationPath(targetPath, current.Surface)
+	applyCommand := proofPatchApplyCommand(exportDir, relPath, destinationPath)
+	current.GeneratedProofPath = filepath.Clean(filepath.Join(exportDir, relPath))
+	current.SuggestedDestination = current.Surface
+	current.DestinationPath = destinationPath
+	current.ApplyCommand = applyCommand
+}
+
+func buildAssessFirstActionWorkflow(action model.AssessFirstAction) []model.AssessWorkflowStep {
+	if !action.Available {
+		return []model.AssessWorkflowStep{}
+	}
+	addProofCommands := nonNilStrings(nonEmptyStrings(action.PatchExportCommand))
+	if assessFirstActionClosed(action) {
+		proofSurfaces := assessActionEvidenceSurfaces(action)
+		return []model.AssessWorkflowStep{
+			{
+				ID:                 "inspect_evidence",
+				Title:              "Inspect Evidence",
+				Summary:            "Review the deterministic hard-barrier evidence that closed this focused case.",
+				Current:            true,
+				EvidenceReferences: append([]model.EvidenceReference{}, action.EvidenceReferences...),
+				StartingControls:   append([]string{}, action.StartingControls...),
+				ProofSurfaces:      append([]string{}, proofSurfaces...),
+				Commands:           []string{},
+				SuccessCriteria:    []string{},
+			},
+			{
+				ID:                 "add_or_verify_proof",
+				Title:              "Add Or Verify Proof",
+				Summary:            firstNonEmpty(action.NextStep, "No proof patch is needed for this focused case while observed hard-barrier evidence remains present."),
+				Current:            false,
+				EvidenceReferences: []model.EvidenceReference{},
+				StartingControls:   append([]string{}, action.StartingControls...),
+				ProofSurfaces:      append([]string{}, proofSurfaces...),
+				Commands:           []string{},
+				SuccessCriteria:    []string{},
+			},
+			{
+				ID:                 "rerun_case",
+				Title:              "Rerun Case",
+				Summary:            "Rerun the focused case if evidence changes so Ariadne can confirm it remains closed.",
+				Current:            false,
+				EvidenceReferences: []model.EvidenceReference{},
+				StartingControls:   []string{},
+				ProofSurfaces:      []string{},
+				Commands:           append([]string{}, action.RerunCommands...),
+				SuccessCriteria:    []string{},
+			},
+			{
+				ID:                 "compare_before_after",
+				Title:              "Compare Before And After",
+				Summary:            "Compare proof artifacts if controls or evidence change to prove the case stayed closed.",
+				Current:            false,
+				EvidenceReferences: []model.EvidenceReference{},
+				StartingControls:   []string{},
+				ProofSurfaces:      []string{},
+				Commands:           append([]string{}, action.CompareCommands...),
+				SuccessCriteria:    append([]string{}, action.SuccessCriteria...),
+			},
+		}
+	}
+	return []model.AssessWorkflowStep{
+		{
+			ID:                 "inspect_evidence",
+			Title:              "Inspect Evidence",
+			Summary:            "Review the source-backed facts that caused Ariadne to prioritize this case.",
+			Current:            false,
+			EvidenceReferences: append([]model.EvidenceReference{}, action.EvidenceReferences...),
+			StartingControls:   []string{},
+			ProofSurfaces:      []string{},
+			Commands:           []string{},
+			SuccessCriteria:    []string{},
+		},
+		{
+			ID:                 "add_or_verify_proof",
+			Title:              "Add Or Verify Proof",
+			Summary:            firstNonEmpty(action.NextStep, "Add or verify parser-recognized evidence for the starting controls."),
+			Current:            true,
+			EvidenceReferences: []model.EvidenceReference{},
+			StartingControls:   append([]string{}, action.StartingControls...),
+			ProofSurfaces:      append([]string{}, action.ProofSurfaces...),
+			Commands:           addProofCommands,
+			SuccessCriteria:    []string{},
+		},
+		{
+			ID:                 "rerun_case",
+			Title:              "Rerun Case",
+			Summary:            "Rerun the focused case after evidence changes so Ariadne can recompute facts and graph paths.",
+			Current:            false,
+			EvidenceReferences: []model.EvidenceReference{},
+			StartingControls:   []string{},
+			ProofSurfaces:      []string{},
+			Commands:           append([]string{}, action.RerunCommands...),
+			SuccessCriteria:    []string{},
+		},
+		{
+			ID:                 "compare_before_after",
+			Title:              "Compare Before And After",
+			Summary:            "Save before and after proof artifacts, then compare them to prove the case state changed.",
+			Current:            false,
+			EvidenceReferences: []model.EvidenceReference{},
+			StartingControls:   []string{},
+			ProofSurfaces:      []string{},
+			Commands:           append([]string{}, action.CompareCommands...),
+			SuccessCriteria:    append([]string{}, action.SuccessCriteria...),
+		},
+	}
+}
+
+func topControlOperatorCases(cases []model.ControlOperatorCase, limit int) []model.ControlOperatorCase {
+	if limit <= 0 || limit > len(cases) {
+		limit = len(cases)
+	}
+	out := append([]model.ControlOperatorCase{}, cases[:limit]...)
+	if out == nil {
+		return []model.ControlOperatorCase{}
+	}
+	return out
+}
+
+func reportExposures(r model.Report) []model.ExposureResult {
+	if len(r.Exposures) > 0 {
+		return append([]model.ExposureResult{}, r.Exposures...)
+	}
+	if r.Exposure.ID != "" {
+		return []model.ExposureResult{r.Exposure}
+	}
+	return []model.ExposureResult{}
+}
+
+func assessPathCommands(path, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
+	cli := ariadneCommand()
+	base := assessFocusCommand(fmt.Sprintf("%s assess --path %s --mode %s --agent %s --status %s --format table", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
+	commands := []string{base}
+	if len(cases) > 0 {
+		if closureCommand := assessClosureWorkspaceCommand(path, mode, agent, statusFilter, cases[0].ID); closureCommand != "" {
+			commands = append(commands, closureCommand)
+		}
+		commands = append(commands, fmt.Sprintf("%s cases --path %s --mode %s --agent %s --status %s --case %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("%s proofs --path %s --mode %s --agent %s --status %s --case %s --format action", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+	}
+	commands = append(commands,
+		fmt.Sprintf("%s controls --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
+		fmt.Sprintf("%s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	)
+	return commands
+}
+
+func assessClosureWorkspaceCommand(path, mode, agent, statusFilter string, caseID string) string {
+	path = strings.TrimSpace(path)
+	caseID = strings.TrimSpace(caseID)
+	if path == "" || caseID == "" {
+		return ""
+	}
+	cli := ariadneCommand()
+	return fmt.Sprintf("%s closure --path %s --mode %s --agent %s --status %s --case %s --dir ariadne-closure",
+		cli,
+		shellQuoteCommandArg(path),
+		shellQuoteCommandArg(mode),
+		shellQuoteCommandArg(agent),
+		shellQuoteCommandArg(statusFilter),
+		shellQuoteCommandArg(caseID),
+	)
+}
+
+func assessClosureCommandFromNextCommands(commands []string) string {
+	for _, command := range commands {
+		if isAriadneSubcommand(command, "closure") {
+			return command
+		}
+	}
+	return ""
+}
+
+func assessPathEvidenceGapActions(path, mode, agent string, triage model.AssessTriage, inventory model.AssessInventory) []string {
+	if len(triage.UnknownEvidence) == 0 {
+		return []string{}
+	}
+	cli := ariadneCommand()
+	actions := []string{
+		fmt.Sprintf("Inspect all architecture states: %s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("Export deterministic inventory facts: %s inventory --path %s --mode %s --agent %s --format json --out ariadne-inventory.json", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	}
+	if inventory.TrustInputs > 0 && (inventory.Runtimes == 0 || inventory.Authorities == 0) {
+		actions = append(actions, "Runtime authority evidence is missing; collect endpoint/runtime config from the machine or mounted home where the agent executes.")
+	}
+	return uniqueStrings(actions)
+}
+
+func assessScanCommands(targetsFile, mode, agent, statusFilter string, cases []model.ControlOperatorCase, focus AssessFocus) []string {
+	cli := ariadneCommand()
+	targetsArg := targetsFileCommandArg(targetsFile)
+	base := assessFocusCommand(fmt.Sprintf("%s assess --targets %s --mode %s --agent %s --status %s --format table", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)), focus)
+	commands := []string{base}
+	if len(cases) > 0 {
+		commands = append(commands, fmt.Sprintf("%s cases --targets %s --mode %s --agent %s --status %s --case %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+		commands = append(commands, fmt.Sprintf("%s proofs --targets %s --mode %s --agent %s --status %s --case %s --format action", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter), shellQuoteCommandArg(cases[0].ID)))
+	}
+	commands = append(commands,
+		fmt.Sprintf("%s controls --targets %s --mode %s --agent %s --status %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(statusFilter)),
+		fmt.Sprintf("%s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	)
+	return commands
+}
+
+func assessScanEvidenceGapActions(targetsFile, mode, agent string, triage model.AssessTriage) []string {
+	if len(triage.UnknownEvidence) == 0 {
+		return []string{}
+	}
+	cli := ariadneCommand()
+	targetsArg := targetsFileCommandArg(targetsFile)
+	return uniqueStrings([]string{
+		fmt.Sprintf("Inspect all fleet architecture states: %s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		fmt.Sprintf("Export fleet assessment JSON: %s assess --targets %s --mode %s --agent %s --status all --format json --out ariadne-assess.json", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	})
+}
+
+func assessFocusCommand(command string, focus AssessFocus) string {
+	if focus.CaseFilter != "" {
+		command += " --case " + shellQuoteCommandArg(focus.CaseFilter)
+	}
+	if focus.ControlFilter != "" {
+		command += " --control " + shellQuoteCommandArg(focus.ControlFilter)
+	}
+	return command
+}
+
+func ariadneCommand() string {
+	value := strings.TrimSpace(os.Getenv(commandNameEnv))
+	if value == "" {
+		return "ariadne"
+	}
+	return shellQuoteCommandArg(value)
+}
+
+func isAriadneSubcommand(command string, subcommand string) bool {
+	command = strings.TrimSpace(command)
+	subcommand = strings.TrimSpace(subcommand)
+	return strings.HasPrefix(command, ariadneCommand()+" "+subcommand+" ") ||
+		strings.HasPrefix(command, "ariadne "+subcommand+" ")
+}
+
+func rewriteAriadneSubcommand(command string, from string, to string) string {
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	command = strings.ReplaceAll(command, ariadneCommand()+" "+from, ariadneCommand()+" "+to)
+	return strings.ReplaceAll(command, "ariadne "+from, "ariadne "+to)
+}
+
+func renderGraphDOT(w io.Writer, title string, g model.Graph) error {
+	fmt.Fprintln(w, "digraph ariadne_graph {")
+	fmt.Fprintln(w, "  rankdir=LR;")
+	fmt.Fprintf(w, "  labelloc=\"t\";\n")
+	fmt.Fprintf(w, "  label=%s;\n", dotQuote(title))
+	renderGraphDOTBody(w, g, "")
+	fmt.Fprintln(w, "}")
+	return nil
+}
+
+func renderScanDOT(w io.Writer, r model.ScanReport) error {
+	fmt.Fprintln(w, "digraph ariadne_scan {")
+	fmt.Fprintln(w, "  rankdir=LR;")
+	fmt.Fprintf(w, "  labelloc=\"t\";\n")
+	fmt.Fprintf(w, "  label=%s;\n", dotQuote("Ariadne scan graph"))
+	for i, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		prefix := fmt.Sprintf("target%d_", i)
+		fmt.Fprintf(w, "  subgraph cluster_%d {\n", i)
+		fmt.Fprintf(w, "    label=%s;\n", dotQuote("target: "+target.Target.ID))
+		renderGraphDOTBody(w, target.Report.Graph, prefix)
+		fmt.Fprintln(w, "  }")
+	}
+	fmt.Fprintln(w, "}")
+	return nil
+}
+
+func renderGraphDOTBody(w io.Writer, g model.Graph, prefix string) {
+	for _, node := range g.Nodes {
+		fmt.Fprintf(w, "    %s [label=%s, shape=%s];\n", dotQuote(prefix+node.ID), dotQuote(nodeLabel(node)), dotShape(node.Type))
+	}
+	for _, edge := range g.Edges {
+		fmt.Fprintf(w, "    %s -> %s [label=%s];\n", dotQuote(prefix+edge.From), dotQuote(prefix+edge.To), dotQuote(edge.Type))
+	}
+}
+
+func renderGraphMermaid(w io.Writer, title string, g model.Graph) error {
+	fmt.Fprintln(w, "---")
+	fmt.Fprintf(w, "title: %s\n", mermaidText(title))
+	fmt.Fprintln(w, "---")
+	fmt.Fprintln(w, "flowchart LR")
+	renderGraphMermaidBody(w, g, "")
+	return nil
+}
+
+func renderScanMermaid(w io.Writer, r model.ScanReport) error {
+	fmt.Fprintln(w, "---")
+	fmt.Fprintln(w, "title: Ariadne scan graph")
+	fmt.Fprintln(w, "---")
+	fmt.Fprintln(w, "flowchart LR")
+	for i, target := range r.Targets {
+		if target.Error != "" {
+			continue
+		}
+		prefix := fmt.Sprintf("target%d_", i)
+		fmt.Fprintf(w, "  subgraph cluster_%d[\"%s\"]\n", i, mermaidText("target: "+target.Target.ID))
+		renderGraphMermaidBody(w, target.Report.Graph, prefix)
+		fmt.Fprintln(w, "  end")
+	}
+	return nil
+}
+
+func renderGraphMermaidBody(w io.Writer, g model.Graph, prefix string) {
+	ids := make(map[string]string, len(g.Nodes))
+	for i, node := range g.Nodes {
+		id := fmt.Sprintf("%sn%d", prefix, i)
+		ids[node.ID] = id
+		fmt.Fprintf(w, "    %s[\"%s\"]\n", id, mermaidText(nodeLabel(node)))
+	}
+	for _, edge := range g.Edges {
+		from, fromOK := ids[edge.From]
+		to, toOK := ids[edge.To]
+		if !fromOK || !toOK {
+			continue
+		}
+		fmt.Fprintf(w, "    %s -->|\"%s\"| %s\n", from, mermaidText(edge.Type), to)
+	}
+}
+
+func graphTitle(runKind, storyID string) string {
+	if storyID != "" && storyID != "real-path" {
+		return "Ariadne story graph: " + storyID
+	}
+	if runKind != "" {
+		return "Ariadne " + runKind + " graph"
+	}
+	return "Ariadne graph"
+}
+
+func nodeLabel(node model.Node) string {
+	parts := []string{node.Type + ": " + node.Label}
+	if node.Runtime != "" && node.Runtime != node.Label {
+		parts = append(parts, "runtime: "+node.Runtime)
+	}
+	if node.Source != "" {
+		parts = append(parts, "source: "+node.Source)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func dotShape(nodeType string) string {
+	switch nodeType {
+	case "runtime":
+		return "box"
+	case "authority":
+		return "hexagon"
+	case "boundary":
+		return "octagon"
+	case "control":
+		return "diamond"
+	case "trust_input":
+		return "note"
+	default:
+		return "ellipse"
+	}
+}
+
+func dotQuote(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
+	return `"` + replacer.Replace(value) + `"`
+}
+
+func mermaidText(value string) string {
+	replacer := strings.NewReplacer(
+		`"`, "#quot;",
+		"[", "(",
+		"]", ")",
+		"|", "/",
+		"\n", "<br/>",
+	)
+	return replacer.Replace(value)
+}
+
+func renderScanTable(w io.Writer, r model.ScanReport) error {
+	fmt.Fprintf(w, "Ariadne Fleet Verdict\n\n")
+	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
+	fmt.Fprintf(w, "Agent: %s\n", r.Agent)
+	fmt.Fprintf(w, "Targets: %d completed, %d errors\n", r.Summary.Completed, r.Summary.Errors)
+	fmt.Fprintf(w, "Exposure paths: %d exposed, %d protected, %d inconclusive\n\n", r.Summary.Exposed, r.Summary.Protected, r.Summary.Inconclusive)
+
+	fmt.Fprintf(w, "Verdicts:\n")
+	for _, key := range orderedFleetVerdictKeys(r.Fleet.VerdictCounts) {
+		fmt.Fprintf(w, "  - %s: %d\n", key, r.Fleet.VerdictCounts[key])
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintf(w, "Reckless findings by family:\n")
+	if len(r.Fleet.RecklessByFamily) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, family := range r.Fleet.RecklessByFamily {
+			fmt.Fprintf(w, "  - %s: %d finding(s) across %d target(s)\n", family.Family, family.Count, len(family.AffectedTargets))
+			fmt.Fprintf(w, "    targets: %s\n", strings.Join(family.AffectedTargets, ", "))
+			rep := family.RepresentativeFinding
+			fmt.Fprintf(w, "    representative: %s on %s (%s)\n", rep.Title, rep.Target, formatFleetEvidenceLocation(rep.Where))
+		}
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintf(w, "Worst-first targets:\n")
+	if len(r.Fleet.WorstFirstTargets) == 0 {
+		fmt.Fprintf(w, "  - none\n")
+	} else {
+		for _, target := range r.Fleet.WorstFirstTargets {
+			fmt.Fprintf(w, "  - %s: %s (%d reckless, %d trade-off, %d hardened, %d inconclusive)\n",
+				target.Target,
+				target.Verdict,
+				target.RecklessCount,
+				target.TradeoffCount,
+				target.HardenedCount,
+				target.Inconclusive,
+			)
+		}
+	}
+	fmt.Fprintln(w)
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "Limitations:\n")
+		for _, limitation := range r.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func renderScanJSONL(w io.Writer, r model.ScanReport) error {
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			return fmt.Errorf("cannot render scan jsonl: target %s failed: %s", scanTargetLabel(target.Target), target.Error)
+		}
+		if len(target.Verdict) == 0 {
+			return fmt.Errorf("cannot render scan jsonl: target %s has no verdict", scanTargetLabel(target.Target))
+		}
+		if _, err := w.Write(target.Verdict); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func scanTargetLabel(target model.ScanTarget) string {
+	if target.ID != "" {
+		return target.ID
+	}
+	if target.Path != "" {
+		return target.Path
+	}
+	return "<unknown>"
+}
+
+func orderedFleetVerdictKeys(counts map[string]int) []string {
+	known := []string{"reckless", "tradeoffs_only", "hardened", "no_agents_found"}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(counts))
+	for _, key := range known {
+		if _, ok := counts[key]; ok {
+			out = append(out, key)
+			seen[key] = true
+		}
+	}
+	var extras []string
+	for key := range counts {
+		if !seen[key] {
+			extras = append(extras, key)
+		}
+	}
+	sort.Strings(extras)
+	return append(out, extras...)
+}
+
+func formatFleetEvidenceLocation(where model.FleetEvidenceLocation) string {
+	if where.Source == "" {
+		return "unknown"
+	}
+	if where.Line > 0 {
+		return fmt.Sprintf("%s:%d", where.Source, where.Line)
+	}
+	return where.Source
+}
+
+func renderAssessTable(w io.Writer, r model.AssessReport) error {
+	fmt.Fprintf(w, "Ariadne Assess\n\n")
+	if r.RunKind == "assess_scan" {
+		fmt.Fprintf(w, "Targets: %d completed, %d errors, %d total\n", r.Summary.CompletedTargets, r.Summary.Errors, r.Summary.Targets)
+	} else {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
+	fmt.Fprintf(w, "Agent: %s\n", r.Agent)
+	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
+	renderAssessFocusLine(w, r)
+	fmt.Fprintf(w, "Question: Where is Zero Trust agent architecture breaking, and what proof closes the path?\n\n")
+
+	fmt.Fprintf(w, "Readout:\n")
+	fmt.Fprintf(w, "  - Architecture: %d matching flaw(s), %d breaking, %d controlled, %d unknown, %d not observed\n",
+		r.Summary.ArchitectureFlaws,
+		r.Summary.BreakingArchitectureFlaws,
+		r.Summary.ControlledArchitectureFlaws,
+		r.Summary.UnknownArchitectureFlaws,
+		r.Summary.NotObservedArchitectureFlaws,
+	)
+	fmt.Fprintf(w, "  - Operator cases: %d case(s), %d missing hard-barrier control(s)\n", r.Summary.OperatorCases, r.Summary.MissingHardBarrierControls)
+	fmt.Fprintf(w, "  - Exposure paths: %d total, %d exposed, %d protected, %d inconclusive\n", r.Summary.ExposurePaths, r.Summary.Exposed, r.Summary.Protected, r.Summary.Inconclusive)
+	if r.Summary.TopCaseID != "" {
+		fmt.Fprintf(w, "  - Start here: %s (%s)\n", r.Summary.TopCaseTitle, r.Summary.TopCaseID)
+	}
+	fmt.Fprintln(w)
+
+	renderAssessDecision(w, r.Decision)
+	renderAssessSignalQuality(w, r.SignalQuality)
+	renderAssessLethalTrifecta(w, r.LethalTrifecta)
+	renderAssessTriage(w, r.Triage)
+	renderAssessControlState(w, r.ControlState)
+	renderAssessWorkbenchSignalChain(w, r.OperatorWorkbench.SignalChain, 4)
+	renderAssessWorkbenchProofState(w, r.OperatorWorkbench.ProofState)
+	renderAssessCaseLifecycle(w, r.CaseLifecycle, 9)
+	renderAssessClosurePlan(w, r.ClosurePlan, 5)
+	renderAssessFirstAction(w, r.FirstAction)
+
+	renderAssessInventorySummary(w, r.Inventory, 5)
+
+	renderAssessClosureEvidence(w, r.ClosureEvidence)
+	renderAssessArchitectureBreaks(w, r)
+	renderControlOperatorCases(w, r.CaseBoard.OperatorCases, 5)
+	renderAssessTopCaseProofPacket(w, r.TopCaseProofPlan)
+	fmt.Fprintln(w)
+
+	if len(r.NextCommands) > 0 {
+		fmt.Fprintf(w, "Next commands:\n")
+		for _, command := range r.NextCommands {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "Limitations:\n")
+		for _, limitation := range r.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func renderAssessDecision(w io.Writer, decision model.AssessDecision) {
+	if decision.Status == "" && decision.Headline == "" {
+		return
+	}
+	fmt.Fprintf(w, "Decision:\n")
+	if decision.Status != "" {
+		fmt.Fprintf(w, "  - Verdict: %s\n", readableToken(decision.Status))
+	}
+	if decision.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", decision.Headline)
+	}
+	if decision.StartHere != "" {
+		if decision.TopCaseTitle != "" {
+			fmt.Fprintf(w, "  - Start here: %s (%s)\n", decision.TopCaseTitle, decision.StartHere)
+		} else {
+			fmt.Fprintf(w, "  - Start here: %s\n", decision.StartHere)
+		}
+	}
+	if decision.WhyPrioritized != "" {
+		fmt.Fprintf(w, "  - Why first: %s\n", decision.WhyPrioritized)
+	}
+	if decision.CaseSeverity != "" {
+		fmt.Fprintf(w, "  - Severity: %s\n", strings.ToUpper(decision.CaseSeverity))
+	}
+	if decision.CaseState != "" {
+		fmt.Fprintf(w, "  - Case state: %s\n", readableToken(decision.CaseState))
+	}
+	if decision.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", decision.CurrentControl)
+	}
+	if decision.CurrentProofSurface != "" {
+		fmt.Fprintf(w, "  - Current proof surface: %s\n", decision.CurrentProofSurface)
+	}
+	renderAssessDecisionLines(w, "Inspected", decision.InspectionSummary, 5)
+	renderAssessDecisionLines(w, "Risk basis", decision.RiskReasons, 3)
+	renderAssessDecisionLines(w, "Normal capability", decision.NormalCapabilities, 2)
+	renderAssessEvidenceSources(w, decision.EvidenceSources, 8)
+	renderAssessDecisionLines(w, "Evidence fact", evidenceReferenceLines(decision.EvidenceReferences, 5), 5)
+	renderAssessDecisionLines(w, "Path", decision.PathSummary, 6)
+	renderAssessDecisionBucketLines(w, "Missing hard barrier", decision.MissingHardBarriers, 5, "none for the current case")
+	renderAssessDecisionBucketLines(w, "Present hard barrier", decision.PresentHardBarriers, 5, "none observed for the current case")
+	if len(decision.AttestedControls) > 0 {
+		renderAssessDecisionBucketLines(w, "Attested only (declared, not enforced; does not close the case)", decision.AttestedControls, 5, "")
+	}
+	renderAssessDecisionBucketLines(w, "Partial/friction control", decision.PartialOrFrictionControls, 5, "none observed for the current case")
+	renderAssessDecisionBucketLines(w, "Unknown evidence", decision.UnknownEvidence, 4, "none for the current case")
+	renderAssessDecisionLines(w, "Evidence gap action", decision.EvidenceGapActions, 4)
+	if decision.Instruction != "" {
+		fmt.Fprintf(w, "  - Action: %s\n", decision.Instruction)
+	}
+	if decision.ProofSurface != "" {
+		fmt.Fprintf(w, "  - Prove at: %s\n", decision.ProofSurface)
+	}
+	if decision.BeforeProofCommand != "" {
+		fmt.Fprintf(w, "  - Before proof: %s\n", decision.BeforeProofCommand)
+	}
+	if decision.ProofCommand != "" {
+		fmt.Fprintf(w, "  - Proof command: %s\n", decision.ProofCommand)
+	}
+	if decision.GeneratedProofPath != "" {
+		fmt.Fprintf(w, "  - Generated file: %s\n", decision.GeneratedProofPath)
+	}
+	renderAssessDecisionLines(w, "Generated bundle file", decision.GeneratedProofPaths, 5)
+	if decision.DestinationPath != "" {
+		fmt.Fprintf(w, "  - Suggested destination: %s\n", decision.DestinationPath)
+	} else if decision.SuggestedDestination != "" {
+		fmt.Fprintf(w, "  - Suggested destination: %s\n", decision.SuggestedDestination)
+	}
+	if decision.ApplyCommand != "" {
+		fmt.Fprintf(w, "  - Review/apply: %s\n", decision.ApplyCommand)
+	}
+	renderAssessDecisionLines(w, "Review/apply bundle", decision.ApplyCommands, 5)
+	if decision.RerunCommand != "" {
+		fmt.Fprintf(w, "  - Rerun: %s\n", decision.RerunCommand)
+	}
+	if decision.AfterProofCommand != "" {
+		fmt.Fprintf(w, "  - After proof: %s\n", decision.AfterProofCommand)
+	}
+	if decision.CompareCommand != "" {
+		fmt.Fprintf(w, "  - Compare: %s\n", decision.CompareCommand)
+	}
+	renderAssessDecisionLines(w, "Done when", decision.DoneCriteria, 3)
+	renderAssessDecisionLines(w, "Decision limit", decision.Limitations, 2)
+	fmt.Fprintln(w)
+}
+
+func renderAssessDecisionLines(w io.Writer, label string, values []string, limit int) {
+	if len(values) == 0 {
+		return
+	}
+	for _, value := range limitStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
+}
+
+func renderAssessDecisionBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
+	if len(values) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s: %s\n", label, empty)
+		}
+		return
+	}
+	renderAssessDecisionLines(w, label, values, limit)
+}
+
+func renderAssessSignalQuality(w io.Writer, quality model.AssessSignalQuality) {
+	if quality.Status == "" && quality.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "Signal quality:\n")
+	if quality.Status != "" {
+		fmt.Fprintf(w, "  - Status: %s\n", readableToken(quality.Status))
+	}
+	if quality.Summary != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", quality.Summary)
+	}
+	renderAssessTriageLines(w, "Actionable because", quality.ActionableBecause, 8)
+	renderAssessTriageLines(w, "Expected capability", quality.ExpectedCapabilities, 4)
+	renderAssessTriageLines(w, "Noise filter", quality.NoiseFilters, 4)
+	renderAssessTriageLines(w, "Close/downgrade by", quality.ControlBreakpoints, 5)
+	renderAssessTriageLines(w, "Evidence gap", quality.EvidenceGaps, 4)
+	renderAssessTriageLines(w, "Graph", quality.GraphEdges, 5)
+	if len(quality.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(quality.EvidenceReferences, 3), "; "))
+	}
+	renderAssessTriageLines(w, "Decision rule", quality.DecisionRules, 4)
+	renderAssessTriageLines(w, "Limit", quality.Limitations, 2)
+	fmt.Fprintln(w)
+}
+
+func renderAssessSignalContract(w io.Writer, signal model.AssessSignalNoise) {
+	totalItems := len(signal.ExpectedCapability) + len(signal.ExposureTransition) + len(signal.ControlEvidence) + len(signal.DowngradeEvidence) + len(signal.EvidenceGaps)
+	if signal.Status == "" && signal.Summary == "" && totalItems == 0 && len(signal.DecisionRules) == 0 {
+		return
+	}
+	expected, hasExpected := assessSignalContractItem(signal.ExpectedCapability, "capability:authorities", "capability:trust-inputs", "capability:runtimes")
+	transition, hasTransition := assessSignalContractItem(signal.ExposureTransition, "transition:capability-to-boundary", "transition:missing-hard-barrier")
+	control, hasControl := assessSignalContractItem(signal.ControlEvidence, "control:missing-hard-barriers", "control:observed-hard-barriers", "control:partial-or-friction")
+	downgrade, hasDowngrade := assessSignalContractItem(signal.DowngradeEvidence, "downgrade:prove-hard-barrier", "downgrade:remove-supported-path")
+
+	fmt.Fprintf(w, "Signal contract:\n")
+	renderAssessSignalContractLine(w, "Normal capability", expected, hasExpected, "expected agent capability is not exposure by itself")
+	renderAssessSignalContractLine(w, "Signal trigger", transition, hasTransition, "capability becomes signal only when graph evidence reaches a sensitive boundary")
+	renderAssessSignalContractLine(w, "Control state test", control, hasControl, "the case state depends on hard-barrier evidence")
+	renderAssessSignalContractLine(w, "Downgrade/close evidence", downgrade, hasDowngrade, "rerun evidence must change the graph path or control state")
+	for _, rule := range firstStrings(signal.DecisionRules, 3) {
+		fmt.Fprintf(w, "  - Decision rule: %s\n", rule)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessSignalContractLine(w io.Writer, label string, item model.AssessSignalNoiseItem, ok bool, fallback string) {
+	if !ok {
+		fmt.Fprintf(w, "  - %s: %s\n", label, fallback)
+		return
+	}
+	disposition := readableToken(firstNonEmpty(item.Disposition, "unknown"))
+	fmt.Fprintf(w, "  - %s [%s]: %s\n", label, disposition, item.Summary)
+	if item.RiskBoundary != "" {
+		fmt.Fprintf(w, "    Boundary: %s\n", item.RiskBoundary)
+	}
+	if len(item.Controls) > 0 {
+		fmt.Fprintf(w, "    Controls: %s\n", strings.Join(firstStrings(item.Controls, 4), "; "))
+	}
+	if len(item.GraphEdges) > 0 {
+		fmt.Fprintf(w, "    Graph: %s\n", strings.Join(firstStrings(item.GraphEdges, 2), "; "))
+	}
+}
+
+func renderAssessControlProofProfile(w io.Writer, control string, indicatorLimit int) {
+	control = strings.TrimSpace(control)
+	if control == "" {
+		return
+	}
+	if indicatorLimit <= 0 {
+		indicatorLimit = 6
+	}
+	familyID, familyTitle := architectureControlFamily(control)
+	fmt.Fprintf(w, "\nControl proof profile:\n")
+	fmt.Fprintf(w, "  - Control: %s\n", control)
+	fmt.Fprintf(w, "  - Family: %s (%s)\n", firstNonEmpty(familyTitle, "Unknown"), firstNonEmpty(familyID, "unknown"))
+	fmt.Fprintf(w, "  - Evidence kind: %s\n", controlEvidenceKind(control))
+	if indicators := controlRecognizedIndicators(control); len(indicators) > 0 {
+		fmt.Fprintf(w, "  - Recognized indicators: %s\n", strings.Join(firstStrings(indicators, indicatorLimit), "; "))
+	}
+	for _, note := range firstStrings(controlProofNotes(control), 2) {
+		fmt.Fprintf(w, "  - Note: %s\n", note)
+	}
+	fmt.Fprintf(w, "  - Limitation: declared evidence changes Ariadne's deterministic readout only when it is parser-recognized; live enforcement still needs observed runtime evidence.\n")
+}
+
+func renderAssessLethalTrifecta(w io.Writer, trifecta model.AssessLethalTrifecta) {
+	if trifecta.Summary == "" {
+		return
+	}
+	fmt.Fprintf(w, "Lethal trifecta:\n")
+	fmt.Fprintf(w, "  - Status: %s\n", readableToken(string(trifecta.Status)))
+	fmt.Fprintf(w, "  - Present: %t\n", trifecta.Present)
+	fmt.Fprintf(w, "  - Complete ingredients: %t\n", trifecta.Complete)
+	if trifecta.Protected {
+		fmt.Fprintf(w, "  - Protected: true\n")
+	}
+	fmt.Fprintf(w, "  - Readout: %s\n", trifecta.Summary)
+	for _, ingredient := range trifecta.Ingredients {
+		state := "missing"
+		if ingredient.Present {
+			state = "present"
+		}
+		fmt.Fprintf(w, "  - Ingredient %s: %s\n", ingredient.Label, state)
+		for _, edge := range limitStrings(ingredient.GraphEdges, 2) {
+			fmt.Fprintf(w, "    - Graph: %s\n", edge)
+		}
+	}
+	renderAssessTriageLines(w, "Break path", trifecta.ControlsBreakPath, 5)
+	renderAssessTriageLines(w, "Graph", trifecta.GraphEdges, 6)
+	if len(trifecta.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(trifecta.EvidenceReferences, 4), "; "))
+	}
+	renderAssessTriageLines(w, "Decision rule", trifecta.DecisionRules, 3)
+	renderAssessTriageLines(w, "Limit", trifecta.Limitations, 2)
+	fmt.Fprintln(w)
+}
+
+func renderAssessTriage(w io.Writer, triage model.AssessTriage) {
+	if triage.Status == "" && triage.Headline == "" {
+		return
+	}
+	fmt.Fprintf(w, "Signal triage:\n")
+	if triage.Status != "" {
+		fmt.Fprintf(w, "  - Status: %s\n", readableToken(triage.Status))
+	}
+	if triage.Headline != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", triage.Headline)
+	}
+	if triage.StartHere != "" {
+		fmt.Fprintf(w, "  - Start here: %s\n", triage.StartHere)
+	}
+	renderAssessSignalDetails(w, triage.SignalDetails, 6)
+	renderAssessTriageLines(w, "Hard signal", triage.HardRiskSignals, 6)
+	renderAssessTriageLines(w, "Normal capability", triage.NormalCapabilities, 4)
+	renderAssessTriageLines(w, "Missing hard barrier", triage.MissingHardBarriers, 6)
+	renderAssessTriageLines(w, "Partial/friction control", triage.PartialOrFrictionControls, 6)
+	renderAssessTriageLines(w, "Present hard barrier", triage.PresentHardBarriers, 6)
+	renderAssessTriageLines(w, "Unknown evidence", triage.UnknownEvidence, 4)
+	renderAssessTriageLines(w, "Evidence gap action", triage.EvidenceGapActions, 4)
+	if len(triage.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(triage.EvidenceReferences, 3), "; "))
+	}
+	if triage.NextAction != "" {
+		fmt.Fprintf(w, "  - Next action: %s\n", triage.NextAction)
+	}
+	renderAssessTriageLines(w, "Proof loop", triage.ProofLoop, 8)
+	fmt.Fprintln(w)
+}
+
+func renderAssessControlState(w io.Writer, state model.AssessControlState) {
+	if !state.Available {
+		return
+	}
+	fmt.Fprintf(w, "Control state:\n")
+	if state.CaseID != "" {
+		fmt.Fprintf(w, "  - Scope: %s (%s)\n", firstNonEmpty(state.CaseTitle, state.CaseID), state.CaseID)
+	} else if state.Scope != "" {
+		fmt.Fprintf(w, "  - Scope: %s\n", readableToken(state.Scope))
+	}
+	if state.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", state.CurrentControl)
+	}
+	if state.CurrentProofSurface != "" {
+		fmt.Fprintf(w, "  - Current proof surface: %s\n", state.CurrentProofSurface)
+	}
+	for _, line := range limitStrings(state.Summary, 4) {
+		fmt.Fprintf(w, "  - %s\n", line)
+	}
+	if len(state.PathSummary) > 0 {
+		fmt.Fprintf(w, "  - Path to fix:\n")
+		for _, line := range limitStrings(state.PathSummary, 7) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+	renderAssessControlStateBucketLines(w, "Missing hard barrier", state.MissingHardBarriers, 6, "none for the current case")
+	renderAssessControlStateBucketLines(w, "Present hard barrier", state.PresentHardBarriers, 6, "none observed for the current case")
+	renderAssessControlStateBucketLines(w, "Partial/friction control", state.PartialOrFrictionControls, 6, "none observed for the current case")
+	renderAssessControlStateBucketLines(w, "Unknown evidence", state.UnknownEvidence, 4, "none for the current case")
+	renderAssessEvidenceSources(w, state.EvidenceSources, 8)
+	if len(state.ProofSurfaces) > 0 {
+		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(state.ProofSurfaces, 8), "; "))
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessWorkbenchSignalChain(w io.Writer, items []model.AssessSignalNoiseItem, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	fmt.Fprintf(w, "Signal chain:\n")
+	for _, item := range items[:limit] {
+		label := readableToken(firstNonEmpty(item.Category, item.ID))
+		disposition := readableToken(firstNonEmpty(item.Disposition, "unknown"))
+		fmt.Fprintf(w, "  - %s [%s]: %s\n", label, disposition, item.Summary)
+		if item.RiskBoundary != "" {
+			fmt.Fprintf(w, "    Boundary: %s\n", item.RiskBoundary)
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(item.EvidenceReferences, 2), "; "))
+		}
+		if len(item.GraphEdges) > 0 {
+			fmt.Fprintf(w, "    Graph: %s\n", strings.Join(limitStrings(item.GraphEdges, 2), "; "))
+		}
+		if len(item.Controls) > 0 {
+			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(limitStrings(item.Controls, 4), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "  - %d more signal chain item(s) in JSON output\n", len(items)-limit)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessWorkbenchProofState(w io.Writer, state model.AssessWorkbenchProofState) {
+	if state.CurrentState == "" && len(state.TargetControls) == 0 && state.ClosureCondition == "" {
+		return
+	}
+	fmt.Fprintf(w, "Proof state:\n")
+	if state.CurrentState != "" {
+		fmt.Fprintf(w, "  - Current state: %s\n", readableToken(state.CurrentState))
+	}
+	if state.CurrentControl != "" {
+		fmt.Fprintf(w, "  - Current control: %s\n", state.CurrentControl)
+	}
+	renderAssessControlStateBucketLines(w, "Current missing control", state.CurrentMissingControls, 5, "none for this checkpoint")
+	renderAssessControlStateBucketLines(w, "Current observed control", state.CurrentPresentControls, 5, "none observed for this checkpoint")
+	if len(state.TargetControls) > 0 {
+		fmt.Fprintf(w, "  - Target controls: %s\n", strings.Join(limitStrings(state.TargetControls, 5), "; "))
+	}
+	if state.ClosureCondition != "" {
+		fmt.Fprintf(w, "  - Closure condition: %s\n", state.ClosureCondition)
+	}
+	var artifacts []string
+	for _, artifact := range []string{state.BaselineArtifact, state.AfterArtifact, state.CompareArtifact} {
+		if artifact != "" {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	if len(artifacts) > 0 {
+		fmt.Fprintf(w, "  - Artifacts: %s\n", strings.Join(artifacts, " -> "))
+	}
+	if state.CompareCommand != "" {
+		fmt.Fprintf(w, "  - Compare: %s\n", state.CompareCommand)
+	}
+	if len(state.SuccessCriteria) > 0 {
+		fmt.Fprintf(w, "  - Done when: %s\n", strings.Join(limitStrings(state.SuccessCriteria, 3), "; "))
+	}
+	for _, limitation := range limitStrings(state.Limitations, 2) {
+		fmt.Fprintf(w, "  - Limitation: %s\n", limitation)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessCaseLifecycle(w io.Writer, lifecycle model.AssessCaseLifecycle, limit int) {
+	if !lifecycle.Available && lifecycle.Summary == "" && len(lifecycle.Steps) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "Case lifecycle:\n")
+	if lifecycle.CaseID != "" {
+		fmt.Fprintf(w, "  - Case: %s (%s)\n", firstNonEmpty(lifecycle.CaseTitle, lifecycle.CaseID), lifecycle.CaseID)
+	}
+	if lifecycle.CaseState != "" {
+		fmt.Fprintf(w, "  - State: %s\n", readableToken(lifecycle.CaseState))
+	}
+	if lifecycle.CurrentStepID != "" {
+		fmt.Fprintf(w, "  - Current step: %s\n", lifecycle.CurrentStepID)
+	}
+	if lifecycle.Summary != "" {
+		fmt.Fprintf(w, "  - Readout: %s\n", lifecycle.Summary)
+	}
+	steps := lifecycle.Steps
+	if limit > 0 && len(steps) > limit {
+		steps = steps[:limit]
+	}
+	for idx, step := range steps {
+		title := firstNonEmpty(step.Title, step.ID)
+		status := readableToken(step.Status)
+		if status != "" {
+			fmt.Fprintf(w, "  - %d. %s [%s]: %s\n", idx+1, title, status, step.Summary)
+		} else {
+			fmt.Fprintf(w, "  - %d. %s: %s\n", idx+1, title, step.Summary)
+		}
+		for _, command := range firstStrings(step.Commands, 2) {
+			fmt.Fprintf(w, "    - Command: %s\n", command)
+		}
+		for _, artifact := range firstStrings(step.Artifacts, 2) {
+			fmt.Fprintf(w, "    - Artifact: %s\n", artifact)
+		}
+		for _, surface := range firstStrings(step.ProofSurfaces, 3) {
+			fmt.Fprintf(w, "    - Proof surface: %s\n", surface)
+		}
+		for _, control := range firstStrings(step.Controls, 3) {
+			fmt.Fprintf(w, "    - Control: %s\n", control)
+		}
+		for _, evidence := range evidenceReferenceLinesBySource(step.EvidenceReferences, 2) {
+			fmt.Fprintf(w, "    - Evidence: %s\n", evidence)
+		}
+		for _, criterion := range firstStrings(step.SuccessCriteria, 2) {
+			fmt.Fprintf(w, "    - Done when: %s\n", criterion)
+		}
+		for _, limitation := range firstStrings(step.Limitations, 2) {
+			fmt.Fprintf(w, "    - Limitation: %s\n", limitation)
+		}
+	}
+	if len(lifecycle.Steps) > len(steps) {
+		fmt.Fprintf(w, "  - %d more lifecycle step(s) in JSON\n", len(lifecycle.Steps)-len(steps))
+	}
+	for _, readout := range firstStrings(lifecycle.Readout, 2) {
+		fmt.Fprintf(w, "  - Lifecycle readout: %s\n", readout)
+	}
+	for _, limitation := range firstStrings(lifecycle.Limitations, 2) {
+		fmt.Fprintf(w, "  - Limitation: %s\n", limitation)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessEvidenceSources(w io.Writer, sources []string, limit int) {
+	renderEvidenceSourceLines(w, "  - ", sources, limit)
+}
+
+func renderEvidenceSourceLines(w io.Writer, prefix string, sources []string, limit int) {
+	files, modeled := splitEvidenceSources(sources)
+	if len(files) > 0 {
+		fmt.Fprintf(w, "%sEvidence files: %s\n", prefix, strings.Join(limitStrings(files, limit), "; "))
+	}
+	if len(modeled) > 0 {
+		fmt.Fprintf(w, "%sModeled/internal evidence: %s\n", prefix, strings.Join(limitStrings(modeled, limit), "; "))
+	}
+}
+
+func renderEvidenceSourceListBlock(w io.Writer, sources []string, limit int) {
+	files, modeled := splitEvidenceSources(sources)
+	if len(files) > 0 {
+		fmt.Fprintf(w, "\nEvidence files:\n")
+		for _, source := range limitStrings(files, limit) {
+			fmt.Fprintf(w, "  - %s\n", source)
+		}
+	}
+	if len(modeled) > 0 {
+		fmt.Fprintf(w, "\nModeled/internal evidence:\n")
+		for _, source := range limitStrings(modeled, limit) {
+			fmt.Fprintf(w, "  - %s\n", source)
+		}
+	}
+}
+
+func splitEvidenceSources(sources []string) ([]string, []string) {
+	var files []string
+	var modeled []string
+	for _, source := range uniqueStrings(sources) {
+		if evidenceSourceLooksFile(source) {
+			files = append(files, source)
+		} else if strings.TrimSpace(source) != "" {
+			modeled = append(modeled, source)
+		}
+	}
+	return files, modeled
+}
+
+func evidenceSourceLooksFile(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" || strings.Contains(source, "://") {
+		return false
+	}
+	if filepath.Ext(source) != "" {
+		return true
+	}
+	if strings.HasPrefix(source, ".") {
+		return true
+	}
+	return (strings.Contains(source, "/") || strings.Contains(source, `\`)) && !strings.ContainsAny(source, " \t")
+}
+
+func renderAssessControlStateLines(w io.Writer, label string, values []string, limit int) {
+	for _, value := range limitStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
+}
+
+func renderAssessControlStateBucketLines(w io.Writer, label string, values []string, limit int, empty string) {
+	if len(values) == 0 {
+		if empty != "" {
+			fmt.Fprintf(w, "  - %s: %s\n", label, empty)
+		}
+		return
+	}
+	renderAssessControlStateLines(w, label, values, limit)
+}
+
+func renderAssessSignalDetails(w io.Writer, signals []model.AssessSignal, limit int) {
+	if len(signals) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(signals) {
+		limit = len(signals)
+	}
+	fmt.Fprintf(w, "  - Signal details:\n")
+	for _, signal := range signals[:limit] {
+		fmt.Fprintf(w, "    - %s [%s/%s]: %s\n", signal.ID, readableToken(signal.Category), readableToken(signal.Disposition), signal.Summary)
+		if signal.WhyItMatters != "" {
+			fmt.Fprintf(w, "      Why it matters: %s\n", signal.WhyItMatters)
+		}
+		if signal.RiskBoundary != "" {
+			fmt.Fprintf(w, "      Risk boundary: %s\n", signal.RiskBoundary)
+		}
+		if len(signal.GraphEdges) > 0 {
+			fmt.Fprintf(w, "      Graph: %s\n", strings.Join(limitStrings(signal.GraphEdges, 4), "; "))
+		}
+		if len(signal.RelatedControls) > 0 {
+			fmt.Fprintf(w, "      Controls: %s\n", strings.Join(limitStrings(signal.RelatedControls, 4), ", "))
+		}
+		if len(signal.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(signal.EvidenceReferences, 3), "; "))
+		}
+		if len(signal.Limitations) > 0 {
+			fmt.Fprintf(w, "      Limitations: %s\n", strings.Join(limitStrings(signal.Limitations, 2), "; "))
+		}
+	}
+}
+
+func renderAssessFocusLine(w io.Writer, r model.AssessReport) {
+	if r.CaseFilter == "" && r.ControlFilter == "" {
+		return
+	}
+	var parts []string
+	if r.CaseFilter != "" {
+		parts = append(parts, "case="+r.CaseFilter)
+	}
+	if r.ControlFilter != "" {
+		parts = append(parts, "control="+r.ControlFilter)
+	}
+	fmt.Fprintf(w, "Focus: %s\n", strings.Join(parts, "; "))
+}
+
+func renderAssessTriageLines(w io.Writer, label string, values []string, limit int) {
+	if len(values) == 0 {
+		return
+	}
+	for _, value := range limitStrings(values, limit) {
+		fmt.Fprintf(w, "  - %s: %s\n", label, value)
+	}
+}
+
+func renderAssessClosurePlan(w io.Writer, plan []model.AssessClosurePlanItem, limit int) {
+	if len(plan) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(plan) {
+		limit = len(plan)
+	}
+	fmt.Fprintf(w, "Closure plan:\n")
+	for _, item := range plan[:limit] {
+		fmt.Fprintf(w, "  - #%d %s -> %s (%s)\n", item.Rank, item.Control, firstNonEmpty(item.CaseTitle, item.CaseID), strings.ToUpper(item.Severity))
+		if item.WhyThisControl != "" {
+			fmt.Fprintf(w, "    Why this control: %s\n", item.WhyThisControl)
+		}
+		if item.WhatItCloses != "" {
+			fmt.Fprintf(w, "    What it closes: %s\n", item.WhatItCloses)
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(item.EvidenceReferences, 2), "; "))
+		}
+		if item.ProofSurface != "" {
+			fmt.Fprintf(w, "    Prove at: %s\n", item.ProofSurface)
+		}
+		if item.ProofPatch != nil && item.ProofPatch.Summary != "" {
+			fmt.Fprintf(w, "    Proof patch: %s\n", item.ProofPatch.Summary)
+		}
+		if item.RerunCommand != "" {
+			fmt.Fprintf(w, "    Rerun: %s\n", item.RerunCommand)
+		}
+		if item.CompareCommand != "" {
+			fmt.Fprintf(w, "    Compare: %s\n", item.CompareCommand)
+		}
+		if len(item.DoneCriteria) > 0 {
+			fmt.Fprintf(w, "    Done when: %s\n", strings.Join(limitStrings(item.DoneCriteria, 2), "; "))
+		}
+	}
+	if len(plan) > limit {
+		fmt.Fprintf(w, "  - %d more closure plan item(s) in JSON output\n", len(plan)-limit)
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessFirstAction(w io.Writer, action model.AssessFirstAction) {
+	if !action.Available {
+		return
+	}
+	fmt.Fprintf(w, "First action:\n")
+	fmt.Fprintf(w, "  - Case: %s (%s)\n", action.Title, action.CaseID)
+	if action.WhyFirst != "" {
+		fmt.Fprintf(w, "  - Why first: %s\n", action.WhyFirst)
+	}
+	if action.NextStep != "" {
+		fmt.Fprintf(w, "  - Next step: %s\n", action.NextStep)
+	}
+	renderAssessCurrentAction(w, action.CurrentAction)
+	renderAssessFirstActionWorkflow(w, action.Workflow)
+	if len(action.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLinesBySource(action.EvidenceReferences, 3), "; "))
+		renderEvidenceSourceLines(w, "  - ", evidenceReferenceSources(action.EvidenceReferences, false), 16)
+	}
+	if len(action.ProofSurfaces) > 0 {
+		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(action.ProofSurfaces, 8), "; "))
+	}
+	if len(action.EvidenceExamples) > 0 {
+		fmt.Fprintf(w, "  - Accepted evidence: %s\n", strings.Join(controlEvidenceExampleLines(action.EvidenceExamples, 1), "; "))
+	}
+	if len(action.ProofPatches) > 0 {
+		fmt.Fprintf(w, "  - Proof patch: %s\n", strings.Join(controlProofPatchLines(action.ProofPatches, 1), "; "))
+	}
+	if len(action.RerunCommands) > 0 {
+		fmt.Fprintf(w, "  - Rerun: %s\n", action.RerunCommands[0])
+	}
+	if len(action.CompareCommands) > 0 {
+		fmt.Fprintf(w, "  - Compare loop: %s\n", strings.Join(limitStrings(action.CompareCommands, 3), "; "))
+	}
+	fmt.Fprintln(w)
+}
+
+func renderAssessCurrentAction(w io.Writer, action model.AssessCurrentAction) {
+	if !action.Available {
+		return
+	}
+	parts := []string{}
+	if action.Control != "" {
+		parts = append(parts, action.Control)
+	}
+	if action.Surface != "" {
+		parts = append(parts, "at "+action.Surface)
+	}
+	if action.ProofPatchIndex >= 0 {
+		parts = append(parts, fmt.Sprintf("proof patch #%d", action.ProofPatchIndex+1))
+	}
+	line := strings.Join(parts, " ")
+	if line == "" {
+		line = firstNonEmpty(action.Instruction, action.WorkflowStepTitle)
+	}
+	fmt.Fprintf(w, "  - Current action: %s\n", line)
+	if action.RerunCommand != "" {
+		fmt.Fprintf(w, "    After proof: %s\n", action.RerunCommand)
+	}
+	if action.GeneratedProofPath != "" {
+		fmt.Fprintf(w, "    Generated proof file: %s\n", action.GeneratedProofPath)
+	}
+	if action.DestinationPath != "" {
+		fmt.Fprintf(w, "    Suggested destination: %s\n", action.DestinationPath)
+	}
+	if action.ApplyCommand != "" {
+		fmt.Fprintf(w, "    Review/apply: %s\n", action.ApplyCommand)
+	}
+}
+
+func renderAssessFirstActionWorkflow(w io.Writer, workflow []model.AssessWorkflowStep) {
+	if len(workflow) == 0 {
+		return
+	}
+	if current, ok := currentAssessWorkflowStep(workflow); ok {
+		fmt.Fprintf(w, "  - Current workflow step: %s - %s\n", current.Title, current.Summary)
+	}
+	fmt.Fprintf(w, "  - Workflow:\n")
+	for i, step := range workflow {
+		marker := ""
+		if step.Current {
+			marker = " [current]"
+		}
+		fmt.Fprintf(w, "    %d. %s%s: %s\n", i+1, step.Title, marker, step.Summary)
+		if len(step.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "       Evidence: %s\n", strings.Join(evidenceReferenceLinesBySource(step.EvidenceReferences, 2), "; "))
+		}
+		if len(step.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "       Prove at: %s\n", strings.Join(limitStrings(step.ProofSurfaces, 3), "; "))
+		}
+		if len(step.Commands) > 0 {
+			fmt.Fprintf(w, "       Command: %s\n", strings.Join(limitStrings(step.Commands, 3), "; "))
+		}
+		if len(step.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "       Done when: %s\n", strings.Join(limitStrings(step.SuccessCriteria, 2), "; "))
+		}
+	}
+}
+
+func currentAssessWorkflowStep(workflow []model.AssessWorkflowStep) (model.AssessWorkflowStep, bool) {
+	for _, step := range workflow {
+		if step.Current {
+			return step, true
+		}
+	}
+	return model.AssessWorkflowStep{}, false
+}
+
+func renderAssessTopCaseProofPacket(w io.Writer, plan *model.ProofPlanReport) {
+	if plan == nil {
+		return
+	}
+	fmt.Fprintf(w, "\nTop case proof packet:\n")
+	if plan.CaseFilter != "" {
+		fmt.Fprintf(w, "  - Case: %s\n", plan.CaseFilter)
+	}
+	fmt.Fprintf(w, "  - Evidence references: %d; proof patches: %d\n", plan.Summary.EvidenceReferences, plan.Summary.ProofPatches)
+	if len(plan.EvidenceReferences) > 0 {
+		fmt.Fprintf(w, "  - Evidence to inspect: %s\n", strings.Join(evidenceReferenceLines(plan.EvidenceReferences, 3), "; "))
+	}
+	if len(plan.ProofPatches) > 0 {
+		fmt.Fprintf(w, "  - Prove at: %s\n", strings.Join(limitStrings(proofPatchSurfaceLines(plan.ProofPatches), 4), "; "))
+	}
+	if len(plan.CompareCommands) > 0 {
+		fmt.Fprintf(w, "  - Compare loop: %s\n", strings.Join(limitStrings(plan.CompareCommands, 3), "; "))
+	}
+}
+
+func proofPatchSurfaceLines(patches []model.ControlProofPatch) []string {
+	var surfaces []string
+	for _, patch := range patches {
+		if patch.Surface != "" {
+			surfaces = append(surfaces, patch.Surface)
+		}
+	}
+	return uniqueStrings(surfaces)
+}
+
+func renderAssessClosureEvidence(w io.Writer, closure model.AssessClosureEvidence) {
+	if !assessClosureEvidenceHasData(closure) {
+		return
+	}
+	fmt.Fprintf(w, "Closure evidence observed:\n")
+	fmt.Fprintf(w, "  - Protected exposure paths: %d\n", closure.ProtectedExposurePaths)
+	fmt.Fprintf(w, "  - Controlled architecture flaws: %d\n", closure.ControlledArchitectureFlaws)
+	fmt.Fprintf(w, "  - Partial/friction-only architecture flaws: %d\n", closure.PartialArchitectureFlaws)
+	if len(closure.HardBarriersObserved) > 0 {
+		fmt.Fprintf(w, "  - Hard barriers observed: %s\n", strings.Join(limitStrings(closure.HardBarriersObserved, 6), "; "))
+	}
+	if len(closure.PartialOrFrictionControls) > 0 {
+		fmt.Fprintf(w, "  - Partial/friction controls observed: %s\n", strings.Join(limitStrings(closure.PartialOrFrictionControls, 6), "; "))
+	}
+	if len(closure.RemainingMissingHardBarriers) > 0 {
+		fmt.Fprintf(w, "  - Still missing: %s\n", strings.Join(limitStrings(closure.RemainingMissingHardBarriers, 6), "; "))
+	}
+	for _, item := range limitAssessClosurePaths(closure.ControlledPaths, 3) {
+		fmt.Fprintf(w, "  - CONTROLLED %s: %s\n", item.Title, readableToken(item.ControlTestResult))
+		if len(item.HardBarriersObserved) > 0 {
+			fmt.Fprintf(w, "    Hard barriers: %s\n", strings.Join(limitStrings(item.HardBarriersObserved, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
+	}
+	for _, item := range limitAssessClosurePaths(closure.PartialPaths, 3) {
+		fmt.Fprintf(w, "  - PARTIAL %s: %s\n", item.Title, readableToken(item.ControlTestResult))
+		if len(item.PartialOrFrictionControls) > 0 {
+			fmt.Fprintf(w, "    Observed: %s\n", strings.Join(limitStrings(item.PartialOrFrictionControls, 5), "; "))
+		}
+		if len(item.RemainingMissingHardBarriers) > 0 {
+			fmt.Fprintf(w, "    Still missing: %s\n", strings.Join(limitStrings(item.RemainingMissingHardBarriers, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+func assessClosureEvidenceHasData(closure model.AssessClosureEvidence) bool {
+	return closure.ProtectedExposurePaths > 0 ||
+		closure.ControlledArchitectureFlaws > 0 ||
+		closure.PartialArchitectureFlaws > 0 ||
+		len(closure.HardBarriersObserved) > 0 ||
+		len(closure.PartialOrFrictionControls) > 0 ||
+		len(closure.RemainingMissingHardBarriers) > 0 ||
+		len(closure.ControlledPaths) > 0 ||
+		len(closure.PartialPaths) > 0
+}
+
+func limitAssessClosurePaths(items []model.AssessClosurePath, limit int) []model.AssessClosurePath {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	if limit == 0 {
+		return []model.AssessClosurePath{}
+	}
+	return items[:limit]
+}
+
+func renderAssessArchitectureBreaks(w io.Writer, r model.AssessReport) {
+	fmt.Fprintf(w, "Architecture break paths:\n")
+	switch {
+	case r.Architecture != nil:
+		if len(r.Architecture.Flaws) == 0 {
+			fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
+			return
+		}
+		limit := len(r.Architecture.Flaws)
+		if limit > 5 {
+			limit = 5
+		}
+		for _, flaw := range r.Architecture.Flaws[:limit] {
+			fmt.Fprintf(w, "  - %s %s: %s\n", statusLabel(string(flaw.Status)), flaw.Title, flaw.Finding)
+			if len(flaw.Evidence) > 0 {
+				fmt.Fprintf(w, "    Evidence: %s\n", zeroTrustEvidenceLine(flaw.Evidence, 3))
+			}
+			if len(flaw.ControlEvidenceNeeded) > 0 {
+				fmt.Fprintf(w, "    Breaks when: %s\n", strings.Join(limitStrings(flaw.ControlEvidenceNeeded, 4), "; "))
+			}
+		}
+		if len(r.Architecture.Flaws) > limit {
+			fmt.Fprintf(w, "  - %d more architecture flaw(s) in JSON or dashboard output\n", len(r.Architecture.Flaws)-limit)
+		}
+	case r.ArchitectureScan != nil:
+		if len(r.ArchitectureScan.Groups) == 0 {
+			fmt.Fprintf(w, "  - no fleet architecture flaw groups matched status filter %q\n\n", r.StatusFilter)
+			return
+		}
+		limit := len(r.ArchitectureScan.Groups)
+		if limit > 5 {
+			limit = 5
+		}
+		for _, group := range r.ArchitectureScan.Groups[:limit] {
+			fmt.Fprintf(w, "  - %s %s: %d target(s), %d breaking occurrence(s)\n", strings.ToUpper(group.Severity), group.Title, group.TargetCount, group.StatusCounts.Breaking)
+			if len(group.EvidenceSources) > 0 {
+				fmt.Fprintf(w, "    Evidence: %s\n", strings.Join(limitStrings(group.EvidenceSources, 3), "; "))
+			}
+			if len(group.ControlEvidenceNeeded) > 0 {
+				fmt.Fprintf(w, "    Breaks when: %s\n", strings.Join(limitStrings(group.ControlEvidenceNeeded, 4), "; "))
+			}
+		}
+		if len(r.ArchitectureScan.Groups) > limit {
+			fmt.Fprintf(w, "  - %d more architecture flaw group(s) in JSON or dashboard output\n", len(r.ArchitectureScan.Groups)-limit)
+		}
+	default:
+		fmt.Fprintf(w, "  - no architecture report attached\n")
+	}
+	fmt.Fprintln(w)
+}
+
+func assessCountLine(items []model.AssessCount) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, fmt.Sprintf("%s=%d", item.Name, item.Count))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func renderAssessInventorySummary(w io.Writer, inventory model.AssessInventory, surfaceMapLimit int) {
+	if inventory.Surfaces == 0 && inventory.Facts == 0 && inventory.GraphNodes == 0 {
+		return
+	}
+	fmt.Fprintf(w, "What was inspected:\n")
+	fmt.Fprintf(w, "  - AI surfaces: %d; typed facts: %d; graph: %d node(s), %d edge(s)\n", inventory.Surfaces, inventory.Facts, inventory.GraphNodes, inventory.GraphEdges)
+	fmt.Fprintf(w, "  - Runtimes: %d; trust inputs: %d; tools: %d; authorities: %d; controls: %d; boundaries: %d\n", inventory.Runtimes, inventory.TrustInputs, inventory.Tools, inventory.Authorities, inventory.Controls, inventory.Boundaries)
+	if len(inventory.SurfaceCategories) > 0 {
+		fmt.Fprintf(w, "  - Surface categories: %s\n", assessCountLine(inventory.SurfaceCategories))
+	}
+	if len(inventory.HandlingModes) > 0 {
+		fmt.Fprintf(w, "  - Handling modes: %s\n", assessCountLine(inventory.HandlingModes))
+	}
+	if len(inventory.SurfaceMap) > 0 {
+		fmt.Fprintf(w, "  - Runtime surface map: %s\n", strings.Join(limitStrings(surfaceMapSummaryLines(inventory.SurfaceMap), surfaceMapLimit), "; "))
+	}
+	if len(inventory.FactHighlights) > 0 {
+		fmt.Fprintf(w, "  - Fact highlights:\n")
+		for _, line := range limitStrings(assessFactHighlightLines(inventory.FactHighlights), 8) {
+			fmt.Fprintf(w, "    - %s\n", line)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+func assessFactHighlightLines(items []model.AssessFact) []string {
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		parts := []string{firstNonEmpty(item.Type, "fact")}
+		source := strings.TrimSpace(item.Source)
+		if item.Target != "" && source != "" {
+			source = item.Target + ":" + source
+		}
+		if source != "" {
+			parts = append(parts, "from "+source)
+		}
+		if item.EvidenceGrade != "" || item.Redaction != "" {
+			parts = append(parts, "["+strings.Join(nonEmptyStrings(item.EvidenceGrade, item.Redaction), "/")+"]")
+		}
+		line := strings.Join(parts, " ")
+		if item.Summary != "" {
+			line += ": " + item.Summary
+		}
+		lines = append(lines, line)
+	}
+	if lines == nil {
+		return []string{}
+	}
+	return lines
+}
+
+func surfaceMapSummaryLines(items []model.SurfaceMap) []string {
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		parts := []string{fmt.Sprintf("%s/%s surfaces=%d", item.Runtime, item.Scope, item.SurfaceCount)}
+		if item.Parsed > 0 {
+			parts = append(parts, fmt.Sprintf("parse=%d", item.Parsed))
+		}
+		if item.Summarized > 0 {
+			parts = append(parts, fmt.Sprintf("summarize=%d", item.Summarized))
+		}
+		if item.BoundaryIndicators > 0 {
+			parts = append(parts, fmt.Sprintf("boundary=%d", item.BoundaryIndicators))
+		}
+		if item.Skipped > 0 {
+			parts = append(parts, fmt.Sprintf("skip=%d", item.Skipped))
+		}
+		if len(item.SourceRefs) > 0 {
+			parts = append(parts, "refs="+strings.Join(limitStrings(item.SourceRefs, 3), ", "))
+		}
+		if len(item.Authorities) > 0 {
+			parts = append(parts, "authorities="+strings.Join(limitStrings(item.Authorities, 3), ", "))
+		}
+		if len(item.Tools) > 0 {
+			parts = append(parts, "tools="+strings.Join(limitStrings(item.Tools, 3), ", "))
+		}
+		if len(item.Controls) > 0 {
+			parts = append(parts, "controls="+strings.Join(limitStrings(item.Controls, 3), ", "))
+		}
+		lines = append(lines, strings.Join(parts, " "))
+	}
+	return lines
+}
+
+func renderInventoryCoverage(w io.Writer, r model.InventoryReport) error {
+	fmt.Fprintf(w, "Ariadne AI Surface Coverage\n\n")
+	fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
+	fmt.Fprintf(w, "Agent: %s\n\n", r.Agent)
+	fmt.Fprintf(w, "Coverage matrix:\n")
+	if len(r.SurfaceMap) == 0 {
+		fmt.Fprintf(w, "  - no AI runtime surface groups were discovered\n\n")
+	} else {
+		fmt.Fprintf(w, "%-16s %-10s %8s %7s %9s %8s %6s  %s\n", "Runtime", "Scope", "Surfaces", "Parsed", "Summarized", "Boundary", "Skip", "Signals")
+		fmt.Fprintf(w, "%-16s %-10s %8s %7s %9s %8s %6s  %s\n", "-------", "-----", "--------", "------", "----------", "--------", "----", "-------")
+		for _, group := range r.SurfaceMap {
+			fmt.Fprintf(w, "%-16s %-10s %8d %7d %9d %8d %6d  %s\n",
+				group.Runtime,
+				group.Scope,
+				group.SurfaceCount,
+				group.Parsed,
+				group.Summarized,
+				group.BoundaryIndicators,
+				group.Skipped,
+				inventoryCoverageSignals(group),
+			)
+			if len(group.SourceRefs) > 0 {
+				fmt.Fprintf(w, "  sources: %s\n", strings.Join(limitStrings(group.SourceRefs, 6), "; "))
+			}
+			if len(group.Limitations) > 0 {
+				fmt.Fprintf(w, "  limits: %s\n", strings.Join(limitStrings(group.Limitations, 2), "; "))
+			}
+		}
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintf(w, "Fact boundary:\n")
+	fmt.Fprintf(w, "  - coverage is inventory only; it does not classify exposure\n")
+	fmt.Fprintf(w, "  - parsed means known security-relevant artifacts were structurally inspected\n")
+	fmt.Fprintf(w, "  - summarized means private or high-volume context was counted without emitting content\n")
+	fmt.Fprintf(w, "  - boundary means sensitive path indicators were modeled without reading values\n")
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range r.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func inventoryCoverageSignals(group model.SurfaceMap) string {
+	var signals []string
+	if len(group.Authorities) > 0 {
+		signals = append(signals, "authority="+strings.Join(limitStrings(group.Authorities, 3), ","))
+	}
+	if len(group.Tools) > 0 {
+		signals = append(signals, "tools="+strings.Join(limitStrings(group.Tools, 3), ","))
+	}
+	if len(group.Controls) > 0 {
+		signals = append(signals, "controls="+strings.Join(limitStrings(group.Controls, 3), ","))
+	}
+	if len(signals) == 0 {
+		return "surface-only"
+	}
+	return strings.Join(signals, " ")
+}
+
+func renderInventoryTable(w io.Writer, r model.InventoryReport) error {
+	fmt.Fprintf(w, "Ariadne Inventory\n\n")
+	fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	fmt.Fprintf(w, "Mode: %s\n", r.Mode)
+	fmt.Fprintf(w, "Agent: %s\n\n", r.Agent)
+	fmt.Fprintf(w, "Runtime surface map:\n")
+	if len(r.SurfaceMap) == 0 {
+		fmt.Fprintf(w, "  - no runtime surface groups built\n")
+	} else {
+		for _, group := range r.SurfaceMap {
+			fmt.Fprintf(w, "  - %s/%s: surfaces=%d parse=%d summarize=%d boundary=%d skip=%d\n", group.Runtime, group.Scope, group.SurfaceCount, group.Parsed, group.Summarized, group.BoundaryIndicators, group.Skipped)
+			if len(group.SourceRefs) > 0 {
+				fmt.Fprintf(w, "    Sources: %s\n", strings.Join(limitStrings(group.SourceRefs, 6), "; "))
+			}
+			if len(group.Authorities) > 0 {
+				fmt.Fprintf(w, "    Authorities: %s\n", strings.Join(limitStrings(group.Authorities, 5), "; "))
+			}
+			if len(group.Tools) > 0 {
+				fmt.Fprintf(w, "    Tools: %s\n", strings.Join(limitStrings(group.Tools, 5), "; "))
+			}
+			if len(group.Controls) > 0 {
+				fmt.Fprintf(w, "    Controls: %s\n", strings.Join(limitStrings(group.Controls, 5), "; "))
+			}
+			if len(group.Limitations) > 0 {
+				fmt.Fprintf(w, "    Limits: %s\n", strings.Join(limitStrings(group.Limitations, 3), "; "))
+			}
+		}
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "AI surfaces discovered:\n")
+	if len(r.Collection.Surfaces) == 0 {
+		fmt.Fprintf(w, "  - none discovered for supported surface families\n")
+	} else {
+		for _, surface := range r.Collection.Surfaces {
+			fmt.Fprintf(w, "  - %s [%s/%s/%s] %s\n", surface.Source, surface.Runtime, surface.Category, surface.HandlingMode, surface.Summary)
+		}
+	}
+	fmt.Fprintf(w, "\nFacts collected:\n")
+	if len(r.Collection.Facts) == 0 {
+		fmt.Fprintf(w, "  - no deterministic facts collected\n")
+	} else {
+		for _, fact := range r.Collection.Facts {
+			fmt.Fprintf(w, "  - %s: %s Source: %s Evidence: %s Redaction: %s\n", fact.Type, fact.Summary, empty(fact.Source, "not recorded"), fact.EvidenceGrade, fact.Redaction)
+		}
+	}
+	fmt.Fprintf(w, "\nModeled graph:\n")
+	fmt.Fprintf(w, "  Nodes: %d\n", len(r.Graph.Nodes))
+	fmt.Fprintf(w, "  Edges: %d\n", len(r.Graph.Edges))
+	if len(r.Collection.Warnings) > 0 {
+		fmt.Fprintf(w, "\nWarnings:\n")
+		for _, warning := range r.Collection.Warnings {
+			fmt.Fprintf(w, "  - %s\n", warning)
+		}
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range r.Limitations {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	return nil
+}
+
+func renderTable(w io.Writer, r model.Report) error {
+	if r.RunKind == "path" {
+		fmt.Fprintf(w, "Ariadne Prove\n\n")
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+		fmt.Fprintf(w, "Mode: %s\n", r.Story.Mode)
+		fmt.Fprintf(w, "Agent: %s\n\n", r.Story.Runtime)
+	} else {
+		match := "PASS"
+		if !r.Matched {
+			match = "FAIL"
+		}
+		fmt.Fprintf(w, "Ariadne Story Lab\n\n")
+		fmt.Fprintf(w, "Story: %s\n", r.Story.ID)
+		fmt.Fprintf(w, "Persona: %s\n", r.Story.Persona)
+		fmt.Fprintf(w, "Question: %s\n", r.Story.UserQuestion)
+		fmt.Fprintf(w, "Oracle: %s\n\n", match)
+	}
+	exposures := r.Exposures
+	if len(exposures) == 0 {
+		exposures = []model.ExposureResult{r.Exposure}
+	}
+	renderIssueSummary(w, r.Interpretation)
+	renderZeroTrustTable(w, r.ZeroTrust)
+	for i, exposure := range exposures {
+		if len(exposures) > 1 {
+			fmt.Fprintf(w, "Exposure Path %d: %s\n", i+1, exposure.Title)
+		}
+		fmt.Fprintf(w, "What was tested:\n  %s\n\n", exposure.WhatWasTested)
+		fmt.Fprintf(w, "Facts:\n")
+		renderFacts(w, r, exposure)
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Graph path:\n")
+		if len(exposure.PathEdges) == 0 {
+			fmt.Fprintf(w, "  - no complete supported path established\n")
+		}
+		for _, edge := range exposure.PathEdges {
+			fmt.Fprintf(w, "  - %s\n", edge)
+		}
+		fmt.Fprintln(w)
+		if len(exposure.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "Evidence to inspect:\n")
+			for _, line := range evidenceReferenceLines(exposure.EvidenceReferences, 6) {
+				fmt.Fprintf(w, "  - %s\n", line)
+			}
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintf(w, "Classification:\n")
+		fmt.Fprintf(w, "  Status: %s\n", strings.ToUpper(string(exposure.Status)))
+		fmt.Fprintf(w, "  Proof mode: %s\n", exposure.ProofMode)
+		fmt.Fprintf(w, "  Observation: %s - %s\n\n", exposure.Observation.Status, exposure.Observation.Summary)
+		fmt.Fprintf(w, "Why it matters:\n  %s\n\n", exposure.WhyItMatters)
+		if len(exposure.ControlsBreakPath) > 0 {
+			fmt.Fprintf(w, "Controls that break the path:\n")
+			for _, control := range exposure.ControlsBreakPath {
+				fmt.Fprintf(w, "  - %s\n", control)
+			}
+			fmt.Fprintln(w)
+		}
+		if i < len(exposures)-1 {
+			fmt.Fprintln(w)
+		}
+	}
+	if len(r.Mismatches) > 0 {
+		fmt.Fprintf(w, "\nMismatches:\n")
+		for _, mismatch := range r.Mismatches {
+			fmt.Fprintf(w, "  - %s\n", mismatch)
+		}
+	}
+	return nil
+}
+
+func renderZeroTrustTable(w io.Writer, z model.ZeroTrust) {
+	if z.FrameworkVersion == "" {
+		return
+	}
+	fmt.Fprintf(w, "Zero Trust architecture:\n")
+	fmt.Fprintf(w, "  Checks: %d total, %d breaking, %d controlled, %d unknown, %d not observed\n",
+		z.Summary.Total,
+		z.Summary.Breaking,
+		z.Summary.Controlled,
+		z.Summary.Unknown,
+		z.Summary.NotObserved,
+	)
+	if len(z.ArchitectureFlaws) > 0 {
+		fmt.Fprintf(w, "  Architecture flaws: %d total, %d breaking, %d controlled, %d unknown, %d not observed\n",
+			z.ArchitectureSummary.Total,
+			z.ArchitectureSummary.Breaking,
+			z.ArchitectureSummary.Controlled,
+			z.ArchitectureSummary.Unknown,
+			z.ArchitectureSummary.NotObserved,
+		)
+		rendered := 0
+		for _, flaw := range z.ArchitectureFlaws {
+			if flaw.Status == model.ZeroTrustNotObserved {
+				continue
+			}
+			if rendered >= 8 {
+				fmt.Fprintf(w, "    - %d more architecture flaw categories in JSON or dashboard output\n", countObservedArchitectureFlaws(z.ArchitectureFlaws)-rendered)
+				break
+			}
+			rendered++
+			fmt.Fprintf(w, "    - %s %s: %s\n", statusLabel(string(flaw.Status)), flaw.Title, flaw.Finding)
+			if len(flaw.Evidence) > 0 {
+				fmt.Fprintf(w, "      Evidence: %s\n", zeroTrustEvidenceLine(flaw.Evidence, 3))
+			}
+			if len(flaw.Controls) > 0 {
+				fmt.Fprintf(w, "      Controls: %s\n", strings.Join(flaw.Controls, "; "))
+			}
+			if len(flaw.ControlEvidenceNeeded) > 0 {
+				fmt.Fprintf(w, "      Breaks when: %s\n", strings.Join(limitStrings(flaw.ControlEvidenceNeeded, 5), "; "))
+			}
+			if len(flaw.Actions) > 0 {
+				fmt.Fprintf(w, "      Next: %s\n", flaw.Actions[0])
+			}
+		}
+		if rendered == 0 {
+			fmt.Fprintf(w, "    - no observed architecture flaw categories returned\n")
+		}
+	}
+	if z.Maturity.TargetTier != "" {
+		fmt.Fprintf(w, "  Foundation maturity evidence: %d/%d requirements evidenced, %d gaps (%d breaking, %d unknown, %d not observed), %d hard barriers, %d friction-only controls\n",
+			z.Maturity.Summary.Met,
+			z.Maturity.Summary.Total,
+			z.Maturity.Summary.Gaps,
+			z.Maturity.Summary.Breaking,
+			z.Maturity.Summary.Unknown,
+			z.Maturity.Summary.NotObserved,
+			z.Maturity.Summary.HardBarriers,
+			z.Maturity.Summary.FrictionOnly,
+		)
+		limit := len(z.Maturity.Requirements)
+		if limit > 5 {
+			limit = 5
+		}
+		for _, req := range z.Maturity.Requirements[:limit] {
+			fmt.Fprintf(w, "    - %s %s: %s\n", statusLabel(string(req.Status)), req.Capability, req.Finding)
+			if len(req.MissingEvidence) > 0 {
+				fmt.Fprintf(w, "      Missing: %s\n", strings.Join(req.MissingEvidence, "; "))
+			}
+		}
+		if len(z.Maturity.Requirements) > limit {
+			fmt.Fprintf(w, "    - %d more Foundation requirements in JSON or dashboard output\n", len(z.Maturity.Requirements)-limit)
+		}
+	}
+	for _, check := range z.Checks {
+		fmt.Fprintf(w, "  - %s %s / %s: %s\n", statusLabel(string(check.Status)), check.Principle, check.Boundary, check.Finding)
+		if len(check.Evidence) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", zeroTrustEvidenceLine(check.Evidence, 3))
+		}
+		if len(check.Controls) > 0 {
+			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(check.Controls, "; "))
+		}
+		if len(check.Actions) > 0 {
+			fmt.Fprintf(w, "    Next: %s\n", check.Actions[0])
+		}
+	}
+	if len(z.Coverage.GapDetails) > 0 {
+		fmt.Fprintf(w, "  Evidence coverage: %d known, %d gaps (%d unknown, %d not observed)\n",
+			z.Coverage.Known,
+			z.Coverage.Gaps,
+			z.Coverage.Unknown,
+			z.Coverage.NotObserved,
+		)
+		limit := len(z.Coverage.GapDetails)
+		if limit > 4 {
+			limit = 4
+		}
+		for _, gap := range z.Coverage.GapDetails[:limit] {
+			fmt.Fprintf(w, "    - %s: missing %s. Next collector: %s\n",
+				gap.Boundary,
+				strings.Join(gap.MissingEvidence, "; "),
+				gap.NextCollector,
+			)
+		}
+		if len(z.Coverage.GapDetails) > limit {
+			fmt.Fprintf(w, "    - %d more coverage gaps in JSON or dashboard output\n", len(z.Coverage.GapDetails)-limit)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+func countObservedArchitectureFlaws(flaws []model.ZeroTrustArchitecture) int {
+	count := 0
+	for _, flaw := range flaws {
+		if flaw.Status != model.ZeroTrustNotObserved {
+			count++
+		}
+	}
+	return count
+}
+
+func renderArchitectureTable(w io.Writer, r model.ArchitectureReport) error {
+	fmt.Fprintf(w, "Ariadne Zero Trust architecture:\n")
+	if r.TargetPath != "" {
+		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "  Mode: %s  Agent: %s  Filter: %s\n", empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	fmt.Fprintf(w, "  Matching flaws: %d total, %d breaking, %d controlled, %d unknown, %d not observed\n",
+		r.Summary.Total,
+		r.Summary.Breaking,
+		r.Summary.Controlled,
+		r.Summary.Unknown,
+		r.Summary.NotObserved,
+	)
+	fmt.Fprintf(w, "  Overall flaws: %d total, %d breaking, %d controlled, %d unknown, %d not observed\n",
+		r.OverallSummary.Total,
+		r.OverallSummary.Breaking,
+		r.OverallSummary.Controlled,
+		r.OverallSummary.Unknown,
+		r.OverallSummary.NotObserved,
+	)
+	renderArchitectureBoundarySummary(w, r.BoundaryCoverage, r.EvidenceCoverage)
+	renderArchitectureFrameworkCoverage(w, r.FrameworkCoverage, 8)
+	renderArchitectureEvidencePlan(w, r.EvidencePlan, 6)
+	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 8)
+	renderArchitectureCaseWorkflow(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board", Path: r.TargetPath, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}, 6)
+	renderArchitectureClosurePlan(w, r.ClosurePlan, 8)
+	if len(r.Flaws) == 0 {
+		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
+		return nil
+	}
+	for _, flaw := range r.Flaws {
+		fmt.Fprintf(w, "  - %s %s %s: %s\n", statusLabel(string(flaw.Status)), strings.ToUpper(flaw.Severity), flaw.Title, flaw.Finding)
+		if len(flaw.Evidence) > 0 {
+			fmt.Fprintf(w, "    Evidence: %s\n", zeroTrustEvidenceLine(flaw.Evidence, 4))
+		}
+		if len(flaw.GraphEdges) > 0 {
+			fmt.Fprintf(w, "    Graph: %s\n", strings.Join(limitStrings(flaw.GraphEdges, 4), "; "))
+		}
+		if flaw.ControlTest.Result != "" {
+			fmt.Fprintf(w, "    Control test: %s - %s\n", readableToken(flaw.ControlTest.Result), flaw.ControlTest.Summary)
+			if len(flaw.ControlTest.MissingHardBarriers) > 0 {
+				fmt.Fprintf(w, "      Missing hard barriers: %s\n", strings.Join(limitStrings(flaw.ControlTest.MissingHardBarriers, 6), "; "))
+			}
+			if len(flaw.ControlTest.PartialOrFrictionControls) > 0 {
+				fmt.Fprintf(w, "      Partial/friction controls: %s\n", strings.Join(limitStrings(flaw.ControlTest.PartialOrFrictionControls, 6), "; "))
+			}
+			if len(flaw.ControlTest.HardBarriersObserved) > 0 {
+				fmt.Fprintf(w, "      Hard barriers observed: %s\n", strings.Join(limitStrings(flaw.ControlTest.HardBarriersObserved, 6), "; "))
+			}
+		}
+		if len(flaw.Controls) > 0 {
+			fmt.Fprintf(w, "    Controls: %s\n", strings.Join(flaw.Controls, "; "))
+		}
+		if len(flaw.ControlEvidenceNeeded) > 0 {
+			fmt.Fprintf(w, "    Breaks when: %s\n", strings.Join(limitStrings(flaw.ControlEvidenceNeeded, 6), "; "))
+		}
+		if len(flaw.EvidenceSurfaces) > 0 {
+			fmt.Fprintf(w, "    Evidence surfaces: %s\n", strings.Join(limitStrings(flaw.EvidenceSurfaces, 5), "; "))
+		}
+		if flaw.WhyItMatters != "" {
+			fmt.Fprintf(w, "    Why: %s\n", flaw.WhyItMatters)
+		}
+		if len(flaw.Actions) > 0 {
+			fmt.Fprintf(w, "    Next: %s\n", strings.Join(limitStrings(flaw.Actions, 3), "; "))
+		}
+		if len(flaw.Limitations) > 0 {
+			fmt.Fprintf(w, "    Limits: %s\n", strings.Join(limitStrings(flaw.Limitations, 2), "; "))
+		}
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func renderArchitectureScanTable(w io.Writer, r model.ArchitectureScanReport) error {
+	fmt.Fprintf(w, "Ariadne Zero Trust architecture fleet:\n")
+	fmt.Fprintf(w, "  Mode: %s  Agent: %s  Filter: %s\n", empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	fmt.Fprintf(w, "  Targets: %d total, %d completed, %d errors\n", r.Summary.Targets, r.Summary.Completed, r.Summary.Errors)
+	fmt.Fprintf(w, "  Matching flaws: %d total across targets, %d distinct, %d breaking, %d controlled, %d unknown, %d not observed\n",
+		r.Summary.MatchingFlaws,
+		r.Summary.DistinctFlaws,
+		r.Summary.Breaking,
+		r.Summary.Controlled,
+		r.Summary.Unknown,
+		r.Summary.NotObserved,
+	)
+	renderArchitectureBoundaryCoverage(w, r.BoundaryCoverage, 8)
+	renderArchitectureFrameworkCoverage(w, r.FrameworkCoverage, 10)
+	renderArchitectureEvidencePlan(w, r.EvidencePlan, 8)
+	renderArchitectureClosureFamilies(w, r.ClosureFamilies, 10)
+	renderArchitectureCaseWorkflow(w, r.ClosureFamilies, controlVerificationCommandContext{RunKind: "case_board_scan", TargetsFile: r.TargetsFile, Mode: r.Mode, Agent: r.Agent, StatusFilter: r.StatusFilter}, 8)
+	renderArchitectureClosurePlan(w, r.ClosurePlan, 10)
+	if len(r.Groups) == 0 {
+		fmt.Fprintf(w, "  - no architecture flaws matched status filter %q\n\n", r.StatusFilter)
+		return nil
+	}
+	fmt.Fprintf(w, "  Flaws by target coverage:\n")
+	for _, group := range r.Groups {
+		fmt.Fprintf(w, "    - %s %s: %d target(s); %d breaking, %d controlled, %d unknown, %d not observed\n",
+			strings.ToUpper(group.Severity),
+			group.Title,
+			group.TargetCount,
+			group.StatusCounts.Breaking,
+			group.StatusCounts.Controlled,
+			group.StatusCounts.Unknown,
+			group.StatusCounts.NotObserved,
+		)
+		fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(group.Targets, 6), "; "))
+		if len(group.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(group.EvidenceSources, 5), "; "))
+		}
+		if len(group.ControlTestResults) > 0 {
+			fmt.Fprintf(w, "      Control test: %s\n", architectureControlTestResultsLine(group.ControlTestResults))
+		}
+		if len(group.ControlEvidenceNeeded) > 0 {
+			fmt.Fprintf(w, "      Breaks when: %s\n", strings.Join(limitStrings(group.ControlEvidenceNeeded, 6), "; "))
+		}
+		if len(group.EvidenceSurfaces) > 0 {
+			fmt.Fprintf(w, "      Evidence surfaces: %s\n", strings.Join(limitStrings(group.EvidenceSurfaces, 5), "; "))
+		}
+	}
+	fmt.Fprintf(w, "  Targets:\n")
+	for _, target := range r.Targets {
+		if target.Error != "" {
+			fmt.Fprintf(w, "    - %s: error: %s\n", target.Target.ID, target.Error)
+			continue
+		}
+		fmt.Fprintf(w, "    - %s: %d matching flaws (%d breaking, %d controlled, %d unknown, %d not observed)\n",
+			target.Target.ID,
+			target.Summary.Total,
+			target.Summary.Breaking,
+			target.Summary.Controlled,
+			target.Summary.Unknown,
+			target.Summary.NotObserved,
+		)
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func renderControlCatalog(w io.Writer, r model.ControlCatalogReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderControlCatalogTable(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderControlCatalogDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown controls format: %s", format)
+	}
+}
+
+func renderControlCaseBoard(w io.Writer, r model.ControlCatalogReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderControlCaseBoardTable(w, r)
+	case "action", "case-action":
+		return renderControlCaseBoardAction(w, r)
+	case "action-json", "case-action-json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(BuildControlCaseActionReport(r))
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderControlCaseBoardDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown cases format: %s", format)
+	}
+}
+
+func renderControlCaseBoardAction(w io.Writer, r model.ControlCatalogReport) error {
+	fmt.Fprintf(w, "Ariadne Case Action\n\n")
+	if r.TargetsFile != "" {
+		fmt.Fprintf(w, "Targets file: %s\n", r.TargetsFile)
+	} else if r.TargetPath != "" {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "case_board"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, "Focus: %s\n", r.CaseFilter)
+	} else if len(r.OperatorCases) > 1 {
+		fmt.Fprintf(w, "Selected: highest-ranked case; pass --case <case-id> to focus a different case.\n")
+	}
+	if len(r.OperatorCases) == 0 {
+		fmt.Fprintf(w, "\nNo operator case matched this filter.\n")
+		if len(r.Limitations) > 0 {
+			fmt.Fprintf(w, "\nLimits:\n")
+			renderAssessRunbookStringList(w, r.Limitations)
+		}
+		return nil
+	}
+	item := r.OperatorCases[0]
+	packet := item.ActionPacket
+	fmt.Fprintf(w, "\nCase: %s (%s)\n", firstNonEmpty(item.Title, controlOperatorCaseDisplayTitle(item)), firstNonEmpty(item.ID, "case"))
+	if item.Rank > 0 {
+		fmt.Fprintf(w, "Rank: %d\n", item.Rank)
+	}
+	fmt.Fprintf(w, "Severity: %s\n", strings.ToUpper(firstNonEmpty(item.Severity, "unknown")))
+	fmt.Fprintf(w, "State: %s - %s\n", firstNonEmpty(item.State, "unknown"), firstNonEmpty(item.StateReason, "not recorded"))
+	if packet.Status != "" {
+		fmt.Fprintf(w, "Action status: %s\n", readableToken(packet.Status))
+	}
+	if item.Question != "" {
+		fmt.Fprintf(w, "\nQuestion:\n  - %s\n", item.Question)
+	}
+	if item.Finding != "" {
+		fmt.Fprintf(w, "\nWhy this case exists:\n  - %s\n", item.Finding)
+	}
+	if item.NextStep != "" {
+		fmt.Fprintf(w, "\nNext step:\n  - %s\n", item.NextStep)
+	}
+	if packet.CurrentControl != "" || packet.ProofSurface != "" {
+		fmt.Fprintf(w, "\nCurrent proof target:\n")
+		if packet.CurrentControl != "" {
+			fmt.Fprintf(w, "  - Control: %s\n", packet.CurrentControl)
+		}
+		if packet.ProofSurface != "" {
+			fmt.Fprintf(w, "  - Proof surface: %s\n", packet.ProofSurface)
+		}
+	}
+	renderControlOperatorCaseActionOpenFirst(w, r, item, packet)
+	renderControlOperatorCaseActionCommands(w, packet.Commands)
+	if len(packet.GeneratedProofPaths) > 0 || len(packet.SuggestedDestinations) > 0 || len(packet.DestinationPaths) > 0 {
+		fmt.Fprintf(w, "\nProof files:\n")
+		renderAssessDecisionLines(w, "Generated", packet.GeneratedProofPaths, 6)
+		renderAssessDecisionLines(w, "Suggested destination", packet.SuggestedDestinations, 6)
+		renderAssessDecisionLines(w, "Destination path", packet.DestinationPaths, 6)
+	}
+	if len(packet.DoneCriteria) > 0 {
+		fmt.Fprintf(w, "\nDone when:\n")
+		renderAssessRunbookStringList(w, packet.DoneCriteria)
+	}
+	limitations := firstNonEmptyStrings(packet.Limitations, item.Limitations)
+	if len(limitations) > 0 {
+		fmt.Fprintf(w, "\nLimits:\n")
+		renderAssessRunbookStringList(w, limitStrings(limitations, 3))
+	}
+	if len(r.OperatorCases) > 1 {
+		fmt.Fprintf(w, "\nMore cases: %d additional case(s) in `ariadne cases --format table` and JSON output.\n", len(r.OperatorCases)-1)
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func renderControlOperatorCaseActionOpenFirst(w io.Writer, r model.ControlCatalogReport, item model.ControlOperatorCase, packet model.ControlOperatorActionPacket) {
+	refs := packet.OpenFirst
+	if len(refs) == 0 {
+		refs = item.EvidenceReferences
+	}
+	fmt.Fprintf(w, "\nOpen first:\n")
+	if len(refs) == 0 {
+		fmt.Fprintf(w, "  - no source references recorded\n")
+		return
+	}
+	rows := buildAssessSourceReferenceRows(r.TargetPath, refs)
+	renderAssessSourceReferenceRowList(w, rows, 6, "no source references recorded")
+}
+
+func renderControlOperatorCaseActionCommands(w io.Writer, commands []model.ControlOperatorActionCommand) {
+	if len(commands) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nAction commands:\n")
+	for _, command := range commands {
+		label := firstNonEmpty(command.Title, command.ID, "Command")
+		if command.Step > 0 {
+			fmt.Fprintf(w, "  - %d. %s\n", command.Step, label)
+		} else {
+			fmt.Fprintf(w, "  - %s\n", label)
+		}
+		if command.Command != "" {
+			fmt.Fprintf(w, "    command: %s\n", command.Command)
+		}
+		if len(command.Files) > 0 {
+			fmt.Fprintf(w, "    files: %s\n", strings.Join(limitStrings(command.Files, 6), "; "))
+		}
+	}
+}
+
+func renderProofPlan(w io.Writer, r model.ProofPlanReport, format string) error {
+	switch strings.ToLower(format) {
+	case "", "table":
+		return renderProofPlanTable(w, r)
+	case "action":
+		return renderProofPlanAction(w, r)
+	case "json":
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	case "html", "dashboard":
+		return renderProofPlanDashboard(w, r)
+	default:
+		return fmt.Errorf("unknown proofs format: %s", format)
+	}
+}
+
+func renderProofPlanAction(w io.Writer, r model.ProofPlanReport) error {
+	fmt.Fprintf(w, "Ariadne Proof Action\n\n")
+	if r.TargetsFile != "" {
+		fmt.Fprintf(w, "Targets file: %s\n", r.TargetsFile)
+	} else if r.TargetPath != "" {
+		fmt.Fprintf(w, "Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "Filter: %s\n", r.StatusFilter)
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, "Case filter: %s\n", r.CaseFilter)
+	}
+	fmt.Fprintf(w, "Proof queue: %d case(s); %d proof patch(es); %d evidence reference(s)\n\n", r.Summary.Cases, r.Summary.ProofPatches, r.Summary.EvidenceReferences)
+
+	item, hasCase := firstProofPlanCase(r)
+	patch, hasPatch := firstProofPlanPatch(r)
+	if hasCase {
+		fmt.Fprintf(w, "Case:\n")
+		fmt.Fprintf(w, "  - %s (%s)\n", controlOperatorCaseDisplayTitle(item), item.ID)
+		if item.State != "" {
+			fmt.Fprintf(w, "  - State: %s - %s\n", item.State, item.StateReason)
+		}
+		if item.PriorityReason != "" {
+			fmt.Fprintf(w, "  - Priority: %s\n", item.PriorityReason)
+		}
+		if item.NextStep != "" {
+			fmt.Fprintf(w, "  - Next step: %s\n", item.NextStep)
+		}
+	} else {
+		fmt.Fprintf(w, "Case:\n  - none\n")
+	}
+
+	evidenceRefs := r.EvidenceReferences
+	if hasCase && len(item.EvidenceReferences) > 0 {
+		evidenceRefs = item.EvidenceReferences
+	}
+	proofSurfaces := []string{}
+	if hasPatch {
+		proofSurfaces = append(proofSurfaces, patch.Surface)
+	}
+	if hasCase {
+		proofSurfaces = append(proofSurfaces, item.ProofSurfaces...)
+	}
+	evidenceRefs = rankEvidenceReferencesForOperator(evidenceRefs, proofSurfaces...)
+	if len(evidenceRefs) > 0 {
+		fmt.Fprintf(w, "\nEvidence to inspect:\n")
+		for _, line := range operatorEvidenceReferenceLinesBySource(evidenceRefs, 4) {
+			fmt.Fprintf(w, "  - %s\n", line)
+		}
+		renderEvidenceSourceListBlock(w, evidenceReferenceSources(evidenceRefs, false), 8)
+	}
+
+	if hasPatch {
+		fmt.Fprintf(w, "\nProof to add or verify:\n")
+		fmt.Fprintf(w, "  - Control: %s\n", patch.Control)
+		fmt.Fprintf(w, "  - Proof surface: %s\n", patch.Surface)
+		if len(patch.Fields) > 0 {
+			fmt.Fprintf(w, "  - Fields: %s\n", strings.Join(controlProofPatchFieldLines(patch.Fields), "; "))
+		}
+		if patch.Example != "" {
+			fmt.Fprintf(w, "  - Example: %s\n", compactExample(patch.Example))
+		}
+		if patch.Summary != "" {
+			fmt.Fprintf(w, "  - Patch: %s\n", patch.Summary)
+		}
+		renderAssessControlProofProfile(w, patch.Control, 6)
+	} else {
+		fmt.Fprintf(w, "\nProof to add or verify:\n")
+		fmt.Fprintf(w, "  - No proof patch is needed for this case.\n")
+		if hasCase && len(item.StartingControls) > 0 {
+			fmt.Fprintf(w, "  - Observed controls: %s\n", strings.Join(limitStrings(item.StartingControls, 5), "; "))
+		}
+	}
+
+	renderProofPlanActionClosureBundle(w, r)
+
+	if r.PatchExportCommand != "" && hasPatch {
+		fmt.Fprintf(w, "\nExport suggested files:\n  - %s\n", r.PatchExportCommand)
+	}
+
+	rerunCommands := r.RerunCommands
+	if hasPatch && len(patch.RerunCommands) > 0 {
+		rerunCommands = patch.RerunCommands
+	} else if hasCase && len(item.RerunCommands) > 0 {
+		rerunCommands = item.RerunCommands
+	}
+	if len(rerunCommands) > 0 {
+		fmt.Fprintf(w, "\nRerun:\n")
+		for _, command := range limitStrings(rerunCommands, 2) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	}
+
+	if len(r.CompareCommands) > 0 {
+		fmt.Fprintf(w, "\nCompare loop:\n")
+		for _, command := range limitStrings(r.CompareCommands, 3) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	}
+
+	successCriteria := r.SuccessCriteria
+	if hasPatch && len(patch.SuccessCriteria) > 0 {
+		successCriteria = patch.SuccessCriteria
+	} else if hasCase && len(item.SuccessCriteria) > 0 {
+		successCriteria = item.SuccessCriteria
+	}
+	if len(successCriteria) > 0 {
+		fmt.Fprintf(w, "\nDone when:\n")
+		for _, criterion := range limitStrings(successCriteria, 3) {
+			fmt.Fprintf(w, "  - %s\n", criterion)
+		}
+	}
+
+	limitations := r.Limitations
+	if hasPatch && len(patch.Limitations) > 0 {
+		limitations = uniqueStrings(append(append([]string{}, patch.Limitations...), limitations...))
+	}
+	if len(limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range limitStrings(limitations, 3) {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func renderProofPlanActionClosureBundle(w io.Writer, r model.ProofPlanReport) {
+	if len(r.ProofPatches) <= 1 {
+		return
+	}
+	controls := proofPatchControls(r.ProofPatches)
+	files := proofPlanClosureBundleFiles(r.ProofPatches, r.PatchExportCommand)
+	if len(controls) == 0 && len(files) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nClosure bundle:\n")
+	if len(controls) > 0 {
+		fmt.Fprintf(w, "  - Controls: %s\n", strings.Join(firstStrings(controls, 6), "; "))
+	}
+	if len(files) > 0 {
+		fmt.Fprintf(w, "  - Files: %s\n", strings.Join(firstStrings(files, 4), "; "))
+	}
+	fmt.Fprintf(w, "  - Rule: Rerun must show every bundle control is no longer a missing hard barrier for this case.\n")
+}
+
+func renderProofPlanTable(w io.Writer, r model.ProofPlanReport) error {
+	fmt.Fprintf(w, "Ariadne proof plan:\n")
+	fmt.Fprintf(w, "  Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "proof_plan"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	if r.TargetPath != "" {
+		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
+	}
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, "  Case: %s\n", r.CaseFilter)
+	}
+	fmt.Fprintf(w, "  Proof queue: %d case(s), %d proof patch(es), %d evidence reference(s), %d control(s), %d target(s), %d flaw(s)\n\n",
+		r.Summary.Cases,
+		r.Summary.ProofPatches,
+		r.Summary.EvidenceReferences,
+		r.Summary.Controls,
+		r.Summary.Targets,
+		r.Summary.Flaws,
+	)
+	if len(r.Cases) > 0 {
+		fmt.Fprintf(w, "Cases:\n")
+		for _, item := range limitProofPlanCases(r.Cases, 5) {
+			fmt.Fprintf(w, "  - %s %s (%s)\n", strings.ToUpper(item.Severity), controlOperatorCaseDisplayTitle(item), item.ID)
+			if item.State != "" {
+				fmt.Fprintf(w, "    State: %s - %s\n", item.State, item.StateReason)
+			}
+			if item.NextStep != "" {
+				fmt.Fprintf(w, "    Next step: %s\n", item.NextStep)
+			}
+			if len(item.EvidenceReferences) > 0 {
+				fmt.Fprintf(w, "    Evidence to inspect: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+			}
+		}
+		if len(r.Cases) > 5 {
+			fmt.Fprintf(w, "  - %d more case(s) in JSON output\n", len(r.Cases)-5)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(r.ProofPatches) == 0 {
+		fmt.Fprintf(w, "Proof patches:\n")
+		fmt.Fprintf(w, "  - no proof patches matched this filter\n\n")
+	} else {
+		fmt.Fprintf(w, "Proof patches:\n")
+		for _, patch := range limitProofPlanPatches(r.ProofPatches, 12) {
+			fmt.Fprintf(w, "  - %s -> %s (%s)\n", patch.Control, patch.Surface, patch.Operation)
+			if len(patch.Fields) > 0 {
+				fmt.Fprintf(w, "    Fields: %s\n", strings.Join(controlProofPatchFieldLines(patch.Fields), "; "))
+			}
+			if patch.Example != "" {
+				fmt.Fprintf(w, "    Example: %s\n", compactExample(patch.Example))
+			}
+			if len(patch.RerunCommands) > 0 {
+				fmt.Fprintf(w, "    Rerun: %s\n", strings.Join(limitStrings(patch.RerunCommands, 2), "; "))
+			}
+			if len(patch.SuccessCriteria) > 0 {
+				fmt.Fprintf(w, "    Done when: %s\n", strings.Join(limitStrings(patch.SuccessCriteria, 2), "; "))
+			}
+			if len(patch.Limitations) > 0 {
+				fmt.Fprintf(w, "    Limitation: %s\n", patch.Limitations[0])
+			}
+		}
+		if len(r.ProofPatches) > 12 {
+			fmt.Fprintf(w, "  - %d more proof patch(es) in JSON output\n", len(r.ProofPatches)-12)
+		}
+	}
+	renderProofPlanWorkflow(w, r.Workflow)
+	if len(r.CompareCommands) > 0 {
+		fmt.Fprintf(w, "\nCompare loop:\n")
+		for _, command := range limitStrings(r.CompareCommands, 3) {
+			fmt.Fprintf(w, "  - %s\n", command)
+		}
+	}
+	if r.PatchExportCommand != "" {
+		fmt.Fprintf(w, "\nExport suggested files:\n")
+		fmt.Fprintf(w, "  - %s\n", r.PatchExportCommand)
+	}
+	if len(r.Limitations) > 0 {
+		fmt.Fprintf(w, "\nLimitations:\n")
+		for _, limitation := range limitStrings(r.Limitations, 5) {
+			fmt.Fprintf(w, "  - %s\n", limitation)
+		}
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func renderProofPlanWorkflow(w io.Writer, workflow []model.ProofWorkflowStep) {
+	if len(workflow) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nProof workflow:\n")
+	for i, step := range workflow {
+		fmt.Fprintf(w, "  %d. %s: %s\n", i+1, firstNonEmpty(step.Title, step.ID), step.Summary)
+		if len(step.Commands) > 0 {
+			fmt.Fprintf(w, "     Command: %s\n", strings.Join(limitStrings(step.Commands, 3), "; "))
+		}
+		if len(step.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "     Proof surfaces: %s\n", strings.Join(limitStrings(step.ProofSurfaces, 4), "; "))
+		}
+		if len(step.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "     Evidence: %s\n", strings.Join(evidenceReferenceLines(step.EvidenceReferences, 3), "; "))
+		}
+		if len(step.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "     Done when: %s\n", strings.Join(limitStrings(step.SuccessCriteria, 3), "; "))
+		}
+	}
+}
+
+func controlProofPatchFieldLines(fields []model.ControlProofPatchField) []string {
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		name := field.Name
+		if name == "" {
+			name = field.Indicator
+		}
+		if field.ValueJSON != "" {
+			out = append(out, name+"="+field.ValueJSON)
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func limitProofPlanCases(items []model.ControlOperatorCase, limit int) []model.ControlOperatorCase {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	if limit == 0 {
+		return []model.ControlOperatorCase{}
+	}
+	return items[:limit]
+}
+
+func limitProofPlanPatches(items []model.ControlProofPatch, limit int) []model.ControlProofPatch {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	if limit == 0 {
+		return []model.ControlProofPatch{}
+	}
+	return items[:limit]
+}
+
+func renderControlCaseBoardTable(w io.Writer, r model.ControlCatalogReport) error {
+	fmt.Fprintf(w, "Ariadne operator case board:\n")
+	if r.TargetPath != "" {
+		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "  Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "case_board"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	if r.CaseFilter != "" {
+		fmt.Fprintf(w, "  Case: %s\n", r.CaseFilter)
+	}
+	fmt.Fprintf(w, "  Case queue: %d case(s); %d missing hard-barrier controls; %d critical, %d high, %d medium, %d low; %d target(s); %d flaw(s)\n",
+		len(r.OperatorCases),
+		r.Summary.Controls,
+		r.Summary.Critical,
+		r.Summary.High,
+		r.Summary.Medium,
+		r.Summary.Low,
+		r.Summary.Targets,
+		r.Summary.Flaws,
+	)
+	if len(r.OperatorCases) == 0 {
+		fmt.Fprintf(w, "  - no operator cases matched status filter %q\n\n", r.StatusFilter)
+		return nil
+	}
+	renderControlOperatorCases(w, r.OperatorCases, 10)
+	fmt.Fprintf(w, "  Evidence model:\n")
+	fmt.Fprintf(w, "    - Cases are derived from deterministic facts, graph edges, architecture flaws, and missing hard-barrier controls.\n")
+	fmt.Fprintf(w, "    - Use `%s proofs --case <case-id>` for the focused proof patches and rerun criteria for one case.\n", ariadneCommand())
+	fmt.Fprintf(w, "    - Use `%s controls --format json` for the full control catalog and lower-level verification tasks.\n", ariadneCommand())
+	fmt.Fprintln(w)
+	return nil
+}
+
+func renderControlCatalogTable(w io.Writer, r model.ControlCatalogReport) error {
+	fmt.Fprintf(w, "Ariadne control evidence catalog:\n")
+	if r.TargetPath != "" {
+		fmt.Fprintf(w, "  Target: %s\n", r.TargetPath)
+	}
+	fmt.Fprintf(w, "  Run: %s  Mode: %s  Agent: %s  Filter: %s\n", empty(r.RunKind, "control_catalog"), empty(r.Mode, "unknown"), empty(r.Agent, "unknown"), r.StatusFilter)
+	fmt.Fprintf(w, "  Missing hard barriers: %d controls; %d critical, %d high, %d medium, %d low; %d target(s); %d flaw(s)\n",
+		r.Summary.Controls,
+		r.Summary.Critical,
+		r.Summary.High,
+		r.Summary.Medium,
+		r.Summary.Low,
+		r.Summary.Targets,
+		r.Summary.Flaws,
+	)
+	if len(r.Families) > 0 {
+		fmt.Fprintf(w, "  Control families:\n")
+		limit := len(r.Families)
+		if limit > 8 {
+			limit = 8
+		}
+		for _, family := range r.Families[:limit] {
+			fmt.Fprintf(w, "    - %s %s: %d control(s), %d flaw(s), %d target(s)\n",
+				strings.ToUpper(family.Severity),
+				family.Title,
+				family.ControlCount,
+				family.FlawCount,
+				family.TargetCount,
+			)
+			if len(family.Controls) > 0 {
+				fmt.Fprintf(w, "      Controls: %s\n", strings.Join(limitStrings(family.Controls, 6), "; "))
+			}
+			if len(family.EvidenceSurfaces) > 0 {
+				fmt.Fprintf(w, "      Where to prove this: %s\n", strings.Join(limitStrings(family.EvidenceSurfaces, 5), "; "))
+			}
+		}
+		if len(r.Families) > limit {
+			fmt.Fprintf(w, "    - %d more control families in JSON output\n", len(r.Families)-limit)
+		}
+	}
+	if len(r.Controls) == 0 {
+		fmt.Fprintf(w, "  - no missing hard-barrier controls matched status filter %q\n\n", r.StatusFilter)
+		return nil
+	}
+	renderControlOperatorCases(w, r.OperatorCases, 6)
+	renderControlBreakPathWorkstreams(w, r.Workstreams, 8)
+	renderControlVerificationTasks(w, r.VerificationTasks, 8)
+	fmt.Fprintf(w, "  Controls:\n")
+	limit := len(r.Controls)
+	if limit > 12 {
+		limit = 12
+	}
+	proofByControl := controlProofSpecsByControl(r.ProofSpecs)
+	for _, item := range r.Controls[:limit] {
+		fmt.Fprintf(w, "    - %s %s: %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Control,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if len(item.Flaws) > 0 {
+			fmt.Fprintf(w, "      Closes flaws: %s\n", strings.Join(limitStrings(item.Flaws, 4), "; "))
+		}
+		if len(item.Targets) > 0 {
+			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 6), "; "))
+		}
+		if len(item.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence anchors: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
+		if len(item.EvidenceSurfaces) > 0 {
+			fmt.Fprintf(w, "      Where to prove this: %s\n", strings.Join(limitStrings(item.EvidenceSurfaces, 5), "; "))
+		}
+		if proof := proofByControl[item.Control]; len(proof.RecognizedIndicators) > 0 {
+			fmt.Fprintf(w, "      Recognized indicators: %s\n", strings.Join(limitStrings(proof.RecognizedIndicators, 6), "; "))
+		}
+		if len(item.Actions) > 0 {
+			fmt.Fprintf(w, "      What would prove it: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
+		}
+	}
+	if len(r.Controls) > limit {
+		fmt.Fprintf(w, "    - %d more controls in JSON output\n", len(r.Controls)-limit)
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+func rewriteControlCatalogAsCaseBoard(catalog *model.ControlCatalogReport) {
+	for i := range catalog.OperatorCases {
+		catalog.OperatorCases[i].RerunCommands = caseBoardRerunCommands(catalog.OperatorCases[i].RerunCommands)
+		catalog.OperatorCases[i].ProofPatches = proofPatchesWithRerunCommands(catalog.OperatorCases[i].ProofPatches, caseBoardRerunCommands)
+		catalog.OperatorCases[i].PatchExportCommand = operatorCasePatchExportCommand(*catalog, catalog.OperatorCases[i])
+		catalog.OperatorCases[i].CompareCommands = operatorCaseCompareCommands(*catalog, catalog.OperatorCases[i].ID)
+		catalog.OperatorCases[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.OperatorCases[i].SuccessCriteria)
+	}
+	attachOperatorCaseActionPackets(catalog)
+	for i := range catalog.Workstreams {
+		catalog.Workstreams[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.Workstreams[i].SuccessCriteria)
+	}
+	for i := range catalog.VerificationTasks {
+		catalog.VerificationTasks[i].RerunCommands = caseBoardRerunCommands(catalog.VerificationTasks[i].RerunCommands)
+		catalog.VerificationTasks[i].ProofPatches = proofPatchesWithRerunCommands(catalog.VerificationTasks[i].ProofPatches, caseBoardRerunCommands)
+		catalog.VerificationTasks[i].SuccessCriteria = caseBoardSuccessCriteria(catalog.VerificationTasks[i].SuccessCriteria)
+	}
+}
+
+func filterControlCaseBoard(catalog *model.ControlCatalogReport, caseFilter string) error {
+	caseFilter = strings.TrimSpace(caseFilter)
+	if caseFilter == "" {
+		return nil
+	}
+	var selected model.ControlOperatorCase
+	found := false
+	for _, item := range catalog.OperatorCases {
+		if controlOperatorCaseMatches(item, caseFilter) {
+			selected = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("operator case %q not found", caseFilter)
+	}
+	catalog.CaseFilter = selected.ID
+	selected.RerunCommands = caseBoardFocusedRerunCommands(selected.RerunCommands, selected.ID)
+	selected.ProofPatches = proofPatchesWithRerunCommands(selected.ProofPatches, func(commands []string) []string {
+		return caseBoardFocusedRerunCommands(commands, selected.ID)
+	})
+	caseID := strings.TrimPrefix(selected.ID, "case:")
+	controls := map[string]bool{}
+	taskIDs := map[string]bool{}
+	for _, control := range selected.StartingControls {
+		controls[control] = true
+	}
+	for _, taskID := range selected.StartingTaskIDs {
+		taskIDs[taskID] = true
+	}
+	var workstreams []model.ControlBreakPathWorkstream
+	for _, workstream := range catalog.Workstreams {
+		if workstream.ID != caseID {
+			continue
+		}
+		workstreams = append(workstreams, workstream)
+		for _, control := range workstream.Controls {
+			controls[control] = true
+		}
+		for _, taskID := range workstream.StartingTaskIDs {
+			taskIDs[taskID] = true
+		}
+	}
+	var families []model.ArchitectureClosureFamily
+	for _, family := range catalog.Families {
+		if family.ID != caseID {
+			continue
+		}
+		families = append(families, family)
+		for _, control := range family.Controls {
+			controls[control] = true
+		}
+	}
+	var closurePlan []model.ArchitectureClosure
+	for _, item := range catalog.Controls {
+		if controls[item.Control] {
+			closurePlan = append(closurePlan, item)
+		}
+	}
+	var proofSpecs []model.ControlProofSpec
+	for _, item := range catalog.ProofSpecs {
+		if controls[item.Control] {
+			proofSpecs = append(proofSpecs, item)
+		}
+	}
+	var tasks []model.ControlVerificationTask
+	for _, item := range catalog.VerificationTasks {
+		if controls[item.Control] || taskIDs[item.ID] {
+			item.RerunCommands = caseBoardFocusedRerunCommands(item.RerunCommands, selected.ID)
+			item.ProofPatches = proofPatchesWithRerunCommands(item.ProofPatches, func(commands []string) []string {
+				return caseBoardFocusedRerunCommands(commands, selected.ID)
+			})
+			tasks = append(tasks, item)
+		}
+	}
+	catalog.OperatorCases = []model.ControlOperatorCase{selected}
+	catalog.Workstreams = nonNilControlBreakPathWorkstreams(workstreams)
+	catalog.Families = nonNilArchitectureClosureFamilies(families)
+	catalog.Controls = nonNilArchitectureClosures(closurePlan)
+	catalog.ProofSpecs = nonNilControlProofSpecs(proofSpecs)
+	catalog.VerificationTasks = nonNilControlVerificationTasks(tasks)
+	catalog.Summary = summarizeControlCatalog(catalog.Controls)
+	return nil
+}
+
+func buildFocusedAbsentCaseBoard(catalog model.ControlCatalogReport, caseFilter string) model.ControlCatalogReport {
+	familyID := normalizeControlOperatorCaseID(caseFilter)
+	caseID := strings.TrimSpace(caseFilter)
+	if familyID != "" {
+		caseID = "case:" + familyID
+	}
+	catalog.CaseFilter = caseID
+	catalog.Summary = model.ControlCatalogSummary{}
+	catalog.Controls = []model.ArchitectureClosure{}
+	catalog.Families = []model.ArchitectureClosureFamily{}
+	catalog.OperatorCases = []model.ControlOperatorCase{}
+	catalog.Workstreams = []model.ControlBreakPathWorkstream{}
+	catalog.ProofSpecs = []model.ControlProofSpec{}
+	catalog.VerificationTasks = []model.ControlVerificationTask{}
+	catalog.Limitations = uniqueStrings(append(catalog.Limitations,
+		"Focused case "+firstNonEmpty(caseID, "unknown")+" is absent from the selected operator case board. Compare this artifact with a before-proof artifact to confirm whether the case was removed or closed.",
+	))
+	return catalog
+}
+
+type focusedClosedCaseTarget struct {
+	TargetID string
+	Flaws    []model.ZeroTrustArchitecture
+	Graph    model.Graph
+}
+
+func buildFocusedClosedCaseBoardReport(r model.Report, statusFilter string, caseFilter string) (model.ControlCatalogReport, bool, error) {
+	familyID := normalizeControlOperatorCaseID(caseFilter)
+	if familyID == "" {
+		return model.ControlCatalogReport{}, false, nil
+	}
+	architecture, err := BuildArchitectureReport(r, "all")
+	if err != nil {
+		return model.ControlCatalogReport{}, false, err
+	}
+	ctx := controlVerificationCommandContext{
+		RunKind:      "case_board",
+		Path:         architecture.TargetPath,
+		Mode:         architecture.Mode,
+		Agent:        architecture.Agent,
+		StatusFilter: firstNonEmpty(statusFilter, "breaking"),
+	}
+	item, ok := buildFocusedClosedOperatorCase(familyID, []focusedClosedCaseTarget{{TargetID: "target", Flaws: architecture.Flaws, Graph: r.Graph}}, ctx)
+	if !ok {
+		return model.ControlCatalogReport{}, false, nil
+	}
+	return focusedClosedCaseCatalog(architecture.RunID, architecture.GeneratedAt, "case_board", architecture.TargetPath, "", architecture.Mode, architecture.Agent, ctx.StatusFilter, item, architecture.Redaction, architecture.Limitations), true, nil
+}
+
+func buildFocusedClosedCaseBoardScanReport(r model.ScanReport, statusFilter string, caseFilter string) (model.ControlCatalogReport, bool, error) {
+	familyID := normalizeControlOperatorCaseID(caseFilter)
+	if familyID == "" {
+		return model.ControlCatalogReport{}, false, nil
+	}
+	architecture, err := BuildArchitectureScanReport(r, "all")
+	if err != nil {
+		return model.ControlCatalogReport{}, false, err
+	}
+	var targets []focusedClosedCaseTarget
+	for _, target := range architecture.Targets {
+		if target.Error != "" {
+			continue
+		}
+		targetID := target.Target.ID
+		if targetID == "" {
+			targetID = "target"
+		}
+		var graph model.Graph
+		for _, scanTarget := range r.Targets {
+			if firstNonEmpty(scanTarget.Target.ID, "target") == targetID {
+				graph = scanTarget.Report.Graph
+				break
+			}
+		}
+		targets = append(targets, focusedClosedCaseTarget{TargetID: targetID, Flaws: target.Flaws, Graph: graph})
+	}
+	ctx := controlVerificationCommandContext{
+		RunKind:      "case_board_scan",
+		TargetsFile:  architecture.TargetsFile,
+		Mode:         architecture.Mode,
+		Agent:        architecture.Agent,
+		StatusFilter: firstNonEmpty(statusFilter, "breaking"),
+	}
+	item, ok := buildFocusedClosedOperatorCase(familyID, targets, ctx)
+	if !ok {
+		return model.ControlCatalogReport{}, false, nil
+	}
+	return focusedClosedCaseCatalog(architecture.RunID, architecture.GeneratedAt, "case_board_scan", "", architecture.TargetsFile, architecture.Mode, architecture.Agent, ctx.StatusFilter, item, architecture.Redaction, architecture.Limitations), true, nil
+}
+
+func focusedClosedCaseCatalog(runID string, generatedAt time.Time, runKind string, targetPath string, targetsFile string, mode string, agent string, statusFilter string, item model.ControlOperatorCase, redaction model.RedactionInfo, limitations []string) model.ControlCatalogReport {
+	catalog := model.ControlCatalogReport{
+		SchemaVersion:     model.SchemaVersion,
+		RunID:             runID,
+		GeneratedAt:       generatedAt,
+		RunKind:           runKind,
+		TargetPath:        targetPath,
+		TargetsFile:       targetsFile,
+		Mode:              mode,
+		Agent:             agent,
+		StatusFilter:      firstNonEmpty(statusFilter, "breaking"),
+		CaseFilter:        item.ID,
+		Summary:           model.ControlCatalogSummary{Targets: item.TargetCount, Flaws: item.FlawCount},
+		Controls:          []model.ArchitectureClosure{},
+		Families:          []model.ArchitectureClosureFamily{},
+		OperatorCases:     []model.ControlOperatorCase{item},
+		Workstreams:       []model.ControlBreakPathWorkstream{},
+		ProofSpecs:        []model.ControlProofSpec{},
+		VerificationTasks: []model.ControlVerificationTask{},
+		Redaction:         redaction,
+		Limitations:       append([]string{}, limitations...),
+	}
+	attachOperatorCaseCompareCommands(&catalog)
+	attachOperatorCaseActionPackets(&catalog)
+	return catalog
+}
+
+func buildFocusedClosedOperatorCase(familyID string, targets []focusedClosedCaseTarget, ctx controlVerificationCommandContext) (model.ControlOperatorCase, bool) {
+	targetSet := map[string]bool{}
+	flawSet := map[string]bool{}
+	var evidenceRefs []model.EvidenceReference
+	var observedControls []string
+	var proofSurfaces []string
+	title := ""
+	severity := ""
+	controlledFlaws := 0
+	for _, target := range targets {
+		targetID := target.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		for _, flaw := range target.Flaws {
+			matchedTitle, controls, ok := controlledFlawMatchesFamily(flaw, familyID)
+			if !ok {
+				continue
+			}
+			if title == "" {
+				title = matchedTitle
+			}
+			if severityRank(flaw.Severity) > severityRank(severity) {
+				severity = flaw.Severity
+			}
+			controlledFlaws++
+			targetSet[targetID] = true
+			flawTitle := firstNonEmpty(flaw.Title, flaw.ID)
+			if flawTitle != "" {
+				flawSet[flawTitle] = true
+			}
+			observedControls = append(observedControls, controls...)
+			evidenceRefs = append(evidenceRefs, evidenceReferencesForFlaw(targetID, flaw)...)
+			evidenceRefs = append(evidenceRefs, controlEvidenceReferencesFromGraph(targetID, controls, target.Graph)...)
+			proofSurfaces = append(proofSurfaces, flaw.EvidenceSurfaces...)
+			proofSurfaces = append(proofSurfaces, zeroTrustEvidenceSources(flaw.Evidence)...)
+		}
+	}
+	if controlledFlaws == 0 {
+		return model.ControlOperatorCase{}, false
+	}
+	caseID := "case:" + familyID
+	targetList := mapKeysSorted(targetSet)
+	flawList := mapKeysSorted(flawSet)
+	observedControls = uniqueSortedStrings(observedControls)
+	evidenceRefs = dedupeEvidenceReferences(evidenceRefs)
+	observedProofSurfaces := evidenceReferenceSources(evidenceRefs, true)
+	if len(observedProofSurfaces) == 0 {
+		observedProofSurfaces = evidenceReferenceSources(evidenceRefs, false)
+	}
+	if len(observedProofSurfaces) == 0 {
+		observedProofSurfaces = uniqueSortedStrings(proofSurfaces)
+	}
+	return model.ControlOperatorCase{
+		ID:                 caseID,
+		Title:              firstNonEmpty(title, familyID),
+		Severity:           firstNonEmpty(severity, "info"),
+		PriorityReason:     "Closed cases are shown because the requested case no longer appears in the missing-hard-barrier queue and controlled evidence was observed.",
+		State:              "closed",
+		StateReason:        fmt.Sprintf("%d controlled architecture flaw(s) have observed hard-barrier evidence and no missing hard barriers for this focused case.", controlledFlaws),
+		Question:           fmt.Sprintf("What evidence proves the %s break path is closed?", firstNonEmpty(title, familyID)),
+		Finding:            fmt.Sprintf("This focused case is absent from the missing-hard-barrier board because Ariadne observed hard-barrier evidence for: %s", strings.Join(limitStrings(flawList, 3), "; ")),
+		NextStep:           "No proof patch is needed for this case. Keep the observed hard-barrier evidence in place and rerun if the repo, runtime, or policy evidence changes.",
+		TargetCount:        len(targetList),
+		FlawCount:          len(flawList),
+		ControlCount:       0,
+		Targets:            targetList,
+		Flaws:              flawList,
+		EvidenceReferences: evidenceRefs,
+		StartingControls:   observedControls,
+		StartingTaskIDs:    []string{},
+		ProofSurfaces:      observedProofSurfaces,
+		EvidenceExamples:   []model.ControlEvidenceExample{},
+		ProofPatches:       []model.ControlProofPatch{},
+		RerunCommands:      focusedClosedCaseCommands(ctx, caseID),
+		SuccessCriteria: []string{
+			"The focused case remains absent from the missing-hard-barrier operator case board.",
+			"Matching architecture flaws remain controlled with hard_barriers_observed and no missing_hard_barriers.",
+			"Evidence references continue to point to the controls that close the path.",
+		},
+		Limitations: []string{
+			"Closed means deterministic hard-barrier evidence was observed; Ariadne still does not prove live enforcement unless runtime enforcement evidence is collected.",
+		},
+	}, true
+}
+
+func controlEvidenceReferencesFromGraph(target string, controls []string, graph model.Graph) []model.EvidenceReference {
+	controlSet := map[string]bool{}
+	for _, control := range controls {
+		controlSet[control] = true
+	}
+	var refs []model.EvidenceReference
+	for _, node := range graph.Nodes {
+		if !controlSet[node.ID] || node.Type != "control" || node.Source == "" {
+			continue
+		}
+		summary := "Control evidence was observed."
+		if node.Label != "" {
+			summary = fmt.Sprintf("Control evidence was observed for %s.", node.Label)
+		}
+		refs = append(refs, model.EvidenceReference{
+			Target:  target,
+			ID:      node.ID,
+			Kind:    "control",
+			Source:  node.Source,
+			Summary: summary,
+		})
+	}
+	return dedupeEvidenceReferences(refs)
+}
+
+func controlledFlawMatchesFamily(flaw model.ZeroTrustArchitecture, familyID string) (string, []string, bool) {
+	if flaw.Status != model.ZeroTrustControlled || len(flaw.ControlTest.MissingHardBarriers) > 0 {
+		return "", nil, false
+	}
+	controls := append([]string{}, flaw.ControlTest.HardBarriersObserved...)
+	if len(controls) == 0 {
+		controls = append(controls, flaw.Controls...)
+	}
+	for _, control := range append(append([]string{}, controls...), flaw.Controls...) {
+		id, title := architectureControlFamily(control)
+		if id == familyID {
+			return title, controls, true
+		}
+	}
+	return "", nil, false
+}
+
+func focusedClosedCaseCommands(ctx controlVerificationCommandContext, caseID string) []string {
+	cli := ariadneCommand()
+	mode := firstNonEmpty(ctx.Mode, "repo")
+	agent := firstNonEmpty(ctx.Agent, "all")
+	status := firstNonEmpty(ctx.StatusFilter, "breaking")
+	if ctx.RunKind == "case_board_scan" {
+		targetsArg := targetsFileCommandArg(ctx.TargetsFile)
+		return []string{
+			fmt.Sprintf("%s cases --targets %s --mode %s --agent %s --status %s --case %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
+			fmt.Sprintf("%s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		}
+	}
+	path := firstNonEmpty(ctx.Path, "<target-path>")
+	return []string{
+		fmt.Sprintf("%s cases --path %s --mode %s --agent %s --status %s --case %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status), shellQuoteCommandArg(caseID)),
+		fmt.Sprintf("%s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	}
+}
+
+func proofPatchesWithRerunCommands(patches []model.ControlProofPatch, rewrite func([]string) []string) []model.ControlProofPatch {
+	if len(patches) == 0 {
+		return []model.ControlProofPatch{}
+	}
+	out := make([]model.ControlProofPatch, 0, len(patches))
+	for _, patch := range patches {
+		patch.RerunCommands = rewrite(patch.RerunCommands)
+		out = append(out, patch)
+	}
+	return out
+}
+
+func caseBoardFocusedRerunCommands(commands []string, caseID string) []string {
+	out := make([]string, 0, len(commands))
+	for _, command := range commands {
+		if isAriadneSubcommand(command, "cases") && !strings.Contains(command, " --case ") {
+			command += " --case " + shellQuoteCommandArg(caseID)
+		}
+		out = append(out, command)
+	}
+	return out
+}
+
+func controlOperatorCaseMatches(item model.ControlOperatorCase, filter string) bool {
+	normalized := normalizeControlOperatorCaseID(filter)
+	return normalized != "" && (normalizeControlOperatorCaseID(item.ID) == normalized || normalizeControlOperatorCaseID(item.Title) == normalized)
+}
+
+func normalizeControlOperatorCaseID(value string) string {
+	value = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "case:")
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if b.Len() > 0 && !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
+}
+
+func nonNilArchitectureClosures(items []model.ArchitectureClosure) []model.ArchitectureClosure {
+	if items == nil {
+		return []model.ArchitectureClosure{}
+	}
+	return items
+}
+
+func nonNilArchitectureClosureFamilies(items []model.ArchitectureClosureFamily) []model.ArchitectureClosureFamily {
+	if items == nil {
+		return []model.ArchitectureClosureFamily{}
+	}
+	return items
+}
+
+func nonNilControlBreakPathWorkstreams(items []model.ControlBreakPathWorkstream) []model.ControlBreakPathWorkstream {
+	if items == nil {
+		return []model.ControlBreakPathWorkstream{}
+	}
+	return items
+}
+
+func nonNilControlProofSpecs(items []model.ControlProofSpec) []model.ControlProofSpec {
+	if items == nil {
+		return []model.ControlProofSpec{}
+	}
+	return items
+}
+
+func nonNilControlVerificationTasks(items []model.ControlVerificationTask) []model.ControlVerificationTask {
+	if items == nil {
+		return []model.ControlVerificationTask{}
+	}
+	return items
+}
+
+func nonNilControlOperatorCases(items []model.ControlOperatorCase) []model.ControlOperatorCase {
+	if items == nil {
+		return []model.ControlOperatorCase{}
+	}
+	return items
+}
+
+func caseBoardRerunCommands(commands []string) []string {
+	out := make([]string, 0, len(commands))
+	for _, command := range commands {
+		out = append(out, rewriteAriadneSubcommand(command, "controls", "cases"))
+	}
+	return out
+}
+
+func caseBoardSuccessCriteria(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.ReplaceAll(item, "control catalog workstreams", "operator case board")
+		item = strings.ReplaceAll(item, "controls output", "case board")
+		out = append(out, item)
+	}
+	return out
+}
+
+func controlProofSpecsByControl(items []model.ControlProofSpec) map[string]model.ControlProofSpec {
+	out := map[string]model.ControlProofSpec{}
+	for _, item := range items {
+		if item.Control != "" {
+			out[item.Control] = item
+		}
+	}
+	return out
+}
+
+func renderArchitectureBoundarySummary(w io.Writer, boundaries []model.ArchitectureBoundary, coverage model.ZeroTrustCoverage) {
+	if len(boundaries) == 0 {
+		return
+	}
+	var summary model.ZeroTrustSummary
+	for _, boundary := range boundaries {
+		summary.Total += boundary.StatusCounts.Total
+		summary.Breaking += boundary.StatusCounts.Breaking
+		summary.Controlled += boundary.StatusCounts.Controlled
+		summary.Unknown += boundary.StatusCounts.Unknown
+		summary.NotObserved += boundary.StatusCounts.NotObserved
+	}
+	fmt.Fprintf(w, "  Boundary checks: %d total, %d breaking, %d controlled, %d unknown, %d not observed; evidence gaps: %d\n",
+		summary.Total,
+		summary.Breaking,
+		summary.Controlled,
+		summary.Unknown,
+		summary.NotObserved,
+		coverage.Gaps,
+	)
+}
+
+func renderArchitectureBoundaryCoverage(w io.Writer, boundaries []model.ArchitectureBoundary, limit int) {
+	if len(boundaries) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Boundary coverage:\n")
+	if limit <= 0 || limit > len(boundaries) {
+		limit = len(boundaries)
+	}
+	for _, boundary := range boundaries[:limit] {
+		fmt.Fprintf(w, "    - %s: %d target-check(s); %d breaking, %d controlled, %d unknown, %d not observed\n",
+			boundary.Boundary,
+			boundary.StatusCounts.Total,
+			boundary.StatusCounts.Breaking,
+			boundary.StatusCounts.Controlled,
+			boundary.StatusCounts.Unknown,
+			boundary.StatusCounts.NotObserved,
+		)
+		if targets := architectureBoundaryTargetsLine(boundary); targets != "" {
+			fmt.Fprintf(w, "      Targets: %s\n", targets)
+		}
+		if len(boundary.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(boundary.EvidenceSources, 5), "; "))
+		}
+		if len(boundary.ControlEvidenceNeeded) > 0 {
+			fmt.Fprintf(w, "      Control evidence needed: %s\n", strings.Join(limitStrings(boundary.ControlEvidenceNeeded, 5), "; "))
+		}
+		if len(boundary.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "      Missing evidence: %s\n", strings.Join(limitStrings(boundary.MissingEvidence, 5), "; "))
+		}
+		if len(boundary.NextCollectors) > 0 {
+			fmt.Fprintf(w, "      Next collectors: %s\n", strings.Join(limitStrings(boundary.NextCollectors, 3), "; "))
+		}
+	}
+	if len(boundaries) > limit {
+		fmt.Fprintf(w, "    - %d more boundary coverage rows in JSON output\n", len(boundaries)-limit)
+	}
+}
+
+func renderArchitectureFrameworkCoverage(w io.Writer, items []model.ArchitectureFrameworkArea, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Framework coverage:\n")
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	for _, item := range items[:limit] {
+		fmt.Fprintf(w, "    - %s: %d target(s); %d breaking, %d controlled, %d unknown, %d not observed\n",
+			item.Area,
+			item.TargetCount,
+			item.StatusCounts.Breaking,
+			item.StatusCounts.Controlled,
+			item.StatusCounts.Unknown,
+			item.StatusCounts.NotObserved,
+		)
+		if item.Source != "" {
+			fmt.Fprintf(w, "      Source: %s\n", item.Source)
+		}
+		if len(item.CheckIDs) > 0 {
+			fmt.Fprintf(w, "      Checks: %s\n", strings.Join(limitStrings(item.CheckIDs, 6), "; "))
+		}
+		if len(item.Flaws) > 0 {
+			fmt.Fprintf(w, "      Flaws: %s\n", strings.Join(limitStrings(item.Flaws, 4), "; "))
+		}
+		if len(item.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
+		}
+		if len(item.ControlEvidenceNeeded) > 0 {
+			fmt.Fprintf(w, "      Control evidence needed: %s\n", strings.Join(limitStrings(item.ControlEvidenceNeeded, 5), "; "))
+		}
+		if len(item.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "      Missing evidence: %s\n", strings.Join(limitStrings(item.MissingEvidence, 4), "; "))
+		}
+		if len(item.NextCollectors) > 0 {
+			fmt.Fprintf(w, "      Next collectors: %s\n", strings.Join(limitStrings(item.NextCollectors, 2), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "    - %d more framework coverage rows in JSON output\n", len(items)-limit)
+	}
+}
+
+func renderArchitectureClosurePlan(w io.Writer, items []model.ArchitectureClosure, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Closure plan:\n")
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	for _, item := range items[:limit] {
+		fmt.Fprintf(w, "    - %s %s: %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Control,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if len(item.Flaws) > 0 {
+			fmt.Fprintf(w, "      Flaws: %s\n", strings.Join(limitStrings(item.Flaws, 4), "; "))
+		}
+		if len(item.Targets) > 0 {
+			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 5), "; "))
+		}
+		if len(item.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
+		if len(item.EvidenceSurfaces) > 0 {
+			fmt.Fprintf(w, "      Evidence surfaces: %s\n", strings.Join(limitStrings(item.EvidenceSurfaces, 5), "; "))
+		}
+		if len(item.Actions) > 0 {
+			fmt.Fprintf(w, "      Actions: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "    - %d more closure items in JSON output\n", len(items)-limit)
+	}
+}
+
+func renderArchitectureEvidencePlan(w io.Writer, items []model.ArchitectureEvidencePlan, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Evidence plan:\n")
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	for _, item := range items[:limit] {
+		fmt.Fprintf(w, "    - %s: %d gap(s), %d target(s)\n", item.NextCollector, item.GapCount, item.TargetCount)
+		if len(item.Boundaries) > 0 {
+			fmt.Fprintf(w, "      Boundaries: %s\n", strings.Join(limitStrings(item.Boundaries, 4), "; "))
+		}
+		if len(item.Targets) > 0 {
+			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 5), "; "))
+		}
+		if len(item.MissingEvidence) > 0 {
+			fmt.Fprintf(w, "      Missing evidence: %s\n", strings.Join(limitStrings(item.MissingEvidence, 5), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "    - %d more evidence-plan rows in JSON output\n", len(items)-limit)
+	}
+}
+
+func renderArchitectureClosureFamilies(w io.Writer, items []model.ArchitectureClosureFamily, limit int) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Closure families:\n")
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	for _, item := range items[:limit] {
+		fmt.Fprintf(w, "    - %s %s: %d control(s), %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Title,
+			item.ControlCount,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if len(item.Controls) > 0 {
+			fmt.Fprintf(w, "      Controls: %s\n", strings.Join(limitStrings(item.Controls, 6), "; "))
+		}
+		if len(item.Flaws) > 0 {
+			fmt.Fprintf(w, "      Flaws: %s\n", strings.Join(limitStrings(item.Flaws, 4), "; "))
+		}
+		if len(item.Targets) > 0 {
+			fmt.Fprintf(w, "      Targets: %s\n", strings.Join(limitStrings(item.Targets, 5), "; "))
+		}
+		if len(item.EvidenceSources) > 0 {
+			fmt.Fprintf(w, "      Evidence: %s\n", strings.Join(limitStrings(item.EvidenceSources, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 3), "; "))
+		}
+		if len(item.Actions) > 0 {
+			fmt.Fprintf(w, "      Actions: %s\n", strings.Join(limitStrings(item.Actions, 3), "; "))
+		}
+	}
+	if len(items) > limit {
+		fmt.Fprintf(w, "    - %d more closure families in JSON output\n", len(items)-limit)
+	}
+}
+
+func renderArchitectureCaseWorkflow(w io.Writer, families []model.ArchitectureClosureFamily, ctx controlVerificationCommandContext, limit int) {
+	if len(families) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Operator case workflow:\n")
+	fmt.Fprintf(w, "    Board: %s\n", architectureCaseBoardCommand(ctx))
+	fmt.Fprintf(w, "    Focus cases:\n")
+	if limit <= 0 || limit > len(families) {
+		limit = len(families)
+	}
+	for _, family := range families[:limit] {
+		fmt.Fprintf(w, "      - %s %s (%s): %s\n",
+			strings.ToUpper(family.Severity),
+			family.Title,
+			architectureCaseID(family),
+			architectureCaseFocusCommand(ctx, family),
+		)
+	}
+	if len(families) > limit {
+		fmt.Fprintf(w, "      - %d more operator cases in `%s cases` output\n", len(families)-limit, ariadneCommand())
+	}
+}
+
+func architectureCaseBoardCommand(ctx controlVerificationCommandContext) string {
+	cli := ariadneCommand()
+	mode := firstNonEmpty(ctx.Mode, "repo")
+	agent := firstNonEmpty(ctx.Agent, "all")
+	status := firstNonEmpty(ctx.StatusFilter, "breaking")
+	if ctx.RunKind == "case_board_scan" {
+		return fmt.Sprintf("%s cases --targets %s --mode %s --agent %s --status %s", cli, targetsFileCommandArg(ctx.TargetsFile), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+	}
+	path := firstNonEmpty(ctx.Path, "<target-path>")
+	return fmt.Sprintf("%s cases --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status))
+}
+
+func architectureCaseFocusCommand(ctx controlVerificationCommandContext, family model.ArchitectureClosureFamily) string {
+	return architectureCaseBoardCommand(ctx) + " --case " + shellQuoteCommandArg(architectureCaseID(family))
+}
+
+func architectureCaseID(family model.ArchitectureClosureFamily) string {
+	if strings.HasPrefix(family.ID, "case:") {
+		return family.ID
+	}
+	return "case:" + family.ID
+}
+
+func summarizeArchitectureFlaws(flaws []model.ZeroTrustArchitecture) model.ZeroTrustSummary {
+	var summary model.ZeroTrustSummary
+	summary.Total = len(flaws)
+	for _, flaw := range flaws {
+		switch flaw.Status {
+		case model.ZeroTrustBreaking:
+			summary.Breaking++
+		case model.ZeroTrustControlled:
+			summary.Controlled++
+		case model.ZeroTrustUnknown:
+			summary.Unknown++
+		default:
+			summary.NotObserved++
+		}
+	}
+	return summary
+}
+
+func summarizeControlCatalog(items []model.ArchitectureClosure) model.ControlCatalogSummary {
+	var summary model.ControlCatalogSummary
+	targets := map[string]bool{}
+	flaws := map[string]bool{}
+	for _, item := range items {
+		summary.Controls++
+		switch strings.ToLower(item.Severity) {
+		case "critical":
+			summary.Critical++
+		case "high":
+			summary.High++
+		case "medium":
+			summary.Medium++
+		case "low":
+			summary.Low++
+		}
+		for _, target := range item.Targets {
+			if target != "" {
+				targets[target] = true
+			}
+		}
+		for _, flaw := range item.Flaws {
+			if flaw != "" {
+				flaws[flaw] = true
+			}
+		}
+	}
+	summary.Targets = len(targets)
+	summary.Flaws = len(flaws)
+	return summary
+}
+
+func renderControlOperatorCases(w io.Writer, cases []model.ControlOperatorCase, limit int) {
+	if len(cases) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Operator cases:\n")
+	if limit <= 0 || limit > len(cases) {
+		limit = len(cases)
+	}
+	for _, item := range cases[:limit] {
+		fmt.Fprintf(w, "    - %s %s (%s): %d control(s), %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			controlOperatorCaseDisplayTitle(item),
+			item.ID,
+			item.ControlCount,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if item.Question != "" {
+			fmt.Fprintf(w, "      Question: %s\n", item.Question)
+		}
+		if item.State != "" {
+			fmt.Fprintf(w, "      State: %s - %s\n", item.State, item.StateReason)
+		}
+		if item.PriorityReason != "" {
+			fmt.Fprintf(w, "      Priority: %s\n", item.PriorityReason)
+		}
+		if item.Finding != "" {
+			fmt.Fprintf(w, "      Why this case exists: %s\n", item.Finding)
+		}
+		if item.NextStep != "" {
+			fmt.Fprintf(w, "      Next step: %s\n", item.NextStep)
+		}
+		renderControlOperatorActionPacketLine(w, item.ActionPacket)
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 2), "; "))
+			renderEvidenceSourceLines(w, "      ", evidenceReferenceSources(item.EvidenceReferences, false), 8)
+		}
+		if len(item.StartingControls) > 0 {
+			fmt.Fprintf(w, "      Start with: %s\n", strings.Join(limitStrings(item.StartingControls, 4), "; "))
+		}
+		if len(item.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "      Prove at: %s\n", strings.Join(limitStrings(item.ProofSurfaces, 8), "; "))
+		}
+		if len(item.EvidenceExamples) > 0 {
+			fmt.Fprintf(w, "      Evidence examples: %s\n", strings.Join(controlEvidenceExampleLines(item.EvidenceExamples, 2), "; "))
+		}
+		if len(item.ProofPatches) > 0 {
+			fmt.Fprintf(w, "      Proof patches: %s\n", strings.Join(controlProofPatchLines(item.ProofPatches, 2), "; "))
+		}
+		if item.PatchExportCommand != "" {
+			fmt.Fprintf(w, "      Export proof files: %s\n", item.PatchExportCommand)
+		}
+		if len(item.RerunCommands) > 0 {
+			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(item.RerunCommands, 2), "; "))
+		}
+		if len(item.CompareCommands) > 0 {
+			fmt.Fprintf(w, "      Compare loop: %s\n", strings.Join(limitStrings(item.CompareCommands, 3), "; "))
+		}
+		if len(item.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "      Done when: %s\n", strings.Join(limitStrings(item.SuccessCriteria, 2), "; "))
+		}
+	}
+	if len(cases) > limit {
+		fmt.Fprintf(w, "    - %d more operator cases in JSON output\n", len(cases)-limit)
+	}
+}
+
+func renderControlOperatorActionPacketLine(w io.Writer, packet model.ControlOperatorActionPacket) {
+	if !packet.Available {
+		return
+	}
+	summary := []string{}
+	if len(packet.OpenFirst) > 0 {
+		summary = append(summary, fmt.Sprintf("open %d evidence ref(s)", len(packet.OpenFirst)))
+	}
+	if packet.CurrentControl != "" {
+		summary = append(summary, "prove "+packet.CurrentControl)
+	}
+	if packet.ProofSurface != "" {
+		summary = append(summary, "at "+packet.ProofSurface)
+	}
+	if len(packet.Commands) > 0 {
+		summary = append(summary, fmt.Sprintf("verify with %d command(s)", len(packet.Commands)))
+	}
+	if len(summary) > 0 {
+		fmt.Fprintf(w, "      Action packet: %s\n", strings.Join(summary, "; "))
+	}
+	if len(packet.Commands) > 0 {
+		fmt.Fprintf(w, "      Action commands: %s\n", strings.Join(controlOperatorActionCommandLines(packet.Commands, 5), "; "))
+	}
+}
+
+func controlOperatorActionCommandLines(commands []model.ControlOperatorActionCommand, limit int) []string {
+	if limit <= 0 || limit > len(commands) {
+		limit = len(commands)
+	}
+	out := make([]string, 0, limit)
+	for _, command := range commands[:limit] {
+		label := firstNonEmpty(command.Title, command.ID)
+		if command.Command != "" {
+			label += ": " + command.Command
+		} else if len(command.Files) > 0 {
+			label += ": " + strings.Join(firstStrings(command.Files, 3), ", ")
+		}
+		out = append(out, label)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func buildControlOperatorCases(workstreams []model.ControlBreakPathWorkstream, tasks []model.ControlVerificationTask) []model.ControlOperatorCase {
+	taskByControl := map[string]model.ControlVerificationTask{}
+	for _, task := range tasks {
+		if task.Control != "" {
+			taskByControl[task.Control] = task
+		}
+	}
+	var out []model.ControlOperatorCase
+	for _, workstream := range workstreams {
+		selectedTasks := controlOperatorCaseStartingTasks(workstream, taskByControl)
+		caseItem := model.ControlOperatorCase{
+			ID:                 "case:" + workstream.ID,
+			Title:              workstream.Title,
+			Severity:           workstream.Severity,
+			State:              controlOperatorCaseState(workstream),
+			StateReason:        controlOperatorCaseStateReason(workstream),
+			Question:           controlOperatorCaseQuestion(workstream),
+			Finding:            workstream.Rationale,
+			NextStep:           controlOperatorCaseNextStep(selectedTasks, workstream),
+			TargetCount:        workstream.TargetCount,
+			FlawCount:          workstream.FlawCount,
+			ControlCount:       workstream.ControlCount,
+			Targets:            append([]string{}, workstream.Targets...),
+			Flaws:              append([]string{}, workstream.Flaws...),
+			EvidenceReferences: append([]model.EvidenceReference{}, workstream.EvidenceReferences...),
+			StartingControls:   controlOperatorCaseStartingControls(selectedTasks),
+			StartingTaskIDs:    controlOperatorCaseStartingTaskIDs(selectedTasks),
+			ProofSurfaces:      append([]string{}, workstream.ProofSurfaces...),
+			RerunCommands:      controlOperatorCaseRerunCommands(selectedTasks),
+			SuccessCriteria:    append([]string{}, workstream.SuccessCriteria...),
+			Limitations:        append([]string{}, workstream.Limitations...),
+		}
+		var examples []model.ControlEvidenceExample
+		var proofPatches []model.ControlProofPatch
+		var limitations []string
+		for _, task := range selectedTasks {
+			examples = append(examples, task.EvidenceExamples...)
+			proofPatches = append(proofPatches, task.ProofPatches...)
+			limitations = append(limitations, task.Limitations...)
+		}
+		caseItem.EvidenceExamples = dedupeControlEvidenceExamples(examples)
+		caseItem.ProofPatches = dedupeControlProofPatches(proofPatches)
+		caseItem.Limitations = uniqueSortedStrings(append(caseItem.Limitations, limitations...))
+		if len(caseItem.Limitations) == 0 {
+			caseItem.Limitations = []string{"Operator cases are deterministic proof guides; they do not prove live enforcement unless Ariadne observes runtime enforcement evidence or the missing hard barriers disappear."}
+		}
+		out = append(out, caseItem)
+	}
+	if out == nil {
+		return []model.ControlOperatorCase{}
+	}
+	for i := range out {
+		out[i].Rank = i + 1
+		out[i].PriorityReason = controlOperatorCasePriorityReason(out[i])
+	}
+	return out
+}
+
+func controlOperatorCaseQuestion(workstream model.ControlBreakPathWorkstream) string {
+	if workstream.Title == "" {
+		return "What evidence proves this architecture break path is closed?"
+	}
+	return fmt.Sprintf("What evidence proves the %s break path is closed?", workstream.Title)
+}
+
+func controlOperatorCaseState(workstream model.ControlBreakPathWorkstream) string {
+	if workstream.ControlCount > 0 {
+		return "open"
+	}
+	return "no_missing_hard_barrier"
+}
+
+func controlOperatorCasePriorityReason(item model.ControlOperatorCase) string {
+	return fmt.Sprintf("Ranked #%d by deterministic closure priority: %s severity, %d affected flaw(s), %d affected target(s), and %d missing hard-barrier control(s).", item.Rank, strings.ToUpper(item.Severity), item.FlawCount, item.TargetCount, item.ControlCount)
+}
+
+func controlOperatorCaseStateReason(workstream model.ControlBreakPathWorkstream) string {
+	if workstream.ControlCount == 0 {
+		return "No missing hard-barrier controls were returned for this break path."
+	}
+	return fmt.Sprintf("%d missing hard-barrier control(s) remain for %d architecture flaw(s) across %d target(s).", workstream.ControlCount, workstream.FlawCount, workstream.TargetCount)
+}
+
+func controlOperatorCaseDisplayTitle(item model.ControlOperatorCase) string {
+	if item.Rank > 0 {
+		return fmt.Sprintf("#%d %s", item.Rank, item.Title)
+	}
+	return item.Title
+}
+
+func controlOperatorCaseIsClosed(item model.ControlOperatorCase) bool {
+	state := strings.ToLower(strings.TrimSpace(item.State))
+	return state == "closed" || state == "controlled"
+}
+
+func controlOperatorCaseNextStep(tasks []model.ControlVerificationTask, workstream model.ControlBreakPathWorkstream) string {
+	if len(tasks) > 0 {
+		task := tasks[0]
+		surface := firstString(task.ProofSurfaces)
+		if len(task.EvidenceExamples) > 0 && task.EvidenceExamples[0].Surface != "" {
+			surface = task.EvidenceExamples[0].Surface
+		}
+		if task.Control != "" && surface != "" {
+			return fmt.Sprintf("Add or verify %s evidence at %s, then rerun this case. Declarations under .ariadne/ are recorded as attested evidence only; closing the case requires enforced evidence such as runtime permission semantics or managed configuration.", task.Control, surface)
+		}
+		if task.Control != "" {
+			return fmt.Sprintf("Add or verify %s evidence, then rerun this case. Declarations under .ariadne/ are recorded as attested evidence only; closing the case requires enforced evidence such as runtime permission semantics or managed configuration.", task.Control)
+		}
+	}
+	if len(workstream.StartingControls) > 0 {
+		return fmt.Sprintf("Start by proving %s, then rerun this case.", workstream.StartingControls[0])
+	}
+	return "Review the evidence references and add proof for the missing hard-barrier controls."
+}
+
+func controlOperatorCaseStartingTasks(workstream model.ControlBreakPathWorkstream, taskByControl map[string]model.ControlVerificationTask) []model.ControlVerificationTask {
+	orderedControls := append([]string{}, workstream.Controls...)
+	if len(orderedControls) == 0 {
+		orderedControls = append([]string{}, workstream.StartingControls...)
+	}
+	var selected []model.ControlVerificationTask
+	for _, requireControlPrefix := range []bool{true, false} {
+		for _, control := range orderedControls {
+			if requireControlPrefix && !strings.HasPrefix(control, "control:") {
+				continue
+			}
+			if !requireControlPrefix && strings.HasPrefix(control, "control:") {
+				continue
+			}
+			task, ok := taskByControl[control]
+			if !ok || hasControlVerificationTask(selected, task.ID) {
+				continue
+			}
+			selected = append(selected, task)
+			if len(selected) >= 5 {
+				return selected
+			}
+		}
+		if len(selected) > 0 {
+			return selected
+		}
+	}
+	return selected
+}
+
+func hasControlVerificationTask(tasks []model.ControlVerificationTask, id string) bool {
+	for _, task := range tasks {
+		if task.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func controlOperatorCaseStartingControls(tasks []model.ControlVerificationTask) []string {
+	var out []string
+	for _, task := range tasks {
+		out = append(out, task.Control)
+	}
+	return out
+}
+
+func controlOperatorCaseStartingTaskIDs(tasks []model.ControlVerificationTask) []string {
+	var out []string
+	for _, task := range tasks {
+		out = append(out, task.ID)
+	}
+	return out
+}
+
+func controlOperatorCaseRerunCommands(tasks []model.ControlVerificationTask) []string {
+	var out []string
+	for _, task := range tasks {
+		out = append(out, task.RerunCommands...)
+		if len(out) >= 2 {
+			break
+		}
+	}
+	return uniqueStrings(firstStrings(out, 2))
+}
+
+func dedupeControlEvidenceExamples(items []model.ControlEvidenceExample) []model.ControlEvidenceExample {
+	seen := map[string]bool{}
+	var out []model.ControlEvidenceExample
+	for _, item := range items {
+		key := item.Surface + "\x00" + item.Summary + "\x00" + item.Example
+		if key == "\x00\x00" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	if out == nil {
+		return []model.ControlEvidenceExample{}
+	}
+	return out
+}
+
+func dedupeControlProofPatches(items []model.ControlProofPatch) []model.ControlProofPatch {
+	seen := map[string]bool{}
+	var out []model.ControlProofPatch
+	for _, item := range items {
+		key := item.Control + "\x00" + item.Surface + "\x00" + item.Operation + "\x00" + item.Example
+		if key == "\x00\x00\x00" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	if out == nil {
+		return []model.ControlProofPatch{}
+	}
+	return out
+}
+
+func renderControlBreakPathWorkstreams(w io.Writer, workstreams []model.ControlBreakPathWorkstream, limit int) {
+	if len(workstreams) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Break-path workstreams:\n")
+	if limit <= 0 || limit > len(workstreams) {
+		limit = len(workstreams)
+	}
+	for _, item := range workstreams[:limit] {
+		fmt.Fprintf(w, "    - %s %s: %d control(s), %d flaw(s), %d target(s)\n",
+			strings.ToUpper(item.Severity),
+			item.Title,
+			item.ControlCount,
+			item.FlawCount,
+			item.TargetCount,
+		)
+		if len(item.StartingControls) > 0 {
+			fmt.Fprintf(w, "      Starting controls: %s\n", strings.Join(limitStrings(item.StartingControls, 5), "; "))
+		}
+		if len(item.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(item.EvidenceReferences, 2), "; "))
+		}
+		if len(item.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "      Where to prove this: %s\n", strings.Join(limitStrings(item.ProofSurfaces, 5), "; "))
+		}
+		if len(item.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "      Done when: %s\n", strings.Join(limitStrings(item.SuccessCriteria, 2), "; "))
+		}
+	}
+	if len(workstreams) > limit {
+		fmt.Fprintf(w, "    - %d more workstreams in JSON output\n", len(workstreams)-limit)
+	}
+}
+
+func buildControlBreakPathWorkstreams(families []model.ArchitectureClosureFamily, tasks []model.ControlVerificationTask) []model.ControlBreakPathWorkstream {
+	taskByControl := map[string]model.ControlVerificationTask{}
+	for _, task := range tasks {
+		if task.Control != "" {
+			taskByControl[task.Control] = task
+		}
+	}
+	var out []model.ControlBreakPathWorkstream
+	for _, family := range families {
+		var startingTaskIDs []string
+		var startingControls []string
+		var evidenceRefs []model.EvidenceReference
+		var proofSurfaces []string
+		var limitations []string
+		for _, control := range family.Controls {
+			task, ok := taskByControl[control]
+			if !ok {
+				continue
+			}
+			if len(startingTaskIDs) < 5 {
+				startingTaskIDs = append(startingTaskIDs, task.ID)
+				startingControls = append(startingControls, task.Control)
+			}
+			evidenceRefs = append(evidenceRefs, task.EvidenceReferences...)
+			proofSurfaces = append(proofSurfaces, task.ProofSurfaces...)
+			limitations = append(limitations, task.Limitations...)
+		}
+		workstream := model.ControlBreakPathWorkstream{
+			ID:                 family.ID,
+			Title:              family.Title,
+			Severity:           family.Severity,
+			ControlCount:       family.ControlCount,
+			FlawCount:          family.FlawCount,
+			TargetCount:        family.TargetCount,
+			Controls:           append([]string{}, family.Controls...),
+			Flaws:              append([]string{}, family.Flaws...),
+			Targets:            append([]string{}, family.Targets...),
+			EvidenceReferences: dedupeEvidenceReferences(evidenceRefs),
+			ProofSurfaces:      uniqueSortedStrings(proofSurfaces),
+			StartingTaskIDs:    startingTaskIDs,
+			StartingControls:   startingControls,
+			Rationale:          controlWorkstreamRationale(family),
+			SuccessCriteria:    controlWorkstreamSuccessCriteria(family),
+			Limitations:        uniqueSortedStrings(limitations),
+		}
+		if len(workstream.Limitations) == 0 {
+			workstream.Limitations = []string{"This workstream groups deterministic proof tasks. It does not prove runtime enforcement until Ariadne observes enforcement evidence or the missing hard barriers disappear from the architecture output."}
+		}
+		out = append(out, workstream)
+	}
+	if out == nil {
+		return []model.ControlBreakPathWorkstream{}
+	}
+	return out
+}
+
+func controlWorkstreamRationale(family model.ArchitectureClosureFamily) string {
+	if len(family.Flaws) == 0 {
+		return "This capability family contains missing hard barriers from the architecture closure plan."
+	}
+	return fmt.Sprintf("Addresses %d architecture flaw(s) across %d target(s): %s", family.FlawCount, family.TargetCount, strings.Join(limitStrings(family.Flaws, 3), "; "))
+}
+
+func controlWorkstreamSuccessCriteria(family model.ArchitectureClosureFamily) []string {
+	return []string{
+		fmt.Sprintf("%s no longer appears in the control catalog workstreams for the selected status filter.", family.Title),
+		"Relevant controls are no longer returned as missing hard barriers in the controls output.",
+		"Associated architecture flaws are controlled, not observed, or no longer list the workstream controls in missing_hard_barriers.",
+	}
+}
+
+func renderControlVerificationTasks(w io.Writer, tasks []model.ControlVerificationTask, limit int) {
+	if len(tasks) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  Verification tasks:\n")
+	if limit <= 0 || limit > len(tasks) {
+		limit = len(tasks)
+	}
+	for _, task := range tasks[:limit] {
+		fmt.Fprintf(w, "    - %s %s\n", strings.ToUpper(task.Severity), task.Control)
+		if task.Why != "" {
+			fmt.Fprintf(w, "      Why: %s\n", task.Why)
+		}
+		if len(task.EvidenceReferences) > 0 {
+			fmt.Fprintf(w, "      Evidence references: %s\n", strings.Join(evidenceReferenceLines(task.EvidenceReferences, 2), "; "))
+		}
+		if len(task.ProofSurfaces) > 0 {
+			fmt.Fprintf(w, "      Add or verify at: %s\n", strings.Join(limitStrings(task.ProofSurfaces, 4), "; "))
+		}
+		if len(task.RecognizedIndicators) > 0 {
+			fmt.Fprintf(w, "      Accepted indicators: %s\n", strings.Join(limitStrings(task.RecognizedIndicators, 5), "; "))
+		}
+		if len(task.EvidenceExamples) > 0 {
+			fmt.Fprintf(w, "      Evidence examples: %s\n", strings.Join(controlEvidenceExampleLines(task.EvidenceExamples, 2), "; "))
+		}
+		if len(task.ProofPatches) > 0 {
+			fmt.Fprintf(w, "      Proof patches: %s\n", strings.Join(controlProofPatchLines(task.ProofPatches, 2), "; "))
+		}
+		if len(task.RerunCommands) > 0 {
+			fmt.Fprintf(w, "      Rerun: %s\n", strings.Join(limitStrings(task.RerunCommands, 2), "; "))
+		}
+		if len(task.SuccessCriteria) > 0 {
+			fmt.Fprintf(w, "      Done when: %s\n", strings.Join(limitStrings(task.SuccessCriteria, 2), "; "))
+		}
+	}
+	if len(tasks) > limit {
+		fmt.Fprintf(w, "    - %d more verification tasks in JSON output\n", len(tasks)-limit)
+	}
+}
+
+type controlVerificationCommandContext struct {
+	RunKind      string
+	Path         string
+	TargetsFile  string
+	Mode         string
+	Agent        string
+	StatusFilter string
+}
+
+func buildControlVerificationTasks(items []model.ArchitectureClosure, proofSpecs []model.ControlProofSpec, ctx controlVerificationCommandContext) []model.ControlVerificationTask {
+	proofByControl := controlProofSpecsByControl(proofSpecs)
+	var out []model.ControlVerificationTask
+	for _, item := range items {
+		if item.Control == "" {
+			continue
+		}
+		proof := proofByControl[item.Control]
+		proofSurfaces := proof.ProofSurfaces
+		if len(proofSurfaces) == 0 {
+			proofSurfaces = item.EvidenceSurfaces
+		}
+		limitations := append([]string{}, proof.Limitations...)
+		if len(limitations) == 0 {
+			limitations = []string{"This task verifies deterministic evidence Ariadne can parse; it does not prove live runtime enforcement unless runtime enforcement evidence is observed."}
+		}
+		rerunCommands := controlVerificationCommands(ctx)
+		successCriteria := controlVerificationSuccessCriteria(item.Control)
+		task := model.ControlVerificationTask{
+			ID:                   controlVerificationTaskID(item.Control),
+			Control:              item.Control,
+			Severity:             item.Severity,
+			Targets:              append([]string{}, item.Targets...),
+			Question:             fmt.Sprintf("Can Ariadne observe %s evidence that breaks this missing hard-barrier path?", item.Control),
+			Why:                  controlVerificationWhy(item),
+			EvidenceReferences:   dedupeEvidenceReferences(item.EvidenceReferences),
+			ProofSurfaces:        uniqueSortedStrings(proofSurfaces),
+			RecognizedIndicators: append([]string{}, proof.RecognizedIndicators...),
+			EvidenceExamples:     controlEvidenceExamples(item.Control, proofSurfaces, proof.RecognizedIndicators),
+			ProofPatches:         controlProofPatches(item.Control, proofSurfaces, proof.RecognizedIndicators, rerunCommands, successCriteria),
+			Actions:              append([]string{}, item.Actions...),
+			RerunCommands:        rerunCommands,
+			SuccessCriteria:      successCriteria,
+			Limitations:          limitations,
+		}
+		out = append(out, task)
+	}
+	if out == nil {
+		return []model.ControlVerificationTask{}
+	}
+	return out
+}
+
+func controlVerificationTaskID(control string) string {
+	var b strings.Builder
+	b.WriteString("verify:")
+	for _, r := range strings.ToLower(control) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		if b.Len() > len("verify:") && b.String()[b.Len()-1] != '-' {
+			b.WriteRune('-')
+		}
+	}
+	id := strings.TrimRight(b.String(), "-")
+	if id == "verify:" {
+		return "verify:control"
+	}
+	return id
+}
+
+func controlVerificationWhy(item model.ArchitectureClosure) string {
+	if len(item.Flaws) == 0 {
+		return "This missing hard barrier is part of the architecture closure plan."
+	}
+	return "Closes: " + strings.Join(limitStrings(item.Flaws, 4), "; ")
+}
+
+func controlVerificationCommands(ctx controlVerificationCommandContext) []string {
+	cli := ariadneCommand()
+	mode := ctx.Mode
+	if mode == "" {
+		mode = "repo"
+	}
+	agent := ctx.Agent
+	if agent == "" {
+		agent = "all"
+	}
+	status := ctx.StatusFilter
+	if status == "" {
+		status = "breaking"
+	}
+	if ctx.RunKind == "control_catalog_scan" {
+		targetsArg := targetsFileCommandArg(ctx.TargetsFile)
+		return []string{
+			fmt.Sprintf("%s controls --targets %s --mode %s --agent %s --status %s", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
+			fmt.Sprintf("%s architecture --targets %s --mode %s --agent %s --status all", cli, targetsArg, shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+		}
+	}
+	path := ctx.Path
+	if path == "" {
+		path = "<target-path>"
+	}
+	return []string{
+		fmt.Sprintf("%s controls --path %s --mode %s --agent %s --status %s", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent), shellQuoteCommandArg(status)),
+		fmt.Sprintf("%s architecture --path %s --mode %s --agent %s --status all", cli, shellQuoteCommandArg(path), shellQuoteCommandArg(mode), shellQuoteCommandArg(agent)),
+	}
+}
+
+func controlVerificationSuccessCriteria(control string) []string {
+	return []string{
+		fmt.Sprintf("%s is no longer returned in the controls output as a missing hard barrier.", control),
+		fmt.Sprintf("Associated architecture flaws no longer list %s in control_test.missing_hard_barriers.", control),
+		"If the task is still present, evidence_refs should point to the remaining source or architecture gap.",
+	}
+}
+
+func controlEvidenceExamples(control string, proofSurfaces []string, indicators []string) []model.ControlEvidenceExample {
+	surface := preferredControlEvidenceExampleSurface(control, proofSurfaces)
+	if surface == "" {
+		surface = "supported control evidence surface"
+	}
+	fields := firstStrings(uniqueControlEvidenceExampleIndicators(controlEvidenceExampleIndicators(control, indicators)), 2)
+	return []model.ControlEvidenceExample{
+		{
+			Surface: surface,
+			Summary: fmt.Sprintf("Declare %s evidence for %s using parser-recognized indicators.", strings.Join(fields, " and "), control),
+			Example: controlEvidenceExampleBody(surface, fields),
+			Limitations: []string{
+				"Example evidence shows the declared proof shape only; live enforcement still requires observed runtime enforcement evidence when applicable.",
+			},
+		},
+	}
+}
+
+func controlProofPatches(control string, proofSurfaces []string, indicators []string, rerunCommands []string, successCriteria []string) []model.ControlProofPatch {
+	surface := preferredControlEvidenceExampleSurface(control, proofSurfaces)
+	if surface == "" {
+		surface = "supported control evidence surface"
+	}
+	fields := controlProofPatchFields(firstStrings(uniqueControlEvidenceExampleIndicators(controlEvidenceExampleIndicators(control, indicators)), 2))
+	if len(fields) == 0 {
+		return []model.ControlProofPatch{}
+	}
+	return []model.ControlProofPatch{
+		{
+			Control:         control,
+			Surface:         surface,
+			Format:          controlProofPatchFormat(surface),
+			Operation:       "add_or_update_declared_evidence",
+			Summary:         fmt.Sprintf("Add parser-recognized declared evidence for %s, then rerun Ariadne to verify the graph path changes.", control),
+			Fields:          fields,
+			Example:         controlEvidenceExampleBody(surface, controlProofPatchIndicators(fields)),
+			RerunCommands:   append([]string{}, rerunCommands...),
+			SuccessCriteria: append([]string{}, successCriteria...),
+			Limitations: []string{
+				"Proof patches declare evidence Ariadne can parse; they do not prove live enforcement unless Ariadne also observes runtime enforcement evidence.",
+			},
+		},
+	}
+}
+
+func controlProofPatchFields(indicators []string) []model.ControlProofPatchField {
+	indicators = uniqueControlEvidenceExampleIndicators(indicators)
+	var fields []model.ControlProofPatchField
+	for _, indicator := range indicators {
+		name, value := controlEvidenceExampleKeyValue(indicator)
+		fields = append(fields, model.ControlProofPatchField{
+			Indicator: indicator,
+			Name:      name,
+			ValueJSON: value,
+		})
+	}
+	if fields == nil {
+		return []model.ControlProofPatchField{}
+	}
+	return fields
+}
+
+func uniqueControlEvidenceExampleIndicators(indicators []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, indicator := range indicators {
+		key, _ := controlEvidenceExampleKeyValue(indicator)
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, indicator)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func controlProofPatchIndicators(fields []model.ControlProofPatchField) []string {
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, field.Indicator)
+	}
+	return out
+}
+
+func controlProofPatchFormat(surface string) string {
+	switch {
+	case strings.HasSuffix(surface, ".toml") || strings.Contains(surface, "config.toml"):
+		return "toml_snippet"
+	case strings.HasSuffix(surface, ".md"):
+		return "markdown_list"
+	case strings.HasSuffix(surface, ".json"):
+		return "json_merge_object"
+	default:
+		return "declared_evidence"
+	}
+}
+
+func preferredControlEvidenceExampleSurface(control string, proofSurfaces []string) string {
+	for _, preferred := range preferredControlEvidenceSurfaceOrder(control) {
+		for _, surface := range proofSurfaces {
+			if surface == preferred {
+				return surface
+			}
+		}
+	}
+	for _, surface := range proofSurfaces {
+		if strings.HasPrefix(surface, ".ariadne/") {
+			return surface
+		}
+	}
+	for _, surface := range proofSurfaces {
+		if strings.HasPrefix(surface, ".claude/") || strings.HasPrefix(surface, ".codex/") {
+			return surface
+		}
+	}
+	if len(proofSurfaces) > 0 {
+		return proofSurfaces[0]
+	}
+	return ""
+}
+
+func preferredControlEvidenceSurfaceOrder(control string) []string {
+	switch {
+	case strings.Contains(control, "input") || strings.Contains(control, "trusted-source") || strings.Contains(control, "prompt-injection"):
+		return []string{".ariadne/input-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "response") || strings.Contains(control, "triage") || strings.Contains(control, "behavioral") || strings.Contains(control, "session-termination") || strings.Contains(control, "credential-revocation") || strings.Contains(control, "quarantine") || strings.Contains(control, "access-reduction"):
+		return []string{".ariadne/response-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "identity") || strings.Contains(control, "credential") || strings.Contains(control, "jit") || strings.Contains(control, "token-lifetime") || strings.Contains(control, "hardware-bound"):
+		return []string{".ariadne/identity-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "egress") || strings.Contains(control, "network-restricted") || strings.Contains(control, "webhook") || strings.Contains(control, "per-tool-network"):
+		return []string{".ariadne/egress-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "output"):
+		return []string{".ariadne/output-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "deny-secret-read") || strings.Contains(control, "deny-read"):
+		return []string{".ariadne/agent-policy.json", ".claude/settings.json", ".claude/settings.local.json", ".codex/config.toml"}
+	case strings.Contains(control, "resource") || strings.Contains(control, "rate-limit") || strings.Contains(control, "spend") || strings.Contains(control, "loop") || strings.Contains(control, "timeout") || strings.Contains(control, "concurrency") || strings.Contains(control, "circuit-breaker"):
+		return []string{".ariadne/resource-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "governance") || strings.Contains(control, "inventory") || strings.Contains(control, "owner") || strings.Contains(control, "deployment-approval") || strings.Contains(control, "risk-assessment") || strings.Contains(control, "shadow-ai"):
+		return []string{".ariadne/governance-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "config") || strings.Contains(control, "managed-settings") || strings.Contains(control, "immutable-agent-runtime") || strings.Contains(control, "rollback"):
+		return []string{".ariadne/integrity-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "delegation") || strings.Contains(control, "delegate") || strings.Contains(control, "subagent") || strings.Contains(control, "agent-to-agent") || strings.Contains(control, "origin-intent"):
+		return []string{".ariadne/delegation-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "memory") || strings.Contains(control, "context"):
+		return []string{".ariadne/memory-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "authorization") || strings.Contains(control, "abac") || strings.Contains(control, "caller") || strings.Contains(control, "workload") || strings.Contains(control, "privilege-scoping") || strings.Contains(control, "access-revocation"):
+		return []string{".ariadne/authorization-policy.json", ".ariadne/workload-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "audit") || strings.Contains(control, "log") || strings.Contains(control, "trace") || strings.Contains(control, "telemetry"):
+		return []string{".ariadne/observability-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "tool") || strings.Contains(control, "mcp"):
+		return []string{".ariadne/tool-policy.json", ".ariadne/mcp-policy.json", ".ariadne/agent-policy.json"}
+	case strings.Contains(control, "ai-bom") || strings.Contains(control, "model") || strings.Contains(control, "training") || strings.Contains(control, "dependency") || strings.Contains(control, "provider") || strings.Contains(control, "artifact") || strings.Contains(control, "runtime-component"):
+		return []string{".ariadne/supply-chain-policy.json", ".ariadne/agent-policy.json"}
+	default:
+		return []string{".ariadne/agent-policy.json"}
+	}
+}
+
+func firstStrings(items []string, limit int) []string {
+	if limit <= 0 || len(items) <= limit {
+		return append([]string{}, items...)
+	}
+	return append([]string{}, items[:limit]...)
+}
+
+func firstString(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return items[0]
+}
+
+func controlEvidenceExampleIndicators(control string, indicators []string) []string {
+	if len(indicators) > 0 {
+		return append([]string{}, indicators...)
+	}
+	return controlRecognizedIndicators(control)
+}
+
+func controlEvidenceExampleBody(surface string, indicators []string) string {
+	if len(indicators) == 0 {
+		return "{}"
+	}
+	if strings.HasSuffix(surface, ".toml") || strings.Contains(surface, "config.toml") {
+		var lines []string
+		for _, indicator := range indicators {
+			key, value := controlEvidenceExampleKeyValue(indicator)
+			lines = append(lines, fmt.Sprintf("%s = %s", key, value))
+		}
+		return strings.Join(lines, "\n")
+	}
+	if strings.HasSuffix(surface, ".md") {
+		var lines []string
+		for _, indicator := range indicators {
+			lines = append(lines, "- "+indicator)
+		}
+		return strings.Join(lines, "\n")
+	}
+	var parts []string
+	for _, indicator := range indicators {
+		key, value := controlEvidenceExampleKeyValue(indicator)
+		parts = append(parts, fmt.Sprintf("%q: %s", key, value))
+	}
+	return "{\n  " + strings.Join(parts, ",\n  ") + "\n}"
+}
+
+func controlEvidenceExampleKeyValue(indicator string) (string, string) {
+	key := indicator
+	value := "true"
+	if before, after, ok := strings.Cut(indicator, ":"); ok {
+		key = before
+		switch strings.ToLower(after) {
+		case "true", "false":
+			value = strings.ToLower(after)
+		default:
+			value = fmt.Sprintf("%q", after)
+		}
+	}
+	key = strings.TrimSpace(key)
+	key = strings.Trim(key, "\"'")
+	key = strings.ReplaceAll(key, "-", "_")
+	if key == "" {
+		key = "control_evidence"
+	}
+	return key, value
+}
+
+func controlEvidenceExampleLines(examples []model.ControlEvidenceExample, limit int) []string {
+	if limit <= 0 || limit > len(examples) {
+		limit = len(examples)
+	}
+	var out []string
+	for _, example := range examples[:limit] {
+		line := strings.TrimSpace(example.Surface)
+		if example.Summary != "" {
+			if line != "" {
+				line += ": "
+			}
+			line += strings.TrimSpace(example.Summary)
+		}
+		if example.Example != "" {
+			if line != "" {
+				line += " "
+			}
+			line += "Example: " + compactExample(example.Example)
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	if len(examples) > limit {
+		out = append(out, fmt.Sprintf("%d additional example(s) in JSON output", len(examples)-limit))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func controlProofPatchLines(patches []model.ControlProofPatch, limit int) []string {
+	if limit <= 0 || limit > len(patches) {
+		limit = len(patches)
+	}
+	var out []string
+	for _, patch := range patches[:limit] {
+		line := strings.TrimSpace(patch.Surface)
+		if line == "" {
+			line = strings.TrimSpace(patch.Control)
+		}
+		var fields []string
+		for _, field := range patch.Fields {
+			fields = append(fields, field.Name+"="+field.ValueJSON)
+		}
+		if len(fields) > 0 {
+			line += " " + patch.Operation + " " + strings.Join(limitStrings(fields, 3), ", ")
+		} else if patch.Operation != "" {
+			line += " " + patch.Operation
+		}
+		if patch.Example != "" {
+			line += " Example: " + compactExample(patch.Example)
+		}
+		out = append(out, strings.TrimSpace(line))
+	}
+	if len(patches) > limit {
+		out = append(out, fmt.Sprintf("%d additional proof patch(es) in JSON output", len(patches)-limit))
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func compactExample(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if len(value) > 180 {
+		return value[:177] + "..."
+	}
+	return value
+}
+
+func shellQuoteCommandArg(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if strings.HasPrefix(value, "<") && strings.HasSuffix(value, ">") {
+		return value
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '/' || r == '.' || r == '_' || r == '-' || r == ':' {
+			continue
+		}
+		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	}
+	return value
+}
+
+func targetsFileCommandArg(value string) string {
+	return shellQuoteCommandArg(firstNonEmpty(value, "<targets-file>"))
+}
+
+func buildControlProofSpecs(items []model.ArchitectureClosure) []model.ControlProofSpec {
+	var out []model.ControlProofSpec
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Control == "" || seen[item.Control] {
+			continue
+		}
+		seen[item.Control] = true
+		out = append(out, model.ControlProofSpec{
+			Control:              item.Control,
+			EvidenceKind:         controlEvidenceKind(item.Control),
+			ProofSurfaces:        uniqueSortedStrings(item.EvidenceSurfaces),
+			RecognizedIndicators: controlRecognizedIndicators(item.Control),
+			Notes:                controlProofNotes(item.Control),
+			Limitations: []string{
+				"Ariadne treats these as deterministic declared or observed evidence indicators; it does not prove live enforcement unless a collector observes runtime enforcement evidence.",
+			},
+		})
+	}
+	if out == nil {
+		return []model.ControlProofSpec{}
+	}
+	return out
+}
+
+func controlEvidenceKind(control string) string {
+	switch control {
+	case "control:agent-action-log-evidence",
+		"control:approval-log-evidence",
+		"control:observed-request-traceability",
+		"control:tool-call-audit-evidence":
+		return "observed_log_or_transcript_metadata"
+	case "control:telemetry-export", "control:immutable-audit-log":
+		return "declared_or_observed_observability_evidence"
+	default:
+		return "declared_control_evidence"
+	}
+}
+
+func controlProofNotes(control string) []string {
+	switch control {
+	case "control:input-isolation", "control:trusted-source-policy":
+		return []string{"Input isolation or trusted-source policy can break untrusted instruction influence when connected to authority-bearing runtime paths."}
+	case "control:cryptographic-identity", "control:credential-isolation", "control:short-lived-credential", "control:hardware-bound-credential", "control:jit-access":
+		return []string{"Identity controls are strongest when agent identity and credential scoping are both present."}
+	case "control:network-restricted", "control:egress-destination-allowlist", "control:webhook-allowlist", "control:per-tool-network-scope":
+		return []string{"Egress controls are strongest when private-data access and arbitrary external communication cannot exist in the same path."}
+	case "control:approval-log-evidence", "control:approval-required":
+		return []string{"Approval evidence needs both a pre-action gate and reconstructable approval decision metadata."}
+	default:
+		return []string{}
+	}
+}
+
+func controlRecognizedIndicators(control string) []string {
+	switch control {
+	case "control:input-isolation":
+		return []string{"input_isolation", "instruction_isolation", "treat_untrusted_as_data", "data_only_context"}
+	case "control:trusted-source-policy":
+		return []string{"trusted_instruction_sources", "trusted_sources", "allowed_instruction_sources", "allow_untrusted_instructions:false"}
+	case "control:deny-by-default", "control:deny-by-default-permissions":
+		return []string{"deny_by_default", "default_policy:deny", "default_deny:true", "deny-by-default"}
+	case "control:least-agency-policy":
+		return []string{"least_agency", "least_privilege", "tool_scope", "permission_scope"}
+	case "control:scoped-permissions":
+		return []string{"scoped_permissions", "permission_scope", "tool_scope", "deny_read", "sandbox_mode:workspace-write", "sandbox_mode:read-only"}
+	case "control:deny-secret-read":
+		return []string{"deny_secret_read", "deny_read", "blocked_secret_paths:.env,.ssh,.aws,*.pem"}
+	case "control:mcp-reviewed-pinned":
+		return []string{"require_pinned_packages", "pinned_packages", "package_digest", "reviewed_mcp_servers", "mcp_review_required"}
+	case "control:tool-allowlist":
+		return []string{"approved_tools", "allowed_tools", "tool_allowlist", "approved_mcp_servers", "mcp_allowlist"}
+	case "control:tool-descriptor-integrity":
+		return []string{"tool_descriptor_integrity", "descriptor_integrity", "tool_schema_integrity", "descriptor_signature"}
+	case "control:tool-argument-validation":
+		return []string{"tool_argument_validation", "argument_validation", "validate_tool_arguments", "pre_tool_use"}
+	case "control:tool-auth-required":
+		return []string{"tool_auth_required", "tool_authentication", "mcp_auth_required", "oauth_tool_auth", "short_lived_tool_token"}
+	case "control:signed-tool-artifacts":
+		return []string{"signed_tool_artifacts", "signed_mcp_servers", "tool_signature", "cosign", "sigstore"}
+	case "control:tool-deployment-verification":
+		return []string{"tool_deployment_verification", "mcp_deployment_verification", "reject_unsigned_tools", "tool_admission_verification"}
+	case "control:tool-sandbox-execution":
+		return []string{"tool_sandbox_execution", "sandboxed_tool_execution", "mcp_sandbox", "tool_filesystem_isolation"}
+	case "control:network-restricted":
+		return []string{"network_access:false", "external_network:false", "block_external_network", "deny_network"}
+	case "control:egress-destination-allowlist":
+		return []string{"egress_destination_allowlist", "external_destination_allowlist", "allowed_destinations", "allowed_domains"}
+	case "control:webhook-allowlist":
+		return []string{"webhook_allowlist", "allowed_webhooks", "approved_webhooks", "webhook_destinations"}
+	case "control:per-tool-network-scope":
+		return []string{"per_tool_network_scope", "tool_network_scope", "tool_egress_scope", "allowed_network_by_tool"}
+	case "control:egress-content-filter":
+		return []string{"egress_content_filter", "external_content_filter", "sensitive_output_filter", "block_secret_like"}
+	case "control:egress-audit":
+		return []string{"egress_audit", "outbound_audit", "external_communication_logging", "egress_log"}
+	case "control:output-sensitive-data-filter":
+		return []string{"output_sensitive_data_filter", "sensitive_output_filter", "output_dlp", "credential_filter"}
+	case "control:output-redaction":
+		return []string{"output_redaction", "redact_outputs", "block_sensitive_output", "redact_secret_like", "output_delivery_gate"}
+	case "control:output-filter-logging":
+		return []string{"output_filter_logging", "output_control_audit", "filtering_events", "redaction_logging"}
+	case "control:semantic-output-analysis":
+		return []string{"semantic_output_analysis", "output_semantic_review", "semantic_dlp", "encoded_secret_detection"}
+	case "control:high-risk-output-review":
+		return []string{"high_risk_output_review", "human_review_for_high_risk_output", "output_approval", "approve_sensitive_output"}
+	case "control:cryptographic-identity":
+		return []string{"cryptographic_identity", "workload_identity", "agent_certificate", "spiffe", "spiffe_id", "mtls"}
+	case "control:credential-isolation":
+		return []string{"credential_isolation", "per_agent_credentials", "unique_agent_credentials", "agent_scoped_credentials", "no_shared_credentials"}
+	case "control:short-lived-credential":
+		return []string{"oauth", "oidc", "short_lived", "federated_identity", "jit_access"}
+	case "control:hardware-bound-credential":
+		return []string{"hardware_bound", "hardware_backed", "passkey", "fido2", "secure_enclave", "tpm"}
+	case "control:jit-access", "control:jit-elevation":
+		return []string{"jit_access", "just_in_time", "jit_elevation", "privilege_elevation_ttl", "standing_access:false"}
+	case "control:token-lifetime-policy":
+		return []string{"token_lifetime", "credential_ttl", "max_token_ttl", "max_session_duration", "ttl_minutes"}
+	case "control:identity-lifecycle":
+		return []string{"identity_lifecycle", "credential_rotation", "certificate_lifecycle", "revocation:true", "revoke_on_exit"}
+	case "control:credential-helper":
+		return []string{"credential_helper", "credential_process", "secret_manager", "vault", "keychain"}
+	case "control:identity-based-isolation":
+		return []string{"identity_based_isolation", "workload_isolation", "identity_aware_proxy"}
+	case "control:named-caller-allowlist":
+		return []string{"named_callers", "allowed_callers", "caller_allowlist", "allowed_principals"}
+	case "control:abac-policy":
+		return []string{"abac", "attribute_based", "subject_attributes", "resource_attributes", "context_attributes", "policy_conditions"}
+	case "control:network-segmentation":
+		return []string{"network_segmentation", "microsegmentation"}
+	case "control:tool-scope-policy":
+		return []string{"tool_scope", "tool_scopes", "per_tool_scope", "allowed_tools", "permission_scope"}
+	case "control:per-action-authorization":
+		return []string{"per_action_authorization", "authorize_each_action", "per_tool_authorization", "authorize_tool_call"}
+	case "control:continuous-authorization":
+		return []string{"continuous_authorization", "real_time_policy_evaluation", "policy_evaluation_per_action", "reauthorize_on_risk_change"}
+	case "control:dynamic-privilege-scoping":
+		return []string{"dynamic_privilege_scoping", "dynamic_permission_scope", "just_enough_access", "task_scoped_privileges"}
+	case "control:automatic-access-revocation":
+		return []string{"automatic_access_revocation", "auto_revoke_access", "revoke_on_risk_change", "revoke_after_task", "policy_failure_revocation"}
+	case "control:approval-required":
+		return []string{"approval_policy:on-request", "approval_policy:on-failure", "approval_required:true", "require_approval:true", "pretooluse"}
+	case "control:approval-log-evidence":
+		return []string{"approval_logging", "approval decision event shape", "permission decision event shape", "timestamp"}
+	case "control:agent-action-log-evidence":
+		return []string{"tool_call_logging", "agent action event shape", "request_id", "trace_id", "timestamp"}
+	case "control:tool-call-audit-evidence":
+		return []string{"tool_call_logging", "tool call event shape", "tool name", "timestamp"}
+	case "control:observed-request-traceability":
+		return []string{"request_id", "trace_id", "correlation_id", "distributed_tracing", "input_to_output_trace"}
+	case "control:telemetry-export":
+		return []string{"telemetry_export", "siem_export", "otlp", "opentelemetry", "exporters"}
+	case "control:immutable-audit-log":
+		return []string{"immutable_audit", "append_only", "object_lock", "worm", "tamper_resistant"}
+	case "control:tool-rate-limit":
+		return []string{"tool_rate_limit", "rate_limits", "api_call_limit", "requests_per_minute"}
+	case "control:spend-limit":
+		return []string{"spend_limit", "budget_limit", "cost_limit", "token_budget", "quota_limit"}
+	case "control:loop-guard":
+		return []string{"loop_guard", "loop_detection", "max_iterations", "recursion_limit", "repeat_call_guard"}
+	case "control:tool-timeout":
+		return []string{"tool_timeout", "timeout_seconds", "execution_timeout", "max_tool_runtime"}
+	case "control:concurrency-limit":
+		return []string{"concurrency_limit", "max_concurrency", "parallel_tool_limit", "worker_limit"}
+	case "control:tool-circuit-breaker":
+		return []string{"tool_circuit_breaker", "circuit_breaker", "rate_limit", "spend_limit", "usage_limit"}
+	case "control:resource-usage-audit":
+		return []string{"resource_usage_audit", "usage_logging", "cost_logging", "budget_alert", "quota_alert"}
+	case "control:automated-triage":
+		return []string{"automated_triage", "first_pass_investigation", "alert_triage", "siem_triage"}
+	case "control:behavioral-monitoring":
+		return []string{"behavioral_monitoring", "anomaly_detection", "behavior_baseline", "dwell_time"}
+	case "control:session-termination":
+		return []string{"session_termination", "terminate_session", "kill_session", "end_agent_session"}
+	case "control:credential-revocation":
+		return []string{"credential_revocation", "revoke_credentials", "revoke_tokens", "token_revocation"}
+	case "control:containment-quarantine":
+		return []string{"containment_quarantine", "automatic_containment", "quarantine_agent", "network_quarantine"}
+	case "control:dynamic-access-reduction":
+		return []string{"dynamic_access_reduction", "privilege_reduction", "downscope_on_risk"}
+	case "control:response-escalation":
+		return []string{"response_escalation", "escalation_paths", "incident_response_runbook"}
+	case "control:agent-inventory":
+		return []string{"agent_inventory", "agent_registry", "registered_agents", "ai_inventory"}
+	case "control:accountable-owner", "control:deployment-owner":
+		return []string{"deployment_owner", "accountable_owner", "security_owner", "responsible_team"}
+	case "control:deployment-approval":
+		return []string{"deployment_approval", "new_agent_approval", "governance_approval", "approved_deployment"}
+	case "control:risk-assessment":
+		return []string{"risk_assessment", "risk_tier", "data_classification", "business_impact"}
+	case "control:governance-review", "control:governance-audit":
+		return []string{"governance_review", "policy_review", "periodic_review", "compliance_review", "review_cadence"}
+	case "control:shadow-ai-discovery":
+		return []string{"shadow_ai_detection", "shadow_ai_discovery", "unauthorized_llm_detection", "unmanaged_agent_detection"}
+	case "control:context-retention":
+		return []string{"context_retention", "retention_days", "memory_retention", "transcript_retention"}
+	case "control:memory-isolation":
+		return []string{"memory_isolation", "context_isolation", "tenant_memory_isolation", "isolated_memory"}
+	case "control:context-integrity":
+		return []string{"context_integrity", "memory_integrity", "context_hash", "context_signature"}
+	case "control:context-provenance":
+		return []string{"context_provenance", "memory_provenance", "context_source", "source_attribution"}
+	case "control:config-version-control":
+		return []string{"version_controlled_config", "config_version_control", "config_in_git", "change_history"}
+	case "control:config-review-required":
+		return []string{"config_review_required", "required_review", "pull_request_required", "code_owner_review"}
+	case "control:signed-config":
+		return []string{"signed_config", "config_signature", "policy_signature", "signature_required"}
+	case "control:config-deployment-verification":
+		return []string{"config_deployment_verification", "verify_before_deploy", "reject_unsigned", "admission_verification"}
+	case "control:managed-settings-enforced":
+		return []string{"managed_settings_enforced", "managed_only", "users_cannot_override", "mdm_enforced"}
+	case "control:immutable-agent-runtime":
+		return []string{"immutable_runtime", "immutable_agent_runtime", "ephemeral_vm", "attested_image"}
+	case "control:config-rollback-procedure":
+		return []string{"rollback_procedure", "documented_rollback", "restore_previous_config", "previous_versions"}
+	case "control:automated-config-rollback":
+		return []string{"automated_rollback", "auto_rollback", "rollback_on_failure", "self_healing"}
+	case "control:ai-bom":
+		return []string{"ai_bom", "ai-bom", "ml_bom", "cyclonedx", "bill_of_materials"}
+	case "control:model-provenance":
+		return []string{"model_provenance", "model_provider", "model_version", "model_digest", "model_lineage"}
+	case "control:training-data-lineage":
+		return []string{"training_data_lineage", "dataset_lineage", "fine_tuning_data"}
+	case "control:dependency-health-scan":
+		return []string{"dependency_health", "openssf_scorecard", "dependency_scan", "vulnerability_scan"}
+	case "control:provider-risk-review":
+		return []string{"provider_risk_review", "vendor_risk_review", "security_review", "model_provider_review"}
+	case "control:signed-ai-artifacts":
+		return []string{"signed_ai_artifacts", "model_signature", "dataset_signature", "cosign", "sigstore"}
+	case "control:runtime-component-validation":
+		return []string{"runtime_component_validation", "component_integrity", "runtime_attestation", "verify_runtime_components"}
+	case "control:dependency-reachability-analysis":
+		return []string{"reachability_analysis", "dependency_reachability", "reachable_vulnerabilities"}
+	default:
+		if strings.HasPrefix(control, "control:") {
+			return []string{strings.ReplaceAll(strings.TrimPrefix(control, "control:"), "-", "_")}
+		}
+		return []string{control}
+	}
+}
+
+func incrementZeroTrustSummary(summary *model.ZeroTrustSummary, status model.ZeroTrustStatus) {
+	summary.Total++
+	switch status {
+	case model.ZeroTrustBreaking:
+		summary.Breaking++
+	case model.ZeroTrustControlled:
+		summary.Controlled++
+	case model.ZeroTrustUnknown:
+		summary.Unknown++
+	default:
+		summary.NotObserved++
+	}
+}
+
+func incrementArchitectureScanSummary(summary *model.ArchitectureScanSummary, status model.ZeroTrustStatus) {
+	summary.MatchingFlaws++
+	switch status {
+	case model.ZeroTrustBreaking:
+		summary.Breaking++
+	case model.ZeroTrustControlled:
+		summary.Controlled++
+	case model.ZeroTrustUnknown:
+		summary.Unknown++
+	default:
+		summary.NotObserved++
+	}
+}
+
+type architectureCoverageInput struct {
+	TargetID  string
+	ZeroTrust model.ZeroTrust
+}
+
+type architectureClosureInput struct {
+	TargetID string
+	Flaws    []model.ZeroTrustArchitecture
+}
+
+func buildArchitectureBoundaryCoverage(inputs []architectureCoverageInput) []model.ArchitectureBoundary {
+	byCheckID := map[string]*model.ArchitectureBoundary{}
+	for _, input := range inputs {
+		targetID := input.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		controlEvidenceByCheck, evidenceSurfacesByCheck := architectureContractsByCheck(input.ZeroTrust.ArchitectureFlaws)
+		gapsByCheck := architectureGapsByCheck(input.ZeroTrust.Coverage.GapDetails)
+		for _, check := range input.ZeroTrust.Checks {
+			boundary := byCheckID[check.ID]
+			if boundary == nil {
+				boundary = &model.ArchitectureBoundary{
+					CheckID:    check.ID,
+					Boundary:   check.Boundary,
+					Principle:  check.Principle,
+					Tier:       check.Tier,
+					DesignTest: check.DesignTest,
+				}
+				byCheckID[check.ID] = boundary
+			}
+			incrementZeroTrustSummary(&boundary.StatusCounts, check.Status)
+			appendArchitectureBoundaryTarget(boundary, check.Status, targetID)
+			boundary.EvidenceSources = append(boundary.EvidenceSources, zeroTrustEvidenceSources(check.Evidence)...)
+			boundary.Controls = append(boundary.Controls, check.Controls...)
+			boundary.ControlEvidenceNeeded = append(boundary.ControlEvidenceNeeded, controlEvidenceByCheck[check.ID]...)
+			boundary.EvidenceSurfaces = append(boundary.EvidenceSurfaces, evidenceSurfacesByCheck[check.ID]...)
+			boundary.Actions = append(boundary.Actions, check.Actions...)
+			boundary.Limitations = append(boundary.Limitations, check.Limitations...)
+			for _, gap := range gapsByCheck[check.ID] {
+				boundary.MissingEvidence = append(boundary.MissingEvidence, gap.MissingEvidence...)
+				if gap.NextCollector != "" {
+					boundary.NextCollectors = append(boundary.NextCollectors, gap.NextCollector)
+				}
+			}
+		}
+	}
+	out := make([]model.ArchitectureBoundary, 0, len(byCheckID))
+	for _, boundary := range byCheckID {
+		boundary.BreakingTargets = uniqueSortedStrings(boundary.BreakingTargets)
+		boundary.ControlledTargets = uniqueSortedStrings(boundary.ControlledTargets)
+		boundary.UnknownTargets = uniqueSortedStrings(boundary.UnknownTargets)
+		boundary.NotObservedTargets = uniqueSortedStrings(boundary.NotObservedTargets)
+		boundary.TargetCount = len(boundary.BreakingTargets) + len(boundary.ControlledTargets) + len(boundary.UnknownTargets) + len(boundary.NotObservedTargets)
+		boundary.EvidenceSources = uniqueSortedStrings(boundary.EvidenceSources)
+		boundary.Controls = uniqueSortedStrings(boundary.Controls)
+		boundary.ControlEvidenceNeeded = uniqueSortedStrings(boundary.ControlEvidenceNeeded)
+		boundary.EvidenceSurfaces = uniqueSortedStrings(boundary.EvidenceSurfaces)
+		boundary.MissingEvidence = uniqueSortedStrings(boundary.MissingEvidence)
+		boundary.NextCollectors = uniqueSortedStrings(boundary.NextCollectors)
+		boundary.Actions = uniqueSortedStrings(boundary.Actions)
+		boundary.Limitations = uniqueSortedStrings(boundary.Limitations)
+		out = append(out, *boundary)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := architectureBoundaryRank(out[i])
+		right := architectureBoundaryRank(out[j])
+		if left == right {
+			return out[i].Boundary < out[j].Boundary
+		}
+		return left > right
+	})
+	if out == nil {
+		return []model.ArchitectureBoundary{}
+	}
+	return out
+}
+
+type architectureFrameworkDefinition struct {
+	ID          string
+	Area        string
+	Source      string
+	Tier        string
+	CheckIDs    []string
+	Limitations []string
+}
+
+func buildArchitectureFrameworkCoverage(inputs []architectureCoverageInput) []model.ArchitectureFrameworkArea {
+	byID := map[string]*architectureFrameworkAreaBuilder{}
+	for _, def := range architectureFrameworkDefinitions() {
+		byID[def.ID] = &architectureFrameworkAreaBuilder{
+			ID:       def.ID,
+			Area:     def.Area,
+			Source:   def.Source,
+			Tier:     def.Tier,
+			checkIDs: map[string]bool{},
+			targets:  map[string]bool{},
+			flaws:    map[string]bool{},
+		}
+		for _, checkID := range def.CheckIDs {
+			if checkID != "" {
+				byID[def.ID].checkIDs[checkID] = true
+			}
+		}
+		byID[def.ID].Limitations = append(byID[def.ID].Limitations, def.Limitations...)
+	}
+	for _, input := range inputs {
+		targetID := input.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		gapsByCheck := architectureGapsByCheck(input.ZeroTrust.Coverage.GapDetails)
+		controlEvidenceByCheck, _ := architectureContractsByCheck(input.ZeroTrust.ArchitectureFlaws)
+		flawsByCheck := architectureFlawsByCheck(input.ZeroTrust.ArchitectureFlaws)
+		for _, def := range architectureFrameworkDefinitions() {
+			builder := byID[def.ID]
+			if builder == nil {
+				continue
+			}
+			for _, check := range input.ZeroTrust.Checks {
+				if !stringSliceContains(def.CheckIDs, check.ID) {
+					continue
+				}
+				incrementZeroTrustSummary(&builder.StatusCounts, check.Status)
+				builder.targets[targetID] = true
+				builder.EvidenceSources = append(builder.EvidenceSources, zeroTrustEvidenceSources(check.Evidence)...)
+				builder.Controls = append(builder.Controls, check.Controls...)
+				builder.ControlEvidenceNeeded = append(builder.ControlEvidenceNeeded, controlEvidenceByCheck[check.ID]...)
+				builder.Limitations = append(builder.Limitations, check.Limitations...)
+				for _, gap := range gapsByCheck[check.ID] {
+					builder.MissingEvidence = append(builder.MissingEvidence, gap.MissingEvidence...)
+					if gap.NextCollector != "" {
+						builder.NextCollectors = append(builder.NextCollectors, gap.NextCollector)
+					}
+				}
+				for _, flaw := range flawsByCheck[check.ID] {
+					title := flaw.Title
+					if title == "" {
+						title = flaw.ID
+					}
+					if title != "" {
+						builder.flaws[title] = true
+					}
+					builder.EvidenceSources = append(builder.EvidenceSources, zeroTrustEvidenceSources(flaw.Evidence)...)
+					builder.ControlEvidenceNeeded = append(builder.ControlEvidenceNeeded, flaw.ControlEvidenceNeeded...)
+					builder.Limitations = append(builder.Limitations, flaw.Limitations...)
+				}
+			}
+		}
+	}
+	out := make([]model.ArchitectureFrameworkArea, 0, len(byID))
+	for _, def := range architectureFrameworkDefinitions() {
+		builder := byID[def.ID]
+		if builder == nil {
+			continue
+		}
+		area := model.ArchitectureFrameworkArea{
+			ID:                    builder.ID,
+			Area:                  builder.Area,
+			Source:                builder.Source,
+			Tier:                  builder.Tier,
+			StatusCounts:          builder.StatusCounts,
+			TargetCount:           len(builder.targets),
+			Targets:               mapKeysSorted(builder.targets),
+			CheckIDs:              mapKeysSorted(builder.checkIDs),
+			Flaws:                 mapKeysSorted(builder.flaws),
+			EvidenceSources:       uniqueSortedStrings(builder.EvidenceSources),
+			Controls:              uniqueSortedStrings(builder.Controls),
+			ControlEvidenceNeeded: uniqueSortedStrings(builder.ControlEvidenceNeeded),
+			MissingEvidence:       uniqueSortedStrings(builder.MissingEvidence),
+			NextCollectors:        uniqueSortedStrings(builder.NextCollectors),
+			Limitations:           uniqueSortedStrings(builder.Limitations),
+		}
+		out = append(out, area)
+	}
+	if out == nil {
+		return []model.ArchitectureFrameworkArea{}
+	}
+	return out
+}
+
+func architectureFrameworkDefinitions() []architectureFrameworkDefinition {
+	return []architectureFrameworkDefinition{
+		{
+			ID:       "agent-identity-authentication",
+			Area:     "Agent identity and authentication",
+			Source:   "Zero Trust for AI Agents, Part III: Agent identity and authentication",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:identity-boundary"},
+		},
+		{
+			ID:       "access-privilege-management",
+			Area:     "Access control and privilege management",
+			Source:   "Zero Trust for AI Agents, Part III: Access control and privilege management",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:authority-boundary", "zt:workload-authorization-boundary", "zt:continuous-authorization-boundary", "zt:approval-boundary"},
+		},
+		{
+			ID:       "resource-boundaries",
+			Area:     "Resource boundaries",
+			Source:   "Zero Trust for AI Agents, Part III: Resource boundaries",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:workload-authorization-boundary", "zt:egress-boundary", "zt:sensitive-boundary", "zt:resource-exhaustion-boundary"},
+		},
+		{
+			ID:       "observability-auditing",
+			Area:     "Observability and auditing",
+			Source:   "Zero Trust for AI Agents, Part III: Observability and auditing",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:observability-boundary", "zt:approval-boundary"},
+		},
+		{
+			ID:       "behavior-monitoring-response",
+			Area:     "Behavioral monitoring and response",
+			Source:   "Zero Trust for AI Agents, Part III: Behavioral monitoring and response",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:response-boundary", "zt:resource-exhaustion-boundary", "zt:observability-boundary"},
+			Limitations: []string{
+				"Ariadne detects declared monitoring and response controls, but does not compute behavioral baselines or measure dwell-time telemetry from live systems.",
+			},
+		},
+		{
+			ID:       "input-output-controls",
+			Area:     "Input validation and output controls",
+			Source:   "Zero Trust for AI Agents, Part III: Input validation and output controls",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:influence-boundary", "zt:output-boundary", "zt:egress-boundary"},
+		},
+		{
+			ID:       "integrity-recovery",
+			Area:     "Integrity and recovery",
+			Source:   "Zero Trust for AI Agents, Part III: Integrity and recovery",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:config-integrity-boundary", "zt:supply-chain-boundary", "zt:tool-integrity-boundary"},
+			Limitations: []string{
+				"Ariadne detects declared integrity and rollback evidence, but does not validate live signature checks, deployment admission, or recovery execution.",
+			},
+		},
+		{
+			ID:       "governance-policy",
+			Area:     "AI governance policies",
+			Source:   "Zero Trust for AI Agents, Part III: AI governance policies",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:governance-boundary"},
+		},
+		{
+			ID:       "supply-chain-management",
+			Area:     "Supply chain risk management",
+			Source:   "Zero Trust for AI Agents, Part IV: Manage supply chain risks",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:supply-chain-boundary", "zt:tool-integrity-boundary", "zt:tool-boundary"},
+		},
+		{
+			ID:       "agent-boundaries-prompt-injection",
+			Area:     "Agent boundaries and prompt-injection defense",
+			Source:   "Zero Trust for AI Agents, Part IV: Define agent boundaries and defend against prompt injection",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:influence-boundary", "zt:authority-boundary", "zt:control-strength"},
+		},
+		{
+			ID:       "tool-access-security",
+			Area:     "Secure tool access",
+			Source:   "Zero Trust for AI Agents, Part IV: Secure tool access",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:tool-boundary", "zt:tool-integrity-boundary", "zt:approval-boundary", "zt:resource-exhaustion-boundary"},
+		},
+		{
+			ID:       "credential-protection",
+			Area:     "Protect agent credentials",
+			Source:   "Zero Trust for AI Agents, Part IV: Protect agent credentials",
+			Tier:     "foundation",
+			CheckIDs: []string{"zt:identity-boundary", "zt:continuous-authorization-boundary", "zt:memory-boundary"},
+		},
+		{
+			ID:       "memory-context-security",
+			Area:     "Safeguard agent memory",
+			Source:   "Zero Trust for AI Agents, Part IV: Safeguard agent memory",
+			Tier:     "enterprise",
+			CheckIDs: []string{"zt:memory-boundary", "zt:influence-boundary"},
+		},
+		{
+			ID:       "multi-agent-delegation",
+			Area:     "Multi-agent delegation boundaries",
+			Source:   "Zero Trust for AI Agents, Part II and Part IV: Multi-agent coordination and explicit trust boundaries",
+			Tier:     "enterprise",
+			CheckIDs: []string{"zt:delegation-boundary", "zt:identity-boundary", "zt:workload-authorization-boundary"},
+		},
+		{
+			ID:       "defensive-operations",
+			Area:     "Defensive operations for autonomous threats",
+			Source:   "Zero Trust for AI Agents, Part V: Defensive operations at autonomous speed",
+			Tier:     "enterprise",
+			CheckIDs: []string{"zt:response-boundary", "zt:observability-boundary", "zt:governance-boundary"},
+			Limitations: []string{
+				"Ariadne reports declared defensive-operation readiness, but does not exercise SOAR workflows, MITRE ATT&CK coverage, or emergency authorization paths.",
+			},
+		},
+	}
+}
+
+func buildArchitectureEvidencePlan(inputs []architectureCoverageInput) []model.ArchitectureEvidencePlan {
+	byCollector := map[string]*architectureEvidencePlanBuilder{}
+	for _, input := range inputs {
+		targetID := input.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		for _, gap := range input.ZeroTrust.Coverage.GapDetails {
+			collector := strings.TrimSpace(gap.NextCollector)
+			if collector == "" {
+				collector = "Collector not mapped"
+			}
+			item := byCollector[collector]
+			if item == nil {
+				item = &architectureEvidencePlanBuilder{
+					NextCollector: collector,
+					targets:       map[string]bool{},
+					boundaries:    map[string]bool{},
+					checkIDs:      map[string]bool{},
+					whyItMatters:  map[string]bool{},
+				}
+				byCollector[collector] = item
+			}
+			item.GapCount++
+			incrementZeroTrustSummary(&item.StatusCounts, gap.Status)
+			item.targets[targetID] = true
+			if gap.Boundary != "" {
+				item.boundaries[gap.Boundary] = true
+			}
+			if gap.CheckID != "" {
+				item.checkIDs[gap.CheckID] = true
+			}
+			if gap.WhyItMatters != "" {
+				item.whyItMatters[gap.WhyItMatters] = true
+			}
+			item.MissingEvidence = append(item.MissingEvidence, gap.MissingEvidence...)
+		}
+	}
+	out := make([]model.ArchitectureEvidencePlan, 0, len(byCollector))
+	for _, item := range byCollector {
+		plan := model.ArchitectureEvidencePlan{
+			NextCollector:   item.NextCollector,
+			GapCount:        item.GapCount,
+			TargetCount:     len(item.targets),
+			StatusCounts:    item.StatusCounts,
+			Boundaries:      mapKeysSorted(item.boundaries),
+			CheckIDs:        mapKeysSorted(item.checkIDs),
+			Targets:         mapKeysSorted(item.targets),
+			MissingEvidence: uniqueSortedStrings(item.MissingEvidence),
+			WhyItMatters:    mapKeysSorted(item.whyItMatters),
+		}
+		out = append(out, plan)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := architectureEvidencePlanRank(out[i])
+		right := architectureEvidencePlanRank(out[j])
+		if left == right {
+			return out[i].NextCollector < out[j].NextCollector
+		}
+		return left > right
+	})
+	if out == nil {
+		return []model.ArchitectureEvidencePlan{}
+	}
+	return out
+}
+
+func buildArchitectureClosurePlan(inputs []architectureClosureInput) []model.ArchitectureClosure {
+	byControl := map[string]*architectureClosureBuilder{}
+	for _, input := range inputs {
+		targetID := input.TargetID
+		if targetID == "" {
+			targetID = "target"
+		}
+		for _, flaw := range input.Flaws {
+			for _, control := range flaw.ControlTest.MissingHardBarriers {
+				if control == "" {
+					continue
+				}
+				item := byControl[control]
+				if item == nil {
+					item = &architectureClosureBuilder{
+						Control:           control,
+						ControlTestResult: "missing_hard_barrier",
+						Severity:          flaw.Severity,
+						flaws:             map[string]bool{},
+						checkIDs:          map[string]bool{},
+						targets:           map[string]bool{},
+					}
+					byControl[control] = item
+				}
+				if severityRank(flaw.Severity) > severityRank(item.Severity) {
+					item.Severity = flaw.Severity
+				}
+				flawTitle := flaw.Title
+				if flawTitle == "" {
+					flawTitle = flaw.ID
+				}
+				if flawTitle != "" {
+					item.flaws[flawTitle] = true
+				}
+				for _, id := range flaw.CheckIDs {
+					if id != "" {
+						item.checkIDs[id] = true
+					}
+				}
+				item.targets[targetID] = true
+				item.EvidenceSources = append(item.EvidenceSources, zeroTrustEvidenceSources(flaw.Evidence)...)
+				item.EvidenceReferences = append(item.EvidenceReferences, evidenceReferencesForFlaw(targetID, flaw)...)
+				item.EvidenceSurfaces = append(item.EvidenceSurfaces, flaw.EvidenceSurfaces...)
+				item.Actions = append(item.Actions, flaw.Actions...)
+			}
+		}
+	}
+	out := make([]model.ArchitectureClosure, 0, len(byControl))
+	for _, item := range byControl {
+		closure := model.ArchitectureClosure{
+			Control:            item.Control,
+			ControlTestResult:  item.ControlTestResult,
+			Severity:           item.Severity,
+			FlawCount:          len(item.flaws),
+			TargetCount:        len(item.targets),
+			Flaws:              mapKeysSorted(item.flaws),
+			CheckIDs:           mapKeysSorted(item.checkIDs),
+			Targets:            mapKeysSorted(item.targets),
+			EvidenceSources:    uniqueSortedStrings(item.EvidenceSources),
+			EvidenceReferences: dedupeEvidenceReferences(item.EvidenceReferences),
+			EvidenceSurfaces:   uniqueSortedStrings(item.EvidenceSurfaces),
+			Actions:            uniqueSortedStrings(item.Actions),
+		}
+		out = append(out, closure)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := architectureClosureRank(out[i])
+		right := architectureClosureRank(out[j])
+		if left == right {
+			return out[i].Control < out[j].Control
+		}
+		return left > right
+	})
+	if out == nil {
+		return []model.ArchitectureClosure{}
+	}
+	return out
+}
+
+func buildArchitectureClosureFamilies(items []model.ArchitectureClosure) []model.ArchitectureClosureFamily {
+	byFamily := map[string]*architectureClosureFamilyBuilder{}
+	for _, item := range items {
+		familyID, familyTitle := architectureControlFamily(item.Control)
+		builder := byFamily[familyID]
+		if builder == nil {
+			builder = &architectureClosureFamilyBuilder{
+				ID:                 familyID,
+				Title:              familyTitle,
+				Severity:           item.Severity,
+				controls:           map[string]bool{},
+				flaws:              map[string]bool{},
+				checkIDs:           map[string]bool{},
+				targets:            map[string]bool{},
+				EvidenceSources:    []string{},
+				EvidenceReferences: []model.EvidenceReference{},
+				EvidenceSurfaces:   []string{},
+				Actions:            []string{},
+			}
+			byFamily[familyID] = builder
+		}
+		if severityRank(item.Severity) > severityRank(builder.Severity) {
+			builder.Severity = item.Severity
+		}
+		if item.Control != "" {
+			builder.controls[item.Control] = true
+		}
+		for _, flaw := range item.Flaws {
+			if flaw != "" {
+				builder.flaws[flaw] = true
+			}
+		}
+		for _, checkID := range item.CheckIDs {
+			if checkID != "" {
+				builder.checkIDs[checkID] = true
+			}
+		}
+		for _, target := range item.Targets {
+			if target != "" {
+				builder.targets[target] = true
+			}
+		}
+		builder.EvidenceSources = append(builder.EvidenceSources, item.EvidenceSources...)
+		builder.EvidenceReferences = append(builder.EvidenceReferences, item.EvidenceReferences...)
+		builder.EvidenceSurfaces = append(builder.EvidenceSurfaces, item.EvidenceSurfaces...)
+		builder.Actions = append(builder.Actions, item.Actions...)
+	}
+	out := make([]model.ArchitectureClosureFamily, 0, len(byFamily))
+	for _, builder := range byFamily {
+		family := model.ArchitectureClosureFamily{
+			ID:                 builder.ID,
+			Title:              builder.Title,
+			Severity:           builder.Severity,
+			ControlCount:       len(builder.controls),
+			FlawCount:          len(builder.flaws),
+			TargetCount:        len(builder.targets),
+			Controls:           mapKeysSorted(builder.controls),
+			Flaws:              mapKeysSorted(builder.flaws),
+			CheckIDs:           mapKeysSorted(builder.checkIDs),
+			Targets:            mapKeysSorted(builder.targets),
+			EvidenceSources:    uniqueSortedStrings(builder.EvidenceSources),
+			EvidenceReferences: dedupeEvidenceReferences(builder.EvidenceReferences),
+			EvidenceSurfaces:   uniqueSortedStrings(builder.EvidenceSurfaces),
+			Actions:            uniqueSortedStrings(builder.Actions),
+		}
+		out = append(out, family)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := architectureClosureFamilyRank(out[i])
+		right := architectureClosureFamilyRank(out[j])
+		if left == right {
+			return out[i].Title < out[j].Title
+		}
+		return left > right
+	})
+	if out == nil {
+		return []model.ArchitectureClosureFamily{}
+	}
+	return out
+}
+
+type architectureClosureBuilder struct {
+	Control            string
+	ControlTestResult  string
+	Severity           string
+	flaws              map[string]bool
+	checkIDs           map[string]bool
+	targets            map[string]bool
+	EvidenceSources    []string
+	EvidenceReferences []model.EvidenceReference
+	EvidenceSurfaces   []string
+	Actions            []string
+}
+
+type architectureEvidencePlanBuilder struct {
+	NextCollector   string
+	GapCount        int
+	StatusCounts    model.ZeroTrustSummary
+	targets         map[string]bool
+	boundaries      map[string]bool
+	checkIDs        map[string]bool
+	MissingEvidence []string
+	whyItMatters    map[string]bool
+}
+
+type architectureClosureFamilyBuilder struct {
+	ID                 string
+	Title              string
+	Severity           string
+	controls           map[string]bool
+	flaws              map[string]bool
+	checkIDs           map[string]bool
+	targets            map[string]bool
+	EvidenceSources    []string
+	EvidenceReferences []model.EvidenceReference
+	EvidenceSurfaces   []string
+	Actions            []string
+}
+
+type architectureFrameworkAreaBuilder struct {
+	ID                    string
+	Area                  string
+	Source                string
+	Tier                  string
+	StatusCounts          model.ZeroTrustSummary
+	targets               map[string]bool
+	checkIDs              map[string]bool
+	flaws                 map[string]bool
+	EvidenceSources       []string
+	Controls              []string
+	ControlEvidenceNeeded []string
+	MissingEvidence       []string
+	NextCollectors        []string
+	Limitations           []string
+}
+
+func architectureClosureRank(item model.ArchitectureClosure) int {
+	return severityRank(item.Severity)*100000 + item.TargetCount*1000 + item.FlawCount
+}
+
+func architectureEvidencePlanRank(item model.ArchitectureEvidencePlan) int {
+	return item.TargetCount*100000 + item.GapCount*1000 + item.StatusCounts.Unknown*100 + item.StatusCounts.NotObserved*10
+}
+
+func architectureClosureFamilyRank(item model.ArchitectureClosureFamily) int {
+	return severityRank(item.Severity)*100000 + item.TargetCount*1000 + item.FlawCount*10 + item.ControlCount
+}
+
+func architectureControlFamily(control string) (string, string) {
+	switch control {
+	case "control:input-isolation",
+		"control:trusted-source-policy",
+		"control:instruction-provenance",
+		"control:untrusted-input-delimiting",
+		"control:prompt-injection-filter",
+		"control:input-validation":
+		return "input-trust-boundary", "Input Trust Boundary"
+	case "control:deny-by-default",
+		"control:deny-by-default-permissions",
+		"control:least-agency-policy",
+		"control:scoped-permissions",
+		"control:deny-secret-read",
+		"deny rules",
+		"allowlists",
+		"isolation controls",
+		"scoped credentials",
+		"capability-removing break controls":
+		return "least-agency-authority", "Least Agency And Authority Scope"
+	case "control:mcp-reviewed-pinned",
+		"control:tool-allowlist",
+		"control:tool-descriptor-integrity",
+		"control:tool-argument-validation",
+		"control:tool-auth-required",
+		"control:signed-tool-artifacts",
+		"control:tool-deployment-verification",
+		"control:tool-sandbox-execution":
+		return "tool-mcp-integrity", "Tool And MCP Integrity"
+	case "control:ai-bom",
+		"control:model-provenance",
+		"control:training-data-lineage",
+		"control:dependency-health-scan",
+		"control:provider-risk-review",
+		"control:signed-ai-artifacts",
+		"control:runtime-component-validation",
+		"control:dependency-reachability-analysis":
+		return "ai-supply-chain", "AI Supply Chain"
+	case "control:delegation-scope",
+		"control:delegation-allowlist",
+		"control:agent-to-agent-authorization",
+		"control:origin-intent-verification",
+		"control:delegated-credential-scope",
+		"control:subagent-context-isolation",
+		"control:delegation-audit":
+		return "agent-delegation", "Agent Delegation"
+	case "control:network-restricted",
+		"control:egress-destination-allowlist",
+		"control:webhook-allowlist",
+		"control:per-tool-network-scope",
+		"control:egress-content-filter",
+		"control:egress-audit",
+		"control:output-sensitive-data-filter",
+		"control:output-redaction",
+		"control:output-filter-logging",
+		"control:semantic-output-analysis",
+		"control:high-risk-output-review":
+		return "egress-output-boundary", "Egress And Output Boundary"
+	case "control:cryptographic-identity",
+		"control:credential-isolation",
+		"control:short-lived-credential",
+		"control:hardware-bound-credential",
+		"control:jit-access",
+		"control:token-lifetime-policy",
+		"control:credential-helper",
+		"control:identity-lifecycle":
+		return "identity-credentials", "Identity And Credentials"
+	case "control:identity-based-isolation",
+		"control:named-caller-allowlist",
+		"control:abac-policy",
+		"control:network-segmentation",
+		"control:tool-scope-policy",
+		"control:per-action-authorization",
+		"control:continuous-authorization",
+		"control:dynamic-privilege-scoping",
+		"control:jit-elevation",
+		"control:standing-access-denied",
+		"control:automatic-access-revocation":
+		return "workload-authorization", "Workload And Continuous Authorization"
+	case "control:approval-required",
+		"control:approval-log-evidence",
+		"control:audit-logging",
+		"control:request-traceability",
+		"control:observed-request-traceability",
+		"control:agent-action-log-evidence",
+		"control:tool-call-audit-evidence",
+		"control:telemetry-export",
+		"control:immutable-audit-log":
+		return "observability-approval", "Observability And Approval"
+	case "control:tool-rate-limit",
+		"control:spend-limit",
+		"control:loop-guard",
+		"control:tool-timeout",
+		"control:concurrency-limit",
+		"control:tool-circuit-breaker",
+		"control:resource-usage-audit",
+		"control:automated-triage",
+		"control:behavioral-monitoring",
+		"control:session-termination",
+		"control:credential-revocation",
+		"control:containment-quarantine",
+		"control:dynamic-access-reduction",
+		"control:response-escalation":
+		return "response-resource-control", "Response And Resource Control"
+	case "control:context-retention",
+		"control:memory-isolation",
+		"control:context-integrity",
+		"control:context-provenance":
+		return "memory-context", "Memory And Context"
+	case "control:agent-inventory",
+		"control:accountable-owner",
+		"control:deployment-owner",
+		"control:deployment-approval",
+		"control:risk-assessment",
+		"control:governance-review",
+		"control:governance-audit",
+		"control:shadow-ai-discovery",
+		"control:config-version-control",
+		"control:config-review-required",
+		"control:signed-config",
+		"control:config-deployment-verification",
+		"control:managed-settings-enforced",
+		"control:managed-runtime-settings",
+		"control:immutable-agent-runtime",
+		"control:config-rollback-procedure",
+		"control:automated-config-rollback":
+		return "governance-config-integrity", "Governance And Configuration Integrity"
+	default:
+		return "other-hard-barriers", "Other Hard Barriers"
+	}
+}
+
+func mapKeysSorted(values map[string]bool) []string {
+	out := make([]string, 0, len(values))
+	for value := range values {
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func architectureContractsByCheck(flaws []model.ZeroTrustArchitecture) (map[string][]string, map[string][]string) {
+	controlEvidenceByCheck := map[string][]string{}
+	evidenceSurfacesByCheck := map[string][]string{}
+	for _, flaw := range flaws {
+		for _, checkID := range flaw.CheckIDs {
+			controlEvidenceByCheck[checkID] = append(controlEvidenceByCheck[checkID], flaw.ControlEvidenceNeeded...)
+			evidenceSurfacesByCheck[checkID] = append(evidenceSurfacesByCheck[checkID], flaw.EvidenceSurfaces...)
+		}
+	}
+	return controlEvidenceByCheck, evidenceSurfacesByCheck
+}
+
+func architectureFlawsByCheck(flaws []model.ZeroTrustArchitecture) map[string][]model.ZeroTrustArchitecture {
+	out := map[string][]model.ZeroTrustArchitecture{}
+	for _, flaw := range flaws {
+		for _, checkID := range flaw.CheckIDs {
+			out[checkID] = append(out[checkID], flaw)
+		}
+	}
+	return out
+}
+
+func architectureGapsByCheck(gaps []model.ZeroTrustGap) map[string][]model.ZeroTrustGap {
+	out := map[string][]model.ZeroTrustGap{}
+	for _, gap := range gaps {
+		out[gap.CheckID] = append(out[gap.CheckID], gap)
+	}
+	return out
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func appendArchitectureBoundaryTarget(boundary *model.ArchitectureBoundary, status model.ZeroTrustStatus, targetID string) {
+	switch status {
+	case model.ZeroTrustBreaking:
+		boundary.BreakingTargets = append(boundary.BreakingTargets, targetID)
+	case model.ZeroTrustControlled:
+		boundary.ControlledTargets = append(boundary.ControlledTargets, targetID)
+	case model.ZeroTrustUnknown:
+		boundary.UnknownTargets = append(boundary.UnknownTargets, targetID)
+	default:
+		boundary.NotObservedTargets = append(boundary.NotObservedTargets, targetID)
+	}
+}
+
+func architectureBoundaryRank(boundary model.ArchitectureBoundary) int {
+	return boundary.StatusCounts.Breaking*1000 + boundary.StatusCounts.Unknown*100 + boundary.StatusCounts.NotObserved*10 + boundary.StatusCounts.Controlled
+}
+
+func architectureBoundaryTargetsLine(boundary model.ArchitectureBoundary) string {
+	var parts []string
+	if len(boundary.BreakingTargets) > 0 {
+		parts = append(parts, "breaking "+strings.Join(limitStrings(boundary.BreakingTargets, 4), ", "))
+	}
+	if len(boundary.UnknownTargets) > 0 {
+		parts = append(parts, "unknown "+strings.Join(limitStrings(boundary.UnknownTargets, 4), ", "))
+	}
+	if len(boundary.NotObservedTargets) > 0 {
+		parts = append(parts, "not observed "+strings.Join(limitStrings(boundary.NotObservedTargets, 4), ", "))
+	}
+	if len(boundary.ControlledTargets) > 0 {
+		parts = append(parts, "controlled "+strings.Join(limitStrings(boundary.ControlledTargets, 4), ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func subtractStrings(left []string, right []string) []string {
+	rightSet := map[string]bool{}
+	for _, value := range right {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			rightSet[value] = true
+		}
+	}
+	var out []string
+	for _, value := range left {
+		value = strings.TrimSpace(value)
+		if value == "" || rightSet[value] {
+			continue
+		}
+		out = append(out, value)
+	}
+	return uniqueSortedStrings(out)
+}
+
+func equalStrings(left []string, right []string) bool {
+	left = uniqueSortedStrings(left)
+	right = uniqueSortedStrings(right)
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func zeroTrustEvidenceSources(evidence []model.ZeroTrustEvidence) []string {
+	var out []string
+	for _, item := range evidence {
+		source := item.Source
+		if source == "" {
+			source = item.ID
+		}
+		if source == "" {
+			source = item.Kind
+		}
+		if source != "" && source != "evidence:omitted" {
+			out = append(out, source)
+		}
+	}
+	return out
+}
+
+func evidenceReferencesFromZeroTrust(target string, evidence []model.ZeroTrustEvidence) []model.EvidenceReference {
+	var out []model.EvidenceReference
+	for _, item := range evidence {
+		if item.ID == "evidence:omitted" {
+			continue
+		}
+		ref := model.EvidenceReference{
+			Target:    target,
+			ID:        item.ID,
+			Kind:      item.Kind,
+			Source:    item.Source,
+			LineStart: item.LineStart,
+			LineEnd:   item.LineEnd,
+			Summary:   item.Summary,
+		}
+		if ref.ID == "" {
+			ref.ID = ref.Source
+		}
+		if ref.ID == "" {
+			ref.ID = ref.Kind
+		}
+		if ref.Summary == "" {
+			ref.Summary = ref.Source
+		}
+		if ref.Summary == "" {
+			ref.Summary = ref.ID
+		}
+		if ref.ID == "" && ref.Kind == "" && ref.Source == "" && ref.Summary == "" {
+			continue
+		}
+		out = append(out, ref)
+	}
+	return dedupeEvidenceReferences(out)
+}
+
+func evidenceReferencesForFlaw(target string, flaw model.ZeroTrustArchitecture) []model.EvidenceReference {
+	refs := evidenceReferencesFromZeroTrust(target, flaw.Evidence)
+	if len(refs) > 0 {
+		return refs
+	}
+	source := flaw.ID
+	if len(flaw.CheckIDs) > 0 && flaw.CheckIDs[0] != "" {
+		source = flaw.CheckIDs[0]
+	}
+	summary := flaw.Finding
+	if summary == "" {
+		summary = flaw.Title
+	}
+	if summary == "" {
+		summary = flaw.ID
+	}
+	return []model.EvidenceReference{{
+		Target:  target,
+		ID:      flaw.ID,
+		Kind:    "architecture_flaw",
+		Source:  source,
+		Summary: summary,
+	}}
+}
+
+func dedupeEvidenceReferences(values []model.EvidenceReference) []model.EvidenceReference {
+	seen := map[string]bool{}
+	var out []model.EvidenceReference
+	for _, value := range values {
+		key := evidenceReferenceKey(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Target != out[j].Target {
+			return out[i].Target < out[j].Target
+		}
+		if out[i].Source != out[j].Source {
+			return out[i].Source < out[j].Source
+		}
+		if out[i].LineStart != out[j].LineStart {
+			return out[i].LineStart < out[j].LineStart
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ID < out[j].ID
+	})
+	if out == nil {
+		return []model.EvidenceReference{}
+	}
+	return out
+}
+
+func evidenceReferenceLines(values []model.EvidenceReference, limit int) []string {
+	values = dedupeEvidenceReferences(values)
+	if len(values) == 0 {
+		return []string{}
+	}
+	if limit <= 0 || limit > len(values) {
+		limit = len(values)
+	}
+	lines := make([]string, 0, limit+1)
+	for _, value := range values[:limit] {
+		lines = append(lines, evidenceReferenceLine(value))
+	}
+	if len(values) > limit {
+		lines = append(lines, fmt.Sprintf("%d more evidence reference(s) in JSON", len(values)-limit))
+	}
+	return lines
+}
+
+func evidenceReferenceLinesBySource(values []model.EvidenceReference, limit int) []string {
+	values = dedupeEvidenceReferences(values)
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]bool{}
+	compact := make([]model.EvidenceReference, 0, len(values))
+	for _, value := range values {
+		key := value.Source
+		if key == "" {
+			key = value.ID
+		}
+		if key == "" {
+			key = value.Kind
+		}
+		if value.Target != "" {
+			key = value.Target + "|" + key
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		compact = append(compact, value)
+	}
+	lines := evidenceReferenceLines(compact, limit)
+	if len(values) > len(compact) && limit > 0 && len(compact) > limit {
+		lines[len(lines)-1] = fmt.Sprintf("%d more evidence source(s) in JSON", len(compact)-limit)
+	}
+	return lines
+}
+
+func operatorEvidenceReferenceLinesBySource(values []model.EvidenceReference, limit int) []string {
+	values = rankEvidenceReferencesForOperator(values)
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]bool{}
+	compact := make([]model.EvidenceReference, 0, len(values))
+	for _, value := range values {
+		key := value.Source
+		if key == "" {
+			key = value.ID
+		}
+		if key == "" {
+			key = value.Kind
+		}
+		if value.Target != "" {
+			key = value.Target + "|" + key
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		compact = append(compact, value)
+	}
+	if limit <= 0 || limit > len(compact) {
+		limit = len(compact)
+	}
+	lines := make([]string, 0, limit+1)
+	for _, value := range compact[:limit] {
+		lines = append(lines, evidenceReferenceLine(value))
+	}
+	if len(compact) > limit {
+		lines = append(lines, fmt.Sprintf("%d more evidence source(s) in JSON", len(compact)-limit))
+	}
+	return lines
+}
+
+func evidenceReferenceLine(value model.EvidenceReference) string {
+	source := value.Source
+	if source == "" {
+		source = value.ID
+	}
+	if source == "" {
+		source = value.Kind
+	}
+	source = evidenceReferenceSourceLabel(source, value)
+	prefix := source
+	if value.Target != "" {
+		prefix = value.Target + ": " + prefix
+	}
+	summary := strings.TrimSpace(value.Summary)
+	if len(summary) > 120 {
+		summary = summary[:117] + "..."
+	}
+	if summary == "" || summary == source {
+		if value.Kind != "" {
+			return fmt.Sprintf("%s [%s]", prefix, value.Kind)
+		}
+		return prefix
+	}
+	if value.Kind != "" {
+		return fmt.Sprintf("%s [%s] %s", prefix, value.Kind, summary)
+	}
+	return prefix + " " + summary
+}
+
+func evidenceReferenceSourceLabel(source string, value model.EvidenceReference) string {
+	if value.LineStart <= 0 {
+		return source
+	}
+	if value.LineEnd > value.LineStart {
+		return fmt.Sprintf("%s:%d-%d", source, value.LineStart, value.LineEnd)
+	}
+	return fmt.Sprintf("%s:%d", source, value.LineStart)
+}
+
+func severityRank(value string) int {
+	switch strings.ToLower(value) {
+	case "critical":
+		return 5
+	case "high":
+		return 4
+	case "medium":
+		return 3
+	case "low":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func validArchitectureStatusFilter(filter string) bool {
+	switch filter {
+	case "all", "breaking", "controlled", "unknown", "not_observed", "observed":
+		return true
+	default:
+		return false
+	}
+}
+
+func architectureStatusAllowed(status model.ZeroTrustStatus, filter string) bool {
+	switch filter {
+	case "all":
+		return true
+	case "observed":
+		return status != model.ZeroTrustNotObserved
+	default:
+		return string(status) == filter
+	}
+}
+
+func zeroTrustEvidenceLine(evidence []model.ZeroTrustEvidence, limit int) string {
+	var parts []string
+	seen := map[string]bool{}
+	for _, item := range evidence {
+		source := item.Source
+		if source == "" {
+			source = item.ID
+		}
+		if source == "" {
+			source = item.Kind
+		}
+		key := source
+		if item.LineStart > 0 {
+			key += fmt.Sprintf(":%d", item.LineStart)
+		}
+		if source == "" || seen[key] {
+			continue
+		}
+		if len(parts) >= limit {
+			parts = append(parts, fmt.Sprintf("%d more", len(evidence)-len(parts)))
+			break
+		}
+		seen[key] = true
+		parts = append(parts, evidenceReferenceSourceLabel(source, model.EvidenceReference{
+			Source:    item.Source,
+			LineStart: item.LineStart,
+			LineEnd:   item.LineEnd,
+		}))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func statusLabel(value string) string {
+	return strings.ToUpper(strings.ReplaceAll(value, "_", " "))
+}
+
+func readableToken(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.ReplaceAll(value, "_", " ")
+}
+
+func architectureControlTestResultsLine(results map[string]int) string {
+	if len(results) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(results))
+	for key := range results {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", readableToken(key), results[key]))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func renderIssueSummary(w io.Writer, interpretation model.Interpretation) {
+	if interpretation.Mode == "" {
+		return
+	}
+	fmt.Fprintf(w, "%s:\n", interpretationLabel(interpretation))
+	fmt.Fprintf(w, "  Issues: %d total, %d critical, %d high, %d medium, %d low, %d info\n",
+		interpretation.Summary.Total,
+		interpretation.Summary.Critical,
+		interpretation.Summary.High,
+		interpretation.Summary.Medium,
+		interpretation.Summary.Low,
+		interpretation.Summary.Info,
+	)
+	if interpretation.ReviewSource != "" || interpretation.RequestDigest != "" {
+		fmt.Fprintf(w, "  Review: %s", empty(interpretation.ReviewSource, "not recorded"))
+		if interpretation.RequestDigest != "" {
+			digest := interpretation.RequestDigest
+			if len(digest) > 12 {
+				digest = digest[:12]
+			}
+			fmt.Fprintf(w, " Request: %s", digest)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(interpretation.Issues) == 0 {
+		fmt.Fprintf(w, "  - no prioritized issues returned\n\n")
+		return
+	}
+	limit := len(interpretation.Issues)
+	if limit > 8 {
+		limit = 8
+	}
+	for _, issue := range interpretation.Issues[:limit] {
+		target := ""
+		if issue.AffectedTarget != "" {
+			target = " Target: " + issue.AffectedTarget
+		}
+		fmt.Fprintf(w, "  - %s/%s %s [%s]%s\n", strings.ToUpper(string(issue.Priority)), strings.ToUpper(string(issue.Severity)), issue.Title, issue.Disposition, target)
+	}
+	if len(interpretation.Issues) > limit {
+		fmt.Fprintf(w, "  - %d more issues in JSON or dashboard output\n", len(interpretation.Issues)-limit)
+	}
+	fmt.Fprintln(w)
+}
+
+func interpretationLabel(interpretation model.Interpretation) string {
+	switch interpretation.Mode {
+	case "llm_review":
+		return "LLM priority review"
+	case "deterministic":
+		return "Deterministic priority"
+	default:
+		return "Priority interpretation"
+	}
+}
+
+func renderFacts(w io.Writer, r model.Report, exposure model.ExposureResult) {
+	facts := factsForExposure(r, exposure)
+	if len(facts) == 0 {
+		fmt.Fprintf(w, "  - no supporting facts collected for this supported exposure family\n")
+		return
+	}
+	for _, fact := range facts {
+		fmt.Fprintf(w, "  - %s\n", fact)
+	}
+}
+
+func factsForExposure(r model.Report, exposure model.ExposureResult) []string {
+	nodeIDs := map[string]bool{}
+	for _, edge := range exposure.PathEdges {
+		parts := strings.Split(edge, "|")
+		if len(parts) == 3 {
+			nodeIDs[parts[0]] = true
+			nodeIDs[parts[2]] = true
+		}
+	}
+	if len(exposure.PathEdges) == 0 {
+		for _, node := range r.Graph.Nodes {
+			if node.Type == "trust_input" || node.Type == "boundary" || node.Type == "config" {
+				nodeIDs[node.ID] = true
+			}
+		}
+	}
+	nodeByID := map[string]model.Node{}
+	for _, node := range r.Graph.Nodes {
+		nodeByID[node.ID] = node
+	}
+	evidenceByID := map[string]model.Evidence{}
+	for _, evidence := range r.Evidence {
+		evidenceByID[evidence.ID] = evidence
+	}
+	var facts []string
+	for id := range nodeIDs {
+		if node, ok := nodeByID[id]; ok {
+			facts = append(facts, factForNode(node))
+		}
+	}
+	for _, edge := range r.Graph.Edges {
+		for _, pathEdge := range exposure.PathEdges {
+			if edge.Key() == pathEdge && edge.EvidenceID != "" {
+				if evidence, ok := evidenceByID[edge.EvidenceID]; ok {
+					facts = append(facts, "Evidence: "+evidence.Summary+" Source: "+empty(evidence.Source, "not recorded"))
+				}
+			}
+		}
+	}
+	facts = uniqueStrings(facts)
+	sort.Strings(facts)
+	return facts
+}
+
+func factForNode(node model.Node) string {
+	source := ""
+	if node.Source != "" {
+		source = " Source: " + node.Source
+	}
+	switch node.Type {
+	case "runtime":
+		return "Runtime observed: " + node.Label + source
+	case "config":
+		return "Config observed: " + node.Label + source
+	case "trust_input":
+		return "Trust input observed: " + node.Label + source
+	case "tool":
+		return "Tool observed: " + node.Label + source
+	case "authority":
+		return "Authority modeled: " + node.Label
+	case "boundary":
+		return "Boundary modeled: " + node.Label + source
+	case "control":
+		return "Control observed: " + node.Label + source
+	default:
+		return "Graph node observed: " + node.Type + " " + node.Label + source
+	}
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func empty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}

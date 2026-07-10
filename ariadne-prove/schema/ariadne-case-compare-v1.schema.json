@@ -1,0 +1,347 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-case-compare-v1.schema.json",
+  "title": "Ariadne Case Compare Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_kind",
+    "before_source",
+    "after_source",
+    "summary",
+    "decision",
+    "outcome",
+    "closure_receipts",
+    "cases",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "run_kind": { "type": "string", "enum": ["case_compare"] },
+    "before_source": { "type": "string" },
+    "after_source": { "type": "string" },
+    "summary": { "$ref": "#/$defs/case_compare_summary" },
+    "decision": { "$ref": "#/$defs/case_compare_decision" },
+    "outcome": { "$ref": "#/$defs/case_compare_outcome" },
+    "closure_receipts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/case_compare_closure_receipt" }
+    },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/case_compare_result" }
+    },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "case_compare_summary": {
+      "type": "object",
+      "required": [
+        "cases",
+        "closed",
+        "reopened",
+        "stayed_open",
+        "stayed_closed",
+        "changed",
+        "added",
+        "removed"
+      ],
+      "properties": {
+        "cases": { "type": "integer" },
+        "closed": { "type": "integer" },
+        "reopened": { "type": "integer" },
+        "stayed_open": { "type": "integer" },
+        "stayed_closed": { "type": "integer" },
+        "changed": { "type": "integer" },
+        "added": { "type": "integer" },
+        "removed": { "type": "integer" }
+      }
+    },
+    "case_compare_decision": {
+      "type": "object",
+      "required": [
+        "status",
+        "headline",
+        "after_open",
+        "after_closed",
+        "material_changes",
+        "proof_patches_before",
+        "proof_patches_after",
+        "added_controls",
+        "added_evidence_sources",
+        "open_cases",
+        "closed_cases",
+        "next_action",
+        "limitations"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["proof_succeeded", "action_required", "regression", "already_controlled", "no_open_cases", "no_comparable_cases", "no_material_change"]
+        },
+        "headline": { "type": "string" },
+        "top_case_id": { "type": "string" },
+        "top_case_title": { "type": "string" },
+        "top_case_severity": { "type": "string" },
+        "top_case_disposition": { "type": "string" },
+        "before_state": { "type": "string" },
+        "after_state": { "type": "string" },
+        "after_open": { "type": "integer" },
+        "after_closed": { "type": "integer" },
+        "material_changes": { "type": "integer" },
+        "proof_patches_before": { "type": "integer" },
+        "proof_patches_after": { "type": "integer" },
+        "added_controls": { "type": "array", "items": { "type": "string" } },
+        "added_evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "open_cases": { "type": "array", "items": { "type": "string" } },
+        "closed_cases": { "type": "array", "items": { "type": "string" } },
+        "next_action": { "type": "string" },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "case_compare_outcome": {
+      "type": "object",
+      "required": [
+        "summary",
+        "total_cases",
+        "after_open",
+        "after_closed",
+        "after_absent",
+        "material_changes",
+        "action_cases",
+        "closed_cases",
+        "absent_cases",
+        "next_action"
+      ],
+      "properties": {
+        "summary": { "type": "string" },
+        "total_cases": { "type": "integer" },
+        "after_open": { "type": "integer" },
+        "after_closed": { "type": "integer" },
+        "after_absent": { "type": "integer" },
+        "material_changes": { "type": "integer" },
+        "action_cases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/case_compare_outcome_case" }
+        },
+        "closed_cases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/case_compare_outcome_case" }
+        },
+        "absent_cases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/case_compare_outcome_case" }
+        },
+        "next_action": { "type": "string" }
+      }
+    },
+    "case_compare_outcome_case": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "severity",
+        "disposition",
+        "before_state",
+        "after_state",
+        "state_reason",
+        "next_step",
+        "after_evidence_refs",
+        "after_proof_patches"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "disposition": {
+          "type": "string",
+          "enum": ["closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed"]
+        },
+        "before_state": { "type": "string" },
+        "after_state": { "type": "string" },
+        "state_reason": { "type": "string" },
+        "next_step": { "type": "string" },
+        "after_evidence_refs": { "type": "integer" },
+        "after_proof_patches": { "type": "integer" }
+      }
+    },
+    "case_compare_result": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "severity",
+        "disposition",
+        "proof_verdict",
+        "before_state",
+        "after_state",
+        "before_state_reason",
+        "after_state_reason",
+        "before_controls",
+        "after_controls",
+        "added_controls",
+        "removed_controls",
+        "before_proof_patches",
+        "after_proof_patches",
+        "before_evidence_refs",
+        "after_evidence_refs",
+        "before_evidence_details",
+        "after_evidence_details",
+        "added_evidence_refs",
+        "removed_evidence_refs",
+        "before_targets",
+        "after_targets",
+        "before_flaws",
+        "after_flaws",
+        "before_rerun_commands",
+        "after_rerun_commands",
+        "before_compare_commands",
+        "after_compare_commands",
+        "before_next_step",
+        "after_next_step"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string" },
+        "disposition": {
+          "type": "string",
+          "enum": ["closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed"]
+        },
+        "proof_verdict": { "$ref": "#/$defs/case_compare_proof_verdict" },
+        "before_state": { "type": "string" },
+        "after_state": { "type": "string" },
+        "before_state_reason": { "type": "string" },
+        "after_state_reason": { "type": "string" },
+        "before_controls": { "type": "array", "items": { "type": "string" } },
+        "after_controls": { "type": "array", "items": { "type": "string" } },
+        "added_controls": { "type": "array", "items": { "type": "string" } },
+        "removed_controls": { "type": "array", "items": { "type": "string" } },
+        "before_proof_patches": { "type": "integer" },
+        "after_proof_patches": { "type": "integer" },
+        "before_evidence_refs": { "type": "integer" },
+        "after_evidence_refs": { "type": "integer" },
+        "before_evidence_details": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "after_evidence_details": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "added_evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "removed_evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "before_targets": { "type": "array", "items": { "type": "string" } },
+        "after_targets": { "type": "array", "items": { "type": "string" } },
+        "before_flaws": { "type": "array", "items": { "type": "string" } },
+        "after_flaws": { "type": "array", "items": { "type": "string" } },
+        "before_rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "after_rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "before_compare_commands": { "type": "array", "items": { "type": "string" } },
+        "after_compare_commands": { "type": "array", "items": { "type": "string" } },
+        "before_next_step": { "type": "string" },
+        "after_next_step": { "type": "string" }
+      }
+    },
+    "case_compare_closure_receipt": {
+      "type": "object",
+      "required": [
+        "receipt_id",
+        "case_id",
+        "case_title",
+        "severity",
+        "disposition",
+        "proof_status",
+        "before_state",
+        "after_state",
+        "summary",
+        "control_evidence",
+        "evidence_sources",
+        "evidence_refs",
+        "artifact_sources",
+        "artifact_hashes",
+        "remaining_action",
+        "rerun_commands",
+        "compare_commands",
+        "verification_commands",
+        "decision_rules",
+        "limitations"
+      ],
+      "properties": {
+        "receipt_id": { "type": "string" },
+        "case_id": { "type": "string" },
+        "case_title": { "type": "string" },
+        "severity": { "type": "string" },
+        "disposition": {
+          "type": "string",
+          "enum": ["closed", "reopened", "stayed_open", "stayed_closed", "changed", "added", "removed"]
+        },
+        "proof_status": {
+          "type": "string",
+          "enum": ["proof_closed", "proof_already_closed", "proof_regressed", "proof_still_open", "proof_added", "proof_removed", "proof_changed"]
+        },
+        "before_state": { "type": "string" },
+        "after_state": { "type": "string" },
+        "summary": { "type": "string" },
+        "control_evidence": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/evidence_reference" }
+        },
+        "artifact_sources": { "type": "array", "items": { "type": "string" } },
+        "artifact_hashes": { "type": "array", "items": { "$ref": "#/$defs/case_compare_artifact_hash" } },
+        "remaining_action": { "type": "string" },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "compare_commands": { "type": "array", "items": { "type": "string" } },
+        "verification_commands": { "type": "array", "items": { "type": "string" } },
+        "decision_rules": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "case_compare_artifact_hash": {
+      "type": "object",
+      "required": ["role", "source", "sha256", "size_bytes"],
+      "properties": {
+        "role": { "type": "string", "enum": ["before", "after"] },
+        "source": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "case_compare_proof_verdict": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "control_evidence",
+        "evidence_sources",
+        "remaining_action",
+        "rerun_commands",
+        "compare_commands",
+        "decision_rules",
+        "limitations"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["proof_closed", "proof_already_closed", "proof_regressed", "proof_still_open", "proof_added", "proof_removed", "proof_changed"]
+        },
+        "summary": { "type": "string" },
+        "control_evidence": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "remaining_action": { "type": "string" },
+        "rerun_commands": { "type": "array", "items": { "type": "string" } },
+        "compare_commands": { "type": "array", "items": { "type": "string" } },
+        "decision_rules": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

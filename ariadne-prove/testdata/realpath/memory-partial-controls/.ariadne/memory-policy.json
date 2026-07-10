@@ -1,0 +1,8 @@
+{
+  "context_retention": {
+    "retention_days": 3
+  },
+  "memory_isolation": {
+    "session_isolation": true
+  }
+}

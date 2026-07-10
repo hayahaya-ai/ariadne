@@ -1,0 +1,10 @@
+{
+  "automated_triage": true,
+  "behavioral_monitoring": true,
+  "session_termination": true,
+  "credential_revocation": true,
+  "containment_quarantine": true,
+  "dynamic_access_reduction": true,
+  "response_escalation": true,
+  "audit_logging": true
+}

@@ -1,0 +1,10 @@
+{
+  "version_controlled_config": true,
+  "config_review_required": true,
+  "signed_config": true,
+  "config_deployment_verification": true,
+  "managed_settings_enforced": true,
+  "immutable_agent_runtime": true,
+  "rollback_procedure": true,
+  "automated_rollback": true
+}

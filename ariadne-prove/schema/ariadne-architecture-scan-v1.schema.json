@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ariadne.dev/schema/ariadne-architecture-scan-v1.schema.json",
+  "title": "Ariadne Architecture Scan v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "run_kind",
+    "mode",
+    "agent",
+    "status_filter",
+    "summary",
+    "evidence_plan",
+    "framework_coverage",
+    "boundary_coverage",
+    "groups",
+    "closure_plan",
+    "closure_families",
+    "targets",
+    "redaction",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.report/v1" },
+    "run_id": { "type": "string" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "run_kind": { "const": "architecture_scan" },
+    "targets_file": { "type": "string" },
+    "mode": { "type": "string" },
+    "agent": { "type": "string" },
+    "status_filter": { "type": "string", "enum": ["all", "breaking", "controlled", "unknown", "not_observed", "observed"] },
+    "summary": { "$ref": "#/$defs/architecture_scan_summary" },
+    "evidence_plan": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_evidence_plan" }
+    },
+    "framework_coverage": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_framework_area" }
+    },
+    "boundary_coverage": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_boundary" }
+    },
+    "groups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_flaw_group" }
+    },
+    "closure_plan": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure" }
+    },
+    "closure_families": {
+      "type": "array",
+      "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/architecture_closure_family" }
+    },
+    "targets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/architecture_target_report" }
+    },
+    "redaction": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/redaction" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "architecture_scan_summary": {
+      "type": "object",
+      "required": ["targets", "completed", "errors", "matching_flaws", "distinct_flaws", "breaking", "controlled", "unknown", "not_observed"],
+      "properties": {
+        "targets": { "type": "integer" },
+        "completed": { "type": "integer" },
+        "errors": { "type": "integer" },
+        "matching_flaws": { "type": "integer" },
+        "distinct_flaws": { "type": "integer" },
+        "breaking": { "type": "integer" },
+        "controlled": { "type": "integer" },
+        "unknown": { "type": "integer" },
+        "not_observed": { "type": "integer" }
+      }
+    },
+    "architecture_flaw_group": {
+      "type": "object",
+      "required": ["id", "title", "severity", "principle", "tier", "status_counts", "target_count", "targets", "control_test_results", "control_evidence_needed", "evidence_surfaces", "evidence_sources", "actions"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+        "principle": { "type": "string" },
+        "tier": { "type": "string", "enum": ["foundation", "enterprise", "advanced"] },
+        "status_counts": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/zero_trust_summary" },
+        "target_count": { "type": "integer" },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "control_test_results": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        },
+        "control_evidence_needed": { "type": "array", "items": { "type": "string" } },
+        "evidence_surfaces": { "type": "array", "items": { "type": "string" } },
+        "evidence_sources": { "type": "array", "items": { "type": "string" } },
+        "actions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "architecture_target_report": {
+      "type": "object",
+      "required": ["target", "summary", "flaws"],
+      "properties": {
+        "target": { "type": "object" },
+        "summary": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/zero_trust_summary" },
+        "flaws": {
+          "type": "array",
+          "items": { "$ref": "ariadne-architecture-v1.schema.json#/$defs/zero_trust_architecture" }
+        },
+        "error": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@microsoft/mcp-server-playwright"],
+      "sandboxEnabled": true
+    },
+    "local-fs": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@example/mutable-mcp-server", "~"]
+    }
+  }
+}
+

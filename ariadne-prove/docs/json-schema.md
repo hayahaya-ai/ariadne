@@ -1,0 +1,287 @@
+# JSON And Graph Contract
+
+The current schema version is `ariadne.report/v1`.
+
+## Core Objects
+
+### Surface
+
+A discovered AI-agent surface.
+
+- `runtime`: supported runtime or `generic`
+- `scope`: `repo` or `endpoint`
+- `category`: surface category
+- `kind`: concrete surface kind
+- `handling_mode`: `parse`, `summarize`, `boundary_indicator`, `skip`, or `ignore`
+- `source`: redacted or target-relative source
+
+### Fact
+
+A deterministic fact derived from a surface.
+
+- `evidence_grade`: `observed`, `declared`, `inferred`, or `skipped`
+- `redaction`: output handling applied to the source/content
+- `summary`: human-readable fact summary
+- GitHub Actions workflow facts additionally carry structurally parsed
+  `trigger_events` and explicit booleans for `references_secrets`,
+  `id_token_write`, and `write_permissions`; comments and unrelated scalar text
+  do not create these facts.
+
+### Graph
+
+Graph nodes and edges represent the exposure model.
+
+Node types:
+
+- `trust_input`
+- `runtime`
+- `config`
+- `tool`
+- `authority`
+- `boundary`
+- `control`
+- surface categories such as `runtime-config`, `mcp-tool-config`, and `history-cache`
+
+Edge types:
+
+- `configures`
+- `influences`
+- `can_call`
+- `grants`
+- `has_authority`
+- `reaches`
+- `restricts`
+- `filters`
+- `requires_approval`
+- `limits`
+- `authorizes`
+- `identifies`
+- `scopes_credentials`
+- `observes`
+- `traces`
+- `governs`
+- `verifies`
+
+### Interpretation
+
+`prove`, `scan`, and `dashboard` include deterministic interpretation on top of exposure paths.
+
+Interpretation includes:
+
+- `mode`: currently `deterministic`
+- `engine`: interpreter name
+- `available_modes`: supported modes such as `deterministic` and `llm_review`
+- `summary`: issue counts by severity and disposition
+- `issues`: prioritized issue records
+- `policy_source`: `built_in` or `built_in+custom`
+- `review_source`: source of an ingested LLM review, when applicable
+- `request_digest`: SHA-256 digest of the LLM review request packet, when applicable
+- `limitations`
+
+Each issue includes:
+
+- `priority`: `p0`, `p1`, `p2`, `p3`, or `p4`
+- `severity`: `critical`, `high`, `medium`, `low`, or `info`
+- `disposition`: `fix_now`, `review`, `monitor`, `controlled`, or `expected_capability`
+- `rule_source`: `built_in` or `custom`
+- `signals`: facts or graph predicates that caused the rule to match
+- `graph_edges`: path evidence cited by the issue
+- `actions`: concrete next steps
+
+Custom deterministic policies are documented in [priority-rules.md](priority-rules.md).
+
+### Zero Trust
+
+`prove` output includes `zero_trust`, an architecture-boundary assessment derived from the same deterministic facts, graph edges, controls, and limitations.
+
+Each check includes:
+
+- `principle`: Zero Trust principle such as least agency, assume breach, or never trust and always verify
+- `boundary`: architecture boundary under review
+- `status`: `breaking`, `controlled`, `unknown`, or `not_observed`
+- `design_test`: the capability-removal test Ariadne applies
+- `finding`: fact-backed result text
+- `evidence`: source references and summaries
+- `graph_edges`: graph evidence supporting the check
+- `controls`: controls that break or restrict the path. Every control carries an `enforcement` value: `enforced` (runtime/platform-applied configuration) or `attested` (self-declared `.ariadne/*.json` policy). Only enforced controls can protect a path, control a boundary, or close a case; attested controls surface separately as `attested_controls` on control tests, triage, and decisions.
+- `actions`: concrete next steps
+- `limitations`
+
+Architecture closure rows and control catalog rows also include `evidence_refs`. Each reference preserves the affected `target`, evidence `id`, evidence `kind`, redacted or target-relative `source`, and fact `summary` so an operator can trace a missing-control request back to the file or modeled fact that caused it.
+
+`zero_trust.coverage` converts unknown and not-observed checks into explicit evidence gaps:
+
+- `known`: checks classified as `breaking` or `controlled`
+- `gaps`: number of unknown or not-observed coverage gaps
+- `gap_details`: missing evidence, why it matters, and the next collector needed
+
+`zero_trust.maturity` maps the current run against Ariadne's Foundation Zero Trust agent requirements:
+
+- `target_tier`: currently `foundation`
+- `summary`: total requirements, requirements with enough deterministic evidence to be treated as met, relevant gaps, breaking requirements, unknowns, not-observed requirements, hard barriers, and friction-only controls
+- `requirements`: each requirement's capability, principle, status, control quality, evidence, controls, missing evidence, and actions
+
+Control quality separates hard barriers from partial or friction-only evidence. This prevents approval prompts, warnings, filtering, delimiting, sandboxing, network restriction, or generic policy text from being treated as equivalent to input isolation, cryptographic identity, short-lived credentials, deny-by-default permissions, identity-aware workload authorization, or audited traceability.
+
+`breaking` is reserved for graph-backed paths or missing break-path controls. Missing input isolation, identity, credential, workload authorization, or telemetry evidence is reported as `unknown` until Ariadne collects deterministic facts that prove the boundary.
+
+`ariadne architecture --format json` emits a focused architecture contract with:
+
+- `summary` and `overall_summary`
+- `evidence_coverage`
+- `evidence_plan`, where unknown or not-observed boundary gaps are grouped by next collector
+- `framework_coverage`, where Zero Trust for AI Agents source areas are mapped to Ariadne checks, evidence anchors, missing evidence, and limitations
+- `maturity`
+- `boundary_coverage`
+- `flaws`, where each flaw includes a `control_test` result for the impossible-vs-tedious design test
+- `closure_families`, where missing hard barriers are grouped into Zero Trust capability areas with evidence anchors and structured evidence references
+- `closure_plan`, where missing hard barriers are ranked by affected flaws and targets with evidence anchors and structured evidence references
+
+`ariadne assess --format json` emits the primary first-run assessment contract with:
+
+- `summary`, combining inspected-surface counts, exposure path counts, architecture flaw counts, missing hard-barrier controls, and the top case
+- optional `case_filter` and `control_filter`, when `ariadne assess --case` or `ariadne assess --control` narrows the operator queue to a focused remediation path
+- `triage`, separating hard risk signal from normal/expected agent capability, missing hard barriers, partial/friction controls, present hard barriers, unknown evidence gaps, evidence-gap actions, evidence refs, next action, and proof loop. `triage.signal_details` is the stable signal-vs-noise contract: each row has an `id`, `category`, `disposition`, `summary`, `why_it_matters`, `risk_boundary`, `graph_edges`, `evidence_refs`, `related_controls`, and `limitations`.
+- `source_reference_workbench`, the structured evidence-opening contract used by the dashboard: ranked source refs, row-level source labels, line labels, facts, local paths when available, metadata-only flags, inspect commands, and `source_action_board` groups that turn files or proof surfaces into concrete inspect/verify tasks. Private, history, transcript, paste, and cache surfaces use metadata-only commands by default.
+- `inventory`, summarizing discovered AI surfaces, typed facts, graph size, runtime/tool/authority/control/boundary counts, surface categories, and handling modes
+- `exposure`, summarizing exposed, protected, and inconclusive paths with a bounded list of top path records
+- `closure_evidence`, summarizing protected exposure paths, controlled architecture flaws, partial/friction-only control evidence, hard barriers observed, remaining missing hard barriers, and source-backed closure paths
+- `closure_plan`, a small ranked proof queue distilled from the case board, with the next control to prove, the case it closes, impact counts, evidence refs, proof surface, proof patch, rerun command, compare command, and done criteria
+- `architecture` for single-target assessment, or `architecture_scan` for target-list assessment
+- `case_board`, the same operator case-board contract emitted by `ariadne cases`
+- `top_cases`, a bounded case-first queue for humans
+- `top_case_proof_plan`, the focused proof-plan contract for the highest-priority case, including evidence refs, proof patches, rerun commands, compare commands, and success criteria
+- `first_action`, the highest-priority case distilled into one fact-backed action with priority reason, next step, affected targets/flaws, evidence refs, proof surfaces, accepted evidence examples, proof patches, rerun commands, compare commands, suggested proof export command, success criteria, an ordered evidence -> proof -> rerun -> compare workflow, and `current_action` pointers to the active workflow step, source evidence refs, rerun command, compare command, and proof export command. When available, `current_action` also embeds the selected proof patch and accepted evidence example so clients can render the active action without re-indexing arrays.
+
+`ariadne assess --format operator-json` and `ariadne assess --format runbook-json` are standalone handoff contracts. Both include `source_reference_workbench` alongside the compact `operator_packet` or `operator_runbook`, so ticketing systems and dashboards can render exact files, line labels, inspect commands, metadata-only flags, and grouped source actions without fetching the full assessment JSON.
+- `operator_packet`, the compact ticket-style handoff derived from the same deterministic facts: start case, actionable facts, normal context, evidence refs, graph path, missing and target controls, proof-state checkpoint, exact proof/rerun/compare commands, done criteria, decision rules, and limitations
+- `operator_workbench`, the structured operator workspace behind the dashboard, including `signal_chain`, `evidence_to_open`, `proof_state`, `closure_loop`, and `runbook`. The closure loop is the stable before -> change -> rerun -> after -> compare -> closure-decision contract for proving whether a case closed or stayed open. The runbook is the compact action-first projection of those facts: open-first evidence, current step, next step, files, artifacts, commands, done criteria, and closure workflow.
+- `next_commands`, including the exact `assess`, focused `cases`, focused `proofs`, `controls`, and `architecture` commands to rerun
+
+The assessment contract is a composition layer. It does not create a separate classification engine; classifications, `triage`, `closure_plan`, and `first_action` remain derived from deterministic facts, graph edges, architecture flaws, ranked operator cases, closure evidence, proof patches, and missing hard-barrier controls.
+
+`ariadne assess --case <case-id>` narrows `case_board`, `top_cases`, `top_case_proof_plan`, `first_action`, and `closure_plan` to the selected case. `ariadne assess --control <control-id>` selects the first ranked case containing that missing hard barrier and focuses the current action on that control. Both keep deterministic inventory, exposure, architecture, evidence, and limitation context in the same assessment artifact.
+
+`ariadne assess --format runbook` renders `operator_workbench.runbook` as the action-first terminal workflow: open-first evidence, current step, next step, files, artifacts, commands, done criteria, closure workspace command, and closure workflow. `ariadne assess --format runbook-json` emits the same runbook as `ariadne-operator-runbook-v1.schema.json`, with run metadata, redaction metadata, warnings, and limitations. `ariadne assess --format operator` renders `operator_packet` as the compact terminal handoff for tickets and reviews. It answers what to open, why it is actionable, which controls are missing, what proof artifacts define before/after state, which commands to run, and what closes the case. `ariadne assess --format operator-json` emits the same packet as `ariadne-operator-packet-v1.schema.json`, with run metadata, redaction metadata, warnings, and limitations. `ariadne assess --format action` renders a fuller workflow view with signal triage, ranked closure plan, and `first_action.current_action`. `--format table` remains the full terminal audit trail.
+
+`ariadne architecture --targets ... --format json` emits a fleet architecture contract with:
+
+- `summary`
+- `evidence_plan`, aggregated across targets
+- `framework_coverage`, aggregated across targets
+- `boundary_coverage`
+- `groups`, including aggregated `control_test_results`
+- `closure_families`, aggregated across targets
+- `closure_plan`, aggregated across targets
+- `targets`
+
+`ariadne controls --format json` emits a focused control evidence catalog with:
+
+- `summary`, counting missing hard-barrier controls by severity, affected targets, and affected flaws
+- `controls`, where each missing hard barrier includes the flaws it closes, target coverage, evidence anchors, structured evidence references, proof surfaces, and concrete actions
+- `families`, where related controls are grouped into Zero Trust capability areas such as identity, least agency, egress, observability, response, and governance
+- `operator_cases`, where each architecture break-path workstream becomes an actionable case with rank, priority reason, state, state reason, next step, evidence references, starting controls, proof surfaces, proof patches, evidence examples, patch export command when supported, rerun commands, compare commands, and success criteria
+- `workstreams`, where related controls become break-path workstreams with starting tasks, evidence references, proof surfaces, rationale, and success criteria
+- `proof_specs`, where each missing hard barrier maps to the evidence kind, proof surfaces, parser-recognized indicators, notes, and limitations Ariadne uses when looking for deterministic proof
+- `verification_tasks`, where each missing hard barrier becomes an operator task with evidence references, proof surfaces, recognized indicators, proof patches, evidence examples, rerun commands, success criteria, and limitations
+
+This catalog is derived from the architecture closure plan. It does not create a separate classification; it makes the proof request easier to act on. Recognized indicators, proof patches, and evidence examples are evidence hints, not a claim of live runtime enforcement unless paired with observed enforcement evidence.
+
+`ariadne cases --format json` emits the same evidence contract with `run_kind` set to `case_board` or `case_board_scan`. The table and HTML renderers are case-first: they lead with `operator_cases` and keep controls, workstreams, proof specs, and verification tasks as supporting evidence for automation and deeper review. Each operator case includes compare commands for the before/after proof loop and, for single-target runs with proof patches, a `patch_export_command` for exporting the suggested proof bundle. When `--case <case-id>` is supplied, `case_filter` records the selected case and the arrays are narrowed to that case's supporting evidence.
+
+`ariadne proofs --format json` emits a focused proof-plan contract with:
+
+- `summary`, counting selected cases, proof patches, evidence references, controls, targets, and flaws
+- `cases`, preserving the focused operator cases that produced the proof plan
+- `proof_patches`, the parser-recognized evidence patches to add or verify
+- `evidence_refs`, the file or graph evidence that caused the proof request
+- `rerun_commands` and `success_criteria`, so automation can close the loop after evidence is added
+- `compare_commands`, with the exact before-proof, after-proof, and compare commands for the rerun loop
+- `patch_export_command`, the exact command to export suggested proof evidence files for the focused proof plan when export is supported
+- `limitations`, including the distinction between declared evidence and observed runtime enforcement
+
+This proof plan is read-only by default. It narrows the action packet for an operator or dashboard, but it does not write policy files and does not claim that declared evidence proves live enforcement. When invoked with `--patch-dir <dir>`, Ariadne exports suggested proof evidence files plus a manifest under that directory; the export is still review-first and does not mutate the scanned repo.
+
+`ariadne proofs --format html` renders the same focused proof plan as an operator dashboard: summary metrics, an evidence workbench, selected cases, proof patches, evidence references, rerun commands, compare-loop commands, success criteria, and limitations.
+
+`ariadne closure --path <target> --case <case-id> --dir <workspace>` is the first-class local proof-loop workspace. It composes the assessment runbook, focused proof-plan JSON, proof-plan HTML, proof-patch export manifest, and compare commands into one review folder. The workspace writes a baseline `before-proof.json` immediately, exports suggested proof evidence under `proof-patches/`, and records the exact commands for generating `after-proof.json` and `case-compare.html` after evidence has been changed or verified. It does not mutate the scanned target and does not create an after-state until the operator reruns the command shown in the workspace README.
+
+When a focused case has been closed by deterministic hard-barrier evidence, `ariadne cases --case <id>` and `ariadne proofs --case <id>` return the selected case with `state: "closed"`, observed hard barriers in `starting_controls`, evidence references, and no proof patches instead of treating the missing case as an error.
+
+`ariadne compare --before <json> --after <json>` accepts JSON from `proofs`, `cases`, or `assess` and emits `run_kind: "case_compare"`. The top-level `outcome` object summarizes after-rerun state without overclaiming: open cases, closed cases, absent cases, material changes, action-case lists, and the next deterministic action. The top-level `closure_receipts` array is the ticket/audit handoff: case ID, before/after state, proof status, control evidence, evidence sources, artifact sources, remaining action, rerun commands, compare commands, decision rules, and limitations. `--format receipt` renders only those closure receipts as a pasteable text artifact. Each detailed result includes the case ID, before/after state, disposition (`closed`, `reopened`, `stayed_open`, `stayed_closed`, `changed`, `added`, or `removed`), a `proof_verdict` with deterministic closure status, control evidence, evidence sources, remaining action, rerun commands, compare commands, decision rules, and limitations, before/after controls, added/removed controls, proof patch counts, evidence reference counts, evidence-reference details and deltas, targets, flaws, next steps, and before/after rerun and compare-loop commands.
+
+`ariadne controls --format html` renders the same contract as a focused operator dashboard: summary metrics, operator cases, break-path workstreams, verification tasks, control families, and control rows with the missing hard barrier, affected flaws, evidence anchors, proof surfaces, recognized indicators, proof patches, evidence examples, and actions.
+
+`ariadne cases --format html` renders the same contract as an operator case board: summary metrics, prioritized cases, evidence references, starting controls, proof surfaces, proof patches, example evidence, rerun commands, done criteria, and a compact evidence model.
+
+`ariadne review-packet` emits the LLM review request JSON. LLM review mode uses two JSON payloads:
+
+- request packet: `ariadne.llm_review_request/v1`
+- review response: `ariadne.llm_review/v1`
+- review-check report: `run_kind: "llm_review_check"`
+- review-run report: `run_kind: "llm_review_run"`
+
+The request packet contains only Ariadne's redacted collection facts, graph evidence, redaction metadata, limitations, a reviewer task list, a citation catalog, and a review contract. In the default `follow-up` profile it also includes exposure paths and deterministic interpretation; the response is accepted only when every issue cites an existing exposure and supported graph edges. In the `inventory-blind` profile, Ariadne omits exposure paths and deterministic issue ranking so a reviewer can look for hypotheses or collector gaps with less anchoring. Inventory-blind reviewer output is request-only until a hypothesis is mapped back to deterministic exposure evidence.
+
+`ariadne review-check --packet <json> --review <json> --format json` emits a report with the packet source, review source, packet SHA-256 digest, `accepted`, validated interpretation, redaction metadata, and limitations. `accepted: true` means the reviewer response was bounded to the exact follow-up packet; it remains interpretation over deterministic facts, not new raw evidence.
+
+`ariadne review-run --path <dir> --command <reviewer> --format json` emits the one-command local reviewer workflow report. It records the reviewer command, artifact directory, packet path, raw reviewer response path, review-check JSON path, review-check summary path, packet digest, accepted flag, and embedded review-check result. The reviewer receives the redacted follow-up packet on stdin; Ariadne does not call remote LLM services by itself.
+
+## Graph Export Formats
+
+The JSON graph is the canonical machine contract. Ariadne can also render the
+same nodes and edges directly for visualization:
+
+```bash
+ariadne inventory --path . --format mermaid --out ariadne-graph.mmd
+ariadne prove --path . --format dot --out ariadne-graph.dot
+ariadne scan --targets targets.txt --format mermaid --out fleet-graph.mmd
+ariadne dashboard --path . --out ariadne-dashboard.html
+ariadne dashboard --path . --view exposure --out exposure-dashboard.html
+```
+
+`dashboard` defaults to the operator assessment view. Use `--view exposure` for the lower-level exposure and facts dashboard. `dot` output is Graphviz-compatible. `mermaid` output uses `flowchart LR`.
+
+### Exposure
+
+An exposure path includes:
+
+- `id`
+- `status`
+- `proof_mode`
+- `path_nodes`
+- `path_edges`
+- `evidence_refs`
+- `observation`
+- `controls_break_path`
+- `limitations`
+
+### Verdict (`ariadne verdict --json`)
+
+The compact agent-native verdict (`ariadne.verdict/v1`) grades the target as
+`reckless`, `tradeoffs_only`, `hardened`, or `no_agents_found`:
+
+- `verdict` — the graded word; `reckless` findings are the only action items
+- `scanned` — runtimes found, config surfaces read, `executed: false` always
+- `reckless[]` — `id` (`reckless:N`), `exposure_id`, `title`, `where` (source + line),
+  `evidence_refs`, `why`, `fix` (enforced-surface fix, never an `.ariadne/*` declaration),
+  and `attested_only` (declared-but-unenforced controls surfaced for transparency)
+- `tradeoffs[]` / `hardened[]` — accepted capabilities and enforced controls
+- `next_action`, `inconclusive`, `limitations`
+
+With `--gate`, the command exits 3 when the verdict is `reckless` (0 otherwise),
+so agents and CI can gate on it in one line. Only enforced configuration can
+produce `hardened` entries or keep a finding out of `reckless`.
+
+## Machine-Readable Draft Schemas
+
+Draft schemas are available in:
+
+- [schema/ariadne-report-v1.schema.json](../schema/ariadne-report-v1.schema.json)
+- [schema/ariadne-inventory-v1.schema.json](../schema/ariadne-inventory-v1.schema.json)
+- [schema/ariadne-scan-v1.schema.json](../schema/ariadne-scan-v1.schema.json)
+- [schema/ariadne-architecture-v1.schema.json](../schema/ariadne-architecture-v1.schema.json)
+- [schema/ariadne-architecture-scan-v1.schema.json](../schema/ariadne-architecture-scan-v1.schema.json)
+- [schema/ariadne-control-catalog-v1.schema.json](../schema/ariadne-control-catalog-v1.schema.json)
+- [schema/ariadne-operator-packet-v1.schema.json](../schema/ariadne-operator-packet-v1.schema.json)
+- [schema/ariadne-verdict-v1.schema.json](../schema/ariadne-verdict-v1.schema.json)

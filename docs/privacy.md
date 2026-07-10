@@ -1,39 +1,45 @@
 # Privacy Contract
 
-Ariadne is designed to be safe to run in sensitive repositories.
+Ariadne is local-first and deterministic by default.
 
 ## Collected
 
-- Agent configuration metadata.
-- Declared sandbox, approval, network, deny-read, and MCP settings.
-- Repo context such as root, remote, and instruction-file presence.
-- Devcontainer metadata relevant to runtime boundary risk.
+- AI-agent configuration surfaces
+- declared sandbox, approval, permission, network, MCP, and policy settings
+- repository and endpoint instruction surfaces
+- command, plugin, memory, and private-context surface metadata
+- sensitive boundary indicators such as secret-like paths
 
 ## Not Collected
 
-- Secret values.
-- Prompt transcripts.
-- Source file contents beyond bounded instruction/config files.
-- Runtime process lists.
-- Network traffic.
-- Browser state.
+- secret values
+- full private histories, transcripts, paste caches, or session contents
+- network traffic
+- browser state contents
+- package registry contents
+- runtime process memory
 
 ## Execution Safety
 
-The scanner must not execute:
+Ariadne must not execute:
 
-- agent binaries
-- MCP servers
+- agent runtimes
+- MCP or tool servers
 - package managers
 - shell scripts
-- repo commands
+- repository commands
 
-## Reports
+## Redaction
 
-Reports are redacted by default but should still be treated as sensitive security artifacts.
-They may reveal internal repo names, agent configuration posture, and MCP/tool inventory.
+Reports are redacted by default. Sensitive values are never emitted. Private
+context surfaces are summarized by source, category, size, count, and redaction
+metadata.
 
-## Runtime Limitations
+## Report Handling
 
-The scanner reports detected posture only. It does not prove runtime access, sandbox
-enforcement, VPN reachability, or exploitability.
+Reports are still security artifacts. They may reveal repository names, agent
+configuration posture, tool inventory, and modeled exposure paths.
+
+See [`ariadne-prove/docs/threat-model.md`](../ariadne-prove/docs/threat-model.md)
+and [`ariadne-prove/docs/deterministic-scan.md`](../ariadne-prove/docs/deterministic-scan.md)
+for the detailed model.

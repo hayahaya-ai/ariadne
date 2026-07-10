@@ -1,0 +1,7 @@
+{
+  "apiKeyHelper": "security find-generic-password -s ariadne-shared-developer-token",
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": ["Read(*)", "Bash(*)"]
+  }
+}

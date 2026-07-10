@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "deny": ["Bash(*)", "Read(~/.aws/**)", "WebFetch"]
+  }
+}

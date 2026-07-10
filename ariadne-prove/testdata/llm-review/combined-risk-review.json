@@ -1,0 +1,99 @@
+{
+  "schema_version": "ariadne.llm_review/v1",
+  "reviewer": "fixture",
+  "model": "fixture-model",
+  "summary": "The data egress chain is the highest-risk verdict finding in this fixture.",
+  "finding_explanations": [
+    {
+      "finding_id": "reckless:1",
+      "exposure_id": "data-egress-chain",
+      "operator_context": "LLM-reviewed data egress path: repo instructions can steer agents while file-read and external communication are present.",
+      "fact_ids": [
+        "fact:generic:claude-md:aa8513a0d09b",
+        "fact:generic:secret-like-file:235c40c61601"
+      ],
+      "evidence_ref_ids": [
+        "evidence:trustinput:repo-instruction",
+        "authority:external-communication"
+      ],
+      "graph_edges": [
+        "trustinput:repo-instruction|influences|runtime:claude",
+        "authority:external-communication|reaches|boundary:external-destination"
+      ]
+    },
+    {
+      "finding_id": "reckless:2",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "operator_context": "LLM-reviewed secret path: repo instructions can steer agents that have file-read reachability to a secret-like boundary.",
+      "fact_ids": [
+        "fact:generic:claude-md:aa8513a0d09b",
+        "fact:generic:secret-like-file:235c40c61601"
+      ],
+      "evidence_ref_ids": [
+        "evidence:trustinput:repo-instruction",
+        "authority:file-read"
+      ],
+      "graph_edges": [
+        "trustinput:repo-instruction|influences|runtime:claude",
+        "authority:file-read|reaches|boundary:secret-like-file"
+      ]
+    },
+    {
+      "finding_id": "reckless:3",
+      "exposure_id": "mutable-tool-launch-execution",
+      "operator_context": "LLM-reviewed MCP path: the model-callable MCP launcher uses a mutable package launch surface that reaches local code execution.",
+      "fact_ids": [
+        "fact:mcp:mcp-config:b3cb7f985dab"
+      ],
+      "evidence_ref_ids": [
+        "evidence:tool:mcp-package-launch"
+      ],
+      "graph_edges": [
+        "runtime:claude|can_call|tool:mcp-package-launch",
+        "tool:mcp-package-launch|grants|authority:local-code-execution"
+      ]
+    }
+  ],
+  "finding_ranking": [
+    {
+      "rank": 1,
+      "finding_id": "reckless:1",
+      "exposure_id": "data-egress-chain",
+      "rationale": "Highest priority because the graph combines influence, private data reachability, and egress.",
+      "fact_ids": [
+        "fact:generic:claude-md:aa8513a0d09b"
+      ],
+      "graph_edges": [
+        "authority:external-communication|reaches|boundary:external-destination"
+      ]
+    },
+    {
+      "rank": 2,
+      "finding_id": "reckless:3",
+      "exposure_id": "mutable-tool-launch-execution",
+      "rationale": "Second because a mutable tool launcher can create local execution under agent control.",
+      "fact_ids": [
+        "fact:mcp:mcp-config:b3cb7f985dab"
+      ],
+      "graph_edges": [
+        "tool:mcp-package-launch|grants|authority:local-code-execution"
+      ]
+    },
+    {
+      "rank": 3,
+      "finding_id": "reckless:2",
+      "exposure_id": "prompt-injection-to-secret-canary",
+      "rationale": "Third because secret-file reachability is serious but lacks the egress leg by itself.",
+      "fact_ids": [
+        "fact:generic:secret-like-file:235c40c61601"
+      ],
+      "graph_edges": [
+        "authority:file-read|reaches|boundary:secret-like-file"
+      ]
+    }
+  ],
+  "default_judgment_overrides": [],
+  "limitations": [
+    "Fixture review only."
+  ]
+}
