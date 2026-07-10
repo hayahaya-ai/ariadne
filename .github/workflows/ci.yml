@@ -14,7 +14,7 @@ env:
   TMPDIR: /tmp
 
 jobs:
-  test:
+  go-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
