@@ -30,6 +30,10 @@
       "type": "array",
       "items": { "$ref": "#/$defs/influence_provenance_fact" }
     },
+    "authority_scope": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/authority_scope_fact" }
+    },
     "default_judgments": {
       "type": "array",
       "items": { "$ref": "#/$defs/default_judgment" }
@@ -80,6 +84,26 @@
           "type": "string",
           "enum": ["root", "nested", "unknown"]
         },
+        "scope_subtree": { "type": "string" },
+        "source": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "authority_scope_fact": {
+      "type": "object",
+      "required": ["id", "authority_ids", "runtime", "authority_scope", "scope_subtree", "source", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "authority_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "runtime": { "type": "string" },
+        "authority_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
+        },
+        "scope_subtree": { "type": "string" },
         "source": { "type": "string" },
         "summary": { "type": "string" }
       }

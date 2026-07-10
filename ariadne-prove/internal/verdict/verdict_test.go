@@ -357,6 +357,66 @@ func TestBuildRootInstructionTwinStaysReckless(t *testing.T) {
 	}
 }
 
+func TestBuildNestedAuthorityAppliesScopedDefaultJudgment(t *testing.T) {
+	v := buildVerdict(t, "nested-authority-scoped")
+
+	if v.VerdictWord != verdict.WordTradeoffsOnly {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordTradeoffsOnly)
+	}
+	if len(v.Reckless) != 0 {
+		t.Fatalf("out-of-subtree nested authority should not render reckless findings: %+v", v.Reckless)
+	}
+	if !hasAuthorityScopeFact(v, "services/fixture/mcp.json", model.AuthorityScopeNested, "services") {
+		t.Fatalf("verdict should carry nested authority-scope fact: %+v", v.AuthorityScope)
+	}
+	for _, family := range []string{verdict.FamilyEgress, verdict.FamilySecret} {
+		judgment, ok := defaultJudgment(v, "nested_authority_scoped_by_default", family)
+		if !ok {
+			t.Fatalf("missing scoped-authority judgment for %s: %+v", family, v.DefaultJudgments)
+		}
+		if judgment.Label != "default_judgment" || !hasAuthorityFactBasis(judgment.Basis, v.AuthorityScope) || !hasBasisKind(judgment.Basis, "trust_input") {
+			t.Fatalf("scoped-authority judgment should cite authority facts and influence: %+v", judgment)
+		}
+		if !strings.Contains(judgment.Summary, "nested agent configs become live when an agent runs inside that directory") {
+			t.Fatalf("scoped-authority judgment missing live-config caveat: %+v", judgment)
+		}
+	}
+	foundCaveat := false
+	for _, tradeoff := range v.Tradeoffs {
+		if strings.Contains(tradeoff.Summary, "nested agent configs become live when an agent runs inside that directory") {
+			foundCaveat = true
+		}
+	}
+	if !foundCaveat {
+		t.Fatalf("missing scoped-authority trade-off caveat: %+v", v.Tradeoffs)
+	}
+}
+
+func TestBuildNestedBoundaryDoesNotDowngradeRootAuthority(t *testing.T) {
+	v := buildVerdict(t, "nested-authority-boundary-twin")
+
+	if v.VerdictWord != verdict.WordReckless {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordReckless)
+	}
+	if hasDefaultJudgment(v, "nested_authority_scoped_by_default") {
+		t.Fatalf("nested boundary must not scope root authority: %+v", v.DefaultJudgments)
+	}
+	if !hasAuthorityScopeFact(v, ".claude/settings.json", model.AuthorityScopeRoot, "") {
+		t.Fatalf("verdict should carry root authority-scope fact: %+v", v.AuthorityScope)
+	}
+}
+
+func TestBuildRootAuthorityTwinStaysReckless(t *testing.T) {
+	v := buildVerdict(t, "nested-authority-root-twin")
+
+	if v.VerdictWord != verdict.WordReckless {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordReckless)
+	}
+	if hasDefaultJudgment(v, "nested_authority_scoped_by_default") {
+		t.Fatalf("any complete root authority context must keep the path composable: %+v", v.DefaultJudgments)
+	}
+}
+
 func TestRenderReadoutCombinedRisk(t *testing.T) {
 	v := buildVerdict(t, "combined-risk")
 
@@ -498,9 +558,49 @@ func hasInstructionScopeFact(v verdict.Verdict, source string, scope string) boo
 	return false
 }
 
+func hasAuthorityScopeFact(v verdict.Verdict, source string, scope string, subtree string) bool {
+	for _, fact := range v.AuthorityScope {
+		if fact.Source == source && fact.AuthorityScope == scope && fact.ScopeSubtree == subtree && fact.ID != "" && len(fact.AuthorityIDs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultJudgment(v verdict.Verdict, rule string, exposureID string) (verdict.DefaultJudgment, bool) {
+	for _, judgment := range v.DefaultJudgments {
+		if judgment.Rule == rule && judgment.ExposureID == exposureID {
+			return judgment, true
+		}
+	}
+	return verdict.DefaultJudgment{}, false
+}
+
+func hasDefaultJudgment(v verdict.Verdict, rule string) bool {
+	for _, judgment := range v.DefaultJudgments {
+		if judgment.Rule == rule {
+			return true
+		}
+	}
+	return false
+}
+
 func hasBasisKind(basis []verdict.JudgmentBasisRef, kind string) bool {
 	for _, ref := range basis {
 		if ref.Kind == kind && ref.ID != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAuthorityFactBasis(basis []verdict.JudgmentBasisRef, facts []verdict.AuthorityScopeFact) bool {
+	authorityFactIDs := map[string]bool{}
+	for _, fact := range facts {
+		authorityFactIDs[fact.ID] = true
+	}
+	for _, ref := range basis {
+		if ref.Kind == "fact" && authorityFactIDs[ref.ID] {
 			return true
 		}
 	}

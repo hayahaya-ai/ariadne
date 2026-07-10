@@ -1,0 +1,10 @@
+name: nested-authority-scope
+
+on:
+  pull_request:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "inspect pull request metadata"

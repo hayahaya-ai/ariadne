@@ -45,6 +45,7 @@ type Verdict struct {
 	VerdictWord         string                    `json:"verdict"`
 	Scanned             ScannedSummary            `json:"scanned"`
 	InfluenceProvenance []InfluenceProvenanceFact `json:"influence_provenance"`
+	AuthorityScope      []AuthorityScopeFact      `json:"authority_scope"`
 	DefaultJudgments    []DefaultJudgment         `json:"default_judgments"`
 	Reckless            []RecklessFinding         `json:"reckless"`
 	Tradeoffs           []TradeoffLine            `json:"tradeoffs"`
@@ -68,8 +69,22 @@ type InfluenceProvenanceFact struct {
 	TrustInputID     string `json:"trust_input_id"`
 	Provenance       string `json:"provenance"`
 	InstructionScope string `json:"instruction_scope"`
+	ScopeSubtree     string `json:"scope_subtree"`
 	Source           string `json:"source"`
 	Summary          string `json:"summary"`
+}
+
+// AuthorityScopeFact is a deterministic fact about where one authority-bearing
+// local agent or MCP configuration surface applies. Authority IDs are grouped
+// by surface so a default judgment can cite the exact collection fact.
+type AuthorityScopeFact struct {
+	ID             string   `json:"id"`
+	AuthorityIDs   []string `json:"authority_ids"`
+	Runtime        string   `json:"runtime"`
+	AuthorityScope string   `json:"authority_scope"`
+	ScopeSubtree   string   `json:"scope_subtree"`
+	Source         string   `json:"source"`
+	Summary        string   `json:"summary"`
 }
 
 // DefaultJudgment records an interpretative grading default and the facts it
@@ -142,7 +157,8 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 	collection := inventory.Collection
 
 	influenceProvenance := buildInfluenceProvenance(collection)
-	defaultJudgments := buildDefaultJudgments(r.Exposures, collection, influenceProvenance)
+	authorityScope := buildAuthorityScope(collection)
+	defaultJudgments := buildDefaultJudgments(r.Exposures, collection, influenceProvenance, authorityScope)
 	downgraded := downgradedExposureIDs(defaultJudgments)
 	recklessExposures := effectiveRecklessExposures(r.Exposures, downgraded)
 	capabilityBuckets := bucketCapabilities(recklessExposures, collection)
@@ -172,6 +188,7 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 		VerdictWord:         word,
 		Scanned:             buildScanned(collection),
 		InfluenceProvenance: influenceProvenance,
+		AuthorityScope:      authorityScope,
 		DefaultJudgments:    defaultJudgments,
 		Reckless:            reckless,
 		Tradeoffs:           tradeoffs,
@@ -220,8 +237,9 @@ func buildScanned(collection model.Collection) ScannedSummary {
 }
 
 const (
-	homeScopeDefaultRule   = "home_scope_influence_not_untrusted_by_default"
-	nestedScopeDefaultRule = "nested_instructions_scoped_by_default"
+	homeScopeDefaultRule       = "home_scope_influence_not_untrusted_by_default"
+	nestedScopeDefaultRule     = "nested_instructions_scoped_by_default"
+	nestedAuthorityDefaultRule = "nested_authority_scoped_by_default"
 )
 
 func buildInfluenceProvenance(collection model.Collection) []InfluenceProvenanceFact {
@@ -250,6 +268,7 @@ func buildInfluenceProvenance(collection model.Collection) []InfluenceProvenance
 			TrustInputID:     input.ID,
 			Provenance:       provenance,
 			InstructionScope: instructionScope,
+			ScopeSubtree:     input.ScopeSubtree,
 			Source:           input.Source,
 			Summary:          "Trust input provenance and instruction scope derived from deterministic surface location and arrival path.",
 		})
@@ -283,32 +302,142 @@ func provenanceFactForInput(facts []model.Fact, input model.TrustInput) (model.F
 	return model.Fact{}, false
 }
 
-func buildDefaultJudgments(exposures []model.ExposureResult, collection model.Collection, provenanceFacts []InfluenceProvenanceFact) []DefaultJudgment {
+func buildAuthorityScope(collection model.Collection) []AuthorityScopeFact {
+	type groupedFact struct {
+		fact         AuthorityScopeFact
+		authoritySet map[string]bool
+	}
+	groups := map[string]*groupedFact{}
+	var order []string
+	for _, authority := range collection.Authorities {
+		if authority.AuthorityScope == "" {
+			continue
+		}
+		fact, ok := authoritySurfaceFact(collection.Facts, authority)
+		if !ok {
+			continue
+		}
+		key := fact.ID + "|" + authority.Runtime + "|" + authority.AuthorityScope + "|" + authority.ScopeSubtree + "|" + authority.Source
+		group, exists := groups[key]
+		if !exists {
+			group = &groupedFact{
+				fact: AuthorityScopeFact{
+					ID:             fact.ID,
+					AuthorityIDs:   []string{},
+					Runtime:        authority.Runtime,
+					AuthorityScope: authority.AuthorityScope,
+					ScopeSubtree:   authority.ScopeSubtree,
+					Source:         authority.Source,
+					Summary:        "Authority scope derived from deterministic agent-config surface location.",
+				},
+				authoritySet: map[string]bool{},
+			}
+			groups[key] = group
+			order = append(order, key)
+		}
+		if authority.ID != "" {
+			group.authoritySet[authority.ID] = true
+		}
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		left, right := groups[order[i]].fact, groups[order[j]].fact
+		if left.Source == right.Source {
+			return left.Runtime < right.Runtime
+		}
+		return left.Source < right.Source
+	})
+	out := make([]AuthorityScopeFact, 0, len(order))
+	for _, key := range order {
+		group := groups[key]
+		for authorityID := range group.authoritySet {
+			group.fact.AuthorityIDs = append(group.fact.AuthorityIDs, authorityID)
+		}
+		sort.Strings(group.fact.AuthorityIDs)
+		out = append(out, group.fact)
+	}
+	if out == nil {
+		return []AuthorityScopeFact{}
+	}
+	return out
+}
+
+func authoritySurfaceFact(facts []model.Fact, authority model.Authority) (model.Fact, bool) {
+	for _, fact := range facts {
+		factRuntime := fact.Runtime
+		if factRuntime == "generic" || factRuntime == "mcp" {
+			factRuntime = ""
+		}
+		if fact.Source == authority.Source && factRuntime == authority.Runtime && fact.AuthorityScope == authority.AuthorityScope && fact.ScopeSubtree == authority.ScopeSubtree {
+			return fact, true
+		}
+	}
+	return model.Fact{}, false
+}
+
+func buildDefaultJudgments(exposures []model.ExposureResult, collection model.Collection, provenanceFacts []InfluenceProvenanceFact, authorityFacts []AuthorityScopeFact) []DefaultJudgment {
 	risky := riskyTrustInputs(collection)
 	if len(risky) == 0 {
 		return []DefaultJudgment{}
-	}
-	rule := ""
-	judgedInputs := risky
-	summary := ""
-	switch {
-	case allHomeScope(risky):
-		rule = homeScopeDefaultRule
-		summary = "Home-scope influence alone is treated as a trade-off by default; deterministic facts do not claim the file is safe or user-authored."
-	default:
-		judgedInputs = riskyUntrustedTrustInputs(risky)
-		if len(judgedInputs) == 0 || !allNestedScope(judgedInputs) {
-			return []DefaultJudgment{}
-		}
-		rule = nestedScopeDefaultRule
-		summary = "Nested untrusted instructions are scoped by default; they become live influence for agents that work inside those directories."
 	}
 	byID := make(map[string]model.ExposureResult, len(exposures))
 	for _, exposure := range exposures {
 		byID[exposure.ID] = exposure
 	}
-	trustInputIDs := trustInputIDs(judgedInputs)
-	basis := judgmentBasis(judgedInputs, provenanceFacts)
+	if allHomeScope(risky) {
+		return judgmentsForExposedFamilies(byID, homeScopeDefaultRule, risky, judgmentBasis(risky, provenanceFacts), "Home-scope influence alone is treated as a trade-off by default; deterministic facts do not claim the file is safe or user-authored.")
+	}
+
+	untrusted := riskyUntrustedTrustInputs(risky)
+	if len(untrusted) == 0 {
+		return []DefaultJudgment{}
+	}
+	if allNestedScope(untrusted) {
+		return judgmentsForExposedFamilies(byID, nestedScopeDefaultRule, untrusted, judgmentBasis(untrusted, provenanceFacts), "Nested untrusted instructions are scoped by default; they become live influence for agents that work inside those directories.")
+	}
+
+	activeInputs := nonNestedScopeInputs(untrusted)
+	nestedInputs := nestedScopeInputs(untrusted)
+	var out []DefaultJudgment
+	for _, familyID := range []string{FamilyEgress, FamilySecret} {
+		exposure, ok := byID[familyID]
+		if !ok || exposure.Status != model.StatusExposed {
+			continue
+		}
+		authorityBasis, scoped := nestedAuthorityBasis(familyID, activeInputs, authorityFacts)
+		if !scoped {
+			continue
+		}
+		basis := judgmentBasis(activeInputs, provenanceFacts)
+		basis = appendAuthorityBasis(basis, authorityBasis)
+		out = append(out, DefaultJudgment{
+			Rule:          nestedAuthorityDefaultRule,
+			Label:         "default_judgment",
+			ExposureID:    familyID,
+			TrustInputIDs: trustInputIDs(activeInputs),
+			Basis:         basis,
+			Summary:       "The authority-bearing agent configuration is nested outside the active influence scope; nested agent configs become live when an agent runs inside that directory.",
+		})
+		// Mixed root/nested influence needs both defaults to cover every
+		// possible influence leg. This judgment is added only after the root
+		// legs were independently held by the scoped-authority rule.
+		if len(nestedInputs) > 0 {
+			out = append(out, DefaultJudgment{
+				Rule:          nestedScopeDefaultRule,
+				Label:         "default_judgment",
+				ExposureID:    familyID,
+				TrustInputIDs: trustInputIDs(nestedInputs),
+				Basis:         judgmentBasis(nestedInputs, provenanceFacts),
+				Summary:       "Nested untrusted instructions are scoped by default; they become live influence for agents that work inside those directories.",
+			})
+		}
+	}
+	if out == nil {
+		return []DefaultJudgment{}
+	}
+	return out
+}
+
+func judgmentsForExposedFamilies(byID map[string]model.ExposureResult, rule string, inputs []model.TrustInput, basis []JudgmentBasisRef, summary string) []DefaultJudgment {
 	var out []DefaultJudgment
 	for _, familyID := range []string{FamilyEgress, FamilySecret} {
 		exposure, ok := byID[familyID]
@@ -319,7 +448,7 @@ func buildDefaultJudgments(exposures []model.ExposureResult, collection model.Co
 			Rule:          rule,
 			Label:         "default_judgment",
 			ExposureID:    familyID,
-			TrustInputIDs: trustInputIDs,
+			TrustInputIDs: trustInputIDs(inputs),
 			Basis:         basis,
 			Summary:       summary,
 		})
@@ -368,6 +497,129 @@ func allNestedScope(inputs []model.TrustInput) bool {
 	return true
 }
 
+func nestedScopeInputs(inputs []model.TrustInput) []model.TrustInput {
+	var out []model.TrustInput
+	for _, input := range inputs {
+		if input.InstructionScope == model.InstructionScopeNested {
+			out = append(out, input)
+		}
+	}
+	return out
+}
+
+func nonNestedScopeInputs(inputs []model.TrustInput) []model.TrustInput {
+	var out []model.TrustInput
+	for _, input := range inputs {
+		if input.InstructionScope != model.InstructionScopeNested {
+			out = append(out, input)
+		}
+	}
+	return out
+}
+
+type authorityScopeContext struct {
+	runtime      string
+	scope        string
+	subtree      string
+	authorityIDs map[string]bool
+	factIDs      map[string]bool
+}
+
+func nestedAuthorityBasis(familyID string, inputs []model.TrustInput, facts []AuthorityScopeFact) ([]string, bool) {
+	contexts := authorityScopeContexts(facts)
+	var basis []string
+	seen := map[string]bool{}
+	foundNested := false
+	for _, context := range contexts {
+		if !authorityContextSupportsFamily(context, familyID) {
+			continue
+		}
+		// A complete root authority context keeps the path composable. Unknown
+		// scope is also kept reckless because disjointness was not established.
+		if context.scope != model.AuthorityScopeNested {
+			return nil, false
+		}
+		if authorityContextCanShareInfluenceSubtree(context, inputs) {
+			return nil, false
+		}
+		foundNested = true
+		for factID := range context.factIDs {
+			if factID == "" || seen[factID] {
+				continue
+			}
+			seen[factID] = true
+			basis = append(basis, factID)
+		}
+	}
+	if !foundNested {
+		return nil, false
+	}
+	sort.Strings(basis)
+	return basis, true
+}
+
+func authorityScopeContexts(facts []AuthorityScopeFact) []authorityScopeContext {
+	groups := map[string]*authorityScopeContext{}
+	var order []string
+	for _, fact := range facts {
+		key := fact.Runtime + "|" + fact.AuthorityScope + "|" + fact.ScopeSubtree
+		context, ok := groups[key]
+		if !ok {
+			context = &authorityScopeContext{
+				runtime:      fact.Runtime,
+				scope:        fact.AuthorityScope,
+				subtree:      fact.ScopeSubtree,
+				authorityIDs: map[string]bool{},
+				factIDs:      map[string]bool{},
+			}
+			groups[key] = context
+			order = append(order, key)
+		}
+		for _, authorityID := range fact.AuthorityIDs {
+			context.authorityIDs[authorityID] = true
+		}
+		context.factIDs[fact.ID] = true
+	}
+	sort.Strings(order)
+	out := make([]authorityScopeContext, 0, len(order))
+	for _, key := range order {
+		out = append(out, *groups[key])
+	}
+	return out
+}
+
+func authorityContextSupportsFamily(context authorityScopeContext, familyID string) bool {
+	broad := context.authorityIDs["authority:broad-local"]
+	switch familyID {
+	case FamilySecret:
+		return broad || context.authorityIDs["authority:file-read"]
+	case FamilyEgress:
+		private := broad || context.authorityIDs["authority:file-read"] || context.authorityIDs["authority:credential-access"]
+		external := broad || context.authorityIDs["authority:external-communication"]
+		return private && external
+	default:
+		return false
+	}
+}
+
+func authorityContextCanShareInfluenceSubtree(context authorityScopeContext, inputs []model.TrustInput) bool {
+	for _, input := range inputs {
+		switch input.InstructionScope {
+		case model.InstructionScopeRoot:
+			continue
+		case model.InstructionScopeNested:
+			if input.ScopeSubtree != "" && input.ScopeSubtree == context.subtree {
+				return true
+			}
+		default:
+			// Unknown instruction scope cannot prove that the nested authority
+			// lives outside the influence leg.
+			return true
+		}
+	}
+	return false
+}
+
 func trustInputIDs(inputs []model.TrustInput) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -409,6 +661,23 @@ func judgmentBasis(inputs []model.TrustInput, provenanceFacts []InfluenceProvena
 		return []JudgmentBasisRef{}
 	}
 	return out
+}
+
+func appendAuthorityBasis(basis []JudgmentBasisRef, factIDs []string) []JudgmentBasisRef {
+	seen := map[string]bool{}
+	for _, ref := range basis {
+		seen[ref.Kind+"|"+ref.ID] = true
+	}
+	for _, factID := range factIDs {
+		addJudgmentBasis(&basis, seen, JudgmentBasisRef{Kind: "fact", ID: factID})
+	}
+	sort.SliceStable(basis, func(i, j int) bool {
+		if basis[i].Kind == basis[j].Kind {
+			return basis[i].ID < basis[j].ID
+		}
+		return basis[i].Kind < basis[j].Kind
+	})
+	return basis
 }
 
 func addJudgmentBasis(out *[]JudgmentBasisRef, seen map[string]bool, ref JudgmentBasisRef) {
@@ -1065,6 +1334,16 @@ func buildTradeoffs(judgments []DefaultJudgment, collection model.Collection, bu
 }
 
 func tradeoffSummaryForJudgment(judgment DefaultJudgment) string {
+	if judgment.Rule == nestedAuthorityDefaultRule {
+		switch judgment.ExposureID {
+		case FamilyEgress:
+			return "network and private-data authority exists only in nested agent configs outside the active influence scope — held as a trade-off by default; nested agent configs become live when an agent runs inside that directory"
+		case FamilySecret:
+			return "file-read authority exists only in nested agent configs outside the active influence scope — held as a trade-off by default; nested agent configs become live when an agent runs inside that directory"
+		default:
+			return "authority exists only in nested agent configs outside the active influence scope — held as a trade-off by default; nested agent configs become live when an agent runs inside that directory"
+		}
+	}
 	if judgment.Rule == nestedScopeDefaultRule {
 		switch judgment.ExposureID {
 		case FamilyEgress:
@@ -1105,6 +1384,19 @@ func mergeTradeoffSources(sources []string) string {
 }
 
 func judgmentSource(judgment DefaultJudgment, collection model.Collection) string {
+	if judgment.Rule == nestedAuthorityDefaultRule {
+		basis := map[string]bool{}
+		for _, ref := range judgment.Basis {
+			if ref.Kind == "fact" {
+				basis[ref.ID] = true
+			}
+		}
+		for _, fact := range collection.Facts {
+			if basis[fact.ID] && fact.AuthorityScope == model.AuthorityScopeNested && fact.Source != "" {
+				return fact.Source
+			}
+		}
+	}
 	for _, inputID := range judgment.TrustInputIDs {
 		for _, input := range collection.TrustInputs {
 			if input.ID == inputID && input.Source != "" && input.Risky && judgmentAppliesToInput(judgment.Rule, input) {

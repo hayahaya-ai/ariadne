@@ -1511,6 +1511,8 @@ type Fact struct {
 	Source           string   `json:"source,omitempty"`
 	Provenance       string   `json:"provenance,omitempty"`
 	InstructionScope string   `json:"instruction_scope,omitempty"`
+	AuthorityScope   string   `json:"authority_scope,omitempty"`
+	ScopeSubtree     string   `json:"scope_subtree,omitempty"`
 	HandlingMode     string   `json:"handling_mode,omitempty"`
 	EvidenceGrade    string   `json:"evidence_grade"`
 	Redaction        string   `json:"redaction"`
@@ -2018,6 +2020,10 @@ const (
 	InstructionScopeRoot    = "root"
 	InstructionScopeNested  = "nested"
 	InstructionScopeUnknown = "unknown"
+
+	AuthorityScopeRoot    = "root"
+	AuthorityScopeNested  = "nested"
+	AuthorityScopeUnknown = "unknown"
 )
 
 type TrustInput struct {
@@ -2027,6 +2033,7 @@ type TrustInput struct {
 	Source           string `json:"source"`
 	Provenance       string `json:"provenance"`
 	InstructionScope string `json:"instruction_scope"`
+	ScopeSubtree     string `json:"scope_subtree,omitempty"`
 	Risky            bool   `json:"risky"`
 	Summary          string `json:"summary"`
 	LineStart        int    `json:"-"`
@@ -2047,14 +2054,16 @@ type Tool struct {
 }
 
 type Authority struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Runtime   string `json:"runtime"`
-	Source    string `json:"source"`
-	Summary   string `json:"summary"`
-	LineStart int    `json:"-"`
-	LineEnd   int    `json:"-"`
-	Anchor    string `json:"-"`
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Runtime        string `json:"runtime"`
+	Source         string `json:"source"`
+	AuthorityScope string `json:"authority_scope,omitempty"`
+	ScopeSubtree   string `json:"scope_subtree,omitempty"`
+	Summary        string `json:"summary"`
+	LineStart      int    `json:"-"`
+	LineEnd        int    `json:"-"`
+	Anchor         string `json:"-"`
 }
 
 // Control enforcement provenance. Enforced controls come from configuration a

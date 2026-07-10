@@ -1,0 +1,21 @@
+{
+  "id": "nested-authority-scoped",
+  "title": "Root influence does not borrow authority from a nested agent world",
+  "persona": "developer / AppSec",
+  "user_question": "Does a root workflow stay separate from authority granted only inside a nested agent subtree?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "min_tradeoffs": 2,
+      "default_judgment_rules": [
+        "nested_authority_scoped_by_default"
+      ],
+      "findings": []
+    }
+  }
+}

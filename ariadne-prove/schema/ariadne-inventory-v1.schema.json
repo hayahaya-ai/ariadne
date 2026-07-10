@@ -139,6 +139,11 @@
           "type": "string",
           "enum": ["root", "nested", "unknown"]
         },
+        "authority_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
+        },
+        "scope_subtree": { "type": "string" },
         "handling_mode": { "type": "string" },
         "evidence_grade": { "type": "string", "enum": ["observed", "declared", "inferred", "skipped", "missing"] },
         "redaction": { "type": "string" },
@@ -176,6 +181,7 @@
           "type": "string",
           "enum": ["root", "nested", "unknown"]
         },
+        "scope_subtree": { "type": "string" },
         "risky": { "type": "boolean" },
         "summary": { "type": "string" }
       }
@@ -200,6 +206,11 @@
         "kind": { "type": "string" },
         "runtime": { "type": "string" },
         "source": { "type": "string" },
+        "authority_scope": {
+          "type": "string",
+          "enum": ["root", "nested", "unknown"]
+        },
+        "scope_subtree": { "type": "string" },
         "summary": { "type": "string" }
       }
     },

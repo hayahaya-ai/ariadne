@@ -74,6 +74,7 @@ func hasBoundary(c *model.Collection, id string) bool {
 }
 
 func collectSurface(c *model.Collection, opts Options, s model.Surface) {
+	surfaceScope, scopeSubtree := structuralScopeForSurface(opts, s)
 	fact := model.Fact{
 		ID:            "fact:" + trimPrefix(s.ID, "surface:"),
 		Type:          s.Category,
@@ -88,7 +89,13 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 	}
 	if surfaceCanEmitTrustInput(s) {
 		fact.Provenance = trustInputProvenance(s)
-		fact.InstructionScope = instructionScopeForSurface(opts, s)
+		fact.InstructionScope = surfaceScope
+		fact.ScopeSubtree = scopeSubtree
+	}
+	if surfaceCanEmitAuthorityScope(s) {
+		fact.AuthorityScope = surfaceScope
+		fact.ScopeSubtree = scopeSubtree
+		defer applyAuthorityScopeForSurface(c, s, surfaceScope, scopeSubtree)
 	}
 	c.Facts = appendUniqueFact(c.Facts, fact)
 	collectRuntimeSurfaceEvidence(c, s)
@@ -225,6 +232,7 @@ func collectInstruction(c *model.Collection, opts Options, s model.Surface) {
 		Source:           s.Source,
 		Provenance:       trustInputProvenance(s),
 		InstructionScope: instructionScopeForSurface(opts, s),
+		ScopeSubtree:     scopeSubtreeForSurface(opts, s),
 		Risky:            risky,
 		Summary:          summary,
 		LineStart:        line,
@@ -269,6 +277,7 @@ func collectDelegationSurface(c *model.Collection, opts Options, s model.Surface
 		Source:           s.Source,
 		Provenance:       trustInputProvenance(s),
 		InstructionScope: instructionScopeForSurface(opts, s),
+		ScopeSubtree:     scopeSubtreeForSurface(opts, s),
 		Risky:            riskyInstructionPattern.Match(data),
 		Summary:          "Subagent definition can influence delegated agent behavior.",
 		LineStart:        line,
@@ -344,38 +353,72 @@ func trustInputProvenance(s model.Surface) string {
 	return model.TrustInputProvenanceUnknown
 }
 
-// instructionScopeForSurface records where an influence surface applies
-// relative to its assessment root. Files at that root and files in a
-// runtime-owned root config location are always-load influence; other files
-// are subtree-scoped. This never skips or suppresses collection.
-func instructionScopeForSurface(opts Options, s model.Surface) string {
+// structuralScopeForSurface records where a surface applies relative to its
+// assessment root. Files at that root and files in a runtime-owned root config
+// location are root-scoped; other files are subtree-scoped. The subtree value
+// is the first assessment-relative path component, derived from position only.
+// This never skips or suppresses collection.
+func structuralScopeForSurface(opts Options, s model.Surface) (string, string) {
 	root := opts.RepoPath
 	if s.Scope == "endpoint" {
 		root = opts.HomePath
 	}
 	if root == "" || s.Path == "" {
-		return model.InstructionScopeUnknown
+		return model.InstructionScopeUnknown, ""
 	}
 	rel, err := filepath.Rel(root, s.Path)
 	if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return model.InstructionScopeUnknown
+		return model.InstructionScopeUnknown, ""
 	}
 	rel = filepath.ToSlash(filepath.Clean(rel))
 	if !strings.Contains(rel, "/") {
-		return model.InstructionScopeRoot
+		return model.InstructionScopeRoot, ""
 	}
 	if s.Kind == "nested-agents-md" {
 		// .codex/AGENTS.md is an always-loaded Codex config surface that also
 		// matches the generic nested-AGENTS discovery rule.
 		if rel == ".codex/AGENTS.md" {
-			return model.InstructionScopeRoot
+			return model.InstructionScopeRoot, ""
 		}
-		return model.InstructionScopeNested
+		return model.InstructionScopeNested, strings.SplitN(rel, "/", 2)[0]
 	}
 	if isRuntimeRootConfigLocation(rel) {
-		return model.InstructionScopeRoot
+		return model.InstructionScopeRoot, ""
 	}
-	return model.InstructionScopeNested
+	return model.InstructionScopeNested, strings.SplitN(rel, "/", 2)[0]
+}
+
+func instructionScopeForSurface(opts Options, s model.Surface) string {
+	scope, _ := structuralScopeForSurface(opts, s)
+	return scope
+}
+
+func scopeSubtreeForSurface(opts Options, s model.Surface) string {
+	_, subtree := structuralScopeForSurface(opts, s)
+	return subtree
+}
+
+// surfaceCanEmitAuthorityScope limits scoped-authority facts to local agent
+// and MCP configuration surfaces. Managed CI workflows remain influence facts;
+// they are not local agent configuration merely because the workflow itself
+// can execute on a runner.
+func surfaceCanEmitAuthorityScope(s model.Surface) bool {
+	switch s.Category {
+	case "runtime-config", "mcp-tool-config", "command-hook", "agent-delegation":
+		return true
+	default:
+		return s.Kind == "codex-requirements"
+	}
+}
+
+func applyAuthorityScopeForSurface(c *model.Collection, s model.Surface, scope, subtree string) {
+	for i := range c.Authorities {
+		if c.Authorities[i].Source != s.Source || c.Authorities[i].AuthorityScope != "" {
+			continue
+		}
+		c.Authorities[i].AuthorityScope = scope
+		c.Authorities[i].ScopeSubtree = subtree
+	}
 }
 
 func isRuntimeRootConfigLocation(rel string) bool {
@@ -941,6 +984,7 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 			Source:           source,
 			Provenance:       trustInputProvenance(s),
 			InstructionScope: instructionScopeForSurface(opts, s),
+			ScopeSubtree:     scopeSubtreeForSurface(opts, s),
 			Risky:            true,
 			Summary:          "Workflow can be triggered by pull request, issue, or other repository event input.",
 		})
@@ -1094,6 +1138,7 @@ func collectGitLabCIWorkflow(c *model.Collection, opts Options, s model.Surface)
 			Source:           source,
 			Provenance:       trustInputProvenance(s),
 			InstructionScope: instructionScopeForSurface(opts, s),
+			ScopeSubtree:     scopeSubtreeForSurface(opts, s),
 			Risky:            true,
 			Summary:          "Pipeline can be triggered by merge request, trigger, web, schedule, or other repository event input.",
 		})

@@ -54,6 +54,13 @@ file at the assessment root or in a runtime-owned root config location (such as
 `unknown` only when the assessment-relative location cannot be derived. Runtime
 config locations count as root because the runtime loads them independently of
 working inside a matching subtree. Scope classification never skips collection.
+Authority-bearing local agent and MCP config surfaces carry the parallel
+deterministic `authority_scope` fact (`root`, `nested`, or `unknown`) plus
+`scope_subtree`, the first assessment-relative path component for nested
+surfaces. The same fields are copied onto authorities emitted from those
+surfaces. This is structural location only: it does not claim that a nested
+config is safe, and managed CI workflow execution is not relabeled as local
+agent-config authority.
 
 **RECKLESS** — one finding per effectively exposed `ExposureResult`, ordered:
 data-egress-chain first, then prompt-injection-to-secret-canary, then
@@ -66,7 +73,14 @@ instead. Otherwise, when every risky non-home influence leg has
 `nested_instructions_scoped_by_default` judgment. Nested instructions become
 live influence for agents that work inside those directories. Any root or
 unknown-scope non-home leg, or no risky trust-input leg, keeps the exposed path
-reckless. Each finding carries:
+reckless unless the complete authority context needed by that exposed family
+exists only in nested local-agent/MCP config scope outside the active influence
+subtree. That case uses the labeled
+`nested_authority_scoped_by_default` judgment and cites both the influence facts
+and authority-surface facts. A complete root or unknown-scope authority context
+keeps the path reckless. Boundary location never triggers this downgrade: root
+influence plus root authority plus a nested `.env` remains reckless because a
+root agent can read the workspace. Each finding carries:
 - `id`: `reckless:1`, `reckless:2`, … (screen handle) plus `exposure_id` (stable).
 - `title`: one sentence naming the concrete risk (derive from exposure title,
   rewritten in second person, e.g. "Untrusted repo text can steer an agent that
@@ -127,6 +141,9 @@ exposed path:
 - Nested-instruction scoped default judgments → a trade-off line naming the
   affected exposure family and stating that the instructions become live
   influence when agents work inside those directories.
+- Nested-authority scoped default judgments → a trade-off line naming the
+  affected authority leg and stating that nested agent configs become live when
+  an agent runs inside that directory.
 - `authority:external-communication` → "an agent can reach the network — normal
   for installs and web lookups".
 - `authority:file-read` → "agents read your workspace — that is what a coding
@@ -166,8 +183,20 @@ under the readout:
       "trust_input_id": "trustinput:repo-instruction",
       "provenance": "repo_checkout",
       "instruction_scope": "root",
+      "scope_subtree": "",
       "source": "checkout/GEMINI.md",
       "summary": "Trust input provenance and instruction scope derived from deterministic surface location and arrival path."
+    }
+  ],
+  "authority_scope": [
+    {
+      "id": "fact:mcp:mcp-config:...",
+      "authority_ids": ["authority:broad-local", "authority:file-read"],
+      "runtime": "",
+      "authority_scope": "nested",
+      "scope_subtree": "fixtures",
+      "source": "fixtures/world/mcp.json",
+      "summary": "Authority scope derived from deterministic agent-config surface location."
     }
   ],
   "default_judgments": [],
@@ -212,6 +241,12 @@ nested_instructions_scoped_by_default`; its basis cites only the risky non-home
 trust inputs and their deterministic provenance/scope facts, and its summary
 states that the instructions become live for agents working in those
 directories.
+When the scoped-authority default applies, the rule is
+`nested_authority_scoped_by_default`; its basis additionally cites entries from
+`authority_scope`, and its summary and TRADE-OFF line state that nested agent
+configs become live when an agent runs inside that directory. Root authority
+and boundary nesting are deliberately asymmetric: root authority prevents this
+judgment, while a nested boundary alone never causes it.
 
 ## Verdict-aware analyst review
 

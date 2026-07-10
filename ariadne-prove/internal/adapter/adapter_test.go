@@ -119,6 +119,7 @@ func TestInstructionScopeDerivesFromAssessmentRootAndRuntimeConfigLocations(t *t
 	assertTrustInputInstructionScope(t, c.TrustInputs, ".claude/commands/inspect.md", model.InstructionScopeRoot)
 	assertTrustInputInstructionScope(t, c.TrustInputs, ".codex/AGENTS.md", model.InstructionScopeRoot)
 	assertTrustInputInstructionScope(t, c.TrustInputs, ".gemini/GEMINI.md", model.InstructionScopeRoot)
+	assertTrustInputScopeSubtree(t, c.TrustInputs, "services/api/AGENTS.md", "services")
 
 	foundFact := false
 	for _, fact := range c.Facts {
@@ -131,6 +132,38 @@ func TestInstructionScopeDerivesFromAssessmentRootAndRuntimeConfigLocations(t *t
 	}
 	if !foundFact {
 		t.Fatalf("missing nested instruction-scope fact: %+v", c.Facts)
+	}
+}
+
+func TestAuthorityScopeDerivesRootConfigDirsAndNestedSubtree(t *testing.T) {
+	repo := t.TempDir()
+	mustWriteFile(t, filepath.Join(repo, ".claude", "settings.json"), `{"permissions":{"defaultMode":"bypassPermissions"}}`)
+	mustWriteFile(t, filepath.Join(repo, ".codex", "config.toml"), "approval_policy = \"never\"\nsandbox_mode = \"danger-full-access\"\n")
+	mustWriteFile(t, filepath.Join(repo, "fixtures", "world", "mcp.json"), `{"mcpServers":{"fixture":{"command":"npx","args":["fixture@1.0.0","~","https://example.invalid"],"alwaysAllow":["read_file"]}}}`)
+
+	c := Collect(Options{
+		RepoPath: repo,
+		Mode:     "repo",
+		Runtime:  "all",
+		StoryDir: repo,
+	})
+
+	assertAuthorityScope(t, c.Authorities, ".claude/settings.json", model.AuthorityScopeRoot, "")
+	assertAuthorityScope(t, c.Authorities, ".codex/config.toml", model.AuthorityScopeRoot, "")
+	assertAuthorityScope(t, c.Authorities, "fixtures/world/mcp.json", model.AuthorityScopeNested, "fixtures")
+
+	foundNestedFact := false
+	for _, fact := range c.Facts {
+		if fact.Source != "fixtures/world/mcp.json" {
+			continue
+		}
+		foundNestedFact = true
+		if fact.AuthorityScope != model.AuthorityScopeNested || fact.ScopeSubtree != "fixtures" {
+			t.Fatalf("nested authority fact scope = %s subtree = %q, want nested/fixtures: %+v", fact.AuthorityScope, fact.ScopeSubtree, fact)
+		}
+	}
+	if !foundNestedFact {
+		t.Fatalf("missing nested authority-scope fact: %+v", c.Facts)
 	}
 }
 
@@ -171,5 +204,35 @@ func assertTrustInputInstructionScope(t *testing.T, inputs []model.TrustInput, s
 	}
 	if !found {
 		t.Fatalf("missing trust input from %s: %+v", source, inputs)
+	}
+}
+
+func assertTrustInputScopeSubtree(t *testing.T, inputs []model.TrustInput, source string, subtree string) {
+	t.Helper()
+	for _, input := range inputs {
+		if input.Source == source {
+			if input.ScopeSubtree != subtree {
+				t.Fatalf("%s scope subtree = %q, want %q", source, input.ScopeSubtree, subtree)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing trust input from %s: %+v", source, inputs)
+}
+
+func assertAuthorityScope(t *testing.T, authorities []model.Authority, source string, scope string, subtree string) {
+	t.Helper()
+	found := false
+	for _, authority := range authorities {
+		if authority.Source != source {
+			continue
+		}
+		found = true
+		if authority.AuthorityScope != scope || authority.ScopeSubtree != subtree {
+			t.Fatalf("%s authority scope = %s subtree = %q, want %s/%q: %+v", source, authority.AuthorityScope, authority.ScopeSubtree, scope, subtree, authority)
+		}
+	}
+	if !found {
+		t.Fatalf("missing authority from %s: %+v", source, authorities)
 	}
 }

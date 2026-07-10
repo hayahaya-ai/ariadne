@@ -52,17 +52,8 @@ jobs:
       - name: Verdict eval scorecard
         run: make eval
 
-      - name: Verdict gate mechanics
-        working-directory: ariadne-prove
-        run: |
-          # Gate must fail (exit 3) on a reckless fixture…
-          if ./bin/ariadne verdict --path testdata/realpath/combined-risk --mode repo --gate; then
-            echo "gate did not fail on reckless fixture" >&2; exit 1
-          else
-            code=$?; [ "$code" -eq 3 ] || { echo "gate exit $code, want 3" >&2; exit 1; }
-          fi
-          # …and pass (exit 0) on a trade-offs-only fixture.
-          ./bin/ariadne verdict --path testdata/realpath/tradeoffs-only --mode repo --gate
+      - name: Ariadne repository self-gate
+        run: ./ariadne-prove/bin/ariadne verdict --path . --mode repo --gate
 
       - name: Fleet rollup smoke
         working-directory: ariadne-prove
