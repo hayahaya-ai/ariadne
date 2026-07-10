@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOCACHE: /tmp/ariadne-gocache
+
 jobs:
   test:
     runs-on: ubuntu-latest
