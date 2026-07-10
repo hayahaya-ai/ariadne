@@ -1504,20 +1504,24 @@ type Surface struct {
 }
 
 type Fact struct {
-	ID               string   `json:"id"`
-	Type             string   `json:"type"`
-	Runtime          string   `json:"runtime,omitempty"`
-	Scope            string   `json:"scope,omitempty"`
-	Source           string   `json:"source,omitempty"`
-	Provenance       string   `json:"provenance,omitempty"`
-	InstructionScope string   `json:"instruction_scope,omitempty"`
-	AuthorityScope   string   `json:"authority_scope,omitempty"`
-	ScopeSubtree     string   `json:"scope_subtree,omitempty"`
-	HandlingMode     string   `json:"handling_mode,omitempty"`
-	EvidenceGrade    string   `json:"evidence_grade"`
-	Redaction        string   `json:"redaction"`
-	Summary          string   `json:"summary"`
-	Limitations      []string `json:"limitations,omitempty"`
+	ID                string   `json:"id"`
+	Type              string   `json:"type"`
+	Runtime           string   `json:"runtime,omitempty"`
+	Scope             string   `json:"scope,omitempty"`
+	Source            string   `json:"source,omitempty"`
+	Provenance        string   `json:"provenance,omitempty"`
+	InstructionScope  string   `json:"instruction_scope,omitempty"`
+	AuthorityScope    string   `json:"authority_scope,omitempty"`
+	ScopeSubtree      string   `json:"scope_subtree,omitempty"`
+	HandlingMode      string   `json:"handling_mode,omitempty"`
+	EvidenceGrade     string   `json:"evidence_grade"`
+	Redaction         string   `json:"redaction"`
+	Summary           string   `json:"summary"`
+	Limitations       []string `json:"limitations,omitempty"`
+	TriggerEvents     []string `json:"trigger_events,omitempty"`
+	ReferencesSecrets *bool    `json:"references_secrets,omitempty"`
+	OIDCTokenWrite    *bool    `json:"id_token_write,omitempty"`
+	WritePermissions  *bool    `json:"write_permissions,omitempty"`
 }
 
 type Graph struct {

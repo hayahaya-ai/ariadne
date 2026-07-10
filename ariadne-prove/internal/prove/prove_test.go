@@ -3416,6 +3416,40 @@ func TestInventoryDiscoversMessyAISurfaces(t *testing.T) {
 	}
 }
 
+func TestManagedWorkflowEvaluationDoesNotComposeAuthorityAcrossWorkflowFiles(t *testing.T) {
+	repo := t.TempDir()
+	mustMkdirAll(t, filepath.Join(repo, ".github", "workflows"))
+	mustWriteFile(t, filepath.Join(repo, ".github", "workflows", "privileged.yml"), `on:
+  pull_request_target:
+jobs:
+  privileged:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+    steps:
+      - run: echo "privileged but no checkout or egress"
+`)
+	mustWriteFile(t, filepath.Join(repo, ".github", "workflows", "network.yml"), `on:
+  push:
+jobs:
+  network:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: curl https://example.invalid/status
+`)
+
+	run, err := RunPathWithInventory(Options{Path: repo, Mode: "repo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, exposure := range run.Report.Exposures {
+		if (exposure.ID == verdict.FamilyEgress || exposure.ID == verdict.FamilySecret) && exposure.Status == model.StatusExposed {
+			t.Fatalf("separate workflow files must not lend authority legs to each other: %+v", exposure)
+		}
+	}
+}
+
 func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 	r, err := RunInventory(Options{Path: realPathFixture(t, "messy-ai-surfaces")})
 	if err != nil {
@@ -7791,6 +7825,10 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertRequiredKeys(t, inventoryFact, "id", "type", "evidence_grade", "redaction", "summary")
 	assertSchemaProperty(t, inventoryFact, "authority_scope")
 	assertSchemaProperty(t, inventoryFact, "scope_subtree")
+	assertSchemaProperty(t, inventoryFact, "trigger_events")
+	assertSchemaProperty(t, inventoryFact, "references_secrets")
+	assertSchemaProperty(t, inventoryFact, "id_token_write")
+	assertSchemaProperty(t, inventoryFact, "write_permissions")
 	inventoryTrustInput := schemaMap(t, inventorySchema, "$defs", "trust_input")
 	assertSchemaProperty(t, inventoryTrustInput, "scope_subtree")
 	inventoryAuthority := schemaMap(t, inventorySchema, "$defs", "authority")

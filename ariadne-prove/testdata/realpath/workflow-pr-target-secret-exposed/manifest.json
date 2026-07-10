@@ -1,0 +1,30 @@
+{
+  "id": "workflow-pr-target-secret-exposed",
+  "title": "Pull request target exposes privileged workflow authority",
+  "persona": "developer / AppSec",
+  "user_question": "Can pull-request-target content reach this workflow's CI secrets?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "findings": [
+        {
+          "family": "data-egress-chain",
+          "source": ".github/workflows/ci.yml",
+          "line": 6,
+          "fix_surface": ".github/workflows/ci.yml"
+        },
+        {
+          "family": "prompt-injection-to-secret-canary",
+          "source": ".github/workflows/ci.yml",
+          "line": 6,
+          "fix_surface": ".github/workflows/ci.yml"
+        }
+      ]
+    }
+  }
+}

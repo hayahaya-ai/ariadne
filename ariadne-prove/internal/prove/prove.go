@@ -2123,6 +2123,8 @@ func controlRestrictsTrustInput(controlID, inputID string) bool {
 	switch controlID {
 	case "control:input-isolation", "control:trusted-source-policy":
 		return true
+	case "control:fork-pr-secret-isolation":
+		return inputID == "trustinput:managed-workflow-trigger"
 	default:
 		return false
 	}
@@ -2282,8 +2284,14 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 	hasFileRead := hasAuthority(c, "authority:file-read")
 	hasBroadLocal := hasAuthority(c, "authority:broad-local")
 	hasBoundary := len(c.Boundaries) > 0
+	if sources, workflowOnly := managedWorkflowRiskSources(c); workflowOnly {
+		hasFileRead = anySourceHasWorkflowSecretPath(c, sources)
+		hasBroadLocal = anySourceHasAuthority(c, sources, "authority:broad-local")
+		hasBoundary = hasFileRead
+	}
 	hasDeny := hasEnforcedControl(c, "control:deny-secret-read")
 	hasInputBreak := hasHardInputBreak(c)
+	hasForkPRIsolation := hasOnlyForkPRIsolatedWorkflowInputs(c)
 
 	result := model.ExposureResult{
 		ID:            "prompt-injection-to-secret-canary",
@@ -2303,6 +2311,11 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 		result.Status = model.StatusExposed
 		result.ProofMode = model.ProofInferred
 		result.Observation = model.Observation{Status: model.ObservationNotAttempted, Summary: "Endpoint config declares broad local authority; no live behavior was executed."}
+	case hasTrustInput && hasFileRead && hasBoundary && hasForkPRIsolation:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Plain pull_request platform semantics isolate fork pull-request content from workflow secrets and write-capable credentials by default."}
+		result.ControlsBreakPath = []string{"isolate fork pull-request secrets and write-capable credentials"}
 	case hasTrustInput && hasFileRead && hasBoundary && hasInputBreak:
 		result.Status = model.StatusProtected
 		result.ProofMode = model.ProofSimulated
@@ -2378,13 +2391,21 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 			break
 		}
 	}
-	hasPrivateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:credential-access")
-	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context") || hasBoundary(c, "boundary:memory-credential-retention") || hasBoundary(c, "boundary:credential-material") || hasBoundary(c, "boundary:ci-secret-boundary")
+	hasPrivateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:credential-access") || hasAuthority(c, "authority:cloud-identity-token") || hasAuthority(c, "authority:repository-write")
+	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context") || hasBoundary(c, "boundary:memory-credential-retention") || hasBoundary(c, "boundary:credential-material") || hasBoundary(c, "boundary:ci-secret-boundary") || hasBoundary(c, "boundary:cloud-identity-boundary") || hasBoundary(c, "boundary:repository-integrity-boundary")
 	hasExternalCommunication := hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local")
 	hasExternalDestination := hasBoundary(c, "boundary:external-destination")
+	if sources, workflowOnly := managedWorkflowRiskSources(c); workflowOnly {
+		completePath := anySourceHasWorkflowEgressPath(c, sources)
+		hasPrivateAuthority = completePath
+		hasPrivateBoundary = completePath
+		hasExternalCommunication = completePath
+		hasExternalDestination = completePath
+	}
 	hasHardEgressControl := hasHardEgressBreak(c)
 	hasDenyRead := hasEnforcedControl(c, "control:deny-secret-read")
 	hasInputBreak := hasHardInputBreak(c)
+	hasForkPRIsolation := hasOnlyForkPRIsolatedWorkflowInputs(c)
 
 	result := model.ExposureResult{
 		ID:            "data-egress-chain",
@@ -2400,6 +2421,11 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	}
 
 	switch {
+	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && hasForkPRIsolation:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Plain pull_request platform semantics isolate fork pull-request content from workflow secrets and write-capable credentials by default."}
+		result.ControlsBreakPath = []string{"isolate fork pull-request secrets and write-capable credentials"}
 	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && (hasInputBreak || hasHardEgressControl || hasDenyRead):
 		result.Status = model.StatusProtected
 		result.ProofMode = model.ProofSimulated
@@ -2430,6 +2456,145 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	}
 	result.PathNodes = nodesFromEdges(result.PathEdges)
 	return result
+}
+
+func hasOnlyForkPRIsolatedWorkflowInputs(c model.Collection) bool {
+	found := false
+	for _, input := range c.TrustInputs {
+		if !input.Risky {
+			continue
+		}
+		found = true
+		if input.Kind != "managed-workflow-trigger" || !workflowSourceHasForkPRIsolation(c, input.Source) {
+			return false
+		}
+	}
+	return found
+}
+
+func managedWorkflowRiskSources(c model.Collection) ([]string, bool) {
+	seen := map[string]bool{}
+	var sources []string
+	found := false
+	for _, input := range c.TrustInputs {
+		if !input.Risky {
+			continue
+		}
+		found = true
+		if input.Kind != "managed-workflow-trigger" || input.Source == "" {
+			return nil, false
+		}
+		if !seen[input.Source] {
+			seen[input.Source] = true
+			sources = append(sources, input.Source)
+		}
+	}
+	sort.Strings(sources)
+	return sources, found
+}
+
+func anySourceHasAuthority(c model.Collection, sources []string, ids ...string) bool {
+	sourceSet := map[string]bool{}
+	for _, source := range sources {
+		sourceSet[source] = true
+	}
+	idSet := map[string]bool{}
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	for _, authority := range c.Authorities {
+		if sourceSet[authority.Source] && idSet[authority.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+func anySourceHasWorkflowSecretPath(c model.Collection, sources []string) bool {
+	for _, source := range sources {
+		if sourceHasAuthority(c, source, "authority:file-read") && sourceHasWorkflowPrivateBoundary(c, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func anySourceHasWorkflowEgressPath(c model.Collection, sources []string) bool {
+	for _, source := range sources {
+		privateAuthority := sourceHasAuthority(c, source, "authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write")
+		externalAuthority := sourceHasAuthority(c, source, "authority:external-communication", "authority:broad-local")
+		if privateAuthority && externalAuthority && sourceHasWorkflowPrivateBoundary(c, source) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceHasWorkflowPrivateBoundary(c model.Collection, source string) bool {
+	if sourceHasAuthority(c, source, "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write", "authority:broad-local") {
+		return true
+	}
+	return sourceHasAuthority(c, source, "authority:file-read") && hasAnyWorkflowReadableBoundary(c)
+}
+
+func sourceHasAuthority(c model.Collection, source string, ids ...string) bool {
+	for _, authority := range c.Authorities {
+		if authority.Source != source {
+			continue
+		}
+		for _, id := range ids {
+			if authority.ID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasAnyWorkflowReadableBoundary(c model.Collection) bool {
+	for _, boundary := range c.Boundaries {
+		switch boundary.ID {
+		case "boundary:secret-like-file", "boundary:ci-secret-boundary", "boundary:credential-material":
+			return true
+		}
+	}
+	return false
+}
+
+func workflowSourceHasForkPRIsolation(c model.Collection, source string) bool {
+	hasPlainPullRequest := false
+	hasSensitiveAuthority := false
+	for _, fact := range c.Facts {
+		if fact.Source != source {
+			continue
+		}
+		switch fact.Type {
+		case "managed-workflow-trigger-events":
+			for _, event := range fact.TriggerEvents {
+				switch event {
+				case "pull_request":
+					hasPlainPullRequest = true
+				case "pull_request_target", "workflow_run", "issue_comment", "issues", "discussion", "discussion_comment", "pull_request_review_comment":
+					return false
+				}
+			}
+		case "managed-workflow-sensitive-authority":
+			hasSensitiveAuthority = boolFact(fact.ReferencesSecrets) || boolFact(fact.OIDCTokenWrite) || boolFact(fact.WritePermissions)
+		}
+	}
+	if !hasPlainPullRequest || !hasSensitiveAuthority {
+		return false
+	}
+	for _, control := range c.Controls {
+		if control.ID == "control:fork-pr-secret-isolation" && control.Source == source && control.Enforcement == model.EnforcementEnforced {
+			return true
+		}
+	}
+	return false
+}
+
+func boolFact(value *bool) bool {
+	return value != nil && *value
 }
 
 func Compare(report model.Report, expected model.ExpectedResult) (bool, []string) {
@@ -2577,6 +2742,7 @@ func secretPathEdges(g model.Graph, mode string) []string {
 			"authority:file-read|reaches|boundary:secret-like-file",
 			"control:input-isolation|restricts|trustinput:repo-instruction",
 			"control:trusted-source-policy|restricts|trustinput:repo-instruction",
+			"control:fork-pr-secret-isolation|restricts|trustinput:managed-workflow-trigger",
 			"control:deny-secret-read|restricts|boundary:secret-like-file",
 		}
 	}
@@ -2612,6 +2778,8 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"runtime:gitlab-ci|has_authority|authority:broad-local",
 		"runtime:github-actions|has_authority|authority:credential-access",
 		"runtime:gitlab-ci|has_authority|authority:credential-access",
+		"runtime:github-actions|has_authority|authority:cloud-identity-token",
+		"runtime:github-actions|has_authority|authority:repository-write",
 		"authority:file-read|reaches|boundary:secret-like-file",
 		"authority:file-read|reaches|boundary:developer-secret-boundary",
 		"authority:file-read|reaches|boundary:agent-private-context",
@@ -2621,6 +2789,8 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"authority:broad-local|reaches|boundary:agent-private-context",
 		"authority:broad-local|reaches|boundary:memory-credential-retention",
 		"authority:credential-access|reaches|boundary:ci-secret-boundary",
+		"authority:cloud-identity-token|reaches|boundary:cloud-identity-boundary",
+		"authority:repository-write|reaches|boundary:repository-integrity-boundary",
 		"authority:local-code-execution|reaches|boundary:ci-secret-boundary",
 		"authority:broad-local|reaches|boundary:ci-secret-boundary",
 		"runtime:codex|has_authority|authority:external-communication",
@@ -2631,6 +2801,7 @@ func dataEgressChainPathEdges(g model.Graph, mode string) []string {
 		"authority:broad-local|reaches|boundary:external-destination",
 		"control:input-isolation|restricts|trustinput:repo-instruction",
 		"control:trusted-source-policy|restricts|trustinput:repo-instruction",
+		"control:fork-pr-secret-isolation|restricts|trustinput:managed-workflow-trigger",
 		"control:network-restricted|restricts|boundary:external-destination",
 		"control:egress-destination-allowlist|restricts|boundary:external-destination",
 		"control:webhook-allowlist|restricts|boundary:external-destination",

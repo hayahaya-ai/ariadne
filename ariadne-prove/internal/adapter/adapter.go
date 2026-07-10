@@ -964,6 +964,11 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 	if err != nil {
 		return
 	}
+	workflow, ok := agentconfig.ParseGitHubWorkflow(data)
+	if !ok {
+		c.Warnings = append(c.Warnings, "could not structurally parse GitHub Actions workflow: "+s.Source)
+		return
+	}
 	source := s.Source
 	runtime := "github-actions"
 	c.Runtimes = appendUniqueRuntime(c.Runtimes, model.RuntimeEvidence{
@@ -975,8 +980,10 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 	})
 	configID := "config:" + runtime + "-" + s.Scope
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+configID, "config", source, "declared", "GitHub Actions workflow source was collected."))
-	text := strings.ToLower(string(data))
-	if workflowHasUntrustedTrigger(text) {
+	addGitHubWorkflowFacts(c, s, workflow)
+	sensitiveAuthority := workflow.ReferencesSecrets || workflow.OIDCTokenWrite || workflow.WritePermissions
+	triggerLine := firstGitHubAttackerTriggerLine(workflow)
+	if triggerLine > 0 && sensitiveAuthority {
 		c.TrustInputs = appendUniqueTrustInput(c.TrustInputs, model.TrustInput{
 			ID:               "trustinput:managed-workflow-trigger",
 			Kind:             "managed-workflow-trigger",
@@ -986,28 +993,48 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 			InstructionScope: instructionScopeForSurface(opts, s),
 			ScopeSubtree:     scopeSubtreeForSurface(opts, s),
 			Risky:            true,
-			Summary:          "Workflow can be triggered by pull request, issue, or other repository event input.",
+			Summary:          "Attacker-influenced workflow event content can reach secret, OIDC, or write-capable workflow authority.",
+			LineStart:        triggerLine,
+			LineEnd:          triggerLine,
 		})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:trustinput:managed-workflow-trigger", "trust-input", source, "declared", "Managed workflow trigger surface was parsed without executing the workflow."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:trustinput:managed-workflow-trigger", "trust-input", source, "declared", "Managed workflow trigger event was structurally parsed without executing the workflow.", triggerLine))
 	}
-	if workflowAgentLike(text) {
+	if plainPullRequestIsolationApplies(workflow) && sensitiveAuthority {
+		line := workflow.TriggerLines["pull_request"]
+		c.Controls = appendUniqueControl(c.Controls, model.Control{
+			ID:          "control:fork-pr-secret-isolation",
+			Kind:        "fork-pr-secret-isolation",
+			Runtime:     runtime,
+			Source:      source,
+			Enforcement: model.EnforcementEnforced,
+			Summary:     "GitHub plain pull_request semantics isolate repository secrets, OIDC issuance, and write-capable workflow credentials from fork pull requests by default.",
+			LineStart:   line,
+			LineEnd:     line,
+		})
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:control:fork-pr-secret-isolation", "control", source, "observed", "Plain pull_request trigger semantics enforce fork-PR secret, OIDC, and write-token isolation by default; repository-level overrides were not observable.", line))
+	}
+	if workflow.AgentLike {
 		c.Tools = appendUniqueTool(c.Tools, model.Tool{
-			ID:      "tool:managed-agent-workflow",
-			Kind:    "managed-agent-workflow",
-			Runtime: runtime,
-			Source:  source,
-			Risky:   workflowHasWritePermission(text) || containsExternalCommunication(text),
-			Summary: "Workflow appears to invoke AI or agent-like automation from CI-managed configuration.",
+			ID:        "tool:managed-agent-workflow",
+			Kind:      "managed-agent-workflow",
+			Runtime:   runtime,
+			Source:    source,
+			Risky:     workflow.WritePermissions || workflow.ExternalCommunication,
+			Summary:   "Workflow appears to invoke AI or agent-like automation from CI-managed configuration.",
+			LineStart: workflow.AgentLikeLine,
+			LineEnd:   workflow.AgentLikeLine,
 		})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:tool:managed-agent-workflow", "tool", source, "declared", "Managed workflow agent invocation indicators were collected without running the workflow."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:tool:managed-agent-workflow", "tool", source, "declared", "Managed workflow agent invocation indicators were collected without running the workflow.", workflow.AgentLikeLine))
 	}
-	if workflowExecutesCode(text) {
+	if workflow.ExecutesCode {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-			ID:      "authority:local-code-execution",
-			Kind:    "local-code-execution",
-			Runtime: runtime,
-			Source:  source,
-			Summary: "GitHub Actions workflow can execute commands or actions on a workflow runner.",
+			ID:        "authority:local-code-execution",
+			Kind:      "local-code-execution",
+			Runtime:   runtime,
+			Source:    source,
+			Summary:   "GitHub Actions workflow can execute commands or actions on a workflow runner.",
+			LineStart: workflow.ExecutesCodeLine,
+			LineEnd:   workflow.ExecutesCodeLine,
 		})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:developer-execution-boundary",
@@ -1016,31 +1043,37 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 			Summary:  "Local or CI runner execution context reachable from agent/tool automation.",
 		})
 	}
-	if workflowReadsRepo(text) {
+	if workflow.ReadsRepository {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-			ID:      "authority:file-read",
-			Kind:    "file-read",
-			Runtime: runtime,
-			Source:  source,
-			Summary: "GitHub Actions workflow can read checked-out repository files or workflow workspace context.",
+			ID:        "authority:file-read",
+			Kind:      "file-read",
+			Runtime:   runtime,
+			Source:    source,
+			Summary:   "GitHub Actions workflow can read checked-out repository files or workflow workspace context.",
+			LineStart: workflow.ReadsRepositoryLine,
+			LineEnd:   workflow.ReadsRepositoryLine,
 		})
 	}
-	if workflowHasWritePermission(text) {
+	if workflow.WritePermissions {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-			ID:      "authority:broad-local",
-			Kind:    "broad-local",
-			Runtime: runtime,
-			Source:  source,
-			Summary: "GitHub Actions workflow declares write-capable permissions or broad workflow token posture.",
+			ID:        "authority:broad-local",
+			Kind:      "broad-local",
+			Runtime:   runtime,
+			Source:    source,
+			Summary:   "GitHub Actions workflow declares write-capable permissions or broad workflow token posture.",
+			LineStart: workflow.WritePermissionsLine,
+			LineEnd:   workflow.WritePermissionsLine,
 		})
 	}
-	if workflowHasRepositoryWritePermission(text) {
+	if workflow.RepositoryWritePermissions {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-			ID:      "authority:repository-write",
-			Kind:    "repository-write",
-			Runtime: runtime,
-			Source:  source,
-			Summary: "GitHub Actions workflow token can write repository, pull request, issue, or package state.",
+			ID:        "authority:repository-write",
+			Kind:      "repository-write",
+			Runtime:   runtime,
+			Source:    source,
+			Summary:   "GitHub Actions workflow token can write repository, pull request, issue, or package state.",
+			LineStart: workflow.RepositoryWriteLine,
+			LineEnd:   workflow.RepositoryWriteLine,
 		})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:repository-integrity-boundary",
@@ -1049,15 +1082,17 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 			Abstract: false,
 			Summary:  "Repository state, pull requests, issues, packages, or code review outputs controlled by workflow token permissions.",
 		})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:repository-write", "authority", source, "declared", "Repository write-capable workflow token permission was collected."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:authority:repository-write", "authority", source, "declared", "Repository write-capable workflow token permission was collected.", workflow.RepositoryWriteLine))
 	}
-	if workflowHasOIDCTokenPermission(text) {
+	if workflow.OIDCTokenWrite {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-			ID:      "authority:cloud-identity-token",
-			Kind:    "cloud-identity-token",
-			Runtime: runtime,
-			Source:  source,
-			Summary: "GitHub Actions workflow can request an OIDC identity token for cloud or external identity federation.",
+			ID:        "authority:cloud-identity-token",
+			Kind:      "cloud-identity-token",
+			Runtime:   runtime,
+			Source:    source,
+			Summary:   "GitHub Actions workflow can request an OIDC identity token for cloud or external identity federation.",
+			LineStart: workflow.OIDCTokenWriteLine,
+			LineEnd:   workflow.OIDCTokenWriteLine,
 		})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:cloud-identity-boundary",
@@ -1066,15 +1101,17 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 			Abstract: false,
 			Summary:  "Cloud or external identity provider trust boundary reachable through workflow OIDC token issuance.",
 		})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:cloud-identity-token", "authority", source, "declared", "OIDC id-token workflow permission was collected."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:authority:cloud-identity-token", "authority", source, "declared", "OIDC id-token workflow permission was collected.", workflow.OIDCTokenWriteLine))
 	}
-	if workflowReferencesSecrets(text) {
+	if workflow.ReferencesSecrets {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-			ID:      "authority:credential-access",
-			Kind:    "credential-access",
-			Runtime: runtime,
-			Source:  source,
-			Summary: "GitHub Actions workflow references CI secret context or secret-backed environment variables.",
+			ID:        "authority:credential-access",
+			Kind:      "credential-access",
+			Runtime:   runtime,
+			Source:    source,
+			Summary:   "GitHub Actions workflow references CI secret context or secret-backed environment variables.",
+			LineStart: workflow.SecretReferenceLine,
+			LineEnd:   workflow.SecretReferenceLine,
 		})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:ci-secret-boundary",
@@ -1083,25 +1120,26 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 			Abstract: false,
 			Summary:  "CI secret or secret-backed environment boundary; secret values are not emitted.",
 		})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:authority:credential-access", "authority", source, "declared", "CI secret context reference was collected without emitting secret values."))
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:ci-secret-boundary", "boundary", source, "observed", "Workflow references CI secret context; values were not read or emitted."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:authority:credential-access", "authority", source, "declared", "CI secret context reference was collected without emitting secret values.", workflow.SecretReferenceLine))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:boundary:ci-secret-boundary", "boundary", source, "observed", "Workflow references CI secret context; values were not read or emitted.", workflow.SecretReferenceLine))
 	}
-	if containsExternalCommunication(text) || strings.Contains(text, "uses:") {
-		addExternalCommunication(c, runtime, source, "GitHub Actions workflow can call external actions, package registries, APIs, or web endpoints.")
+	if workflow.ExternalCommunication {
+		addExternalCommunicationAt(c, runtime, source, "GitHub Actions workflow can call external actions, package registries, APIs, or web endpoints.", workflow.ExternalCommunicationLine)
 	}
-	if workflowScopedPermissions(text) {
+	if workflow.ScopedPermissions {
 		addControl(c, "control:scoped-permissions", "scoped-permissions", runtime, source, "GitHub Actions workflow declares scoped or read-only permissions.")
 	}
-	if workflowPinnedActions(text) {
+	if workflow.PinnedAction {
 		addControl(c, "control:signed-tool-artifacts", "signed-tool-artifacts", runtime, source, "GitHub Actions workflow pins at least one action by version, digest, or immutable-looking reference.")
 	}
-	if strings.Contains(text, "environment:") {
+	if workflow.EnvironmentGate {
 		addControl(c, "control:approval-required", "approval-required", runtime, source, "GitHub Actions workflow declares an environment gate that can require deployment approval.")
 	}
+	text := strings.ToLower(string(data))
 	collectResourceControls(c, runtime, source, text)
 	collectGovernanceControls(c, runtime, source, text)
 	collectObservabilityControls(c, runtime, source, text)
-	if inlineCredentialConfigured(text) {
+	if workflow.InlineCredential {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:credential-material",
 			Kind:     "credential-material",
@@ -1109,8 +1147,75 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 			Abstract: false,
 			Summary:  "Workflow contains inline credential field indicators; values are not emitted.",
 		})
-		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values."))
+		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values.", workflow.InlineCredentialLine))
 	}
+}
+
+func addGitHubWorkflowFacts(c *model.Collection, s model.Surface, workflow agentconfig.GitHubWorkflow) {
+	baseID := "fact:" + trimPrefix(s.ID, "surface:")
+	c.Facts = appendUniqueFact(c.Facts, model.Fact{
+		ID:            baseID + ":trigger-events",
+		Type:          "managed-workflow-trigger-events",
+		Runtime:       "github-actions",
+		Scope:         s.Scope,
+		Source:        s.Source,
+		HandlingMode:  s.HandlingMode,
+		EvidenceGrade: "declared",
+		Redaction:     "none",
+		Summary:       "GitHub Actions trigger event kinds were structurally parsed from the workflow on mapping.",
+		TriggerEvents: append([]string(nil), workflow.TriggerEvents...),
+	})
+	referencesSecrets := workflow.ReferencesSecrets
+	idTokenWrite := workflow.OIDCTokenWrite
+	writePermissions := workflow.WritePermissions
+	c.Facts = appendUniqueFact(c.Facts, model.Fact{
+		ID:                baseID + ":sensitive-authority",
+		Type:              "managed-workflow-sensitive-authority",
+		Runtime:           "github-actions",
+		Scope:             s.Scope,
+		Source:            s.Source,
+		HandlingMode:      s.HandlingMode,
+		EvidenceGrade:     "declared",
+		Redaction:         "values-suppressed",
+		Summary:           "GitHub Actions job secret references, OIDC permission, and write permission facts were structurally parsed.",
+		ReferencesSecrets: &referencesSecrets,
+		OIDCTokenWrite:    &idTokenWrite,
+		WritePermissions:  &writePermissions,
+	})
+}
+
+func firstGitHubAttackerTriggerLine(workflow agentconfig.GitHubWorkflow) int {
+	line := 0
+	for _, event := range workflow.TriggerEvents {
+		if event != "pull_request" && !githubPrivilegedAttackerTrigger(event) {
+			continue
+		}
+		if eventLine := workflow.TriggerLines[event]; eventLine > 0 && (line == 0 || eventLine < line) {
+			line = eventLine
+		}
+	}
+	return line
+}
+
+func githubPrivilegedAttackerTrigger(event string) bool {
+	switch event {
+	case "pull_request_target", "workflow_run", "issue_comment", "issues", "discussion", "discussion_comment", "pull_request_review_comment":
+		return true
+	default:
+		return false
+	}
+}
+
+func plainPullRequestIsolationApplies(workflow agentconfig.GitHubWorkflow) bool {
+	if workflow.TriggerLines["pull_request"] <= 0 {
+		return false
+	}
+	for _, event := range workflow.TriggerEvents {
+		if githubPrivilegedAttackerTrigger(event) {
+			return false
+		}
+	}
+	return true
 }
 
 func collectGitLabCIWorkflow(c *model.Collection, opts Options, s model.Surface) {
@@ -2309,71 +2414,6 @@ func workflowAgentLike(text string) bool {
 		"ai-review",
 		"agent",
 	})
-}
-
-func workflowExecutesCode(text string) bool {
-	return strings.Contains(text, "\nrun:") ||
-		strings.Contains(text, "\n  run:") ||
-		strings.Contains(text, "\n    run:") ||
-		strings.Contains(text, "uses:")
-}
-
-func workflowReadsRepo(text string) bool {
-	return strings.Contains(text, "actions/checkout") ||
-		strings.Contains(text, "checkout@") ||
-		strings.Contains(text, "github.workspace") ||
-		strings.Contains(text, "${{ github.workspace }}")
-}
-
-func workflowHasUntrustedTrigger(text string) bool {
-	return strings.Contains(text, "pull_request") ||
-		strings.Contains(text, "pull_request_target") ||
-		strings.Contains(text, "issue_comment") ||
-		strings.Contains(text, "workflow_run") ||
-		strings.Contains(text, "repository_dispatch")
-}
-
-func workflowHasWritePermission(text string) bool {
-	return strings.Contains(text, "write-all") ||
-		strings.Contains(text, "contents: write") ||
-		strings.Contains(text, "pull-requests: write") ||
-		strings.Contains(text, "issues: write") ||
-		strings.Contains(text, "id-token: write") ||
-		strings.Contains(text, "packages: write")
-}
-
-func workflowHasRepositoryWritePermission(text string) bool {
-	return strings.Contains(text, "write-all") ||
-		strings.Contains(text, "contents: write") ||
-		strings.Contains(text, "pull-requests: write") ||
-		strings.Contains(text, "issues: write") ||
-		strings.Contains(text, "packages: write") ||
-		strings.Contains(text, "actions: write") ||
-		strings.Contains(text, "checks: write") ||
-		strings.Contains(text, "statuses: write")
-}
-
-func workflowHasOIDCTokenPermission(text string) bool {
-	return strings.Contains(text, "id-token: write")
-}
-
-func workflowReferencesSecrets(text string) bool {
-	return strings.Contains(text, "${{ secrets.") ||
-		strings.Contains(text, "secrets.") ||
-		strings.Contains(text, " secrets:") ||
-		strings.Contains(text, "\nsecrets:")
-}
-
-func workflowScopedPermissions(text string) bool {
-	return strings.Contains(text, "permissions: read-all") ||
-		strings.Contains(text, "contents: read") ||
-		strings.Contains(text, "pull-requests: read") ||
-		strings.Contains(text, "issues: read")
-}
-
-func workflowPinnedActions(text string) bool {
-	return looksPinned(text) ||
-		regexp.MustCompile(`(?m)uses:\s*[^@\s]+@[0-9a-f]{12,}`).MatchString(text)
 }
 
 func gitlabWorkflowExecutesCode(text string) bool {
@@ -3883,7 +3923,8 @@ func appendUniqueBoundary(in []model.Boundary, next model.Boundary) []model.Boun
 
 func appendUniqueAuthority(in []model.Authority, next model.Authority) []model.Authority {
 	for i, item := range in {
-		if item.ID == next.ID && item.Runtime == next.Runtime {
+		sameManagedSource := item.Source == next.Source || (next.Runtime != "github-actions" && next.Runtime != "gitlab-ci")
+		if item.ID == next.ID && item.Runtime == next.Runtime && sameManagedSource {
 			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			if in[i].Source == "" && next.Source != "" {
 				in[i].Source = next.Source

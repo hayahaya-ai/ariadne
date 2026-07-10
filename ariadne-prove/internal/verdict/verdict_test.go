@@ -103,6 +103,59 @@ func TestBuildTradeoffsOnlyFixtureIsNotReckless(t *testing.T) {
 	}
 }
 
+func TestBuildPlainPullRequestSecretWorkflowUsesLabeledIsolationJudgment(t *testing.T) {
+	v := buildStoryVerdict(t, "workflow-pr-secret-isolated")
+
+	if v.VerdictWord != verdict.WordTradeoffsOnly {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordTradeoffsOnly)
+	}
+	if len(v.Reckless) != 0 {
+		t.Fatalf("plain pull_request secret isolation should remove reckless findings: %+v", v.Reckless)
+	}
+	judgment, ok := defaultJudgment(v, "pr_trigger_secret_isolation_by_default", verdict.FamilyEgress)
+	if !ok {
+		t.Fatalf("missing fork PR isolation default judgment: %+v", v.DefaultJudgments)
+	}
+	if !hasBasisKind(judgment.Basis, "trust_input") || countBasisKind(judgment.Basis, "fact") < 2 {
+		t.Fatalf("isolation judgment should cite its trust input plus trigger and sensitive-authority facts: %+v", judgment)
+	}
+	if !hasHardenedControl(v, "control:fork-pr-secret-isolation") {
+		t.Fatalf("plain pull_request workflow should record enforced platform isolation: %+v", v.Hardened)
+	}
+}
+
+func TestBuildPullRequestTargetSecretWorkflowStaysRecklessAndWorkflowVoiced(t *testing.T) {
+	v := buildStoryVerdict(t, "workflow-pr-target-secret-exposed")
+
+	if v.VerdictWord != verdict.WordReckless {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordReckless)
+	}
+	if len(v.Reckless) == 0 {
+		t.Fatal("pull_request_target workflow should retain a reckless finding")
+	}
+	finding := v.Reckless[0]
+	if strings.Contains(strings.ToLower(finding.Title), "agent") || !strings.Contains(strings.ToLower(finding.Title), "workflow") {
+		t.Fatalf("workflow-evidenced title should name the workflow, not a local agent: %q", finding.Title)
+	}
+	if strings.Contains(strings.ToLower(finding.Why), "agent") || !strings.Contains(strings.ToLower(finding.Why), "workflow") {
+		t.Fatalf("workflow-evidenced why should name the workflow, not a local agent: %q", finding.Why)
+	}
+	if hasDefaultJudgment(v, "pr_trigger_secret_isolation_by_default") || hasHardenedControl(v, "control:fork-pr-secret-isolation") {
+		t.Fatalf("pull_request_target must not receive plain-PR isolation: judgments=%+v hardened=%+v", v.DefaultJudgments, v.Hardened)
+	}
+}
+
+func TestBuildPlainPullRequestWithoutSensitiveAuthorityHasNoSecretLeg(t *testing.T) {
+	v := buildStoryVerdict(t, "workflow-pr-no-sensitive-access")
+
+	if v.VerdictWord == verdict.WordReckless || len(v.Reckless) != 0 {
+		t.Fatalf("workflow without secrets, OIDC, or write permissions must not create a secret-leg finding: %+v", v)
+	}
+	if hasDefaultJudgment(v, "pr_trigger_secret_isolation_by_default") || hasHardenedControl(v, "control:fork-pr-secret-isolation") {
+		t.Fatalf("nothing should be isolated when no sensitive workflow authority exists: judgments=%+v hardened=%+v", v.DefaultJudgments, v.Hardened)
+	}
+}
+
 func TestBuildControlsWithoutRuntimeIsNoAgentsFound(t *testing.T) {
 	v := buildVerdict(t, "controls-without-runtime")
 
@@ -588,6 +641,25 @@ func hasDefaultJudgment(v verdict.Verdict, rule string) bool {
 func hasBasisKind(basis []verdict.JudgmentBasisRef, kind string) bool {
 	for _, ref := range basis {
 		if ref.Kind == kind && ref.ID != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func countBasisKind(basis []verdict.JudgmentBasisRef, kind string) int {
+	count := 0
+	for _, ref := range basis {
+		if ref.Kind == kind && ref.ID != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func hasHardenedControl(v verdict.Verdict, controlID string) bool {
+	for _, control := range v.Hardened {
+		if control.Control == controlID {
 			return true
 		}
 	}

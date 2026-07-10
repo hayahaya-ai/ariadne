@@ -1,0 +1,17 @@
+name: managed review
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dispatch AI review
+        run: curl https://example.invalid/review

@@ -22,6 +22,10 @@ A deterministic fact derived from a surface.
 - `evidence_grade`: `observed`, `declared`, `inferred`, or `skipped`
 - `redaction`: output handling applied to the source/content
 - `summary`: human-readable fact summary
+- GitHub Actions workflow facts additionally carry structurally parsed
+  `trigger_events` and explicit booleans for `references_secrets`,
+  `id_token_write`, and `write_permissions`; comments and unrelated scalar text
+  do not create these facts.
 
 ### Graph
 

@@ -240,6 +240,7 @@ const (
 	homeScopeDefaultRule       = "home_scope_influence_not_untrusted_by_default"
 	nestedScopeDefaultRule     = "nested_instructions_scoped_by_default"
 	nestedAuthorityDefaultRule = "nested_authority_scoped_by_default"
+	prIsolationDefaultRule     = "pr_trigger_secret_isolation_by_default"
 )
 
 func buildInfluenceProvenance(collection model.Collection) []InfluenceProvenanceFact {
@@ -383,6 +384,9 @@ func buildDefaultJudgments(exposures []model.ExposureResult, collection model.Co
 	for _, exposure := range exposures {
 		byID[exposure.ID] = exposure
 	}
+	if isolated := forkPRIsolatedWorkflowInputs(risky, collection); len(isolated) > 0 && len(isolated) == len(risky) {
+		return workflowIsolationJudgments(byID, isolated, collection)
+	}
 	if allHomeScope(risky) {
 		return judgmentsForExposedFamilies(byID, homeScopeDefaultRule, risky, judgmentBasis(risky, provenanceFacts), "Home-scope influence alone is treated as a trade-off by default; deterministic facts do not claim the file is safe or user-authored.")
 	}
@@ -434,6 +438,98 @@ func buildDefaultJudgments(exposures []model.ExposureResult, collection model.Co
 	if out == nil {
 		return []DefaultJudgment{}
 	}
+	return out
+}
+
+func forkPRIsolatedWorkflowInputs(inputs []model.TrustInput, collection model.Collection) []model.TrustInput {
+	var out []model.TrustInput
+	for _, input := range inputs {
+		if input.Kind == "managed-workflow-trigger" && workflowFactHasForkPRIsolation(input.Source, collection) {
+			out = append(out, input)
+		}
+	}
+	return out
+}
+
+func workflowFactHasForkPRIsolation(source string, collection model.Collection) bool {
+	hasPlainPullRequest := false
+	hasSensitiveAuthority := false
+	for _, fact := range collection.Facts {
+		if fact.Source != source {
+			continue
+		}
+		switch fact.Type {
+		case "managed-workflow-trigger-events":
+			for _, event := range fact.TriggerEvents {
+				switch event {
+				case "pull_request":
+					hasPlainPullRequest = true
+				case "pull_request_target", "workflow_run", "issue_comment", "issues", "discussion", "discussion_comment", "pull_request_review_comment":
+					return false
+				}
+			}
+		case "managed-workflow-sensitive-authority":
+			hasSensitiveAuthority = factBool(fact.ReferencesSecrets) || factBool(fact.OIDCTokenWrite) || factBool(fact.WritePermissions)
+		}
+	}
+	if !hasPlainPullRequest || !hasSensitiveAuthority {
+		return false
+	}
+	for _, control := range collection.Controls {
+		if control.ID == "control:fork-pr-secret-isolation" && control.Source == source && control.Enforcement == model.EnforcementEnforced {
+			return true
+		}
+	}
+	return false
+}
+
+func factBool(value *bool) bool {
+	return value != nil && *value
+}
+
+func workflowIsolationJudgments(byID map[string]model.ExposureResult, inputs []model.TrustInput, collection model.Collection) []DefaultJudgment {
+	basis := workflowIsolationBasis(inputs, collection)
+	var out []DefaultJudgment
+	for _, familyID := range []string{FamilyEgress, FamilySecret} {
+		exposure, ok := byID[familyID]
+		if !ok || exposure.Status != model.StatusProtected {
+			continue
+		}
+		out = append(out, DefaultJudgment{
+			Rule:          prIsolationDefaultRule,
+			Label:         "default_judgment",
+			ExposureID:    familyID,
+			TrustInputIDs: trustInputIDs(inputs),
+			Basis:         basis,
+			Summary:       "GitHub plain pull_request semantics isolate fork pull-request content from workflow secret, OIDC, and write authority by default; repository-level overrides were not observable.",
+		})
+	}
+	if out == nil {
+		return []DefaultJudgment{}
+	}
+	return out
+}
+
+func workflowIsolationBasis(inputs []model.TrustInput, collection model.Collection) []JudgmentBasisRef {
+	sources := map[string]bool{}
+	var out []JudgmentBasisRef
+	seen := map[string]bool{}
+	for _, input := range inputs {
+		sources[input.Source] = true
+		addJudgmentBasis(&out, seen, JudgmentBasisRef{Kind: "trust_input", ID: input.ID})
+	}
+	for _, fact := range collection.Facts {
+		if !sources[fact.Source] || (fact.Type != "managed-workflow-trigger-events" && fact.Type != "managed-workflow-sensitive-authority") {
+			continue
+		}
+		addJudgmentBasis(&out, seen, JudgmentBasisRef{Kind: "fact", ID: fact.ID})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Kind == out[j].Kind {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].Kind < out[j].Kind
+	})
 	return out
 }
 
@@ -739,10 +835,10 @@ func buildRecklessFinding(n int, exposure model.ExposureResult, collection model
 	return RecklessFinding{
 		ID:                  recklessID(n),
 		ExposureID:          exposure.ID,
-		Title:               recklessTitle(exposure),
+		Title:               recklessTitle(exposure, refs, collection),
 		Where:               where,
 		EvidenceRefs:        nonNilEvidenceRefs(extraRefs),
-		Why:                 exposure.WhyItMatters,
+		Why:                 recklessWhy(exposure, refs, collection),
 		Fix:                 recklessFix(exposure.ID, refs, collection),
 		RelatedCapabilities: nonNilRelatedCapabilities(related),
 		AttestedOnly:        attestedOnlyForFamily(exposure.ID, collection.Controls),
@@ -794,9 +890,18 @@ func recklessID(n int) string {
 	return "reckless:" + itoa(n)
 }
 
-// recklessTitle rewrites the exposure title in second person, naming the
-// concrete risk. Canonical per family so screen output is stable.
-func recklessTitle(exposure model.ExposureResult) string {
+// recklessTitle names the concrete risk in the voice of the primary evidence
+// surface. Managed workflows never imply a nonexistent local agent runtime.
+func recklessTitle(exposure model.ExposureResult, refs []model.EvidenceReference, collection model.Collection) string {
+	if source, ok := managedWorkflowFindingSource(refs, collection); ok {
+		influence, authority := managedWorkflowVoice(source, collection)
+		switch exposure.ID {
+		case FamilyEgress:
+			return influence + " can reach a workflow that " + authority + " and can communicate externally"
+		case FamilySecret:
+			return influence + " can reach a workflow that " + authority
+		}
+	}
 	switch exposure.ID {
 	case FamilyEgress:
 		return "Untrusted repo text can steer an agent that reads your secrets and can reach the internet"
@@ -807,6 +912,64 @@ func recklessTitle(exposure model.ExposureResult) string {
 	default:
 		return exposure.Title
 	}
+}
+
+func recklessWhy(exposure model.ExposureResult, refs []model.EvidenceReference, collection model.Collection) string {
+	if source, ok := managedWorkflowFindingSource(refs, collection); ok {
+		influence, authority := managedWorkflowVoice(source, collection)
+		switch exposure.ID {
+		case FamilyEgress:
+			return influence + " can influence workflow execution while the same workflow " + authority + " and has an external communication path."
+		case FamilySecret:
+			return influence + " can influence workflow execution while the same workflow " + authority + "."
+		}
+	}
+	return exposure.WhyItMatters
+}
+
+func managedWorkflowFindingSource(refs []model.EvidenceReference, collection model.Collection) (string, bool) {
+	if len(refs) == 0 || refs[0].Source == "" {
+		return "", false
+	}
+	for _, surface := range collection.Surfaces {
+		if surface.Source == refs[0].Source && (surface.Kind == "github-actions-workflow" || surface.Kind == "gitlab-ci-pipeline") {
+			return surface.Source, true
+		}
+	}
+	return "", false
+}
+
+func managedWorkflowVoice(source string, collection model.Collection) (string, string) {
+	influence := "Untrusted event content"
+	authority := "holds privileged credentials"
+	for _, fact := range collection.Facts {
+		if fact.Source != source {
+			continue
+		}
+		if fact.Type == "managed-workflow-trigger-events" {
+			for _, event := range fact.TriggerEvents {
+				switch event {
+				case "pull_request_target":
+					influence = "Untrusted pull-request content"
+				case "workflow_run":
+					influence = "Untrusted upstream workflow content"
+				case "issue_comment", "issues", "discussion", "discussion_comment", "pull_request_review_comment":
+					influence = "Untrusted issue or comment content"
+				}
+			}
+		}
+		if fact.Type == "managed-workflow-sensitive-authority" {
+			switch {
+			case factBool(fact.ReferencesSecrets):
+				authority = "holds secrets"
+			case factBool(fact.OIDCTokenWrite):
+				authority = "can mint OIDC credentials"
+			case factBool(fact.WritePermissions):
+				authority = "has write authority"
+			}
+		}
+	}
+	return influence, authority
 }
 
 type recklessFixTarget struct {
@@ -1334,6 +1497,9 @@ func buildTradeoffs(judgments []DefaultJudgment, collection model.Collection, bu
 }
 
 func tradeoffSummaryForJudgment(judgment DefaultJudgment) string {
+	if judgment.Rule == prIsolationDefaultRule {
+		return "fork pull-request content is isolated from workflow secrets and write-capable credentials by GitHub plain pull_request semantics — held as a trade-off by default; repository-level overrides were not observable"
+	}
 	if judgment.Rule == nestedAuthorityDefaultRule {
 		switch judgment.ExposureID {
 		case FamilyEgress:
@@ -1413,6 +1579,8 @@ func judgmentAppliesToInput(rule string, input model.TrustInput) bool {
 		return input.Provenance == model.TrustInputProvenanceHomeScope
 	case nestedScopeDefaultRule:
 		return input.Provenance != model.TrustInputProvenanceHomeScope && input.InstructionScope == model.InstructionScopeNested
+	case prIsolationDefaultRule:
+		return input.Kind == "managed-workflow-trigger"
 	default:
 		return false
 	}

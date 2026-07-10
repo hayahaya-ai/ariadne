@@ -62,6 +62,16 @@ surfaces. This is structural location only: it does not claim that a nested
 config is safe, and managed CI workflow execution is not relabeled as local
 agent-config authority.
 
+Managed GitHub Actions workflows carry two deterministic per-source facts: the
+event kinds parsed from the top-level `on` structure, and job authority booleans
+for secret-context references, `id-token: write`, and other write permissions.
+`push`, `schedule`, and maintainer-dispatched workflows do not create an
+untrusted trigger leg. `pull_request_target`, `workflow_run`, and attacker-
+postable issue/comment events do create that leg when the same workflow has
+secret, OIDC, or write authority; plain `pull_request` creates the physical
+influence fact but GitHub's fork-PR secret/write-token isolation is recorded as
+an enforced platform control.
+
 **RECKLESS** — one finding per effectively exposed `ExposureResult`, ordered:
 data-egress-chain first, then prompt-injection-to-secret-canary, then
 mutable-tool-launch-execution. An exposed data-egress-chain or
@@ -80,11 +90,17 @@ subtree. That case uses the labeled
 and authority-surface facts. A complete root or unknown-scope authority context
 keeps the path reckless. Boundary location never triggers this downgrade: root
 influence plus root authority plus a nested `.env` remains reckless because a
-root agent can read the workspace. Each finding carries:
+root agent can read the workspace. A plain `pull_request` workflow whose same
+source references secrets, OIDC, or write permissions is protected by the
+labeled `pr_trigger_secret_isolation_by_default` judgment; its basis cites the
+parsed trigger and sensitive-authority facts, and its summary says repository-
+level overrides were not observable. Each finding carries:
 - `id`: `reckless:1`, `reckless:2`, … (screen handle) plus `exposure_id` (stable).
 - `title`: one sentence naming the concrete risk (derive from exposure title,
   rewritten in second person, e.g. "Untrusted repo text can steer an agent that
-  reads your secrets and can reach the internet").
+  reads your secrets and can reach the internet"). Workflow-evidenced findings
+  instead name the workflow and its event content; local agent-runtime findings
+  retain agent wording.
 - `where`: the highest-signal evidence reference from `EvidenceReferences`.
   Parsed surfaces carry `source` + positive `line`. Metadata-only surfaces
   Ariadne deliberately does not read carry `anchor: "file"` and no line.
@@ -247,6 +263,13 @@ When the scoped-authority default applies, the rule is
 configs become live when an agent runs inside that directory. Root authority
 and boundary nesting are deliberately asymmetric: root authority prevents this
 judgment, while a nested boundary alone never causes it.
+When plain-pull-request isolation applies, the rule is
+`pr_trigger_secret_isolation_by_default`; its basis includes the workflow's
+`managed-workflow-trigger-events` and `managed-workflow-sensitive-authority`
+fact IDs plus the managed trigger input. The enforced
+`control:fork-pr-secret-isolation` breaks the fork-PR influence-to-secret/write
+leg, while the labeled judgment makes Ariadne's reliance on GitHub defaults and
+its inability to observe repository-level overrides explicit.
 
 ## Verdict-aware analyst review
 

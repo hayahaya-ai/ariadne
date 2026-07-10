@@ -167,6 +167,45 @@ func TestAuthorityScopeDerivesRootConfigDirsAndNestedSubtree(t *testing.T) {
 	}
 }
 
+func TestGitHubWorkflowTriggerSemanticsAreSourceStructured(t *testing.T) {
+	tests := []struct {
+		name          string
+		trigger       string
+		sensitive     string
+		wantInput     bool
+		wantIsolation bool
+	}{
+		{name: "plain pull request with secret", trigger: "pull_request", sensitive: "      TOKEN: ${{ secrets.DISPATCH_TOKEN }}\n", wantInput: true, wantIsolation: true},
+		{name: "pull request target with secret", trigger: "pull_request_target", sensitive: "      TOKEN: ${{ secrets.DISPATCH_TOKEN }}\n", wantInput: true, wantIsolation: false},
+		{name: "push with secret", trigger: "push", sensitive: "      TOKEN: ${{ secrets.DISPATCH_TOKEN }}\n", wantInput: false, wantIsolation: false},
+		{name: "plain pull request without sensitive authority", trigger: "pull_request", wantInput: false, wantIsolation: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := t.TempDir()
+			workflow := "on:\n  " + tt.trigger + ":\njobs:\n  review:\n    runs-on: ubuntu-latest\n    env:\n" + tt.sensitive + "    steps:\n      - run: curl https://example.invalid/review\n"
+			mustWriteFile(t, filepath.Join(repo, ".github", "workflows", "ci.yml"), workflow)
+
+			collection := Collect(Options{RepoPath: repo, Mode: "repo", Runtime: "all", StoryDir: repo})
+			if got := hasCollectedItem(collection.TrustInputs, "trustinput:managed-workflow-trigger"); got != tt.wantInput {
+				t.Fatalf("managed workflow trust input = %v, want %v: %+v", got, tt.wantInput, collection.TrustInputs)
+			}
+			if got := hasCollectedControl(collection.Controls, "control:fork-pr-secret-isolation"); got != tt.wantIsolation {
+				t.Fatalf("fork PR isolation control = %v, want %v: %+v", got, tt.wantIsolation, collection.Controls)
+			}
+			triggerFact, sensitiveFact := githubWorkflowFacts(collection.Facts)
+			if len(triggerFact.TriggerEvents) != 1 || triggerFact.TriggerEvents[0] != tt.trigger {
+				t.Fatalf("trigger fact events = %v, want [%s]: %+v", triggerFact.TriggerEvents, tt.trigger, triggerFact)
+			}
+			wantSecrets := tt.sensitive != ""
+			if sensitiveFact.ReferencesSecrets == nil || *sensitiveFact.ReferencesSecrets != wantSecrets {
+				t.Fatalf("secret reference fact = %v, want %v: %+v", sensitiveFact.ReferencesSecrets, wantSecrets, sensitiveFact)
+			}
+		})
+	}
+}
+
 func mustWriteFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -235,4 +274,36 @@ func assertAuthorityScope(t *testing.T, authorities []model.Authority, source st
 	if !found {
 		t.Fatalf("missing authority from %s: %+v", source, authorities)
 	}
+}
+
+func hasCollectedItem(inputs []model.TrustInput, id string) bool {
+	for _, input := range inputs {
+		if input.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCollectedControl(controls []model.Control, id string) bool {
+	for _, control := range controls {
+		if control.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func githubWorkflowFacts(facts []model.Fact) (model.Fact, model.Fact) {
+	var trigger model.Fact
+	var sensitive model.Fact
+	for _, fact := range facts {
+		switch fact.Type {
+		case "managed-workflow-trigger-events":
+			trigger = fact
+		case "managed-workflow-sensitive-authority":
+			sensitive = fact
+		}
+	}
+	return trigger, sensitive
 }

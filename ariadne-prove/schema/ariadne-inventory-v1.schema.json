@@ -151,7 +151,14 @@
         "limitations": {
           "type": "array",
           "items": { "type": "string" }
-        }
+        },
+        "trigger_events": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "references_secrets": { "type": "boolean" },
+        "id_token_write": { "type": "boolean" },
+        "write_permissions": { "type": "boolean" }
       }
     },
     "runtime": {
