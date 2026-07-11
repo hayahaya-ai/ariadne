@@ -179,9 +179,11 @@ Cap at 6 on screen; full list in JSON.
 
 **Verdict word**: any reckless → `reckless`; else any malformed or unreadable
 configuration occurrence → `inconclusive`; else any tradeoffs →
-`tradeoffs_only`; else any runtime found → `hardened` (with or without enforced
-controls); else → `no_agents_found`. Enforced controls observed without a
-runtime remain listed under HARDENED but do not supply the verdict word.
+`tradeoffs_only`; else a discovered runtime plus at least one enforced control
+in `hardened[]` → `hardened`; else any runtime found → `inconclusive`; else →
+`no_agents_found`. Enforced controls observed without a runtime remain listed
+under HARDENED but do not supply the verdict word. A renderer or fleet rollup
+must never emit or count `hardened` when `hardened[]` is empty.
 Inconclusive exposures add one line under the readout:
 "Couldn't verify: <n> path(s) lacked evidence — see ariadne ls cases."
 

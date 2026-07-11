@@ -1,0 +1,14 @@
+name: Ordinary deterministic tests
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: curl --fail https://example.invalid/dependency-index

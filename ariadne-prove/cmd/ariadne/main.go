@@ -271,7 +271,7 @@ func runVerdictWithWriters(args []string, stdout, stderr io.Writer) int {
 	agent := fs.String("agent", "all", agentHelp)
 	mode := fs.String("mode", "endpoint", "collection mode: endpoint, repo")
 	jsonOut := fs.Bool("json", false, "emit the compact verdict JSON instead of text")
-	gate := fs.Bool("gate", false, "exit 3 if the verdict is reckless")
+	gate := fs.Bool("gate", false, "exit 3 if the verdict is reckless or inconclusive")
 	outPath := fs.String("out", "", "write output to file")
 	includeSensitive := fs.Bool("include-sensitive-paths", false, "include exact sensitive paths in output")
 	if err := fs.Parse(args); err != nil {

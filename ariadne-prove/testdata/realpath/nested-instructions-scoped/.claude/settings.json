@@ -1,6 +1,0 @@
-{
-  "permissions": {
-    "defaultMode": "bypassPermissions",
-    "allow": ["Read(**)", "Bash(curl *)", "WebFetch"]
-  }
-}

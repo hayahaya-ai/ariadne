@@ -355,6 +355,50 @@ func TestReadableEmptyTargetRemainsNoAgentsFound(t *testing.T) {
 	}
 }
 
+func TestVSCodeSettingsRequireSupportedAgentEvidence(t *testing.T) {
+	path := t.TempDir()
+	settingsDir := filepath.Join(path, ".vscode")
+	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"FSharp.excludeProjectDirectories":["packages"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRuntimeKind(inventory.Collection.Runtimes, "copilot") {
+		t.Fatalf("generic VS Code settings created a Copilot runtime: %+v", inventory.Collection.Runtimes)
+	}
+	for _, status := range inventory.Collection.ParserStatuses {
+		if status.Source == ".vscode/settings.json" && status.Runtime != "" {
+			t.Fatalf("generic VS Code parser status falsely named runtime %q: %+v", status.Runtime, status)
+		}
+	}
+
+	if err := os.WriteFile(settingsPath, []byte(`{"github.copilot.enable":{"*":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err = RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasRuntimeKind(inventory.Collection.Runtimes, "copilot") {
+		t.Fatalf("supported Copilot setting did not create runtime evidence: %+v", inventory.Collection.Runtimes)
+	}
+}
+
+func hasRuntimeKind(runtimes []model.RuntimeEvidence, kind string) bool {
+	for _, runtime := range runtimes {
+		if runtime.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFleetBadTargetIsErrorAndJSONLFails(t *testing.T) {
 	good := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "missing")
@@ -515,10 +559,10 @@ func TestPublishedVerdictAndScanSchemasAreSelfContained(t *testing.T) {
 
 func TestFleetCountsAndRanksInconclusiveVerdicts(t *testing.T) {
 	inconclusive := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(inconclusive, ".claude"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(inconclusive, ".codex"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(inconclusive, ".claude", "settings.json"), []byte(`{"permissions":`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(inconclusive, ".codex", "config.toml"), []byte(`model = "gpt-5"`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	empty := t.TempDir()
@@ -531,6 +575,9 @@ func TestFleetCountsAndRanksInconclusiveVerdicts(t *testing.T) {
 	}
 	if r.Fleet.VerdictCounts[verdict.WordInconclusive] != 1 || r.Fleet.VerdictCounts[verdict.WordNoAgentsFound] != 1 {
 		t.Fatalf("fleet verdict counts = %+v", r.Fleet.VerdictCounts)
+	}
+	if r.Fleet.VerdictCounts[verdict.WordHardened] != 0 || r.Fleet.WorstFirstTargets[0].HardenedCount != 0 {
+		t.Fatalf("runtime without enforced controls inflated hardened fleet counts: %+v", r.Fleet)
 	}
 	if len(r.Fleet.WorstFirstTargets) != 2 || r.Fleet.WorstFirstTargets[0].Verdict != verdict.WordInconclusive {
 		t.Fatalf("fleet worst-first rows = %+v", r.Fleet.WorstFirstTargets)
@@ -910,7 +957,7 @@ func TestGraphExportFormatsExposeVisualEdges(t *testing.T) {
 	if !strings.Contains(dotOut, "digraph ariadne_graph") {
 		t.Fatalf("dot output missing graph header:\n%s", dotOut)
 	}
-	if !strings.Contains(dotOut, `"trustinput:repo-instruction" -> "runtime:codex" [label="influences"]`) {
+	if !strings.Contains(dotOut, `"trustinput:repo-instruction" -> "runtime:claude" [label="influences"]`) {
 		t.Fatalf("dot output missing influence edge:\n%s", dotOut)
 	}
 
@@ -987,7 +1034,7 @@ func TestRunPathCombinedRiskProducesMultipleExposurePaths(t *testing.T) {
 	if !containsEvidenceReferenceSource(mcp.EvidenceReferences, "mcp.json") {
 		t.Fatalf("MCP exposure should include actionable evidence refs: %+v", mcp.EvidenceReferences)
 	}
-	if !r.Graph.HasEdge("trustinput:repo-instruction|influences|runtime:codex") {
+	if !r.Graph.HasEdge("trustinput:repo-instruction|influences|runtime:claude") {
 		t.Fatalf("missing secret exposure graph edge")
 	}
 	if !r.Graph.HasEdge("tool:mcp-package-launch|grants|authority:local-code-execution") {
@@ -1312,7 +1359,7 @@ func TestRunPathWritesRedactedLLMReviewRequest(t *testing.T) {
 		t.Fatalf("LLM citation catalog should include exposures, graph edges, and source refs: %+v", request.CitationCatalog)
 	}
 	if !containsString(request.CitationCatalog.ExposureIDs, "data-egress-chain") ||
-		!containsString(request.CitationCatalog.GraphEdges, "trustinput:repo-instruction|influences|runtime:codex") ||
+		!containsString(request.CitationCatalog.GraphEdges, "trustinput:repo-instruction|influences|runtime:claude") ||
 		!containsString(request.CitationCatalog.FindingIDs, "reckless:1") {
 		t.Fatalf("LLM citation catalog missing expected stable anchors: %+v", request.CitationCatalog)
 	}
@@ -6315,7 +6362,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!hasSignalNoiseItem(decoded.SignalNoise.ExpectedCapability, "capability:authorities", "normal_until_correlated", ".claude/settings.json", "", "") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.ExpectedCapability, "capability:trust-inputs", "normal_input_until_privileged_influence", "CLAUDE.md", "", "") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.ExposureTransition, "transition:capability-to-boundary", "actionable_signal", ".claude/settings.json", "control:egress-destination-allowlist", "authority:broad-local|reaches|boundary:external-destination") ||
-		!hasSignalNoiseItem(decoded.SignalNoise.ExposureTransition, "transition:missing-hard-barrier", "actionable_signal", ".codex/config.toml", "control:network-restricted", "trustinput:repo-instruction|influences|runtime:codex") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.ExposureTransition, "transition:missing-hard-barrier", "actionable_signal", ".claude/settings.json", "control:network-restricted", "trustinput:repo-instruction|influences|runtime:claude") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.ControlEvidence, "control:missing-hard-barriers", "missing", ".ariadne/egress-policy.json", "control:egress-destination-allowlist", "") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.DowngradeEvidence, "downgrade:prove-hard-barrier", "would_close_or_downgrade", ".ariadne/egress-policy.json", "control:egress-destination-allowlist", "") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.DowngradeEvidence, "downgrade:remove-supported-path", "would_downgrade", ".claude/settings.json", "", "authority:broad-local|reaches|boundary:external-destination") ||

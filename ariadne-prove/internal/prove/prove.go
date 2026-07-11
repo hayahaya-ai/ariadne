@@ -2575,6 +2575,9 @@ secretSearch:
 		if !input.Risky {
 			continue
 		}
+		if input.Kind == "managed-workflow-trigger" && !workflowSourceIsAgentLike(c, input.Source) {
+			continue
+		}
 		for _, authority := range c.Authorities {
 			if authority.ID != "authority:file-read" {
 				continue
@@ -2987,6 +2990,9 @@ func authorityCanFollowInput(input model.TrustInput, authority model.Authority) 
 	if input.Runtime != "" && authority.Runtime != "" && input.Runtime != authority.Runtime {
 		return false
 	}
+	if input.Kind != "managed-workflow-trigger" && managedWorkflowRuntime(authority.Runtime) {
+		return false
+	}
 	if input.Runtime == "" && authority.Runtime == "" && input.Source != authority.Source {
 		return false
 	}
@@ -3001,6 +3007,10 @@ func authorityCanFollowInput(input model.TrustInput, authority model.Authority) 
 	default:
 		return input.Source != "" && input.Source == authority.Source
 	}
+}
+
+func managedWorkflowRuntime(runtime string) bool {
+	return runtime == "github-actions" || runtime == "gitlab-ci"
 }
 
 func authoritiesSharePath(left, right model.Authority) bool {
@@ -3069,12 +3079,11 @@ func privateBoundaryIDs() []string {
 		"boundary:credential-material",
 		"boundary:ci-secret-boundary",
 		"boundary:cloud-identity-boundary",
-		"boundary:repository-integrity-boundary",
 	}
 }
 
 func privateAuthorityIDs() []string {
-	return []string{"authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write"}
+	return []string{"authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token"}
 }
 
 func externalAuthorityIDs() []string {
@@ -3263,6 +3272,9 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 egressSearch:
 	for _, input := range c.TrustInputs {
 		if !input.Risky {
+			continue
+		}
+		if input.Kind == "managed-workflow-trigger" && !workflowSourceIsAgentLike(c, input.Source) {
 			continue
 		}
 		contexts := map[string]*egressContext{}
@@ -3546,7 +3558,7 @@ func anySourceHasWorkflowSecretPath(c model.Collection, sources []string) bool {
 
 func anySourceHasWorkflowEgressPath(c model.Collection, sources []string) bool {
 	for _, source := range sources {
-		privateAuthority := sourceHasAuthority(c, source, "authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write")
+		privateAuthority := sourceHasAuthority(c, source, "authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token")
 		externalAuthority := sourceHasAuthority(c, source, "authority:external-communication", "authority:broad-local")
 		if privateAuthority && externalAuthority && sourceHasWorkflowPrivateBoundary(c, source) {
 			return true
@@ -3556,7 +3568,7 @@ func anySourceHasWorkflowEgressPath(c model.Collection, sources []string) bool {
 }
 
 func sourceHasWorkflowPrivateBoundary(c model.Collection, source string) bool {
-	if sourceHasAuthority(c, source, "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write", "authority:broad-local") {
+	if sourceHasAuthority(c, source, "authority:credential-access", "authority:cloud-identity-token", "authority:broad-local") {
 		return true
 	}
 	return sourceHasAuthority(c, source, "authority:file-read") && hasAnyWorkflowReadableBoundary(c)
@@ -3612,6 +3624,15 @@ func workflowSourceHasForkPRIsolation(c model.Collection, source string) bool {
 	}
 	for _, control := range c.Controls {
 		if control.ID == "control:fork-pr-secret-isolation" && control.Source == source && control.Enforcement == model.EnforcementEnforced {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowSourceIsAgentLike(c model.Collection, source string) bool {
+	for _, tool := range c.Tools {
+		if tool.ID == "tool:managed-agent-workflow" && tool.Source == source {
 			return true
 		}
 	}

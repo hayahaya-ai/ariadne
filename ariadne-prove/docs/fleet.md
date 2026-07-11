@@ -45,6 +45,9 @@ Fleet rollups count only enforced evidence already represented in the endpoint
 verdict. Self-declared `.ariadne/*.json` controls are attested-only: they can be
 listed on a reckless finding as `attested_only`, but they never add hardened
 counts or protect a target in the fleet summary.
+An endpoint with a runtime but zero enforced `hardened[]` entries rolls up as
+`inconclusive`; it cannot increment either the hardened verdict count or the
+fleet hardened-control count.
 
 Use `architecture --targets` or the focused fleet architecture dashboard when the question is not just "which targets have exposure paths?" but "which Zero Trust agent architecture boundaries are breaking, controlled, unknown, or not observed across the fleet?" The architecture fleet report groups flaw categories by target coverage, emits `boundary_coverage` rows with evidence sources, missing evidence, next collectors, and control evidence needed, includes `evidence_plan` for unknown or not-observed collector gaps, includes `closure_families` for capability-level triage, and includes a `closure_plan` that ranks missing hard barriers across affected targets.
 

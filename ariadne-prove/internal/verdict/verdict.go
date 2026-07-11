@@ -232,11 +232,12 @@ func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, inconclusiv
 		return WordInconclusive
 	case tradeoffCount > 0:
 		return WordTradeoffsOnly
-	case runtimeCount > 0:
+	case runtimeCount > 0 && hardenedCount > 0:
 		return WordHardened
+	case runtimeCount > 0:
+		return WordInconclusive
 	default:
 		// Enforced controls remain reported, but cannot harden an absent runtime.
-		_ = hardenedCount
 		return WordNoAgentsFound
 	}
 }
@@ -1357,6 +1358,18 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 				tradeoffSummary: "agents read your workspace — that is what a coding agent is for",
 				tradeoffSource:  authority.Source,
 			})
+		case "authority:repository-write":
+			candidates = append(candidates, capabilityCandidate{
+				order:           12,
+				id:              authority.ID,
+				occurrenceID:    authority.OccurrenceID,
+				kind:            "authority",
+				runtime:         authority.Runtime,
+				source:          authority.Source,
+				summary:         authority.Summary,
+				tradeoffSummary: "workflow automation can update repository, pull-request, issue, or package state",
+				tradeoffSource:  authority.Source,
+			})
 		}
 	}
 	for _, boundary := range collection.Boundaries {
@@ -1364,7 +1377,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			continue
 		}
 		candidates = append(candidates, capabilityCandidate{
-			order:           12,
+			order:           13,
 			id:              boundary.ID,
 			occurrenceID:    boundary.OccurrenceID,
 			kind:            "boundary",
@@ -1379,7 +1392,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			continue
 		}
 		candidate := capabilityCandidate{
-			order:        13,
+			order:        14,
 			id:           tool.ID,
 			occurrenceID: tool.OccurrenceID,
 			kind:         "tool",

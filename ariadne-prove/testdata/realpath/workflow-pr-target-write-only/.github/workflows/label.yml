@@ -1,0 +1,21 @@
+name: Authorized pull request labeling
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label authorized contributors
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          permission="$(gh api "repos/${{ github.repository }}/collaborators/${{ github.event.pull_request.user.login }}/permission" --jq .permission)"
+          if [ "$permission" = "write" ] || [ "$permission" = "admin" ]; then
+            gh pr edit "${{ github.event.pull_request.number }}" --add-label approved
+          fi

@@ -460,7 +460,7 @@ func TestBuildNestedBoundaryDoesNotDowngradeRootAuthority(t *testing.T) {
 	if hasDefaultJudgment(v, "nested_authority_scoped_by_default") {
 		t.Fatalf("nested boundary must not scope root authority: %+v", v.DefaultJudgments)
 	}
-	if !hasAuthorityScopeFact(v, ".claude/settings.json", model.AuthorityScopeRoot, "") {
+	if !hasAuthorityScopeFact(v, ".codex/config.toml", model.AuthorityScopeRoot, "") {
 		t.Fatalf("verdict should carry root authority-scope fact: %+v", v.AuthorityScope)
 	}
 }

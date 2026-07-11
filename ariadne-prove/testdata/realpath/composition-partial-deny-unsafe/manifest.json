@@ -10,8 +10,8 @@
     "verdict": {
       "word": "reckless",
       "findings": [
-        { "family": "prompt-injection-to-secret-canary", "source": "AGENTS.md", "line": 1, "fix_surface": ".claude/settings.json" },
-        { "family": "data-egress-chain", "source": "AGENTS.md", "line": 1, "fix_surface": ".claude/settings.json" }
+        { "family": "prompt-injection-to-secret-canary", "source": "CLAUDE.md", "line": 1, "fix_surface": ".claude/settings.json" },
+        { "family": "data-egress-chain", "source": "CLAUDE.md", "line": 1, "fix_surface": ".claude/settings.json" }
       ]
     }
   }

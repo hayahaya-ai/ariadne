@@ -292,8 +292,8 @@ func parserStatusForSurface(s model.Surface) (model.ParserStatusFact, bool) {
 	if s.HandlingMode != "parse" {
 		return model.ParserStatusFact{}, false
 	}
-	runtime := runtimeForSurface(s)
-	if runtime == "" && s.Runtime != "generic" {
+	runtime := runtimeForSurfaceEvidence(s)
+	if runtime == "" && s.Runtime != "generic" && s.Kind != "vscode-settings" {
 		runtime = s.Runtime
 	}
 	status := model.ParserStatusFact{
@@ -427,7 +427,7 @@ func collectRuntimeSurfaceEvidence(c *model.Collection, s model.Surface) {
 	if s.HandlingMode != "parse" {
 		return
 	}
-	runtime := runtimeForSurface(s)
+	runtime := runtimeForSurfaceEvidence(s)
 	if runtime == "" {
 		return
 	}
@@ -567,8 +567,11 @@ func addDelegationSurfaceAt(c *model.Collection, runtime, source, summary string
 }
 
 func runtimeForTrustInput(s model.Surface) string {
-	if s.Kind == "claude-command" || s.Kind == "claude-project-memory" {
+	switch s.Kind {
+	case "claude-md", "claude-command", "claude-project-memory":
 		return "claude"
+	case "agents-md", "nested-agents-md", "codex-agents-md":
+		return "codex"
 	}
 	if s.Runtime != "" && s.Runtime != "generic" && s.Runtime != "mcp" {
 		return s.Runtime
@@ -1061,7 +1064,7 @@ func collectGenericAgentConfig(c *model.Collection, s model.Surface) {
 	if err != nil {
 		return
 	}
-	runtime := runtimeForSurface(s)
+	runtime := runtimeForSurfaceEvidence(s)
 	if runtime == "" {
 		return
 	}
@@ -1338,17 +1341,6 @@ func collectGitHubActionsWorkflow(c *model.Collection, opts Options, s model.Sur
 			LineEnd:   workflow.ReadsRepositoryLine,
 		})
 	}
-	if workflow.WritePermissions {
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-			ID:        "authority:broad-local",
-			Kind:      "broad-local",
-			Runtime:   runtime,
-			Source:    source,
-			Summary:   "GitHub Actions workflow declares write-capable permissions or broad workflow token posture.",
-			LineStart: workflow.WritePermissionsLine,
-			LineEnd:   workflow.WritePermissionsLine,
-		})
-	}
 	if workflow.RepositoryWritePermissions {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
 			ID:        "authority:repository-write",
@@ -1566,15 +1558,6 @@ func collectGitLabCIWorkflow(c *model.Collection, opts Options, s model.Surface)
 			Runtime: runtime,
 			Source:  source,
 			Summary: "GitLab CI pipeline can read checked-out repository files or CI project workspace context.",
-		})
-	}
-	if gitlabWorkflowHasWritePermission(text) {
-		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{
-			ID:      "authority:broad-local",
-			Kind:    "broad-local",
-			Runtime: runtime,
-			Source:  source,
-			Summary: "GitLab CI pipeline declares write-capable repository, package, or API token posture.",
 		})
 	}
 	if gitlabWorkflowHasRepositoryWritePermission(text) {
@@ -2543,6 +2526,35 @@ func runtimeForSurface(s model.Surface) string {
 		return ""
 	}
 	return s.Runtime
+}
+
+// runtimeForSurfaceEvidence prevents a shared editor configuration file from
+// becoming runtime evidence merely because it occupies a known path. Dedicated
+// agent surfaces remain sufficient evidence; VS Code settings must contain a
+// supported Copilot, chat-agent, or chat-tool setting.
+func runtimeForSurfaceEvidence(s model.Surface) string {
+	runtime := runtimeForSurface(s)
+	if runtime == "" || s.Kind != "vscode-settings" {
+		return runtime
+	}
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return ""
+	}
+	var settings map[string]json.RawMessage
+	if json.Unmarshal(data, &settings) != nil {
+		return ""
+	}
+	for key := range settings {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if strings.HasPrefix(key, "github.copilot.") ||
+			strings.HasPrefix(key, "chat.mcp.") ||
+			strings.HasPrefix(key, "chat.agent.") ||
+			strings.HasPrefix(key, "chat.tools.") {
+			return runtime
+		}
+	}
+	return ""
 }
 
 func displayRuntime(runtime string) string {

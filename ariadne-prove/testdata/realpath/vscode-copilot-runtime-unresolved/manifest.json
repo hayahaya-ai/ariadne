@@ -1,0 +1,17 @@
+{
+  "id": "vscode-copilot-runtime-unresolved",
+  "title": "Supported Copilot setting remains runtime evidence",
+  "persona": "developer / IT",
+  "user_question": "Does a real Copilot setting remain discoverable without fabricating a hardened posture?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "inconclusive",
+      "findings": []
+    }
+  }
+}

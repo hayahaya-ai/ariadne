@@ -1,0 +1,17 @@
+{
+  "id": "runtime-unresolved-codex",
+  "title": "Runtime without enforced posture is inconclusive",
+  "persona": "developer / IT",
+  "user_question": "Can a discovered runtime with no grading evidence be called hardened?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "inconclusive",
+      "findings": []
+    }
+  }
+}
