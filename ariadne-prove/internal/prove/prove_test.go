@@ -347,6 +347,12 @@ func TestReadableEmptyTargetRemainsNoAgentsFound(t *testing.T) {
 	if v.VerdictWord != verdict.WordNoAgentsFound {
 		t.Fatalf("verdict = %s, want no_agents_found", v.VerdictWord)
 	}
+	if v.Inconclusive != 0 {
+		t.Fatalf("inconclusive = %d, want 0 for a readable target with no runtimes", v.Inconclusive)
+	}
+	if strings.Contains(strings.ToLower(v.NextAction), "collect") || strings.Contains(strings.ToLower(v.NextAction), "repair") {
+		t.Fatalf("empty readable target should not request missing evidence: %q", v.NextAction)
+	}
 }
 
 func TestFleetBadTargetIsErrorAndJSONLFails(t *testing.T) {
