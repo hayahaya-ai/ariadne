@@ -17,6 +17,9 @@
         },
         {
           "family": "prompt-injection-to-secret-canary"
+        },
+        {
+          "family": "destructive-agent-authority"
         }
       ]
     }

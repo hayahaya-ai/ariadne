@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -69,6 +70,7 @@ func Collect(opts Options) model.Collection {
 		collectSurface(&c, opts, s)
 	}
 	linkRuntimeRequirementControls(&c)
+	linkDestructiveControls(&c)
 	if opts.Mode == "endpoint" && !hasBoundary(&c, "boundary:developer-secret-boundary") && len(c.Authorities) > 0 {
 		authority := c.Authorities[0]
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
@@ -120,9 +122,47 @@ func requirementControlRestrictsAuthority(controlID, authorityID string) bool {
 		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
 	case "control:network-restricted":
 		return authorityID == "authority:external-communication" || authorityID == "authority:broad-local"
+	case "control:host-filesystem-isolated":
+		return authorityID == "authority:destructive-filesystem"
 	default:
 		return false
 	}
+}
+
+func linkDestructiveControls(c *model.Collection) {
+	for i := range c.Controls {
+		control := &c.Controls[i]
+		switch control.ID {
+		case "control:host-filesystem-isolated":
+			for _, authority := range c.Authorities {
+				if authority.ID != "authority:destructive-filesystem" || !controlScopeContainsTarget(*control, authority.Runtime, authority.Source, authority.AuthorityScope, authority.ScopeSubtree) {
+					continue
+				}
+				if authority.OccurrenceID != "" && !containsExactString(control.AppliesTo, authority.OccurrenceID) {
+					control.AppliesTo = append(control.AppliesTo, authority.OccurrenceID)
+				}
+			}
+		case "control:destructive-command-guard":
+			for _, tool := range c.Tools {
+				if tool.ID != "tool:agent-command-shell" || !controlScopeContainsTarget(*control, tool.Runtime, tool.Source, tool.Scope, tool.ScopeSubtree) {
+					continue
+				}
+				if tool.OccurrenceID != "" && !containsExactString(control.AppliesTo, tool.OccurrenceID) {
+					control.AppliesTo = append(control.AppliesTo, tool.OccurrenceID)
+				}
+			}
+		}
+	}
+}
+
+func controlScopeContainsTarget(control model.Control, runtime, source, scope, subtree string) bool {
+	if control.Runtime != "" && runtime != "" && control.Runtime != runtime {
+		return false
+	}
+	if control.Runtime == "" && runtime == "" && control.Source != source {
+		return false
+	}
+	return requirementScopeContains(control.Scope, control.ScopeSubtree, scope, subtree)
 }
 
 func requirementScopeContains(controlScope, controlSubtree, authorityScope, authoritySubtree string) bool {
@@ -228,6 +268,8 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectDelegationSurface(c, opts, s)
 	case "codex-config", "codex-requirements":
 		collectCodexConfig(c, s)
+	case "codex-hooks":
+		collectRuntimeHooks(c, s)
 	case "claude-settings", "claude-local-settings":
 		collectClaudeSettings(c, s)
 	case "cursor-settings", "windsurf-settings", "continue-config", "aider-config", "gemini-settings", "opencode-config", "vscode-settings":
@@ -314,6 +356,8 @@ func parserStatusForSurface(s model.Surface) (model.ParserStatusFact, bool) {
 	switch s.Kind {
 	case "codex-config", "codex-requirements":
 		_, parsed = agentconfig.ParseCodexConfig(data)
+	case "codex-hooks":
+		_, parsed = agentconfig.ParseHookConfig(data)
 	case "claude-settings", "claude-local-settings", "claude-remote-settings":
 		_, parsed = agentconfig.ParseClaudeSettings(data)
 	case "github-actions-workflow":
@@ -732,6 +776,12 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 		lineStart, lineEnd := lineRange(cfg.SandboxModeLine)
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: "codex", Source: source, Summary: "Codex has normal file-read authority in the configured workspace.", LineStart: lineStart, LineEnd: lineEnd})
 	}
+	if cfg.SandboxMode == "danger-full-access" {
+		lineStart, lineEnd := lineRange(cfg.SandboxModeLine)
+		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-command-shell", Kind: "agent-command-shell", Runtime: "codex", Source: source, Risky: true, Summary: "Codex can execute shell commands with host-wide filesystem reach.", LineStart: lineStart, LineEnd: lineEnd})
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:destructive-filesystem", Kind: "destructive-filesystem", Runtime: "codex", Source: source, Summary: "Codex danger-full-access can recursively delete or overwrite files outside the workspace under the developer user.", LineStart: lineStart, LineEnd: lineEnd})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-home-data", Kind: "developer-home-data", Source: source, Abstract: true, Summary: "Developer home files, source trees, documents, photos, and local application state outside the active workspace."})
+	}
 
 	if cfg.NetworkAccess != nil && *cfg.NetworkAccess {
 		addExternalCommunicationAt(c, "codex", source, "Codex config declares external network access.", cfg.NetworkAccessLine)
@@ -746,6 +796,9 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 	scopedApproval := cfg.ApprovalPolicy == "on-request" || cfg.ApprovalPolicy == "on-failure" || cfg.ApprovalPolicy == "untrusted"
 	if scopedSandbox || scopedApproval {
 		addControlAt(c, "control:scoped-permissions", "scoped-permissions", "codex", source, "Codex config declares scoped sandbox or approval permissions.", firstPositive(cfg.SandboxModeLine, cfg.ApprovalPolicyLine))
+	}
+	if scopedSandbox {
+		addControlAt(c, "control:host-filesystem-isolated", "host-filesystem-isolated", "codex", source, "Codex read-only or workspace-write sandbox keeps unrelated host developer data outside the writable boundary.", cfg.SandboxModeLine)
 	}
 	if cfg.HasMCPServers {
 		lineStart, lineEnd := lineRange(cfg.MCPServersLine)
@@ -851,6 +904,12 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: "claude", Source: source, Summary: "Claude Code settings allow broad shell or local execution posture.", LineStart: lineStart, LineEnd: lineEnd})
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
 	}
+	if broadLocal {
+		lineStart, lineEnd := lineRange(broadLocalLine)
+		c.Tools = appendUniqueTool(c.Tools, model.Tool{ID: "tool:agent-command-shell", Kind: "agent-command-shell", Runtime: "claude", Source: source, Risky: true, Summary: "Claude Code can execute broadly allowed shell commands under the developer user.", LineStart: lineStart, LineEnd: lineEnd})
+		c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:destructive-filesystem", Kind: "destructive-filesystem", Runtime: "claude", Source: source, Summary: "Claude permission bypass or broad Bash allow can recursively delete or overwrite host developer files.", LineStart: lineStart, LineEnd: lineEnd})
+		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-home-data", Kind: "developer-home-data", Source: source, Abstract: true, Summary: "Developer home files, source trees, documents, photos, and local application state outside the active workspace."})
+	}
 
 	if claudeAllowsExternalCommunication(cfg) {
 		addExternalCommunicationAt(c, "claude", source, "Claude Code settings allow web, shell, or external communication posture.", claudeExternalCommunicationLine(cfg))
@@ -868,6 +927,11 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 	if cfg.DefaultMode == "default" && !cfg.HasBroadBashAllow() {
 		addControlAt(c, "control:deny-by-default-permissions", "deny-by-default-permissions", "claude", source, "Claude Code settings run nothing without a prompt under default-mode permissions.", cfg.DefaultModeLine)
 	}
+	if hooks, hooksOK := agentconfig.ParseHookConfig(data); hooksOK && hooks.HasDestructiveCommandGuard && hookExecutablePresent(s.Path, hooks.DestructiveCommand) {
+		addControlAt(c, "control:destructive-command-guard", "destructive-command-guard", "claude", source, "Claude PreToolUse Bash hook invokes Destructive Command Guard before direct shell commands; script and direct-API paths remain outside this control.", hooks.DestructiveCommandLine)
+	} else if hooksOK && hooks.HasDestructiveCommandGuard {
+		c.Warnings = append(c.Warnings, "destructive-command guard hook is configured but its executable was not found or is not executable: "+source)
+	}
 	if cfg.HasInlineCredential {
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
 			ID:       "boundary:credential-material",
@@ -878,6 +942,58 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 		})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:boundary:credential-material", "boundary", source, "observed", "Inline credential field indicators were detected without emitting values."))
 	}
+}
+
+func collectRuntimeHooks(c *model.Collection, s model.Surface) {
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		return
+	}
+	hooks, ok := agentconfig.ParseHookConfig(data)
+	if !ok || !hooks.HasDestructiveCommandGuard {
+		return
+	}
+	if codexHooksExplicitlyDisabled(s.Path) {
+		c.Warnings = append(c.Warnings, "destructive-command guard hook is configured but Codex hooks are explicitly disabled: "+s.Source)
+		return
+	}
+	if !hookExecutablePresent(s.Path, hooks.DestructiveCommand) {
+		c.Warnings = append(c.Warnings, "destructive-command guard hook is configured but its executable was not found or is not executable: "+s.Source)
+		return
+	}
+	addControlAt(c, "control:destructive-command-guard", "destructive-command-guard", "codex", s.Source, "Codex PreToolUse Bash hook is structurally connected and its executable is present; script, direct-API, uncovered execution routes, and live deny behavior remain unverified.", hooks.DestructiveCommandLine)
+}
+
+func codexHooksExplicitlyDisabled(hooksPath string) bool {
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(hooksPath), "config.toml"))
+	if err != nil {
+		return false
+	}
+	cfg, ok := agentconfig.ParseCodexConfig(data)
+	return ok && cfg.HooksEnabled != nil && !*cfg.HooksEnabled
+}
+
+func hookExecutablePresent(configPath, command string) bool {
+	fields := strings.Fields(strings.TrimSpace(command))
+	if len(fields) == 0 {
+		return false
+	}
+	executable := strings.Trim(fields[0], `"'`)
+	if !strings.ContainsAny(executable, `/\\`) {
+		resolved, err := exec.LookPath(executable)
+		if err != nil {
+			return false
+		}
+		executable = resolved
+	} else if !filepath.IsAbs(executable) {
+		root := filepath.Dir(configPath)
+		if base := filepath.Base(root); base == ".codex" || base == ".claude" {
+			root = filepath.Dir(root)
+		}
+		executable = filepath.Join(root, filepath.FromSlash(executable))
+	}
+	info, err := os.Stat(executable)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 // claudeHasUndeniedAllowTool reports whether allow contains a rule for tool

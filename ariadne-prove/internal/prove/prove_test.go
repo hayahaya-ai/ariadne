@@ -1133,6 +1133,138 @@ func TestRunPathCombinedRiskPrioritizesHighRiskPaths(t *testing.T) {
 	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-mutable-tool-launch:mutable-tool-launch-execution", model.SeverityCritical, model.PriorityP0, true)
 	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-data-egress-chain:data-egress-chain", model.SeverityCritical, model.PriorityP0, true)
 	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-secret-boundary-access:prompt-injection-to-secret-canary", model.SeverityHigh, model.PriorityP1, true)
+	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-destructive-agent-authority:destructive-agent-authority", model.SeverityCritical, model.PriorityP0, true)
+}
+
+func TestDestructiveAuthorityPairedWorlds(t *testing.T) {
+	unsafe := []string{
+		"destructive-codex-full-access",
+		"destructive-claude-bypass",
+		"destructive-subagent-inherits",
+		"destructive-dcg-full-access",
+		"destructive-dcg-disconnected",
+		"destructive-dcg-disabled",
+		"destructive-dcg-missing-binary",
+		"destructive-dcg-script-bypass",
+		"destructive-dcg-direct-api-bypass",
+		"destructive-recovery-only",
+	}
+	for _, fixture := range unsafe {
+		t.Run("unsafe/"+fixture, func(t *testing.T) {
+			r, err := RunPath(Options{Path: realPathFixture(t, fixture)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertExposure(t, r, "destructive-agent-authority", model.StatusExposed)
+		})
+	}
+
+	safe := []string{
+		"destructive-codex-workspace-contained",
+		"destructive-claude-scoped",
+		"destructive-subagent-contained",
+		"destructive-dcg-contained",
+		"destructive-recovery-contained",
+	}
+	for _, fixture := range safe {
+		t.Run("safe/"+fixture, func(t *testing.T) {
+			r, err := RunPath(Options{Path: realPathFixture(t, fixture)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, exposure := range r.Exposures {
+				if exposure.ID == "destructive-agent-authority" && exposure.Status == model.StatusExposed {
+					t.Fatalf("contained inverse produced destructive exposure: %+v", exposure)
+				}
+			}
+		})
+	}
+}
+
+func TestDestructiveCommandGuardIsConnectedMitigationNotContainment(t *testing.T) {
+	inventory, err := RunInventory(Options{Path: realPathFixture(t, "destructive-dcg-full-access")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var guard model.Control
+	for _, control := range inventory.Collection.Controls {
+		if control.ID == "control:destructive-command-guard" {
+			guard = control
+			break
+		}
+	}
+	if guard.ID == "" || guard.Enforcement != model.EnforcementEnforced || len(guard.AppliesTo) == 0 {
+		t.Fatalf("connected DCG hook should be enforced and occurrence-linked to the shell tool: %+v", guard)
+	}
+	linked := false
+	for _, edge := range inventory.Graph.Edges {
+		if edge.From == guard.OccurrenceID && edge.Type == "restricts" && containsString(guard.AppliesTo, edge.To) {
+			linked = true
+			break
+		}
+	}
+	if !linked {
+		t.Fatalf("connected DCG hook is missing its occurrence restricts edge: %+v", guard)
+	}
+	r, err := RunPath(Options{Path: realPathFixture(t, "destructive-dcg-full-access")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertExposure(t, r, "destructive-agent-authority", model.StatusExposed)
+
+	disconnected, err := RunInventory(Options{Path: realPathFixture(t, "destructive-dcg-disconnected")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, control := range disconnected.Collection.Controls {
+		if control.ID == "control:destructive-command-guard" {
+			t.Fatalf("wrong-event hook must not become destructive guard evidence: %+v", control)
+		}
+	}
+	for _, fixture := range []string{"destructive-dcg-disabled", "destructive-dcg-missing-binary"} {
+		inventory, err := RunInventory(Options{Path: realPathFixture(t, fixture)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, control := range inventory.Collection.Controls {
+			if control.ID == "control:destructive-command-guard" {
+				t.Fatalf("%s must not produce guard control evidence: %+v", fixture, control)
+			}
+		}
+	}
+}
+
+func TestDestructiveSubagentPathPreservesDelegationOccurrence(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "destructive-subagent-inherits")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, edge := range r.Graph.Edges {
+		if edge.From == "authority:delegated-agent-authority" && edge.Type == "inherits" && edge.To == "authority:destructive-filesystem" {
+			t.Fatalf("delegation must not compose destructive authority through family IDs: %+v", edge)
+		}
+	}
+	exposure := findExposure(t, r, "destructive-agent-authority")
+	hasInheritance := false
+	for _, edge := range exposure.OccurrencePathEdges {
+		if strings.Contains(edge, "|inherits|") {
+			hasInheritance = true
+			break
+		}
+	}
+	if !hasInheritance {
+		t.Fatalf("destructive subagent path should preserve delegated inheritance: %+v", exposure.OccurrencePathEdges)
+	}
+	hasSubagentEvidence := false
+	for _, ref := range exposure.EvidenceReferences {
+		if ref.Source == ".claude/agents/reviewer.md" {
+			hasSubagentEvidence = true
+			break
+		}
+	}
+	if !hasSubagentEvidence {
+		t.Fatalf("destructive subagent exposure should cite the delegation occurrence: %+v", exposure.EvidenceReferences)
+	}
 }
 
 func TestRunPathAppliesCustomDeterministicRules(t *testing.T) {
@@ -1198,8 +1330,8 @@ func TestRunPathLLMReviewFromFilePrioritizesGraphBackedIssue(t *testing.T) {
 	if analyst.SourceType != "llm_review" || analyst.DerivedBy != "llm" {
 		t.Fatalf("analyst section was not labeled as LLM-derived: %+v", analyst)
 	}
-	if len(analyst.FindingExplanations) != 3 || len(analyst.FindingRanking) != 3 {
-		t.Fatalf("analyst output should explain and rank the three reckless findings: %+v", analyst)
+	if len(analyst.FindingExplanations) != 4 || len(analyst.FindingRanking) != 4 {
+		t.Fatalf("analyst output should explain and rank the four reckless findings: %+v", analyst)
 	}
 	if analyst.FindingRanking[0].FindingID != "reckless:1" || analyst.FindingRanking[0].ExposureID != "data-egress-chain" {
 		t.Fatalf("data egress should remain analyst's top-ranked existing finding: %+v", analyst.FindingRanking)
@@ -1281,6 +1413,12 @@ func TestRunPathLLMReviewRejectsUnsupportedGraphEvidence(t *testing.T) {
       "exposure_id": "mutable-tool-launch-execution",
       "operator_context": "Valid explanation.",
       "fact_ids": ["fact:mcp:mcp-config:b3cb7f985dab"]
+    },
+    {
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "operator_context": "Valid explanation.",
+      "fact_ids": ["fact:claude:claude-settings:b14140dddf41"]
     }
   ],
   "finding_ranking": [
@@ -1304,6 +1442,13 @@ func TestRunPathLLMReviewRejectsUnsupportedGraphEvidence(t *testing.T) {
       "exposure_id": "prompt-injection-to-secret-canary",
       "rationale": "Valid ranking.",
       "fact_ids": ["fact:generic:secret-like-file:235c40c61601"]
+    },
+    {
+      "rank": 4,
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:claude:claude-settings:b14140dddf41"]
     }
   ]
 }`
@@ -1429,7 +1574,7 @@ func TestRunReviewPacketBuildsUserFacingPacket(t *testing.T) {
 	if !containsString(request.CitationCatalog.ExposureIDs, "data-egress-chain") {
 		t.Fatalf("follow-up packet should include exposure anchors: %+v", request.CitationCatalog.ExposureIDs)
 	}
-	if request.Verdict == nil || request.Verdict.VerdictWord != "reckless" || len(request.Verdict.Reckless) != 3 {
+	if request.Verdict == nil || request.Verdict.VerdictWord != "reckless" || len(request.Verdict.Reckless) != 4 {
 		t.Fatalf("follow-up packet should include graded verdict findings: %+v", request.Verdict)
 	}
 	if !containsString(request.CitationCatalog.FindingIDs, "reckless:1") || !containsString(request.CitationCatalog.EvidenceRefIDs, "evidence:trustinput:repo-instruction") {
@@ -1470,7 +1615,7 @@ func TestRunReviewCheckValidatesPacketBoundReview(t *testing.T) {
 	if !check.Accepted || check.RunKind != "llm_review_check" || check.RequestDigest == "" {
 		t.Fatalf("review check should be accepted with digest: %+v", check)
 	}
-	if check.Interpretation.Mode != "deterministic" || check.Interpretation.Analyst == nil || len(check.Interpretation.Analyst.FindingExplanations) != 3 {
+	if check.Interpretation.Mode != "deterministic" || check.Interpretation.Analyst == nil || len(check.Interpretation.Analyst.FindingExplanations) != 4 {
 		t.Fatalf("review check interpretation mismatch: %+v", check.Interpretation)
 	}
 }
@@ -1557,6 +1702,12 @@ func TestRunReviewCheckRejectsUnsupportedReviewEvidence(t *testing.T) {
       "exposure_id": "mutable-tool-launch-execution",
       "operator_context": "Valid explanation.",
       "fact_ids": ["fact:mcp:mcp-config:b3cb7f985dab"]
+    },
+    {
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "operator_context": "Valid explanation.",
+      "fact_ids": ["fact:claude:claude-settings:b14140dddf41"]
     }
   ],
   "finding_ranking": [
@@ -1580,6 +1731,13 @@ func TestRunReviewCheckRejectsUnsupportedReviewEvidence(t *testing.T) {
       "exposure_id": "prompt-injection-to-secret-canary",
       "rationale": "Valid ranking.",
       "fact_ids": ["fact:generic:secret-like-file:235c40c61601"]
+    },
+    {
+      "rank": 4,
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:claude:claude-settings:b14140dddf41"]
     }
   ]
 }`
@@ -2307,7 +2465,7 @@ func TestZeroTrustResponsePolicyControlsContainmentBoundary(t *testing.T) {
 	}
 	// Response policy under .ariadne is attested only; containment is not
 	// proven by declaration.
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustUnknown)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:automated-triage",
 		"control:behavioral-monitoring",
@@ -3662,9 +3820,10 @@ func TestRunScanFleetVerdictRollup(t *testing.T) {
 		}
 	}
 	wantFamilyCounts := map[string]int{
-		verdict.FamilyEgress: 3,
-		verdict.FamilyMCP:    1,
-		verdict.FamilySecret: 3,
+		verdict.FamilyEgress:      3,
+		verdict.FamilyMCP:         1,
+		verdict.FamilySecret:      3,
+		verdict.FamilyDestructive: 3,
 	}
 	for family, want := range wantFamilyCounts {
 		if got := familyCounts[family]; got != want {

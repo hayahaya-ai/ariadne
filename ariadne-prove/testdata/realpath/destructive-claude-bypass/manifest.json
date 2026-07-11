@@ -1,0 +1,23 @@
+{
+  "id": "destructive-claude-bypass",
+  "title": "Claude permission bypass can destroy developer home data",
+  "persona": "developer / endpoint security",
+  "user_question": "Does broad unapproved Claude shell authority grade reckless without malicious input?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": { "repo_path": "." },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "require_evidence_line_anchors": true,
+      "findings": [
+        {
+          "family": "destructive-agent-authority",
+          "source": ".claude/settings.json",
+          "line": 1,
+          "fix_surface": ".claude/settings.json"
+        }
+      ]
+    }
+  }
+}

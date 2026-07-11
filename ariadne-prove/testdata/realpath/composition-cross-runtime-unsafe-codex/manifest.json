@@ -24,6 +24,10 @@
           "source": ".codex/AGENTS.md",
           "line": 1,
           "fix_surface": ".codex/config.toml"
+        },
+        {
+          "family": "destructive-agent-authority",
+          "fix_surface": ".codex/config.toml"
         }
       ]
     }

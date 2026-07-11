@@ -20,6 +20,10 @@ Procedure:
 3. Distinguish facts (deterministic evidence) from Ariadne's default judgments
    (the grading). If you disagree with a default judgment, say so explicitly as
    your own assessment, with the facts you weighed.
+4. Treat `destructive-agent-authority` as independent of prompt injection. Verify
+   the cited full-access or permission-bypass setting and report that accidental
+   agent behavior alone can trigger the impact. Do not call a command hook or a
+   backup a complete containment boundary.
 
 Report back, in this order: the verdict word and counts; each reckless finding
 (one line: what, where, verified/imprecise, the fix); trade-offs as a single

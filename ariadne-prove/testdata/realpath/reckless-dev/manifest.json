@@ -17,6 +17,12 @@
           "source": ".claude/settings.json",
           "line": 1,
           "fix_surface": ".claude/settings.json"
+        },
+        {
+          "family": "destructive-agent-authority",
+          "source": ".claude/settings.json",
+          "line": 1,
+          "fix_surface": ".claude/settings.json"
         }
       ]
     }

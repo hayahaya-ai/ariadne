@@ -25,6 +25,14 @@
       "fact_ids": [
         "fact:mcp:mcp-config:b3cb7f985dab"
       ]
+    },
+    {
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "operator_context": "This entry is otherwise shaped like a real finding explanation.",
+      "fact_ids": [
+        "fact:claude:claude-settings:b14140dddf41"
+      ]
     }
   ],
   "finding_ranking": [
@@ -53,6 +61,15 @@
       "rationale": "Ranking cites valid graph evidence.",
       "graph_edges": [
         "authority:file-read|reaches|boundary:secret-like-file"
+      ]
+    },
+    {
+      "rank": 4,
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "rationale": "Ranking cites valid graph evidence.",
+      "graph_edges": [
+        "authority:destructive-filesystem|reaches|boundary:developer-home-data"
       ]
     }
   ]

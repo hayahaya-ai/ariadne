@@ -148,6 +148,8 @@ that tool). A narrow deny (e.g. `Bash(git)`) does NOT cancel a broad allow (`Bas
   "acceptEdits"`, OR `allow` contains a `Read` rule (any scope) not fully denied.
 - **local-code-execution authority** + `boundary:developer-execution-boundary` iff
   broad-local, OR `allow` contains a `Bash` rule (any scope) not denied.
+- **destructive-filesystem authority** + `boundary:developer-home-data` iff broad-local.
+  A narrowly scoped Bash allow does not create host-destructive authority.
 - **external-communication** (via `addExternalCommunication`) iff `allow` contains a
   `WebFetch`/`WebSearch` rule, OR a `Bash` rule with scope `*`/empty (shell → curl), and
   NOT contradicted by a `deny` of the same. Network tools present only in `deny` must not
@@ -183,6 +185,12 @@ that tool). A narrow deny (e.g. `Bash(git)`) does NOT cancel a broad allow (`Bas
 - **broad-local + file-read authority** iff `SandboxMode == "danger-full-access"` OR
   `ApprovalPolicy == "never"` (approval never required). A `#`-commented value must not
   count.
+- **destructive-filesystem authority** + `boundary:developer-home-data` iff
+  `SandboxMode == "danger-full-access"`. `ApprovalPolicy == "never"` alone is not
+  enough because read-only/workspace sandboxing can still keep unrelated host paths
+  outside the writable boundary. This follows Codex's documented separation between
+  what the sandbox technically permits and when approval is requested:
+  <https://learn.chatgpt.com/docs/agent-approvals-security#sandbox-and-approvals>.
 - **file-read authority only** (normal) iff `SandboxMode` is `"read-only"` or
   `"workspace-write"`, OR `IsRequirements` (requirements files imply a scoped workspace),
   and not broad-local.
@@ -193,6 +201,8 @@ that tool). A narrow deny (e.g. `Bash(git)`) does NOT cancel a broad allow (`Bas
   (same semantic path set as Claude).
 - **control:scoped-permissions** (enforced) iff `SandboxMode` is `"read-only"` or
   `"workspace-write"`, OR `ApprovalPolicy` in {`on-request`,`on-failure`,`untrusted`}.
+- **control:host-filesystem-isolated** (enforced) iff `SandboxMode` is `"read-only"`
+  or `"workspace-write"`. Approval configuration alone does not create this control.
 - **tool:mcp-configured** iff `HasMCPServers`.
 - **boundary:credential-material** (observed) iff `HasInlineCredential`. The credential
   *value* is never emitted into the boundary summary or evidence — only the fact that a
@@ -201,6 +211,23 @@ that tool). A narrow deny (e.g. `Bash(git)`) does NOT cancel a broad allow (`Bas
 Enforcement: all controls above come from real runtime config, so they are `enforced`
 (the existing `appendUniqueControl` provenance-by-source already yields this for non
 `.ariadne` sources — keep using it; do not hardcode).
+
+### Claude/Codex hooks → destructive command guard mitigation
+
+Structurally parse the shared JSON `hooks.PreToolUse[]` shape. Emit enforced
+`control:destructive-command-guard` only when an entry has `matcher: "Bash"` and a
+command hook whose executable basename is exactly `dcg` (or `dcg.exe`). Wrong events,
+wrong matchers, malformed hook arrays, and substring names such as `dcg-helper` do not
+count. Codex `[features].hooks = false`, a missing executable, or a non-executable
+file also prevents the control from being emitted. The control applies to the
+matching runtime/scope shell-tool occurrence. Presence and execute permission are
+verified read-only; live deny behavior is not executed.
+
+This control is defense in depth and is shown under HARDENED, but it never closes the
+`destructive-agent-authority` family by itself. The broad authority remains able to
+use script indirection, direct filesystem APIs, uncovered execution paths, or a
+fail-open hook. Only an enforced host-filesystem containment boundary breaks that
+exposure path.
 
 ## Adversarial fixtures (must exist; keyword logic gets them wrong)
 
