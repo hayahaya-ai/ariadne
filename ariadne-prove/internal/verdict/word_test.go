@@ -22,7 +22,7 @@ func TestComputeVerdictWordPrecedence(t *testing.T) {
 		{name: "inconclusive paths alone do not erase deterministic capability grading", tradeoffs: 1, hardened: 1, inconclusive: 2, runtimes: 1, wantVerdict: WordTradeoffsOnly},
 		{name: "tradeoffs outrank partial inconclusive evidence when another path is conclusive", tradeoffs: 1, hardened: 1, inconclusive: 1, conclusive: 1, runtimes: 1, wantVerdict: WordTradeoffsOnly},
 		{name: "runtime with controls is hardened", hardened: 1, runtimes: 1, wantVerdict: WordHardened},
-		{name: "runtime without controls is hardened", runtimes: 1, wantVerdict: WordHardened},
+		{name: "runtime without grading evidence is inconclusive", runtimes: 1, wantVerdict: WordInconclusive},
 		{name: "controls cannot harden an absent runtime", hardened: 1, wantVerdict: WordNoAgentsFound},
 		{name: "nothing observed has no agents", wantVerdict: WordNoAgentsFound},
 	}
@@ -36,9 +36,9 @@ func TestComputeVerdictWordPrecedence(t *testing.T) {
 	}
 }
 
-func TestCountsSentenceForRuntimeWithoutBuckets(t *testing.T) {
+func TestCountsSentenceForInconclusiveRuntimeWithoutBuckets(t *testing.T) {
 	v := Verdict{
-		VerdictWord: WordHardened,
+		VerdictWord: WordInconclusive,
 		Scanned:     ScannedSummary{Runtimes: []string{"claude"}},
 	}
 
@@ -47,6 +47,6 @@ func TestCountsSentenceForRuntimeWithoutBuckets(t *testing.T) {
 		t.Fatalf("countsSentence() = %q, want runtime observation", got)
 	}
 	if strings.Contains(got, "no agent runtimes") {
-		t.Fatalf("hardened headline must not claim no runtime: %q", got)
+		t.Fatalf("inconclusive headline must not claim no runtime: %q", got)
 	}
 }

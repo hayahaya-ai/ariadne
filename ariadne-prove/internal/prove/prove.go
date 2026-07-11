@@ -1700,6 +1700,7 @@ func BuildGraph(c model.Collection) model.Graph {
 		}
 		if tool.ID == "tool:agent-command-shell" {
 			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:local-code-execution", EvidenceID: "evidence:" + tool.ID})
+			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:destructive-filesystem", EvidenceID: "evidence:" + tool.ID})
 		}
 		if tool.ID == "tool:managed-agent-workflow" {
 			addEdge(model.Edge{From: tool.ID, Type: "grants", To: "authority:local-code-execution", EvidenceID: "evidence:" + tool.ID})
@@ -2023,12 +2024,27 @@ func addOccurrenceGraph(c model.Collection, addNode func(model.Node), addEdge fu
 			}
 		}
 	}
+	for _, delegated := range c.Authorities {
+		if delegated.ID != "authority:delegated-agent-authority" || delegated.OccurrenceID == "" {
+			continue
+		}
+		for _, destructive := range c.Authorities {
+			if destructive.ID != "authority:destructive-filesystem" || destructive.OccurrenceID == "" || delegated.Runtime != destructive.Runtime {
+				continue
+			}
+			if occurrencesSharePath(delegated.Runtime, delegated.Source, delegated.AuthorityScope, delegated.ScopeSubtree, destructive.Runtime, destructive.Source, destructive.AuthorityScope, destructive.ScopeSubtree) {
+				addEdge(model.Edge{From: delegated.OccurrenceID, Type: "inherits", To: destructive.OccurrenceID})
+			}
+		}
+	}
 }
 
 func toolGrantsAuthority(toolID, authorityID string) bool {
 	switch toolID {
-	case "tool:mcp-package-launch", "tool:agent-command-shell", "tool:managed-agent-workflow":
+	case "tool:mcp-package-launch", "tool:managed-agent-workflow":
 		return authorityID == "authority:local-code-execution"
+	case "tool:agent-command-shell":
+		return authorityID == "authority:local-code-execution" || authorityID == "authority:destructive-filesystem"
 	case "tool:agent-delegation":
 		return authorityID == "authority:delegated-agent-authority"
 	default:
@@ -2074,6 +2090,8 @@ func controlRestrictsProofAuthority(controlID, authorityID string) bool {
 		return true
 	}
 	switch controlID {
+	case "control:host-filesystem-isolated":
+		return authorityID == "authority:destructive-filesystem"
 	case "control:network-restricted", "control:egress-destination-allowlist", "control:webhook-allowlist", "control:per-tool-network-scope":
 		return authorityID == "authority:external-communication" || authorityID == "authority:broad-local"
 	default:
@@ -2083,6 +2101,8 @@ func controlRestrictsProofAuthority(controlID, authorityID string) bool {
 
 func controlRestrictsBoundary(controlID, boundaryID string) bool {
 	switch controlID {
+	case "control:host-filesystem-isolated":
+		return boundaryID == "boundary:developer-home-data"
 	case "control:deny-secret-read":
 		return boundaryID == "boundary:secret-like-file" || boundaryID == "boundary:developer-secret-boundary" || boundaryID == "boundary:agent-private-context" || boundaryID == "boundary:memory-credential-retention"
 	case "control:memory-isolation", "control:context-retention", "control:context-integrity", "control:context-provenance":
@@ -2401,6 +2421,9 @@ func controlRestrictsTool(controlID, toolID string) bool {
 	if controlID == "control:mcp-reviewed-pinned" {
 		return toolID == "tool:mcp-package-launch"
 	}
+	if controlID == "control:destructive-command-guard" {
+		return toolID == "tool:agent-command-shell"
+	}
 	switch controlID {
 	case "control:tool-allowlist",
 		"control:tool-descriptor-integrity",
@@ -2448,6 +2471,8 @@ func configIntegritySurface(surface model.Surface) bool {
 
 func authorityReachesBoundary(authorityID, boundaryID string) bool {
 	switch boundaryID {
+	case "boundary:developer-home-data":
+		return authorityID == "authority:destructive-filesystem"
 	case "boundary:secret-like-file", "boundary:developer-secret-boundary":
 		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
 	case "boundary:agent-private-context":
@@ -2483,6 +2508,10 @@ func Evaluate(c model.Collection, g model.Graph, manifest model.Manifest) model.
 
 func EvaluateAll(c model.Collection, g model.Graph, mode string) []model.ExposureResult {
 	var out []model.ExposureResult
+	destructive := evaluateDestructiveAuthority(c, g)
+	if hasDestructiveAuthorityEvidence(c) || len(destructive.PathEdges) > 0 || destructive.Status != model.StatusInconclusive {
+		out = append(out, destructive)
+	}
 	secret := evaluateSecret(c, g, mode)
 	if hasSecretEvidence(c) || len(secret.PathEdges) > 0 || secret.Status != model.StatusInconclusive {
 		out = append(out, secret)
@@ -2514,6 +2543,166 @@ func EvaluateAll(c model.Collection, g model.Graph, mode string) []model.Exposur
 				"Runtime behavior is not executed or observed.",
 			},
 		})
+	}
+	return out
+}
+
+type destructiveOccurrencePath struct {
+	authority model.Authority
+	boundary  model.Boundary
+}
+
+func evaluateDestructiveAuthority(c model.Collection, g model.Graph) model.ExposureResult {
+	var paths []destructiveOccurrencePath
+	unprotected := 0
+	protected := 0
+	for _, authority := range c.Authorities {
+		if authority.ID != "authority:destructive-filesystem" {
+			continue
+		}
+		for _, boundary := range c.Boundaries {
+			if boundary.ID != "boundary:developer-home-data" || !authorityOccurrenceReachesBoundary(authority, boundary) {
+				continue
+			}
+			path := destructiveOccurrencePath{authority: authority, boundary: boundary}
+			paths = append(paths, path)
+			if hasEnforcedControlForAuthorityBoundary(c, authority, boundary, "control:host-filesystem-isolated") {
+				protected++
+			} else {
+				unprotected++
+			}
+		}
+	}
+
+	result := model.ExposureResult{
+		ID:            "destructive-agent-authority",
+		Title:         "Agent can irreversibly delete developer files",
+		Runtimes:      runtimeKinds(c),
+		PathEdges:     destructiveAuthorityPathEdges(g),
+		WhyItMatters:  "A full-access coding agent or inherited review subagent can recursively delete or overwrite developer home files without malicious input. Model self-restraint and recovery copies are not enforcement boundaries.",
+		WhatWasTested: "Whether a runtime has host-destructive filesystem authority that reaches developer home data, and whether an occurrence-connected filesystem sandbox prevents that reachability.",
+		Limitations: []string{
+			"Real path mode infers authority from declared runtime permissions; it does not execute a destructive command.",
+			"A pre-execution command guard is reported as defense in depth but cannot close this broad path because scripts, direct filesystem APIs, uncovered tool routes, removal, and fail-open behavior may bypass it.",
+			"Backup and snapshot evidence reduces recovery cost but does not prevent deletion.",
+		},
+	}
+	switch {
+	case unprotected > 0:
+		result.Status = model.StatusExposed
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationNotAttempted, Summary: "An occurrence-connected runtime path reaches host developer data with destructive filesystem authority and no enforced containment boundary."}
+		result.OccurrencePathEdges = destructiveOccurrencePathEdges(g, firstUnprotectedDestructivePath(c, paths))
+	case len(paths) > 0 && protected == len(paths):
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Every observed host-destructive authority path is tied to an enforced filesystem containment boundary."}
+		result.ControlsBreakPath = []string{"isolate host developer data with a read-only or workspace-scoped sandbox"}
+		result.OccurrencePathEdges = destructiveOccurrencePathEdges(g, paths[0])
+	default:
+		result.Status = model.StatusInconclusive
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "A complete host-destructive filesystem path was not established."}
+	}
+	result.PathNodes = nodesFromEdges(result.PathEdges)
+	return result
+}
+
+func hasDestructiveAuthorityEvidence(c model.Collection) bool {
+	for _, authority := range c.Authorities {
+		if authority.ID == "authority:destructive-filesystem" {
+			return true
+		}
+	}
+	return false
+}
+
+func firstUnprotectedDestructivePath(c model.Collection, paths []destructiveOccurrencePath) destructiveOccurrencePath {
+	for _, path := range paths {
+		if !hasEnforcedControlForAuthorityBoundary(c, path.authority, path.boundary, "control:host-filesystem-isolated") {
+			return path
+		}
+	}
+	if len(paths) > 0 {
+		return paths[0]
+	}
+	return destructiveOccurrencePath{}
+}
+
+func destructiveAuthorityPathEdges(g model.Graph) []string {
+	var out []string
+	for _, edge := range g.Edges {
+		if (edge.Type == "has_authority" && edge.To == "authority:destructive-filesystem") ||
+			(edge.Type == "grants" && edge.To == "authority:destructive-filesystem") ||
+			(edge.Type == "inherits" && edge.To == "authority:destructive-filesystem") ||
+			(edge.Type == "reaches" && edge.From == "authority:destructive-filesystem" && edge.To == "boundary:developer-home-data") {
+			out = append(out, edge.Key())
+		}
+	}
+	return uniqueOrderedStrings(out)
+}
+
+func destructiveOccurrencePathEdges(g model.Graph, path destructiveOccurrencePath) []string {
+	if path.authority.OccurrenceID == "" || path.boundary.OccurrenceID == "" {
+		return []string{}
+	}
+	edges := graphEdgeMap(g)
+	var out []string
+	// Prefer the explicit delegated path when present so the finding cites the
+	// review/subagent occurrence that inherited the parent's destructive reach.
+	for _, inherited := range g.Edges {
+		if inherited.Type != "inherits" || inherited.To != path.authority.OccurrenceID {
+			continue
+		}
+		for _, grant := range g.Edges {
+			if grant.Type != "grants" || grant.To != inherited.From {
+				continue
+			}
+			for _, call := range g.Edges {
+				if call.Type == "can_call" && call.To == grant.From {
+					out = append(out, call.Key())
+					break
+				}
+			}
+			out = append(out, grant.Key(), inherited.Key())
+			out = appendExistingOccurrenceEdge(out, edges, path.authority.OccurrenceID, "reaches", path.boundary.OccurrenceID)
+			return uniqueOrderedStrings(out)
+		}
+	}
+	for _, grant := range g.Edges {
+		if grant.Type != "grants" || grant.To != path.authority.OccurrenceID {
+			continue
+		}
+		for _, call := range g.Edges {
+			if call.Type == "can_call" && call.To == grant.From {
+				out = append(out, call.Key())
+				break
+			}
+		}
+		out = append(out, grant.Key())
+		break
+	}
+	if len(out) == 0 {
+		for _, edge := range g.Edges {
+			if edge.Type == "has_authority" && edge.To == path.authority.OccurrenceID {
+				out = append(out, edge.Key())
+				break
+			}
+		}
+	}
+	out = appendExistingOccurrenceEdge(out, edges, path.authority.OccurrenceID, "reaches", path.boundary.OccurrenceID)
+	return uniqueOrderedStrings(out)
+}
+
+func uniqueOrderedStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
 	}
 	return out
 }
@@ -2573,6 +2762,9 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 secretSearch:
 	for _, input := range c.TrustInputs {
 		if !input.Risky {
+			continue
+		}
+		if input.Kind == "managed-workflow-trigger" && !workflowSourceIsAgentLike(c, input.Source) {
 			continue
 		}
 		for _, authority := range c.Authorities {
@@ -2987,6 +3179,9 @@ func authorityCanFollowInput(input model.TrustInput, authority model.Authority) 
 	if input.Runtime != "" && authority.Runtime != "" && input.Runtime != authority.Runtime {
 		return false
 	}
+	if input.Kind != "managed-workflow-trigger" && managedWorkflowRuntime(authority.Runtime) {
+		return false
+	}
 	if input.Runtime == "" && authority.Runtime == "" && input.Source != authority.Source {
 		return false
 	}
@@ -3001,6 +3196,10 @@ func authorityCanFollowInput(input model.TrustInput, authority model.Authority) 
 	default:
 		return input.Source != "" && input.Source == authority.Source
 	}
+}
+
+func managedWorkflowRuntime(runtime string) bool {
+	return runtime == "github-actions" || runtime == "gitlab-ci"
 }
 
 func authoritiesSharePath(left, right model.Authority) bool {
@@ -3069,12 +3268,11 @@ func privateBoundaryIDs() []string {
 		"boundary:credential-material",
 		"boundary:ci-secret-boundary",
 		"boundary:cloud-identity-boundary",
-		"boundary:repository-integrity-boundary",
 	}
 }
 
 func privateAuthorityIDs() []string {
-	return []string{"authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write"}
+	return []string{"authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token"}
 }
 
 func externalAuthorityIDs() []string {
@@ -3263,6 +3461,9 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 egressSearch:
 	for _, input := range c.TrustInputs {
 		if !input.Risky {
+			continue
+		}
+		if input.Kind == "managed-workflow-trigger" && !workflowSourceIsAgentLike(c, input.Source) {
 			continue
 		}
 		contexts := map[string]*egressContext{}
@@ -3546,7 +3747,7 @@ func anySourceHasWorkflowSecretPath(c model.Collection, sources []string) bool {
 
 func anySourceHasWorkflowEgressPath(c model.Collection, sources []string) bool {
 	for _, source := range sources {
-		privateAuthority := sourceHasAuthority(c, source, "authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write")
+		privateAuthority := sourceHasAuthority(c, source, "authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token")
 		externalAuthority := sourceHasAuthority(c, source, "authority:external-communication", "authority:broad-local")
 		if privateAuthority && externalAuthority && sourceHasWorkflowPrivateBoundary(c, source) {
 			return true
@@ -3556,7 +3757,7 @@ func anySourceHasWorkflowEgressPath(c model.Collection, sources []string) bool {
 }
 
 func sourceHasWorkflowPrivateBoundary(c model.Collection, source string) bool {
-	if sourceHasAuthority(c, source, "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write", "authority:broad-local") {
+	if sourceHasAuthority(c, source, "authority:credential-access", "authority:cloud-identity-token", "authority:broad-local") {
 		return true
 	}
 	return sourceHasAuthority(c, source, "authority:file-read") && hasAnyWorkflowReadableBoundary(c)
@@ -3612,6 +3813,15 @@ func workflowSourceHasForkPRIsolation(c model.Collection, source string) bool {
 	}
 	for _, control := range c.Controls {
 		if control.ID == "control:fork-pr-secret-isolation" && control.Source == source && control.Enforcement == model.EnforcementEnforced {
+			return true
+		}
+	}
+	return false
+}
+
+func workflowSourceIsAgentLike(c model.Collection, source string) bool {
+	for _, tool := range c.Tools {
+		if tool.ID == "tool:managed-agent-workflow" && tool.Source == source {
 			return true
 		}
 	}

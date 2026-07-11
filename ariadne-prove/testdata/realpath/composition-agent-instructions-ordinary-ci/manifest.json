@@ -1,0 +1,18 @@
+{
+  "id": "composition-agent-instructions-ordinary-ci",
+  "title": "Agent instructions do not influence ordinary CI",
+  "persona": "developer / AppSec",
+  "user_question": "Can risky AGENTS text borrow authority from a normal test workflow?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "tradeoffs_only",
+      "min_tradeoffs": 1,
+      "findings": []
+    }
+  }
+}

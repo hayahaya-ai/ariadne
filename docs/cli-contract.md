@@ -75,7 +75,14 @@ an enforced platform control.
 
 **RECKLESS** — one finding per effectively exposed `ExposureResult`, ordered:
 data-egress-chain first, then prompt-injection-to-secret-canary, then
-mutable-tool-launch-execution. An exposed data-egress-chain or
+mutable-tool-launch-execution, then destructive-agent-authority. The destructive
+family does not require risky trust input: host-destructive filesystem authority
+reaching developer home data without occurrence-connected containment is reckless
+even when the model is well-intentioned. A connected PreToolUse/Bash destructive-
+command guard is reported as enforced defense in depth, but does not close broad
+host authority because scripts, direct filesystem APIs, uncovered execution routes,
+hook removal, and fail-open behavior remain possible. Backups are recovery evidence,
+not a path-breaking control. An exposed data-egress-chain or
 prompt-injection-to-secret-canary path is not effectively exposed when every
 risky trust-input leg has provenance `home_scope`; that default judgment is
 recorded in verdict JSON and the capability is rendered under TRADE-OFFS
@@ -146,6 +153,9 @@ finding's exposed path actually uses that exact candidate:
   or path edge names the same tool or boundary ID.
 - If multiple reckless findings consume the same candidate, the first finding in
   reckless readout order owns it; later findings do not repeat it.
+- `destructive-agent-authority` title and fix copy explicitly name irreversible
+  developer-file deletion and lead with workspace/read-only sandboxing or an
+  isolated container/VM. Model choice is never rendered as a hard barrier.
 
 **TRADE-OFFS** — observed candidates not consumed by any reckless finding's
 exposed path:
@@ -179,9 +189,11 @@ Cap at 6 on screen; full list in JSON.
 
 **Verdict word**: any reckless → `reckless`; else any malformed or unreadable
 configuration occurrence → `inconclusive`; else any tradeoffs →
-`tradeoffs_only`; else any runtime found → `hardened` (with or without enforced
-controls); else → `no_agents_found`. Enforced controls observed without a
-runtime remain listed under HARDENED but do not supply the verdict word.
+`tradeoffs_only`; else a discovered runtime plus at least one enforced control
+in `hardened[]` → `hardened`; else any runtime found → `inconclusive`; else →
+`no_agents_found`. Enforced controls observed without a runtime remain listed
+under HARDENED but do not supply the verdict word. A renderer or fleet rollup
+must never emit or count `hardened` when `hardened[]` is empty.
 Inconclusive exposures add one line under the readout:
 "Couldn't verify: <n> path(s) lacked evidence — see ariadne ls cases."
 

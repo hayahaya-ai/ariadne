@@ -299,6 +299,222 @@ Phase 5 passes only when all of the following are true:
 Do not start Phase 6/product expansion from a merely green legacy eval. The Phase 5
 fixture matrix and contract tests are the new measuring instrument.
 
+## Phase 5.1 — Release-candidate field calibration closure
+
+**Status: passed on 2026-07-10.** Required RED was recorded at 50/57 before
+production changes; GREEN is 57/57 with 100% precision/recall for every
+supported family. The exact eight-repository resweep completed 8/8 with no
+errors, parser failures, reckless verdicts, or inaccurate egress remedies. See
+`docs/calibration/v0.2.0-rc.2-candidate-public-sweep.md`.
+
+The first `v0.2.0-rc.1` public sweep scanned eight pinned public repositories
+(18,494 tracked files) without executing their code. The deterministic fleet run
+completed 8/8 targets, but source review found correctness worlds absent from the
+50-fixture benchmark. Stable `v0.2.0` and Phase 6 remain blocked until these worlds
+are represented red-first and corrected.
+
+The source-of-truth audit is
+`docs/calibration/v0.2.0-rc.1-public-sweep.md`. Public repository results are
+calibration evidence, not vulnerability claims about those projects.
+
+### Gate E — Runtime discovery must be evidence-sensitive
+
+A generic editor file is not an agent runtime merely because its path can host
+agent settings.
+
+- `.vscode/settings.json` creates Copilot runtime evidence only when a supported
+  Copilot/chat-agent key is present.
+- Dedicated Copilot instruction and MCP surfaces remain runtime evidence.
+- The paired worlds are generic VS Code settings (no Copilot runtime) and an
+  actual supported Copilot setting (Copilot runtime remains discoverable).
+- Parser status may retain the discovered surface, but must not falsely name a
+  runtime whose supported keys were absent.
+
+### Gate F — Valid supported syntax is not malformed
+
+Fail-closed parsing applies to malformed configuration, not to valid syntax the
+collector happened not to anticipate.
+
+- GitHub workflow YAML accepts balanced flow lists/maps that span lines.
+- Unterminated or structurally invalid flow collections remain malformed and
+  produce `inconclusive`.
+- The valid and invalid documents ship as a paired inverse and as parser unit
+  tests; merely weakening validation for every bracket is not acceptable.
+
+### Gate G — Influence, authority, and boundary semantics stay connected
+
+- `CLAUDE.md` influence applies to Claude; `AGENTS.md` applies to Codex-compatible
+  agent execution; Copilot instructions apply to Copilot. These instruction
+  surfaces do not influence ordinary GitHub Actions or GitLab CI merely because a
+  workflow reads repository files.
+- A managed workflow trigger enters the prompt-injection family only when that
+  same workflow is actually agent-like. Deterministic issue/label automation is
+  not an LLM prompt path.
+- Repository/PR/issue write authority is an integrity boundary, not private-data
+  read authority. It cannot satisfy the private-data leg of the data-egress family.
+- Secret/OIDC/credential access plus same-workflow external communication remains
+  a valid unsafe inverse and must stay reckless.
+- Mutable privileged action/workflow references are a supply-chain posture. If
+  Ariadne cannot yet grade them under an accurate family and pinning remedy, it
+  must not mislabel them as proven private-data exfiltration.
+
+### Gate H — `hardened` requires enforced evidence
+
+Approved product rule:
+
+- `hardened` requires at least one observed enforced control in `hardened[]`.
+- If a supported runtime exists, no reckless or trade-off evidence exists, no
+  enforced hardened control exists, and posture evidence remains unresolved, the
+  verdict is `inconclusive`; `--gate` exits 3.
+- If no supported runtime exists, the verdict remains `no_agents_found`.
+- A runtime with a real enforced control remains the paired `hardened` inverse.
+- No renderer, fleet rollup, or JSON contract may emit `hardened` with
+  `hardened.length == 0`.
+
+### Phase 5.1 paired matrix
+
+The complete matrix is added before production changes:
+
+1. generic VS Code settings / supported Copilot settings;
+2. valid multiline workflow flow-sequence / unterminated flow-sequence;
+3. risky AGENTS plus ordinary CI / matching agent runtime with the same risky
+   instructions and authority;
+4. deterministic managed workflow with issue/PR write authority / agent-like
+   workflow with same-source secret access;
+5. repository-integrity write authority / credential-access plus egress;
+6. runtime with unresolved posture and zero controls / runtime with an enforced
+   control.
+
+Every safe world must avoid a reckless finding; every unsafe inverse must retain
+the intended family, source, and line. Existing Phase 5 inverses may satisfy a pair
+only when their contract asserts the same semantic distinction explicitly.
+
+### Phase 5.1 completion bar
+
+Phase 5.1 passes only when:
+
+1. The expanded matrix is recorded red before production changes.
+2. All paired worlds pass without weakening the Phase 5 unsafe composition cases.
+3. `hardened` is impossible with zero hardened controls in unit, CLI, fleet, and
+   real release-binary output.
+4. Valid multiline GitHub workflow YAML parses while its malformed inverse fails
+   closed.
+5. Agent instructions cannot borrow ordinary CI authority, and deterministic
+   managed workflows cannot enter the prompt-injection family without agent-like
+   execution evidence.
+6. Repository-write authority cannot satisfy the private-data leg; explicit
+   credential/OIDC/secret access remains detectable.
+7. `make eval` returns 100% verdict accuracy and per-family precision/recall on
+   the expanded benchmark; `make check`, `make verify-first-run`, race tests,
+   schema validation, CI self-gate, and fleet contracts pass.
+8. The exact eight pinned public targets are rescanned. Every confirmed false
+   positive/inconclusive from the first sweep is gone, the two mutable privileged
+   workflow references receive no inaccurate data-egress remedy, and no audited
+   unsafe inverse regresses.
+
+## Phase 5.2 — Destructive agent authority containment
+
+Phase 5.2 exists because an agent does not need malicious input to cause a
+catastrophic incident. A well-intentioned but fallible runtime or review subagent
+with host-wide write authority can destroy developer data through a mistaken
+cleanup command. The canonical reproduction is a full-access local agent whose
+review subagent expands a home-directory cleanup target incorrectly and executes
+`rm -rf` against the developer home. This is an active destructive-authority path,
+not a data-egress or prompt-injection path.
+
+The verdict contract gains the first-class `destructive-agent-authority` family.
+It is reckless when an observed runtime occurrence can perform host-destructive
+filesystem actions, that authority reaches a developer-home-data boundary, and no
+enforced containment control on that same occurrence prevents the reachability.
+Risky trust input is not a required ingredient.
+
+### Gate A — Grow the destructive benchmark and prove red
+
+Add every unsafe world and its minimally different safe inverse before production
+changes. The initial matrix is:
+
+1. Codex `danger-full-access` plus `approval_policy = "never"` / Codex
+   `workspace-write` plus interactive approval.
+2. Claude `bypassPermissions` plus broad Bash / default-mode narrowly scoped Bash.
+3. A review subagent inheriting the full-access parent posture / the same review
+   subagent under a contained parent posture.
+4. A correctly connected destructive-command guard on a full-access runtime / the
+   same guard combined with a filesystem sandbox. The guard is visible mitigation,
+   but it cannot alone close the broad authority path because script and direct
+   filesystem APIs remain possible.
+5. A guard file whose matcher/event/runtime path is disconnected / a correctly
+   connected hook occurrence.
+6. Script indirection and direct Python/JavaScript deletion behind a connected
+   shell guard / genuinely sandboxed equivalents.
+7. Backup, snapshot, or recovery evidence without prevention / the same recovery
+   evidence plus an enforced containment boundary.
+
+The first expanded eval must be red only in newly expected destructive findings;
+all safe inverses and all earlier families must stay green. Record the exact red
+scorecard in `docs/goal-progress.md` before implementation.
+
+### Gate B — Model occurrence-connected destructive reachability
+
+The proof-bearing path is:
+
+`runtime or delegated-runtime occurrence -> has_authority -> destructive
+filesystem authority occurrence -> reaches -> developer-home-data boundary
+occurrence`.
+
+When a subagent or review agent is observed, its delegation occurrence may amplify
+the path through inherited parent authority, but delegation is not required for
+the base finding. The following rules are load-bearing:
+
+- `danger-full-access`, Claude permission bypass, or an equivalent unbounded shell
+  posture may create host-destructive authority. Normal workspace editing does not.
+- `approval_policy = "never"` alone does not imply host write reach when an enforced
+  read-only or workspace sandbox is present.
+- Family IDs never join runtime, authority, control, hook, or boundary occurrences.
+- A control applies only through an explicit occurrence edge or compatible
+  runtime/source/structural scope.
+- A hook configuration is not evidence of mitigation unless it is structurally
+  valid, attached to the pre-execution shell event, targets the relevant shell
+  tool for that runtime, hooks are not explicitly disabled, and the named guard
+  executable exists with execute permission. Live deny behavior remains unverified.
+- A destructive-command hook is defense in depth, not a complete sandbox. It does
+  not protect script indirection, direct filesystem APIs, uncovered execution
+  routes, hook removal, or fail-open analysis.
+- Backups and snapshots reduce recovery cost but do not break the destructive path.
+
+### Gate C — Make the warning actionable and unmistakable
+
+The default readout must say that the agent can irreversibly delete host developer
+files; it must not hide the condition under generic "broad local authority" copy.
+The primary remediation is containment: use a workspace/read-only sandbox or an
+ephemeral container/VM with narrowly mounted writable paths. Per-action human
+approval and a verified destructive-command guard are defense-in-depth follow-ups,
+not substitutes for host isolation. Recovery evidence is reported separately.
+
+Reports, verdict JSON, fleet grouping, schemas, analyst citation catalogs, and
+documentation must accept the new family without adding a second per-endpoint
+format or a new collection pass.
+
+### Phase 5.2 completion bar
+
+Phase 5.2 passes only when:
+
+1. The paired matrix is captured red before evaluator changes and green afterward.
+2. The exact full-access home-deletion posture grades `reckless` without requiring
+   malicious instructions or a secret boundary.
+3. Workspace/read-only sandboxes remain non-reckless, including noisy worlds with
+   the same subagent and hook files.
+4. A connected command guard is collected as enforced mitigation but cannot launder
+   a full-access runtime into protected; disconnected and malformed hooks do not
+   count at all.
+5. Delegation, authority, controls, tools, and boundaries retain occurrence identity
+   and adding an unrelated safe runtime cannot improve an unsafe path.
+6. The readout names irreversible developer-file deletion and leads with a concrete
+   containment action.
+7. Existing family precision/recall does not regress; the destructive family has
+   100% precision/recall on its paired benchmark.
+8. `make eval`, `make check`, `make verify-first-run`, both race-enabled Go test
+   suites, schema/output contracts, fleet aggregation, and the CI self-gate pass.
+
 ## Loop guardrails (beyond CLAUDE.md)
 
 1. **Never special-case the eval.** No detection code may branch on fixture names,

@@ -1709,6 +1709,25 @@ func TestCLIInconclusiveGateFailsClosed(t *testing.T) {
 	}
 }
 
+func TestCLIRuntimeWithoutHardenedEvidenceFailsClosed(t *testing.T) {
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, ".codex", "config.toml"), []byte(`model = "gpt-5"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	got := runCLI([]string{"verdict", "--path", target, "--mode", "repo", "--gate"}, &stdout, &stderr)
+	if got != exitReckless {
+		t.Fatalf("exit code = %d, want fail-closed %d; stdout:\n%s\nstderr:\n%s", got, exitReckless, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "VERDICT: INCONCLUSIVE") || strings.Contains(stdout.String(), "VERDICT: HARDENED") {
+		t.Fatalf("runtime without enforced controls must not render hardened:\n%s", stdout.String())
+	}
+}
+
 func TestRunLsFindings(t *testing.T) {
 	root := t.TempDir()
 	outPath := filepath.Join(root, "ls-findings.txt")

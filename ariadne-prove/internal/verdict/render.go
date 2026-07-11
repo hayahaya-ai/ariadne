@@ -144,7 +144,14 @@ func countsSentence(v Verdict) string {
 		return "no agent runtimes found"
 	}
 	if v.VerdictWord == WordInconclusive {
-		return fmt.Sprintf("%d path(s) or config occurrence(s) need evidence", v.Inconclusive+verdictParserFailureCount(v))
+		missing := v.Inconclusive + verdictParserFailureCount(v)
+		if missing > 0 {
+			return fmt.Sprintf("%d path(s) or config occurrence(s) need evidence", missing)
+		}
+		if len(v.Scanned.Runtimes) > 0 {
+			return fmt.Sprintf("%d agent runtime(s) found", len(v.Scanned.Runtimes))
+		}
+		return "grading evidence is incomplete"
 	}
 	parts := make([]string, 0, 3)
 	if len(v.Reckless) > 0 {

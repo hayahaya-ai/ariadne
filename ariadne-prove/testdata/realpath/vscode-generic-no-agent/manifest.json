@@ -1,0 +1,17 @@
+{
+  "id": "vscode-generic-no-agent",
+  "title": "Generic VS Code settings do not imply Copilot",
+  "persona": "developer / IT",
+  "user_question": "Does an unrelated editor setting create a phantom agent runtime?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "no_agents_found",
+      "findings": []
+    }
+  }
+}

@@ -366,14 +366,34 @@ func TestBuildRepoCheckoutInfluenceUnderHomeStaysReckless(t *testing.T) {
 	}
 }
 
+func TestBuildDestructiveAuthorityWarningNamesImpactAndContainment(t *testing.T) {
+	v := buildVerdict(t, "destructive-codex-full-access")
+	if v.VerdictWord != verdict.WordReckless {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordReckless)
+	}
+	for _, finding := range v.Reckless {
+		if finding.ExposureID != verdict.FamilyDestructive {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(finding.Title), "irreversibly delete") || !strings.Contains(finding.Fix, `sandbox_mode = "workspace-write"`) {
+			t.Fatalf("destructive warning must name irreversible deletion and concrete containment: %+v", finding)
+		}
+		if finding.Where.Source != ".codex/config.toml" || finding.Where.Line != 1 {
+			t.Fatalf("destructive warning should cite the exact authority source: %+v", finding.Where)
+		}
+		return
+	}
+	t.Fatalf("missing destructive authority finding: %+v", v.Reckless)
+}
+
 func TestBuildNestedInstructionsAppliesScopedDefaultJudgment(t *testing.T) {
 	v := buildVerdict(t, "nested-instructions-scoped")
 
-	if v.VerdictWord != verdict.WordTradeoffsOnly {
-		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordTradeoffsOnly)
+	if v.VerdictWord != verdict.WordReckless {
+		t.Fatalf("verdict = %s, want %s", v.VerdictWord, verdict.WordReckless)
 	}
-	if len(v.Reckless) != 0 {
-		t.Fatalf("nested-only influence should not render reckless findings: %+v", v.Reckless)
+	if !hasRecklessFamily(v, verdict.FamilyDestructive) {
+		t.Fatalf("nested influence remains scoped, but full host authority must render the destructive finding: %+v", v.Reckless)
 	}
 	if len(v.DefaultJudgments) != 2 {
 		t.Fatalf("default judgments = %d, want 2: %+v", len(v.DefaultJudgments), v.DefaultJudgments)
@@ -460,7 +480,7 @@ func TestBuildNestedBoundaryDoesNotDowngradeRootAuthority(t *testing.T) {
 	if hasDefaultJudgment(v, "nested_authority_scoped_by_default") {
 		t.Fatalf("nested boundary must not scope root authority: %+v", v.DefaultJudgments)
 	}
-	if !hasAuthorityScopeFact(v, ".claude/settings.json", model.AuthorityScopeRoot, "") {
+	if !hasAuthorityScopeFact(v, ".codex/config.toml", model.AuthorityScopeRoot, "") {
 		t.Fatalf("verdict should carry root authority-scope fact: %+v", v.AuthorityScope)
 	}
 }
@@ -669,6 +689,15 @@ func countBasisKind(basis []verdict.JudgmentBasisRef, kind string) int {
 func hasHardenedControl(v verdict.Verdict, controlID string) bool {
 	for _, control := range v.Hardened {
 		if control.Control == controlID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRecklessFamily(v verdict.Verdict, exposureID string) bool {
+	for _, finding := range v.Reckless {
+		if finding.ExposureID == exposureID {
 			return true
 		}
 	}

@@ -287,10 +287,16 @@ occurrence-level parser status facts:
 - `tradeoffs[]` / `hardened[]` — accepted capabilities and enforced controls
 - `next_action`, `inconclusive`, `limitations`
 
+The `hardened` verdict requires both a discovered runtime and at least one
+enforced control in `hardened[]`. A runtime with no reckless or trade-off result
+and no enforced control is `inconclusive`, not `hardened`; a readable target
+with no supported runtime is `no_agents_found`.
+
 With `--gate`, the command exits 3 when the verdict is `reckless` or
 `inconclusive` (0 otherwise), so agents and CI fail closed on both proven risk
 and missing configuration evidence. Only enforced configuration can produce
-`hardened` entries or keep a finding out of `reckless`.
+`hardened` entries, supply the `hardened` verdict, or keep a finding out of
+`reckless`.
 
 ## Machine-Readable Draft Schemas
 

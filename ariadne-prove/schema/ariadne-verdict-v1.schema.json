@@ -116,7 +116,7 @@
         "label": { "const": "default_judgment" },
         "exposure_id": {
           "type": "string",
-          "enum": ["data-egress-chain", "prompt-injection-to-secret-canary", "mutable-tool-launch-execution"]
+          "enum": ["data-egress-chain", "prompt-injection-to-secret-canary", "mutable-tool-launch-execution", "destructive-agent-authority"]
         },
         "trust_input_ids": {
           "type": "array",
@@ -177,7 +177,7 @@
         "id": { "type": "string", "pattern": "^reckless:[0-9]+$" },
         "exposure_id": {
           "type": "string",
-          "enum": ["data-egress-chain", "prompt-injection-to-secret-canary", "mutable-tool-launch-execution"]
+          "enum": ["data-egress-chain", "prompt-injection-to-secret-canary", "mutable-tool-launch-execution", "destructive-agent-authority"]
         },
         "title": { "type": "string" },
         "where": { "$ref": "#/$defs/evidence_location" },

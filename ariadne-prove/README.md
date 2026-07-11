@@ -2,9 +2,11 @@
 
 Ariadne is a deterministic exposure analysis tool for local AI agent runtimes and their tool configurations.
 
-It answers a concrete security question:
+It answers two concrete security questions:
 
 > Can untrusted instructions plus agent authority create a path to sensitive local boundaries, and do controls break that path?
+
+> Can a fallible agent or inherited subagent irreversibly modify developer files outside its intended workspace, even without malicious input?
 
 Ariadne is fact-first. It collects deterministic evidence, builds a graph, and classifies only the exposure paths supported by that graph. It does not execute agents, run MCP servers, install packages, call external services, or read secret values.
 
@@ -31,6 +33,7 @@ Ariadne is fact-first. It collects deterministic evidence, builds a graph, and c
 - **Secret boundary access:** untrusted repo or agent instructions can influence a runtime that has file-read authority near secret-like files.
 - **Mutable tool launch:** an agent can invoke a tool launched through mutable package-manager or interpreter configuration that grants local execution.
 - **Data egress chain:** untrusted influence, private-data reachability, and external communication reachability exist in the same graph unless hard egress controls break the external path.
+- **Destructive agent authority:** a full-access agent or inherited subagent can recursively delete or overwrite developer-home data unless an occurrence-connected filesystem sandbox prevents that reach. Command guards are defense in depth; backups are recovery, not containment.
 
 ## Zero Trust Architecture Readout
 

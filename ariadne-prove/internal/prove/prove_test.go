@@ -355,6 +355,50 @@ func TestReadableEmptyTargetRemainsNoAgentsFound(t *testing.T) {
 	}
 }
 
+func TestVSCodeSettingsRequireSupportedAgentEvidence(t *testing.T) {
+	path := t.TempDir()
+	settingsDir := filepath.Join(path, ".vscode")
+	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(settingsDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"FSharp.excludeProjectDirectories":["packages"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasRuntimeKind(inventory.Collection.Runtimes, "copilot") {
+		t.Fatalf("generic VS Code settings created a Copilot runtime: %+v", inventory.Collection.Runtimes)
+	}
+	for _, status := range inventory.Collection.ParserStatuses {
+		if status.Source == ".vscode/settings.json" && status.Runtime != "" {
+			t.Fatalf("generic VS Code parser status falsely named runtime %q: %+v", status.Runtime, status)
+		}
+	}
+
+	if err := os.WriteFile(settingsPath, []byte(`{"github.copilot.enable":{"*":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err = RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasRuntimeKind(inventory.Collection.Runtimes, "copilot") {
+		t.Fatalf("supported Copilot setting did not create runtime evidence: %+v", inventory.Collection.Runtimes)
+	}
+}
+
+func hasRuntimeKind(runtimes []model.RuntimeEvidence, kind string) bool {
+	for _, runtime := range runtimes {
+		if runtime.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFleetBadTargetIsErrorAndJSONLFails(t *testing.T) {
 	good := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "missing")
@@ -515,10 +559,10 @@ func TestPublishedVerdictAndScanSchemasAreSelfContained(t *testing.T) {
 
 func TestFleetCountsAndRanksInconclusiveVerdicts(t *testing.T) {
 	inconclusive := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(inconclusive, ".claude"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(inconclusive, ".codex"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(inconclusive, ".claude", "settings.json"), []byte(`{"permissions":`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(inconclusive, ".codex", "config.toml"), []byte(`model = "gpt-5"`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	empty := t.TempDir()
@@ -531,6 +575,9 @@ func TestFleetCountsAndRanksInconclusiveVerdicts(t *testing.T) {
 	}
 	if r.Fleet.VerdictCounts[verdict.WordInconclusive] != 1 || r.Fleet.VerdictCounts[verdict.WordNoAgentsFound] != 1 {
 		t.Fatalf("fleet verdict counts = %+v", r.Fleet.VerdictCounts)
+	}
+	if r.Fleet.VerdictCounts[verdict.WordHardened] != 0 || r.Fleet.WorstFirstTargets[0].HardenedCount != 0 {
+		t.Fatalf("runtime without enforced controls inflated hardened fleet counts: %+v", r.Fleet)
 	}
 	if len(r.Fleet.WorstFirstTargets) != 2 || r.Fleet.WorstFirstTargets[0].Verdict != verdict.WordInconclusive {
 		t.Fatalf("fleet worst-first rows = %+v", r.Fleet.WorstFirstTargets)
@@ -910,7 +957,7 @@ func TestGraphExportFormatsExposeVisualEdges(t *testing.T) {
 	if !strings.Contains(dotOut, "digraph ariadne_graph") {
 		t.Fatalf("dot output missing graph header:\n%s", dotOut)
 	}
-	if !strings.Contains(dotOut, `"trustinput:repo-instruction" -> "runtime:codex" [label="influences"]`) {
+	if !strings.Contains(dotOut, `"trustinput:repo-instruction" -> "runtime:claude" [label="influences"]`) {
 		t.Fatalf("dot output missing influence edge:\n%s", dotOut)
 	}
 
@@ -987,7 +1034,7 @@ func TestRunPathCombinedRiskProducesMultipleExposurePaths(t *testing.T) {
 	if !containsEvidenceReferenceSource(mcp.EvidenceReferences, "mcp.json") {
 		t.Fatalf("MCP exposure should include actionable evidence refs: %+v", mcp.EvidenceReferences)
 	}
-	if !r.Graph.HasEdge("trustinput:repo-instruction|influences|runtime:codex") {
+	if !r.Graph.HasEdge("trustinput:repo-instruction|influences|runtime:claude") {
 		t.Fatalf("missing secret exposure graph edge")
 	}
 	if !r.Graph.HasEdge("tool:mcp-package-launch|grants|authority:local-code-execution") {
@@ -1086,6 +1133,138 @@ func TestRunPathCombinedRiskPrioritizesHighRiskPaths(t *testing.T) {
 	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-mutable-tool-launch:mutable-tool-launch-execution", model.SeverityCritical, model.PriorityP0, true)
 	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-data-egress-chain:data-egress-chain", model.SeverityCritical, model.PriorityP0, true)
 	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-secret-boundary-access:prompt-injection-to-secret-canary", model.SeverityHigh, model.PriorityP1, true)
+	assertIssue(t, r.Interpretation.Issues, "builtin:builtin-destructive-agent-authority:destructive-agent-authority", model.SeverityCritical, model.PriorityP0, true)
+}
+
+func TestDestructiveAuthorityPairedWorlds(t *testing.T) {
+	unsafe := []string{
+		"destructive-codex-full-access",
+		"destructive-claude-bypass",
+		"destructive-subagent-inherits",
+		"destructive-dcg-full-access",
+		"destructive-dcg-disconnected",
+		"destructive-dcg-disabled",
+		"destructive-dcg-missing-binary",
+		"destructive-dcg-script-bypass",
+		"destructive-dcg-direct-api-bypass",
+		"destructive-recovery-only",
+	}
+	for _, fixture := range unsafe {
+		t.Run("unsafe/"+fixture, func(t *testing.T) {
+			r, err := RunPath(Options{Path: realPathFixture(t, fixture)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertExposure(t, r, "destructive-agent-authority", model.StatusExposed)
+		})
+	}
+
+	safe := []string{
+		"destructive-codex-workspace-contained",
+		"destructive-claude-scoped",
+		"destructive-subagent-contained",
+		"destructive-dcg-contained",
+		"destructive-recovery-contained",
+	}
+	for _, fixture := range safe {
+		t.Run("safe/"+fixture, func(t *testing.T) {
+			r, err := RunPath(Options{Path: realPathFixture(t, fixture)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, exposure := range r.Exposures {
+				if exposure.ID == "destructive-agent-authority" && exposure.Status == model.StatusExposed {
+					t.Fatalf("contained inverse produced destructive exposure: %+v", exposure)
+				}
+			}
+		})
+	}
+}
+
+func TestDestructiveCommandGuardIsConnectedMitigationNotContainment(t *testing.T) {
+	inventory, err := RunInventory(Options{Path: realPathFixture(t, "destructive-dcg-full-access")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var guard model.Control
+	for _, control := range inventory.Collection.Controls {
+		if control.ID == "control:destructive-command-guard" {
+			guard = control
+			break
+		}
+	}
+	if guard.ID == "" || guard.Enforcement != model.EnforcementEnforced || len(guard.AppliesTo) == 0 {
+		t.Fatalf("connected DCG hook should be enforced and occurrence-linked to the shell tool: %+v", guard)
+	}
+	linked := false
+	for _, edge := range inventory.Graph.Edges {
+		if edge.From == guard.OccurrenceID && edge.Type == "restricts" && containsString(guard.AppliesTo, edge.To) {
+			linked = true
+			break
+		}
+	}
+	if !linked {
+		t.Fatalf("connected DCG hook is missing its occurrence restricts edge: %+v", guard)
+	}
+	r, err := RunPath(Options{Path: realPathFixture(t, "destructive-dcg-full-access")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertExposure(t, r, "destructive-agent-authority", model.StatusExposed)
+
+	disconnected, err := RunInventory(Options{Path: realPathFixture(t, "destructive-dcg-disconnected")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, control := range disconnected.Collection.Controls {
+		if control.ID == "control:destructive-command-guard" {
+			t.Fatalf("wrong-event hook must not become destructive guard evidence: %+v", control)
+		}
+	}
+	for _, fixture := range []string{"destructive-dcg-disabled", "destructive-dcg-missing-binary"} {
+		inventory, err := RunInventory(Options{Path: realPathFixture(t, fixture)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, control := range inventory.Collection.Controls {
+			if control.ID == "control:destructive-command-guard" {
+				t.Fatalf("%s must not produce guard control evidence: %+v", fixture, control)
+			}
+		}
+	}
+}
+
+func TestDestructiveSubagentPathPreservesDelegationOccurrence(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "destructive-subagent-inherits")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, edge := range r.Graph.Edges {
+		if edge.From == "authority:delegated-agent-authority" && edge.Type == "inherits" && edge.To == "authority:destructive-filesystem" {
+			t.Fatalf("delegation must not compose destructive authority through family IDs: %+v", edge)
+		}
+	}
+	exposure := findExposure(t, r, "destructive-agent-authority")
+	hasInheritance := false
+	for _, edge := range exposure.OccurrencePathEdges {
+		if strings.Contains(edge, "|inherits|") {
+			hasInheritance = true
+			break
+		}
+	}
+	if !hasInheritance {
+		t.Fatalf("destructive subagent path should preserve delegated inheritance: %+v", exposure.OccurrencePathEdges)
+	}
+	hasSubagentEvidence := false
+	for _, ref := range exposure.EvidenceReferences {
+		if ref.Source == ".claude/agents/reviewer.md" {
+			hasSubagentEvidence = true
+			break
+		}
+	}
+	if !hasSubagentEvidence {
+		t.Fatalf("destructive subagent exposure should cite the delegation occurrence: %+v", exposure.EvidenceReferences)
+	}
 }
 
 func TestRunPathAppliesCustomDeterministicRules(t *testing.T) {
@@ -1151,8 +1330,8 @@ func TestRunPathLLMReviewFromFilePrioritizesGraphBackedIssue(t *testing.T) {
 	if analyst.SourceType != "llm_review" || analyst.DerivedBy != "llm" {
 		t.Fatalf("analyst section was not labeled as LLM-derived: %+v", analyst)
 	}
-	if len(analyst.FindingExplanations) != 3 || len(analyst.FindingRanking) != 3 {
-		t.Fatalf("analyst output should explain and rank the three reckless findings: %+v", analyst)
+	if len(analyst.FindingExplanations) != 4 || len(analyst.FindingRanking) != 4 {
+		t.Fatalf("analyst output should explain and rank the four reckless findings: %+v", analyst)
 	}
 	if analyst.FindingRanking[0].FindingID != "reckless:1" || analyst.FindingRanking[0].ExposureID != "data-egress-chain" {
 		t.Fatalf("data egress should remain analyst's top-ranked existing finding: %+v", analyst.FindingRanking)
@@ -1234,6 +1413,12 @@ func TestRunPathLLMReviewRejectsUnsupportedGraphEvidence(t *testing.T) {
       "exposure_id": "mutable-tool-launch-execution",
       "operator_context": "Valid explanation.",
       "fact_ids": ["fact:mcp:mcp-config:b3cb7f985dab"]
+    },
+    {
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "operator_context": "Valid explanation.",
+      "fact_ids": ["fact:claude:claude-settings:b14140dddf41"]
     }
   ],
   "finding_ranking": [
@@ -1257,6 +1442,13 @@ func TestRunPathLLMReviewRejectsUnsupportedGraphEvidence(t *testing.T) {
       "exposure_id": "prompt-injection-to-secret-canary",
       "rationale": "Valid ranking.",
       "fact_ids": ["fact:generic:secret-like-file:235c40c61601"]
+    },
+    {
+      "rank": 4,
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:claude:claude-settings:b14140dddf41"]
     }
   ]
 }`
@@ -1312,7 +1504,7 @@ func TestRunPathWritesRedactedLLMReviewRequest(t *testing.T) {
 		t.Fatalf("LLM citation catalog should include exposures, graph edges, and source refs: %+v", request.CitationCatalog)
 	}
 	if !containsString(request.CitationCatalog.ExposureIDs, "data-egress-chain") ||
-		!containsString(request.CitationCatalog.GraphEdges, "trustinput:repo-instruction|influences|runtime:codex") ||
+		!containsString(request.CitationCatalog.GraphEdges, "trustinput:repo-instruction|influences|runtime:claude") ||
 		!containsString(request.CitationCatalog.FindingIDs, "reckless:1") {
 		t.Fatalf("LLM citation catalog missing expected stable anchors: %+v", request.CitationCatalog)
 	}
@@ -1382,7 +1574,7 @@ func TestRunReviewPacketBuildsUserFacingPacket(t *testing.T) {
 	if !containsString(request.CitationCatalog.ExposureIDs, "data-egress-chain") {
 		t.Fatalf("follow-up packet should include exposure anchors: %+v", request.CitationCatalog.ExposureIDs)
 	}
-	if request.Verdict == nil || request.Verdict.VerdictWord != "reckless" || len(request.Verdict.Reckless) != 3 {
+	if request.Verdict == nil || request.Verdict.VerdictWord != "reckless" || len(request.Verdict.Reckless) != 4 {
 		t.Fatalf("follow-up packet should include graded verdict findings: %+v", request.Verdict)
 	}
 	if !containsString(request.CitationCatalog.FindingIDs, "reckless:1") || !containsString(request.CitationCatalog.EvidenceRefIDs, "evidence:trustinput:repo-instruction") {
@@ -1423,7 +1615,7 @@ func TestRunReviewCheckValidatesPacketBoundReview(t *testing.T) {
 	if !check.Accepted || check.RunKind != "llm_review_check" || check.RequestDigest == "" {
 		t.Fatalf("review check should be accepted with digest: %+v", check)
 	}
-	if check.Interpretation.Mode != "deterministic" || check.Interpretation.Analyst == nil || len(check.Interpretation.Analyst.FindingExplanations) != 3 {
+	if check.Interpretation.Mode != "deterministic" || check.Interpretation.Analyst == nil || len(check.Interpretation.Analyst.FindingExplanations) != 4 {
 		t.Fatalf("review check interpretation mismatch: %+v", check.Interpretation)
 	}
 }
@@ -1510,6 +1702,12 @@ func TestRunReviewCheckRejectsUnsupportedReviewEvidence(t *testing.T) {
       "exposure_id": "mutable-tool-launch-execution",
       "operator_context": "Valid explanation.",
       "fact_ids": ["fact:mcp:mcp-config:b3cb7f985dab"]
+    },
+    {
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "operator_context": "Valid explanation.",
+      "fact_ids": ["fact:claude:claude-settings:b14140dddf41"]
     }
   ],
   "finding_ranking": [
@@ -1533,6 +1731,13 @@ func TestRunReviewCheckRejectsUnsupportedReviewEvidence(t *testing.T) {
       "exposure_id": "prompt-injection-to-secret-canary",
       "rationale": "Valid ranking.",
       "fact_ids": ["fact:generic:secret-like-file:235c40c61601"]
+    },
+    {
+      "rank": 4,
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "rationale": "Valid ranking.",
+      "fact_ids": ["fact:claude:claude-settings:b14140dddf41"]
     }
   ]
 }`
@@ -2260,7 +2465,7 @@ func TestZeroTrustResponsePolicyControlsContainmentBoundary(t *testing.T) {
 	}
 	// Response policy under .ariadne is attested only; containment is not
 	// proven by declaration.
-	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustUnknown)
+	assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:response-boundary", model.ZeroTrustBreaking)
 	for _, id := range []string{
 		"control:automated-triage",
 		"control:behavioral-monitoring",
@@ -3615,9 +3820,10 @@ func TestRunScanFleetVerdictRollup(t *testing.T) {
 		}
 	}
 	wantFamilyCounts := map[string]int{
-		verdict.FamilyEgress: 3,
-		verdict.FamilyMCP:    1,
-		verdict.FamilySecret: 3,
+		verdict.FamilyEgress:      3,
+		verdict.FamilyMCP:         1,
+		verdict.FamilySecret:      3,
+		verdict.FamilyDestructive: 3,
 	}
 	for family, want := range wantFamilyCounts {
 		if got := familyCounts[family]; got != want {
@@ -6315,7 +6521,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!hasSignalNoiseItem(decoded.SignalNoise.ExpectedCapability, "capability:authorities", "normal_until_correlated", ".claude/settings.json", "", "") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.ExpectedCapability, "capability:trust-inputs", "normal_input_until_privileged_influence", "CLAUDE.md", "", "") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.ExposureTransition, "transition:capability-to-boundary", "actionable_signal", ".claude/settings.json", "control:egress-destination-allowlist", "authority:broad-local|reaches|boundary:external-destination") ||
-		!hasSignalNoiseItem(decoded.SignalNoise.ExposureTransition, "transition:missing-hard-barrier", "actionable_signal", ".codex/config.toml", "control:network-restricted", "trustinput:repo-instruction|influences|runtime:codex") ||
+		!hasSignalNoiseItem(decoded.SignalNoise.ExposureTransition, "transition:missing-hard-barrier", "actionable_signal", ".claude/settings.json", "control:network-restricted", "trustinput:repo-instruction|influences|runtime:claude") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.ControlEvidence, "control:missing-hard-barriers", "missing", ".ariadne/egress-policy.json", "control:egress-destination-allowlist", "") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.DowngradeEvidence, "downgrade:prove-hard-barrier", "would_close_or_downgrade", ".ariadne/egress-policy.json", "control:egress-destination-allowlist", "") ||
 		!hasSignalNoiseItem(decoded.SignalNoise.DowngradeEvidence, "downgrade:remove-supported-path", "would_downgrade", ".claude/settings.json", "", "authority:broad-local|reaches|boundary:external-destination") ||

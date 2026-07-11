@@ -52,6 +52,17 @@
         "runtime:claude|can_call|tool:mcp-package-launch",
         "tool:mcp-package-launch|grants|authority:local-code-execution"
       ]
+    },
+    {
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "operator_context": "LLM-reviewed destructive path: the full-access runtime can reach developer home data without an enforced filesystem sandbox.",
+      "fact_ids": [
+        "fact:claude:claude-settings:b14140dddf41"
+      ],
+      "graph_edges": [
+        "authority:destructive-filesystem|reaches|boundary:developer-home-data"
+      ]
     }
   ],
   "finding_ranking": [
@@ -89,6 +100,18 @@
       ],
       "graph_edges": [
         "authority:file-read|reaches|boundary:secret-like-file"
+      ]
+    },
+    {
+      "rank": 4,
+      "finding_id": "reckless:4",
+      "exposure_id": "destructive-agent-authority",
+      "rationale": "Fourth in this fixture ordering, but still a critical host-data containment failure.",
+      "fact_ids": [
+        "fact:claude:claude-settings:b14140dddf41"
+      ],
+      "graph_edges": [
+        "authority:destructive-filesystem|reaches|boundary:developer-home-data"
       ]
     }
   ],

@@ -9,7 +9,8 @@ MCP tools — can read your files, run programs, and reach the internet. Ariadne
 reads their configuration and answers one question, deterministically:
 
 > Can untrusted instructions plus agent authority create a path to sensitive
-> local boundaries — and do enforced controls break that path?
+> local boundaries — or can a fallible agent destroy host developer data — and
+> do enforced controls break those paths?
 
 Nothing is executed, no packages are installed, no network calls are made, and
 secret values are never read. Ariadne inspects your setup the way an auditor
@@ -50,8 +51,9 @@ came from.
 Every conclusion lands in exactly one of three buckets:
 
 - **Reckless** — the dangerous combination exists (untrusted influence +
-  private-data reach + external egress, or a mutable tool launcher) and no
-  enforced barrier breaks it.
+  private-data reach + external egress, a mutable tool launcher, or host-wide
+  destructive filesystem authority) and no enforced barrier breaks it. Destructive
+  authority does not require malicious input: a mistaken cleanup command is enough.
 - **Trade-offs** — real capabilities, honestly named, that are simply the cost
   of agents being useful. Acknowledged, never nagged about.
 - **Hardened** — enforced protections already working for you: deny rules,
@@ -69,6 +71,15 @@ Two design rules keep the word trustworthy:
 - **The verdict cannot be gamed.** A self-declared `.ariadne/*.json` policy
   file is `attested` evidence and never improves the grade. Only enforced
   configuration counts.
+
+A pre-execution guard such as
+[Destructive Command Guard](https://github.com/Dicklesworthstone/destructive_command_guard)
+is useful defense in depth, and Ariadne reports a structurally connected `dcg` hook
+in HARDENED. It does not replace a filesystem sandbox: script indirection, direct
+file APIs, uncovered shell routes, or fail-open behavior can still reach the host.
+Backups help recovery but do not prevent the destructive path. The safest default
+is a read-only/workspace sandbox or an ephemeral container/VM with narrowly mounted
+writable paths.
 
 ## Install
 

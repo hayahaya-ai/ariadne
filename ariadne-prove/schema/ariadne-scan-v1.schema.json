@@ -88,7 +88,7 @@
       "properties": {
         "family": {
           "type": "string",
-          "enum": ["data-egress-chain", "mutable-tool-launch-execution", "prompt-injection-to-secret-canary"]
+          "enum": ["data-egress-chain", "mutable-tool-launch-execution", "prompt-injection-to-secret-canary", "destructive-agent-authority"]
         },
         "count": { "type": "integer", "minimum": 0 },
         "affected_targets": {
@@ -106,7 +106,7 @@
         "finding_id": { "type": "string" },
         "exposure_id": {
           "type": "string",
-          "enum": ["data-egress-chain", "mutable-tool-launch-execution", "prompt-injection-to-secret-canary"]
+          "enum": ["data-egress-chain", "mutable-tool-launch-execution", "prompt-injection-to-secret-canary", "destructive-agent-authority"]
         },
         "title": { "type": "string" },
         "where": { "$ref": "#/$defs/fleet_evidence_location" },

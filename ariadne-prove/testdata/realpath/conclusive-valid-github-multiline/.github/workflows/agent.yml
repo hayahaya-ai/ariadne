@@ -1,0 +1,20 @@
+name: Valid multiline matrix
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sdk: [
+          Alpha,
+          Beta
+        ]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "${{ matrix.sdk }}"

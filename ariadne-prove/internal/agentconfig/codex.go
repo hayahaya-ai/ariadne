@@ -20,6 +20,8 @@ type CodexConfig struct {
 	HasMCPServers      bool     // true if an [mcp_servers...] table or mcp_servers key is present
 	MCPServersLine     int      // 1-based line of the MCP table/key, when known
 	IsRequirements     bool     // set by the caller from surface kind, never parsed
+	HooksEnabled       *bool    // nil if [features].hooks/codex_hooks is absent
+	HooksEnabledLine   int      // 1-based line of the explicit hooks feature flag
 
 	// HasInlineCredential is true when a key/value line's key matches a
 	// credential-like name (see isCredentialKeyName) and its value is a
@@ -180,7 +182,7 @@ func isMCPServersTable(header string) bool {
 // [permissions.filesystem] must be attributed, and no other table is known
 // to carry it in Codex configs, so a table restriction here would only add
 // a way to silently drop real deny rules.
-func applyKeyValue(cfg *CodexConfig, _ string, key, value string, lineNo int) {
+func applyKeyValue(cfg *CodexConfig, table string, key, value string, lineNo int) {
 	switch key {
 	case "sandbox_mode":
 		cfg.SandboxMode = parseStringValue(value)
@@ -203,6 +205,12 @@ func applyKeyValue(cfg *CodexConfig, _ string, key, value string, lineNo int) {
 	case "mcp_servers":
 		cfg.HasMCPServers = true
 		cfg.MCPServersLine = lineNo
+	}
+	if table == "features" && (key == "hooks" || key == "codex_hooks") {
+		if b, ok := parseBoolValue(value); ok {
+			cfg.HooksEnabled = &b
+			cfg.HooksEnabledLine = lineNo
+		}
 	}
 	if isCredentialKeyName(key) && isQuotedNonEmptyStringLiteral(value) {
 		cfg.HasInlineCredential = true

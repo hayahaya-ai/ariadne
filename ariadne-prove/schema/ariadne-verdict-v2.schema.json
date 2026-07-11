@@ -106,7 +106,7 @@
     },
     "exposure_family": {
       "type": "string",
-      "enum": ["data-egress-chain", "prompt-injection-to-secret-canary", "mutable-tool-launch-execution"]
+      "enum": ["data-egress-chain", "prompt-injection-to-secret-canary", "mutable-tool-launch-execution", "destructive-agent-authority"]
     },
     "evidence_location": {
       "type": "object",

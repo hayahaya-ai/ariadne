@@ -281,3 +281,10 @@ func TestParseCodexConfig_HasInlineCredential(t *testing.T) {
 		})
 	}
 }
+
+func TestParseCodexConfigHooksFeatureFlag(t *testing.T) {
+	got, ok := ParseCodexConfig([]byte("[features]\nhooks = false\n"))
+	if !ok || got.HooksEnabled == nil || *got.HooksEnabled || got.HooksEnabledLine != 2 {
+		t.Fatalf("hooks feature parse = (%+v, %v), want explicit false at line 2", got, ok)
+	}
+}

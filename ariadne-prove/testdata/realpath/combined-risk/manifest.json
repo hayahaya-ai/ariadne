@@ -31,6 +31,10 @@
           "source": "mcp.json",
           "line": 2,
           "fix_surface": "mcp.json"
+        },
+        {
+          "family": "destructive-agent-authority",
+          "fix_surface": ".claude/settings.json"
         }
       ]
     }

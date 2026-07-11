@@ -30,7 +30,7 @@ it as Ariadne's; say it is unavailable and offer a manual review instead.
 ```bash
 ariadne self                      # one-screen readout of this machine (endpoint mode)
 ariadne assess --path <repo>      # same for a repo or mounted path
-ariadne verdict --json            # machine verdict (schema ariadne.verdict/v1)
+ariadne verdict --json            # machine verdict (schema ariadne.verdict/v2)
 ariadne verdict --gate            # exit 3 if reckless — CI/pipeline gate
 ariadne ls findings|facts|controls|cases|agents|surfaces
 ariadne show <id>                 # drill into reckless:1, fact:*, control:*, case:*, or a file path
@@ -42,8 +42,9 @@ showing a human.
 
 ## Reading the verdict
 
-- `verdict` word: `reckless` (act), `tradeoffs_only` (acknowledged normal cost —
-  do not nag the user about these), `hardened`, or `no_agents_found`.
+- `verdict` word: `reckless` (act), `inconclusive` (evidence is missing or
+  malformed), `tradeoffs_only` (acknowledged normal cost — do not nag the user
+  about these), `hardened`, or `no_agents_found`.
 - Each `reckless` finding carries `where` (source file + line), `why`, `fix`,
   and `attested_only`. **Verify before acting**: open the cited file yourself
   and confirm the line supports the claim. If the anchor is line 0 or the fix
@@ -65,6 +66,12 @@ showing a human.
 3. Re-run `ariadne verdict --json` and compare. A finding is fixed only when
    the verdict changes; an edit that "looks right" but leaves the verdict
    unchanged is not done.
+
+For `destructive-agent-authority`, lead with containment: move Codex to
+`workspace-write`/`read-only`, or run broad agent work in an ephemeral
+container/VM with narrowly mounted writable paths. A destructive-command hook
+and backups are defense in depth; neither substitutes for keeping unrelated
+developer home data outside the agent's writable boundary.
 
 ## Hard rules
 

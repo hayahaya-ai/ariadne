@@ -122,6 +122,8 @@ func builtInIssues(in Input) []model.Issue {
 			issues = append(issues, mutableToolIssue(in, exposure))
 		case "data-egress-chain":
 			issues = append(issues, dataEgressIssue(in, exposure))
+		case "destructive-agent-authority":
+			issues = append(issues, destructiveAuthorityIssue(in, exposure))
 		}
 	}
 	if countSurfaces(in.Collection, "history-cache") >= 100 {
@@ -161,6 +163,38 @@ func builtInIssues(in Input) []model.Issue {
 		})
 	}
 	return compactIssues(issues)
+}
+
+func destructiveAuthorityIssue(in Input, exposure model.ExposureResult) model.Issue {
+	issue := baseIssue(in, exposure, "builtin-destructive-agent-authority", "destructive-local-action")
+	issue.Title = "Agent authority can irreversibly destroy developer files"
+	issue.Signals = []string{
+		"A local agent runtime has host-destructive filesystem authority.",
+		"That occurrence can reach developer home data outside a contained workspace.",
+	}
+	issue.Actions = []string{
+		"Run the agent in read-only or workspace-scoped sandbox mode, or in an ephemeral container/VM with narrowly mounted writable paths.",
+		"Require a human decision for destructive actions and delegated cleanup work.",
+		"Use a verified destructive-command guard as defense in depth, and keep tested backups for recovery.",
+	}
+	switch exposure.Status {
+	case model.StatusExposed:
+		issue.Severity = model.SeverityCritical
+		issue.Priority = model.PriorityP0
+		issue.Disposition = model.DispositionFixNow
+		issue.Rationale = "The runtime can recursively delete or overwrite host developer data without an enforced containment boundary; malicious input is not required."
+	case model.StatusProtected:
+		issue.Severity = model.SeverityLow
+		issue.Priority = model.PriorityP3
+		issue.Disposition = model.DispositionControlled
+		issue.Rationale = "A destructive capability was observed, but an occurrence-connected filesystem sandbox prevents it from reaching unrelated host developer data."
+	default:
+		issue.Severity = model.SeverityInfo
+		issue.Priority = model.PriorityP4
+		issue.Disposition = model.DispositionReview
+		issue.Rationale = "Ariadne did not have enough authority and containment evidence to prove or clear host-destructive reachability."
+	}
+	return issue
 }
 
 func secretBoundaryIssue(in Input, exposure model.ExposureResult) model.Issue {

@@ -81,6 +81,70 @@ func TestParseGitHubWorkflowDistinguishesPlainAndTargetPullRequestEvents(t *test
 	}
 }
 
+func TestParseGitHubWorkflowAcceptsMultilineFlowSequence(t *testing.T) {
+	workflow, ok := ParseGitHubWorkflow([]byte(`name: matrix
+on:
+  pull_request:
+jobs:
+  test:
+    strategy:
+      matrix:
+        sdk: [
+          Alpha,
+          Beta
+        ]
+    steps:
+      - uses: actions/checkout@v4
+`))
+	if !ok {
+		t.Fatal("ParseGitHubWorkflow: valid multiline flow sequence returned ok=false")
+	}
+	if want := []string{"pull_request"}; !reflect.DeepEqual(workflow.TriggerEvents, want) {
+		t.Fatalf("trigger events = %v, want %v", workflow.TriggerEvents, want)
+	}
+}
+
+func TestParseGitHubWorkflowIgnoresBracketsInsideBlockScalars(t *testing.T) {
+	workflow, ok := ParseGitHubWorkflow([]byte(`name: shell
+on: push
+jobs:
+  test:
+    steps:
+      - run: |
+          if [ -f artifact ]; then
+            echo ready
+          fi
+`))
+	if !ok {
+		t.Fatal("shell block scalar with unmatched per-line brackets returned ok=false")
+	}
+	if !workflow.ExecutesCode {
+		t.Fatalf("workflow facts = %+v, want executes-code", workflow)
+	}
+}
+
+func TestParseGitHubWorkflowDoesNotTreatAgentAssignmentAsPromptExecution(t *testing.T) {
+	workflow, ok := ParseGitHubWorkflow([]byte(`name: Assign Copilot issues
+on:
+  issues:
+permissions:
+  issues: write
+jobs:
+  assign:
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addAssignees({assignees: ['copilot-swe-agent[bot]']})
+`))
+	if !ok {
+		t.Fatal("ParseGitHubWorkflow: ok=false")
+	}
+	if workflow.AgentLike {
+		t.Fatalf("agent assignment became managed prompt execution: %+v", workflow)
+	}
+}
+
 func TestParseGitHubWorkflowRejectsStructurallyUnparsedContent(t *testing.T) {
 	for _, document := range []string{
 		"this is not a workflow mapping\n",

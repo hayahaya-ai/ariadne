@@ -12,32 +12,34 @@ import (
 // key-looking text inside unrelated scalar values never become trigger or
 // permission facts.
 type GitHubWorkflow struct {
-	TriggerEvents              []string
-	TriggerLines               map[string]int
-	ReferencesSecrets          bool
-	SecretReferenceLine        int
-	OIDCTokenWrite             bool
-	OIDCTokenWriteLine         int
-	WritePermissions           bool
-	WritePermissionsLine       int
-	RepositoryWritePermissions bool
-	RepositoryWriteLine        int
-	ScopedPermissions          bool
-	ScopedPermissionsLine      int
-	ExecutesCode               bool
-	ExecutesCodeLine           int
-	ReadsRepository            bool
-	ReadsRepositoryLine        int
-	ExternalCommunication      bool
-	ExternalCommunicationLine  int
-	AgentLike                  bool
-	AgentLikeLine              int
-	UsesRemoteAction           bool
-	PinnedAction               bool
-	EnvironmentGate            bool
-	EnvironmentGateLine        int
-	InlineCredential           bool
-	InlineCredentialLine       int
+	TriggerEvents               []string
+	TriggerLines                map[string]int
+	ReferencesSecrets           bool
+	SecretReferenceLine         int
+	OIDCTokenWrite              bool
+	OIDCTokenWriteLine          int
+	WritePermissions            bool
+	WritePermissionsLine        int
+	RepositoryWritePermissions  bool
+	RepositoryWriteLine         int
+	ScopedPermissions           bool
+	ScopedPermissionsLine       int
+	ExecutesCode                bool
+	ExecutesCodeLine            int
+	ReadsRepository             bool
+	ReadsRepositoryLine         int
+	ExternalCommunication       bool
+	ExternalCommunicationLine   int
+	DirectExternalCommunication bool
+	AgentLike                   bool
+	AgentLikeLine               int
+	AgentAction                 bool
+	UsesRemoteAction            bool
+	PinnedAction                bool
+	EnvironmentGate             bool
+	EnvironmentGateLine         int
+	InlineCredential            bool
+	InlineCredentialLine        int
 }
 
 type yamlEntry struct {
@@ -72,6 +74,10 @@ func ParseGitHubWorkflow(data []byte) (GitHubWorkflow, bool) {
 		collectGitHubPermissions(&workflow, entry)
 		collectGitHubJobFacts(&workflow, entry)
 	}
+	// Agent-adjacent automation (for example assigning an issue to Copilot)
+	// is not itself a managed prompt path. Require either an agent action or
+	// agent-labeled workflow logic that directly invokes an external endpoint.
+	workflow.AgentLike = workflow.AgentAction || (workflow.AgentLike && workflow.DirectExternalCommunication)
 
 	sort.Strings(workflow.TriggerEvents)
 	return workflow, true
@@ -203,9 +209,13 @@ func collectGitHubJobFacts(workflow *GitHubWorkflow, entry yamlEntry) {
 				workflow.PinnedAction = true
 			}
 		}
+		if githubAgentTerm.MatchString(value) {
+			workflow.AgentAction = true
+		}
 	}
 	if key == "run" && shellHasExternalCommunication(lowerValue) {
 		setFirstBoolLine(&workflow.ExternalCommunication, &workflow.ExternalCommunicationLine, entry.Line)
+		workflow.DirectExternalCommunication = true
 	}
 	if githubAgentTerm.MatchString(value) {
 		setFirstBoolLine(&workflow.AgentLike, &workflow.AgentLikeLine, entry.Line)
@@ -346,7 +356,11 @@ func shellHasExternalCommunication(value string) bool {
 }
 
 func parseYAMLEntries(data []byte) ([]yamlEntry, bool) {
-	scanner := bufio.NewScanner(strings.NewReader(strings.TrimPrefix(string(data), "\ufeff")))
+	normalized, ok := joinMultilineYAMLFlows(strings.TrimPrefix(string(data), "\ufeff"))
+	if !ok {
+		return nil, false
+	}
+	scanner := bufio.NewScanner(strings.NewReader(normalized))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	var entries []yamlEntry
 	var stack []yamlContext
@@ -428,6 +442,89 @@ func parseYAMLEntries(data []byte) ([]yamlEntry, bool) {
 	return entries, true
 }
 
+// joinMultilineYAMLFlows joins balanced flow collections before the small
+// dependency-free YAML reader parses mapping entries. It retains blank output
+// lines for every consumed continuation line so evidence line numbers remain
+// anchored to the original document.
+func joinMultilineYAMLFlows(document string) (string, bool) {
+	scanner := bufio.NewScanner(strings.NewReader(document))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var output strings.Builder
+	var pending strings.Builder
+	square := 0
+	curly := 0
+	continuations := 0
+	blockIndent := -1
+
+	for scanner.Scan() {
+		raw := strings.TrimSuffix(scanner.Text(), "\r")
+		indent := leadingYAMLIndent(raw)
+		if blockIndent >= 0 {
+			if strings.TrimSpace(raw) == "" || indent > blockIndent {
+				output.WriteString(raw)
+				output.WriteByte('\n')
+				continue
+			}
+			blockIndent = -1
+		}
+		lineSquare, lineCurly, valid := yamlStructuralDelta(raw)
+		if !valid {
+			return "", false
+		}
+		if pending.Len() == 0 {
+			if lineSquare == 0 && lineCurly == 0 {
+				output.WriteString(raw)
+				output.WriteByte('\n')
+				if yamlLineStartsBlock(raw) {
+					blockIndent = indent
+				}
+				continue
+			}
+			if lineSquare < 0 || lineCurly < 0 {
+				return "", false
+			}
+			pending.WriteString(strings.TrimRight(stripYAMLComment(raw), " \t"))
+			square = lineSquare
+			curly = lineCurly
+			continue
+		}
+
+		continuations++
+		part := strings.TrimSpace(stripYAMLComment(raw))
+		if part != "" {
+			pending.WriteByte(' ')
+			pending.WriteString(part)
+		}
+		square += lineSquare
+		curly += lineCurly
+		if square < 0 || curly < 0 {
+			return "", false
+		}
+		if square == 0 && curly == 0 {
+			output.WriteString(pending.String())
+			output.WriteByte('\n')
+			for i := 0; i < continuations; i++ {
+				output.WriteByte('\n')
+			}
+			pending.Reset()
+			continuations = 0
+		}
+	}
+	if scanner.Err() != nil || pending.Len() != 0 {
+		return "", false
+	}
+	return output.String(), true
+}
+
+func yamlLineStartsBlock(raw string) bool {
+	line := strings.TrimSpace(stripYAMLComment(raw))
+	if strings.HasPrefix(line, "-") && (len(line) == 1 || line[1] == ' ' || line[1] == '\t') {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "-"))
+	}
+	_, value, found := splitYAMLMapping(line)
+	return found && yamlStartsBlock(value)
+}
+
 // ValidateYAMLDocument checks the structural subset used by Ariadne's
 // dependency-free workflow readers. It deliberately fails closed on
 // unterminated quotes and inline collections that the collector cannot parse.
@@ -437,6 +534,11 @@ func ValidateYAMLDocument(data []byte) bool {
 }
 
 func validYAMLStructuralLine(line string) bool {
+	square, curly, ok := yamlStructuralDelta(line)
+	return ok && square == 0 && curly == 0
+}
+
+func yamlStructuralDelta(line string) (int, int, bool) {
 	var quote rune
 	escaped := false
 	square := 0
@@ -470,11 +572,8 @@ func validYAMLStructuralLine(line string) bool {
 		case '}':
 			curly--
 		}
-		if square < 0 || curly < 0 {
-			return false
-		}
 	}
-	return quote == 0 && !escaped && square == 0 && curly == 0
+	return square, curly, quote == 0 && !escaped
 }
 
 func leadingYAMLIndent(line string) int {

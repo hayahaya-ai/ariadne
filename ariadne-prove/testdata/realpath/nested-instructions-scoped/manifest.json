@@ -10,12 +10,17 @@
   },
   "expected": {
     "verdict": {
-      "word": "tradeoffs_only",
+      "word": "reckless",
       "min_tradeoffs": 2,
       "default_judgment_rules": [
         "nested_instructions_scoped_by_default"
       ],
-      "findings": []
+      "findings": [
+        {
+          "family": "destructive-agent-authority",
+          "fix_surface": ".codex/config.toml"
+        }
+      ]
     }
   }
 }

@@ -19,7 +19,6 @@
       "boundary:secret-like-file"
     ],
     "required_edges": [
-      "trustinput:repo-instruction|influences|runtime:codex",
       "trustinput:repo-instruction|influences|runtime:claude",
       "runtime:codex|has_authority|authority:file-read",
       "runtime:claude|has_authority|authority:file-read",

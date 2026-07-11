@@ -1,0 +1,22 @@
+{
+  "id": "destructive-dcg-disconnected",
+  "title": "Disconnected guard cannot protect destructive authority",
+  "persona": "developer / endpoint security",
+  "user_question": "Does a DCG command on the wrong lifecycle event fail to count as protection?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": { "repo_path": "." },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "findings": [
+        {
+          "family": "destructive-agent-authority",
+          "source": ".codex/config.toml",
+          "line": 1,
+          "fix_surface": ".codex/config.toml"
+        }
+      ]
+    }
+  }
+}

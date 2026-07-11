@@ -26,14 +26,15 @@ const (
 )
 
 // Exposure family IDs, in the reckless rendering order required by the
-// contract: egress first, then secret, then MCP.
+// contract: egress first, then secret, MCP, and destructive authority.
 const (
-	FamilyEgress = "data-egress-chain"
-	FamilySecret = "prompt-injection-to-secret-canary"
-	FamilyMCP    = "mutable-tool-launch-execution"
+	FamilyEgress      = "data-egress-chain"
+	FamilySecret      = "prompt-injection-to-secret-canary"
+	FamilyMCP         = "mutable-tool-launch-execution"
+	FamilyDestructive = "destructive-agent-authority"
 )
 
-var recklessFamilyOrder = []string{FamilyEgress, FamilySecret, FamilyMCP}
+var recklessFamilyOrder = []string{FamilyEgress, FamilySecret, FamilyMCP, FamilyDestructive}
 
 // Verdict is the top-level document rendered by RenderReadout/RenderText and
 // marshaled by RenderJSON. Field order and JSON tags follow the "Verdict
@@ -232,11 +233,12 @@ func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, inconclusiv
 		return WordInconclusive
 	case tradeoffCount > 0:
 		return WordTradeoffsOnly
-	case runtimeCount > 0:
+	case runtimeCount > 0 && hardenedCount > 0:
 		return WordHardened
+	case runtimeCount > 0:
+		return WordInconclusive
 	default:
 		// Enforced controls remain reported, but cannot harden an absent runtime.
-		_ = hardenedCount
 		return WordNoAgentsFound
 	}
 }
@@ -944,6 +946,8 @@ func recklessTitle(exposure model.ExposureResult, refs []model.EvidenceReference
 		return "Untrusted repo instructions can steer your agent into reading secret-like files"
 	case FamilyMCP:
 		return "A mutable MCP package launcher can run unreviewed code on your machine"
+	case FamilyDestructive:
+		return "A full-access agent can irreversibly delete files across your developer home"
 	default:
 		return exposure.Title
 	}
@@ -1045,6 +1049,15 @@ func recklessFix(exposureID string, refs []model.EvidenceReference, collection m
 			return "disable external network access in " + source
 		default:
 			return "restrict external communication in " + source
+		}
+	case FamilyDestructive:
+		switch target.Runtime {
+		case "codex":
+			return `set sandbox_mode = "workspace-write" (or "read-only") and approval_policy = "on-request" in ` + source
+		case "claude":
+			return `replace permission bypass or Bash(*) with default-mode scoped commands in ` + source + "; run broad work in an isolated workspace, container, or VM"
+		default:
+			return "isolate the agent from host developer files and require per-action approval in " + source
 		}
 	default:
 		return ""
@@ -1229,9 +1242,10 @@ func ariadneDeclarationTarget(target recklessFixTarget) bool {
 // security check — this only decides which attested controls to *surface*,
 // never whether a finding closes.
 var familyControlPrefixes = map[string][]string{
-	FamilyEgress: {"egress", "output", "network"},
-	FamilySecret: {"input", "deny"},
-	FamilyMCP:    {"tool", "mcp"},
+	FamilyEgress:      {"egress", "output", "network"},
+	FamilySecret:      {"input", "deny"},
+	FamilyMCP:         {"tool", "mcp"},
+	FamilyDestructive: {"host-filesystem", "destructive", "sandbox", "backup", "snapshot"},
 }
 
 func attestedOnlyForFamily(exposureID string, controls []model.Control) []string {
@@ -1357,6 +1371,18 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 				tradeoffSummary: "agents read your workspace — that is what a coding agent is for",
 				tradeoffSource:  authority.Source,
 			})
+		case "authority:repository-write":
+			candidates = append(candidates, capabilityCandidate{
+				order:           12,
+				id:              authority.ID,
+				occurrenceID:    authority.OccurrenceID,
+				kind:            "authority",
+				runtime:         authority.Runtime,
+				source:          authority.Source,
+				summary:         authority.Summary,
+				tradeoffSummary: "workflow automation can update repository, pull-request, issue, or package state",
+				tradeoffSource:  authority.Source,
+			})
 		}
 	}
 	for _, boundary := range collection.Boundaries {
@@ -1364,7 +1390,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			continue
 		}
 		candidates = append(candidates, capabilityCandidate{
-			order:           12,
+			order:           13,
 			id:              boundary.ID,
 			occurrenceID:    boundary.OccurrenceID,
 			kind:            "boundary",
@@ -1379,7 +1405,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			continue
 		}
 		candidate := capabilityCandidate{
-			order:        13,
+			order:        14,
 			id:           tool.ID,
 			occurrenceID: tool.OccurrenceID,
 			kind:         "tool",

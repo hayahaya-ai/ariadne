@@ -1,10 +1,10 @@
 {
   "id": "conclusive-valid-cursor",
-  "title": "Valid Cursor configuration remains conclusive",
+  "title": "Valid but empty Cursor configuration remains unresolved",
   "persona": "developer / AppSec",
-  "user_question": "Does valid generic agent JSON avoid an inconclusive verdict?",
+  "user_question": "Does valid but empty generic agent JSON prove a hardened posture?",
   "runtime": "all",
   "mode": "repo",
   "world": { "repo_path": "." },
-  "expected": { "verdict": { "word": "hardened", "findings": [] } }
+  "expected": { "verdict": { "word": "inconclusive", "findings": [] } }
 }
