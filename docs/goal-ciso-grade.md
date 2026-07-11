@@ -301,6 +301,12 @@ fixture matrix and contract tests are the new measuring instrument.
 
 ## Phase 5.1 — Release-candidate field calibration closure
 
+**Status: passed on 2026-07-10.** Required RED was recorded at 50/57 before
+production changes; GREEN is 57/57 with 100% precision/recall for every
+supported family. The exact eight-repository resweep completed 8/8 with no
+errors, parser failures, reckless verdicts, or inaccurate egress remedies. See
+`docs/calibration/v0.2.0-rc.2-candidate-public-sweep.md`.
+
 The first `v0.2.0-rc.1` public sweep scanned eight pinned public repositories
 (18,494 tracked files) without executing their code. The deterministic fleet run
 completed 8/8 targets, but source review found correctness worlds absent from the
