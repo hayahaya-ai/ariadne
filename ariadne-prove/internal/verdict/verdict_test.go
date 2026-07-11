@@ -165,6 +165,9 @@ func TestBuildControlsWithoutRuntimeIsNoAgentsFound(t *testing.T) {
 	if len(v.Scanned.Runtimes) != 0 {
 		t.Fatalf("runtimes = %+v, want none", v.Scanned.Runtimes)
 	}
+	if v.Inconclusive != 0 {
+		t.Fatalf("inconclusive = %d, want 0 when no runtime exists and all observed config parsed", v.Inconclusive)
+	}
 	if len(v.Hardened) < 3 {
 		t.Fatalf("hardened controls = %d, want at least 3: %+v", len(v.Hardened), v.Hardened)
 	}
@@ -180,6 +183,9 @@ func TestBuildControlsWithoutRuntimeIsNoAgentsFound(t *testing.T) {
 	}
 	if strings.Contains(headline, "VERDICT: HARDENED") {
 		t.Fatalf("headline pairs HARDENED with no runtimes: %q", headline)
+	}
+	if strings.Contains(buf.String(), "Couldn't verify:") {
+		t.Fatalf("no-agents verdict must not render an evidence gap:\n%s", buf.String())
 	}
 }
 
@@ -590,6 +596,9 @@ func TestBuildInconclusiveExposuresAreCounted(t *testing.T) {
 	v := buildVerdict(t, "repo-only-risk")
 	if v.Inconclusive == 0 {
 		t.Fatalf("expected at least one inconclusive exposure for repo-only-risk fixture")
+	}
+	if strings.Contains(strings.ToLower(v.NextAction), "no action needed") {
+		t.Fatalf("unresolved exposure evidence must require a next action: %q", v.NextAction)
 	}
 }
 

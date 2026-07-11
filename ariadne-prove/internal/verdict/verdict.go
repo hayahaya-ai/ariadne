@@ -179,12 +179,22 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 	}
 
 	parserFailures := parserFailureCount(collection.ParserStatuses)
-	word := computeVerdictWord(len(reckless), len(tradeoffs), len(hardened), inconclusive, conclusive, len(collection.Runtimes), parserFailures)
+	runtimeCount := len(collection.Runtimes)
+	hasRiskEvidence := len(collection.TrustInputs) > 0 || len(collection.Tools) > 0 ||
+		len(collection.Authorities) > 0 || len(collection.Boundaries) > 0
+	if runtimeCount == 0 && parserFailures == 0 && !hasRiskEvidence {
+		// The exposure engine retains an inconclusive placeholder when no
+		// supported runtime or risk-bearing evidence exists. That is useful
+		// internally, but it is not an evidence gap for a readable target whose
+		// inventory conclusively found no agents.
+		inconclusive = 0
+	}
+	word := computeVerdictWord(len(reckless), len(tradeoffs), len(hardened), inconclusive, conclusive, runtimeCount, parserFailures)
 
 	nextAction := "no action needed — rerun after config changes"
 	if word == WordReckless {
 		nextAction = "fix reckless:1, then rerun ariadne self"
-	} else if word == WordInconclusive {
+	} else if word == WordInconclusive || inconclusive > 0 {
 		if parserFailures > 0 {
 			nextAction = "repair unreadable or malformed configuration evidence, then rerun ariadne self"
 		} else {
