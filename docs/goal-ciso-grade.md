@@ -299,6 +299,113 @@ Phase 5 passes only when all of the following are true:
 Do not start Phase 6/product expansion from a merely green legacy eval. The Phase 5
 fixture matrix and contract tests are the new measuring instrument.
 
+## Phase 5.1 — Release-candidate field calibration closure
+
+The first `v0.2.0-rc.1` public sweep scanned eight pinned public repositories
+(18,494 tracked files) without executing their code. The deterministic fleet run
+completed 8/8 targets, but source review found correctness worlds absent from the
+50-fixture benchmark. Stable `v0.2.0` and Phase 6 remain blocked until these worlds
+are represented red-first and corrected.
+
+The source-of-truth audit is
+`docs/calibration/v0.2.0-rc.1-public-sweep.md`. Public repository results are
+calibration evidence, not vulnerability claims about those projects.
+
+### Gate E — Runtime discovery must be evidence-sensitive
+
+A generic editor file is not an agent runtime merely because its path can host
+agent settings.
+
+- `.vscode/settings.json` creates Copilot runtime evidence only when a supported
+  Copilot/chat-agent key is present.
+- Dedicated Copilot instruction and MCP surfaces remain runtime evidence.
+- The paired worlds are generic VS Code settings (no Copilot runtime) and an
+  actual supported Copilot setting (Copilot runtime remains discoverable).
+- Parser status may retain the discovered surface, but must not falsely name a
+  runtime whose supported keys were absent.
+
+### Gate F — Valid supported syntax is not malformed
+
+Fail-closed parsing applies to malformed configuration, not to valid syntax the
+collector happened not to anticipate.
+
+- GitHub workflow YAML accepts balanced flow lists/maps that span lines.
+- Unterminated or structurally invalid flow collections remain malformed and
+  produce `inconclusive`.
+- The valid and invalid documents ship as a paired inverse and as parser unit
+  tests; merely weakening validation for every bracket is not acceptable.
+
+### Gate G — Influence, authority, and boundary semantics stay connected
+
+- `CLAUDE.md` influence applies to Claude; `AGENTS.md` applies to Codex-compatible
+  agent execution; Copilot instructions apply to Copilot. These instruction
+  surfaces do not influence ordinary GitHub Actions or GitLab CI merely because a
+  workflow reads repository files.
+- A managed workflow trigger enters the prompt-injection family only when that
+  same workflow is actually agent-like. Deterministic issue/label automation is
+  not an LLM prompt path.
+- Repository/PR/issue write authority is an integrity boundary, not private-data
+  read authority. It cannot satisfy the private-data leg of the data-egress family.
+- Secret/OIDC/credential access plus same-workflow external communication remains
+  a valid unsafe inverse and must stay reckless.
+- Mutable privileged action/workflow references are a supply-chain posture. If
+  Ariadne cannot yet grade them under an accurate family and pinning remedy, it
+  must not mislabel them as proven private-data exfiltration.
+
+### Gate H — `hardened` requires enforced evidence
+
+Approved product rule:
+
+- `hardened` requires at least one observed enforced control in `hardened[]`.
+- If a supported runtime exists, no reckless or trade-off evidence exists, no
+  enforced hardened control exists, and posture evidence remains unresolved, the
+  verdict is `inconclusive`; `--gate` exits 3.
+- If no supported runtime exists, the verdict remains `no_agents_found`.
+- A runtime with a real enforced control remains the paired `hardened` inverse.
+- No renderer, fleet rollup, or JSON contract may emit `hardened` with
+  `hardened.length == 0`.
+
+### Phase 5.1 paired matrix
+
+The complete matrix is added before production changes:
+
+1. generic VS Code settings / supported Copilot settings;
+2. valid multiline workflow flow-sequence / unterminated flow-sequence;
+3. risky AGENTS plus ordinary CI / matching agent runtime with the same risky
+   instructions and authority;
+4. deterministic managed workflow with issue/PR write authority / agent-like
+   workflow with same-source secret access;
+5. repository-integrity write authority / credential-access plus egress;
+6. runtime with unresolved posture and zero controls / runtime with an enforced
+   control.
+
+Every safe world must avoid a reckless finding; every unsafe inverse must retain
+the intended family, source, and line. Existing Phase 5 inverses may satisfy a pair
+only when their contract asserts the same semantic distinction explicitly.
+
+### Phase 5.1 completion bar
+
+Phase 5.1 passes only when:
+
+1. The expanded matrix is recorded red before production changes.
+2. All paired worlds pass without weakening the Phase 5 unsafe composition cases.
+3. `hardened` is impossible with zero hardened controls in unit, CLI, fleet, and
+   real release-binary output.
+4. Valid multiline GitHub workflow YAML parses while its malformed inverse fails
+   closed.
+5. Agent instructions cannot borrow ordinary CI authority, and deterministic
+   managed workflows cannot enter the prompt-injection family without agent-like
+   execution evidence.
+6. Repository-write authority cannot satisfy the private-data leg; explicit
+   credential/OIDC/secret access remains detectable.
+7. `make eval` returns 100% verdict accuracy and per-family precision/recall on
+   the expanded benchmark; `make check`, `make verify-first-run`, race tests,
+   schema validation, CI self-gate, and fleet contracts pass.
+8. The exact eight pinned public targets are rescanned. Every confirmed false
+   positive/inconclusive from the first sweep is gone, the two mutable privileged
+   workflow references receive no inaccurate data-egress remedy, and no audited
+   unsafe inverse regresses.
+
 ## Loop guardrails (beyond CLAUDE.md)
 
 1. **Never special-case the eval.** No detection code may branch on fixture names,
