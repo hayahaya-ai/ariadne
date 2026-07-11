@@ -14,14 +14,14 @@
       "findings": [
         {
           "family": "data-egress-chain",
-          "source": ".gemini/settings.json",
-          "line": 2,
+          "source": "GEMINI.md",
+          "line": 1,
           "fix_surface": ".gemini/settings.json"
         },
         {
           "family": "prompt-injection-to-secret-canary",
-          "source": ".gemini/settings.json",
-          "line": 2,
+          "source": "GEMINI.md",
+          "line": 1,
           "fix_surface": ".gemini/settings.json"
         }
       ]

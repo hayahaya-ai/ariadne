@@ -152,13 +152,163 @@ Already scoped by `docs/northstar.md`: LLM triage and explanation on top, fact-b
 through `review-check`, citing fact IDs and graph edges. Nothing new here until
 phases 0–3 hold.
 
+## Phase 5 — Correctness hardening (composition, target integrity, unknowns)
+
+Phase 5 exists because the Phase 0–4 benchmark passed while a load-bearing false
+negative remained: one pinned MCP launcher anywhere in a target could protect an
+unrelated unpinned launcher. The existing eval measured the worlds its builders
+expected; it did not measure mixed safe/unsafe composition. **A green pre-Phase-5
+`make eval` is the baseline, not this phase's stop condition.**
+
+Work is ordered. Do not implement the composition fix until the new benchmark has
+demonstrated the current failure.
+
+### Gate A — Grow the benchmark and prove red
+
+Add the mixed-world fixtures and expectations first, run them against the current
+implementation, and record the mismatches in `docs/goal-progress.md`. The required
+unsafe worlds are:
+
+1. **One pinned plus one unpinned MCP launcher in one target.** The unpinned
+   occurrence keeps `mutable-tool-launch-execution` exposed and the target reckless;
+   a pin attached to another server, source, runtime, or subtree cannot protect it.
+2. **Root-risky plus nested-safe.** A control in a nested fixture/example/runtime
+   config cannot close a root-scoped exposure path it does not govern.
+3. **Safe Claude plus unsafe Codex authority.** A Claude control cannot protect a
+   Codex authority path merely because both normalize to the same family-level
+   control or authority ID.
+
+Every unsafe composition world ships with a minimal inverse of the same shape:
+
+- all MCP launcher occurrences are genuinely pinned;
+- the relevant control is attached to the same root/runtime/scope path it protects;
+- both runtime paths are genuinely safe.
+
+The inverse must retain the irrelevant noise and differ only in the relationship
+being tested. It prevents a false-negative fix from overcorrecting into a false
+positive. Expected inverse verdicts follow the facts (`tradeoffs_only`, `hardened`,
+or another explicitly justified non-reckless word); do not hard-code one universal
+"safe" word.
+
+The first Phase 5 eval is required to be red in the unsafe worlds and green in their
+already-safe inverses. A clean run before the current false negative is observed
+means the new expectations are too weak. The red run may occur within the same
+branch/PR as the eventual fix, but it must be captured before implementation; main
+and release tags do not intentionally ship a broken benchmark.
+
+### Gate B — Make protection occurrence- and path-aware
+
+The load-bearing architecture rule is:
+
+> Every trust input, runtime/config, authority, tool, control, and boundary that can
+> participate in an exposure carries occurrence-level identity (at minimum source,
+> runtime, and structural scope; server/workflow/config identity where applicable).
+> Protection counts only when it lies on the same connected path as the occurrence
+> it restricts.
+
+Consequences:
+
+- Family IDs classify results; they are never join keys for deciding that a control
+  protects a path.
+- `any control with this ID exists` is not a valid hard-barrier test.
+- One pinned launcher does not protect another launcher. One deny rule does not
+  protect another runtime or scope. One network restriction does not break an
+  unrelated egress path.
+- Collection must not collapse distinct occurrences before evaluation. Reports may
+  group them only after path decisions are complete and must preserve their source
+  identities as evidence.
+- No fixture-name/path detection, new per-family exception, family-ID matching, or
+  post-hoc verdict downgrade may substitute for connected-path evaluation.
+- Existing scope judgments remain labeled judgments. They cannot repair missing
+  occurrence identity in the deterministic graph.
+
+Done when every unsafe/inverse pair from Gate A passes and a direct regression test
+proves that adding an unrelated safe occurrence cannot improve an existing unsafe
+occurrence's exposure status or verdict.
+
+### Gate C — Make explicit and fleet targets trustworthy
+
+Target resolution is part of the security result, not CLI plumbing:
+
+- An explicit target that is missing, not a directory, or cannot be enumerated is a
+  runtime error for single-target commands. It never becomes `no_agents_found`.
+- A bad fleet target is recorded as an error, not completed, and is excluded from
+  verdict counts. Fleet output must expose the error count and target identity;
+  JSONL continues to fail rather than silently omit errored targets.
+- Explicit endpoint targets are scanned exactly as supplied. They never fall back
+  to the collector's `HOME`. Home fallback is allowed only for `ariadne self` (or an
+  equivalent endpoint command) when the user supplied no path.
+- A readable target with genuinely no supported runtime evidence may still be
+  `no_agents_found`; target failure and absence of agents are distinct states.
+
+These behaviors require CLI and fleet contract tests in addition to Story Lab
+worlds. `make eval` does not absorb tests that belong in Go/CLI contracts merely to
+create one convenient stop command.
+
+### Gate D — Represent inconclusive posture honestly
+
+Missing or unparseable evidence cannot produce `hardened`, and a run with unresolved
+exposure evidence cannot say `no action needed`.
+
+- Add a first-class `inconclusive` verdict for a scanned target whose runtime exists
+  but whose supported posture cannot be determined safely (including load-bearing
+  parse failure or incomplete evidence needed by the verdict).
+- `inconclusive` is distinct from `no_agents_found`, `tradeoffs_only`, `hardened`,
+  `reckless`, and target/runtime error.
+- `--gate` fails closed on `inconclusive` with documented non-zero behavior; fleet
+  rollups count it explicitly and rank it ahead of clean/non-agent states but below
+  confirmed reckless targets.
+- `next_action` names the evidence or parse gap to resolve. It never says
+  `no action needed` while `inconclusive > 0` or a load-bearing parser failed.
+- Parser success/failure and relevant limitations are deterministic facts carried
+  into the verdict; absence of parsed authority is not treated as evidence that the
+  authority is absent.
+
+`ariadne.verdict/v1` was declared frozen in Phase 2. Do not silently widen its enum
+or change gate semantics under the same contract. Phase 5 must define and document
+a versioned verdict migration (normally `ariadne.verdict/v2`), update schemas and
+fleet consumers together, and make compatibility behavior explicit before the new
+word becomes the default.
+
+Required unknown/error worlds and contract tests:
+
+- malformed supported runtime config;
+- recognized but unreadable load-bearing config;
+- missing explicit repository target;
+- missing/unreadable fleet target;
+- explicit endpoint snapshot with no recognized marker (scan it exactly; do not
+  scan the collector home);
+- genuinely readable target with no agents (inverse: remains `no_agents_found`).
+
+### Phase 5 completion bar
+
+Phase 5 passes only when all of the following are true:
+
+1. The pre-fix red run is recorded, including the pinned-plus-unpinned reproduction.
+2. Every required unsafe composition fixture and its inverse passes.
+3. Missing/unreadable explicit and fleet targets follow Gate C.
+4. Inconclusive configuration follows Gate D and cannot render `hardened` or
+   `no action needed`.
+5. `make eval` exits 0 on the expanded benchmark with 100% verdict-word accuracy
+   and 100% precision/recall for every measured exposure family.
+6. `make check`, `make verify-first-run`, and the race-enabled Go suite pass; schema
+   and CLI/fleet contract tests pass for the versioned verdict migration.
+7. A repository-level regression proves that controls from testdata, examples, or
+   a disjoint subtree cannot protect unrelated production/root paths.
+
+Do not start Phase 6/product expansion from a merely green legacy eval. The Phase 5
+fixture matrix and contract tests are the new measuring instrument.
+
 ## Loop guardrails (beyond CLAUDE.md)
 
 1. **Never special-case the eval.** No detection code may branch on fixture names,
    paths, or any signature of the benchmark. Passing the eval by recognizing the
    eval is a failure, full stop.
-2. **Every new expectation ships with an adversarial twin** — a negative fixture the
-   naive implementation of the same detector would misfire on.
+2. **Every new expectation ships with an adversarial twin.** For composition work,
+   this is a paired inverse: safe-hides-unsafe must remain unsafe, while the same
+   world with every occurrence genuinely controlled must remain non-reckless. For a
+   new detector, include the negative fixture the naive implementation would
+   misfire on.
 3. **The scorecard is the bar; string asserts are legacy.** Do not grow
    `verify-first-run.sh` with new `expect_contains` lines for new behavior; encode
    new behavior in `make eval` expectations or Go tests instead.
@@ -186,3 +336,10 @@ the full verification bar plus `make eval` → append one line to
 `docs/goal-progress.md` (date, what moved, scorecard delta).
 Stop the loop and report when a phase bar passes or when two consecutive iterations
 produce no scorecard improvement.
+
+**Phase 5 bootstrap override:** its first iteration adds the complete Gate A paired
+fixture matrix before changing evaluation code, then runs and records the required
+red scorecard. Subsequent iterations fix the top mismatch in the declared phase
+order: occurrence/path composition first, target integrity second, inconclusive
+semantics and versioned contract migration third. A green scorecard before Gate A
+has visibly failed is a harness failure, not phase completion.

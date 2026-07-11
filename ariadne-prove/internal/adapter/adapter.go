@@ -32,6 +32,9 @@ var (
 	riskyInstructionPattern      = regexp.MustCompile(`(?i)(read\s+\.env|read\s+.*secret|secret|token|always approve|ignore security|bypass|send\s+.*secret|send\s+.*token|private key|\.ssh|\.aws)`)
 	delegationInstructionPattern = regexp.MustCompile(`(?i)(sub[- ]?agent|delegate\s+to|handoff\s+to|worker\s+agent|manager\s+agent|spawn\s+agent|parallel\s+agents|task\s+tool|agent\s+team)`)
 	inlineCredentialPattern      = regexp.MustCompile(`(?i)(api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|password)\s*[:=]`)
+	exactPackageVersionPattern   = regexp.MustCompile(`(?i)^(?:@[^/@\s]+/[^@\s]+|[^@\s]+)@v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?$`)
+	exactPythonVersionPattern    = regexp.MustCompile(`(?i)^[a-z0-9_.-]+==[0-9]+\.[0-9]+\.[0-9]+(?:[a-z0-9_.+-]*)$`)
+	boundImageDigestPattern      = regexp.MustCompile(`(?i)^[^@\s]+@sha256:[a-f0-9]{64}$`)
 )
 
 func Collect(opts Options) model.Collection {
@@ -50,18 +53,106 @@ func Collect(opts Options) model.Collection {
 	})
 	c.Surfaces = surfaces
 	c.Warnings = append(c.Warnings, warnings...)
+	for _, warning := range warnings {
+		source := discoveryWarningSource(warning)
+		status := model.ParserStatusFact{
+			ID:      "parser:surface-discovery:" + shortHash(warning),
+			Source:  source,
+			Scope:   normalizedCollectionMode(opts.Mode),
+			Status:  model.ParserStatusUnreadable,
+			Summary: "Could not completely inspect a potentially relevant configuration subtree: " + warning,
+		}
+		status.OccurrenceID = stableOccurrenceID("config", status.ID, "", status.Source, status.Scope, "")
+		c.ParserStatuses = appendUniqueParserStatus(c.ParserStatuses, status)
+	}
 	for _, s := range surfaces {
 		collectSurface(&c, opts, s)
 	}
+	linkRuntimeRequirementControls(&c)
 	if opts.Mode == "endpoint" && !hasBoundary(&c, "boundary:developer-secret-boundary") && len(c.Authorities) > 0 {
+		authority := c.Authorities[0]
 		c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
-			ID:       "boundary:developer-secret-boundary",
-			Kind:     "secret-like-files",
-			Abstract: true,
-			Summary:  "Developer machines commonly hold secret-like files and credential caches near local agents.",
+			ID:           "boundary:developer-secret-boundary",
+			OccurrenceID: stableOccurrenceID("boundary", "boundary:developer-secret-boundary", authority.Runtime, authority.Source, authority.AuthorityScope, authority.ScopeSubtree),
+			Kind:         "secret-like-files",
+			Source:       authority.Source,
+			Scope:        authority.AuthorityScope,
+			ScopeSubtree: authority.ScopeSubtree,
+			Abstract:     true,
+			Summary:      "Developer machines commonly hold secret-like files and credential caches near local agents.",
 		})
 	}
+	if c.ParserStatuses == nil {
+		c.ParserStatuses = []model.ParserStatusFact{}
+	}
 	return c
+}
+
+func linkRuntimeRequirementControls(c *model.Collection) {
+	for i := range c.Controls {
+		control := &c.Controls[i]
+		if control.Runtime != "codex" || !strings.HasSuffix(filepath.ToSlash(control.Source), ".codex/requirements.toml") {
+			continue
+		}
+		for _, authority := range c.Authorities {
+			if authority.Runtime != "codex" || !requirementControlRestrictsAuthority(control.ID, authority.ID) || !requirementScopeContains(control.Scope, control.ScopeSubtree, authority.AuthorityScope, authority.ScopeSubtree) {
+				continue
+			}
+			if authority.OccurrenceID != "" && !containsExactString(control.AppliesTo, authority.OccurrenceID) {
+				control.AppliesTo = append(control.AppliesTo, authority.OccurrenceID)
+			}
+		}
+	}
+}
+
+func containsExactString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func requirementControlRestrictsAuthority(controlID, authorityID string) bool {
+	switch controlID {
+	case "control:deny-secret-read":
+		return authorityID == "authority:file-read" || authorityID == "authority:broad-local"
+	case "control:network-restricted":
+		return authorityID == "authority:external-communication" || authorityID == "authority:broad-local"
+	default:
+		return false
+	}
+}
+
+func requirementScopeContains(controlScope, controlSubtree, authorityScope, authoritySubtree string) bool {
+	if controlScope == model.InstructionScopeRoot {
+		return true
+	}
+	return controlScope == model.InstructionScopeNested && authorityScope == model.AuthorityScopeNested && controlSubtree != "" && controlSubtree == authoritySubtree
+}
+
+func discoveryWarningSource(warning string) string {
+	for _, prefix := range []string{"could not inspect ", "surface discovery failed for "} {
+		if rest, ok := strings.CutPrefix(warning, prefix); ok {
+			if source, _, found := strings.Cut(rest, ": "); found && source != "" {
+				return source
+			}
+		}
+	}
+	return "surface-discovery"
+}
+
+func normalizedCollectionMode(mode string) string {
+	if mode == "endpoint" {
+		return "endpoint"
+	}
+	return "repo"
+}
+
+func shortHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:6])
 }
 
 func hasBoundary(c *model.Collection, id string) bool {
@@ -75,6 +166,22 @@ func hasBoundary(c *model.Collection, id string) bool {
 
 func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 	surfaceScope, scopeSubtree := structuralScopeForSurface(opts, s)
+	if status, ok := parserStatusForSurface(s); ok {
+		status.OccurrenceID = stableOccurrenceID("config", status.ID, status.Runtime, status.Source, status.Scope, "")
+		c.ParserStatuses = appendUniqueParserStatus(c.ParserStatuses, status)
+		if status.Status != model.ParserStatusParsed {
+			c.Warnings = append(c.Warnings, status.Summary)
+		}
+	}
+	starts := occurrenceStarts{
+		runtimes:    len(c.Runtimes),
+		trustInputs: len(c.TrustInputs),
+		tools:       len(c.Tools),
+		authorities: len(c.Authorities),
+		controls:    len(c.Controls),
+		boundaries:  len(c.Boundaries),
+	}
+	defer applyOccurrenceMetadataForSurface(c, s, surfaceScope, scopeSubtree, starts)
 	fact := model.Fact{
 		ID:            "fact:" + trimPrefix(s.ID, "surface:"),
 		Type:          s.Category,
@@ -97,7 +204,10 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		fact.ScopeSubtree = scopeSubtree
 		defer applyAuthorityScopeForSurface(c, s, surfaceScope, scopeSubtree)
 	}
-	c.Facts = appendUniqueFact(c.Facts, fact)
+	// Surface IDs are discovery-stable and unique, so the base fact needs no
+	// linear deduplication pass. This keeps occurrence-preserving collection
+	// linear for repositories with thousands of boundary indicators.
+	c.Facts = append(c.Facts, fact)
 	collectRuntimeSurfaceEvidence(c, s)
 
 	switch s.HandlingMode {
@@ -176,6 +286,141 @@ func collectSurface(c *model.Collection, opts Options, s model.Surface) {
 		collectGitLabCIWorkflow(c, opts, s)
 	}
 	_ = opts
+}
+
+func parserStatusForSurface(s model.Surface) (model.ParserStatusFact, bool) {
+	if s.HandlingMode != "parse" {
+		return model.ParserStatusFact{}, false
+	}
+	runtime := runtimeForSurface(s)
+	if runtime == "" && s.Runtime != "generic" {
+		runtime = s.Runtime
+	}
+	status := model.ParserStatusFact{
+		ID:      "parser:" + trimPrefix(s.ID, "surface:"),
+		Source:  s.Source,
+		Runtime: runtime,
+		Scope:   s.Scope,
+		Status:  model.ParserStatusParsed,
+		Summary: "Configuration occurrence was read and parsed for supported deterministic facts.",
+	}
+	data, err := os.ReadFile(s.Path)
+	if err != nil {
+		status.Status = model.ParserStatusUnreadable
+		status.Summary = "Could not read discovered configuration occurrence " + s.Source + "."
+		return status, true
+	}
+	parsed := true
+	switch s.Kind {
+	case "codex-config", "codex-requirements":
+		_, parsed = agentconfig.ParseCodexConfig(data)
+	case "claude-settings", "claude-local-settings", "claude-remote-settings":
+		_, parsed = agentconfig.ParseClaudeSettings(data)
+	case "github-actions-workflow":
+		_, parsed = agentconfig.ParseGitHubWorkflow(data)
+	case "gitlab-ci-pipeline", "aider-config", "opentelemetry-config":
+		parsed = agentconfig.ValidateYAMLDocument(data)
+	case "mcp-config", "claude-mcp-config", "cursor-mcp-config", "windsurf-mcp-config", "continue-mcp-config", "vscode-mcp-config", "cline-mcp-config", "roo-mcp-config":
+		var document map[string]json.RawMessage
+		parsed = json.Unmarshal(data, &document) == nil
+	case "cursor-settings", "windsurf-settings", "continue-config", "gemini-settings", "opencode-config", "vscode-settings",
+		"claude-plugin-config", "claude-installed-plugins", "gemini-extension", "claude-policy-limits",
+		"network-policy", "egress-policy", "agent-policy", "tool-policy", "delegation-policy", "input-policy", "identity-policy",
+		"authorization-policy", "workload-policy", "resource-policy", "memory-policy", "integrity-policy", "observability-policy",
+		"response-policy", "governance-policy", "output-policy", "supply-chain-policy", "ai-bom":
+		var document any
+		parsed = json.Unmarshal(data, &document) == nil
+	}
+	if !parsed {
+		status.Status = model.ParserStatusMalformed
+		status.Summary = "Could not structurally parse discovered configuration occurrence " + s.Source + "."
+	}
+	return status, true
+}
+
+type occurrenceStarts struct {
+	runtimes    int
+	trustInputs int
+	tools       int
+	authorities int
+	controls    int
+	boundaries  int
+}
+
+// applyOccurrenceMetadataForSurface preserves the public family IDs used for
+// classification while giving each collected runtime/config, trust input,
+// tool, authority, control, and boundary a stable occurrence identity. The
+// identity carries the source/runtime/structural-scope join information used
+// by proof evaluation; family IDs are never sufficient to join two facts.
+func applyOccurrenceMetadataForSurface(c *model.Collection, s model.Surface, scope, subtree string, starts occurrenceStarts) {
+	for i := starts.runtimes; i < len(c.Runtimes); i++ {
+		item := &c.Runtimes[i]
+		if item.OccurrenceID == "" {
+			item.OccurrenceID = stableOccurrenceID("runtime", item.ID, item.Kind, item.Source, item.Scope, "")
+		}
+	}
+	for i := starts.trustInputs; i < len(c.TrustInputs); i++ {
+		item := &c.TrustInputs[i]
+		if item.OccurrenceID == "" {
+			item.OccurrenceID = stableOccurrenceID("trust-input", item.ID, item.Runtime, item.Source, item.InstructionScope, item.ScopeSubtree)
+		}
+	}
+	for i := starts.tools; i < len(c.Tools); i++ {
+		item := &c.Tools[i]
+		if item.Scope == "" {
+			item.Scope = scope
+		}
+		if item.ScopeSubtree == "" {
+			item.ScopeSubtree = subtree
+		}
+		if item.OccurrenceID == "" {
+			item.OccurrenceID = stableOccurrenceID("tool", item.ID, item.Runtime, item.Source, item.Scope, item.ScopeSubtree)
+		}
+	}
+	for i := starts.authorities; i < len(c.Authorities); i++ {
+		item := &c.Authorities[i]
+		if item.AuthorityScope == "" {
+			item.AuthorityScope = scope
+		}
+		if item.ScopeSubtree == "" {
+			item.ScopeSubtree = subtree
+		}
+		if item.OccurrenceID == "" {
+			item.OccurrenceID = stableOccurrenceID("authority", item.ID, item.Runtime, item.Source, item.AuthorityScope, item.ScopeSubtree)
+		}
+	}
+	for i := starts.controls; i < len(c.Controls); i++ {
+		item := &c.Controls[i]
+		if item.Scope == "" {
+			item.Scope = scope
+		}
+		if item.ScopeSubtree == "" {
+			item.ScopeSubtree = subtree
+		}
+		if item.OccurrenceID == "" {
+			item.OccurrenceID = stableOccurrenceID("control", item.ID, item.Runtime, item.Source, item.Scope, item.ScopeSubtree)
+		}
+	}
+	for i := starts.boundaries; i < len(c.Boundaries); i++ {
+		item := &c.Boundaries[i]
+		if item.Source == "" {
+			item.Source = s.Source
+		}
+		if item.Scope == "" {
+			item.Scope = scope
+		}
+		if item.ScopeSubtree == "" {
+			item.ScopeSubtree = subtree
+		}
+		if item.OccurrenceID == "" {
+			item.OccurrenceID = stableOccurrenceID("boundary", item.ID, runtimeForSurface(s), item.Source, item.Scope, item.ScopeSubtree)
+		}
+	}
+}
+
+func stableOccurrenceID(entity, family, runtime, source, scope, discriminator string) string {
+	digest := sha256.Sum256([]byte(strings.Join([]string{entity, family, runtime, source, scope, discriminator}, "\x00")))
+	return "occurrence:" + entity + ":" + hex.EncodeToString(digest[:])[:16]
 }
 
 func collectRuntimeSurfaceEvidence(c *model.Collection, s model.Surface) {
@@ -491,8 +736,8 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 	if cfg.NetworkAccess != nil && !*cfg.NetworkAccess {
 		addControlAt(c, "control:network-restricted", "network-restricted", "codex", source, "Codex config restricts external network communication.", cfg.NetworkAccessLine)
 	}
-	if codexDeniesSecretPath(cfg) {
-		addControlAt(c, "control:deny-secret-read", "deny-secret-read", "codex", source, "Codex deny-read policy covers secret-like paths.", codexDenySecretPathLine(cfg))
+	if patterns := codexSecretDenyPatterns(cfg); len(patterns) > 0 {
+		addResourceControlAt(c, "control:deny-secret-read", "deny-secret-read", "codex", source, patterns, "Codex deny-read policy covers named secret-like paths.", codexDenySecretPathLine(cfg))
 	}
 	scopedSandbox := cfg.SandboxMode == "read-only" || cfg.SandboxMode == "workspace-write"
 	scopedApproval := cfg.ApprovalPolicy == "on-request" || cfg.ApprovalPolicy == "on-failure" || cfg.ApprovalPolicy == "untrusted"
@@ -518,6 +763,16 @@ func collectCodexConfig(c *model.Collection, s model.Surface) {
 
 func codexDeniesSecretPath(cfg agentconfig.CodexConfig) bool {
 	return codexDenySecretPathLine(cfg) > 0
+}
+
+func codexSecretDenyPatterns(cfg agentconfig.CodexConfig) []string {
+	var patterns []string
+	for _, candidate := range cfg.DenyRead {
+		if agentconfig.IsSecretLikePath(candidate) {
+			patterns = append(patterns, candidate)
+		}
+	}
+	return patterns
 }
 
 func codexDenySecretPathLine(cfg agentconfig.CodexConfig) int {
@@ -601,8 +856,8 @@ func collectClaudeSettings(c *model.Collection, s model.Surface) {
 	if claudeNetworkRestricted(cfg) {
 		addControlAt(c, "control:network-restricted", "network-restricted", "claude", source, "Claude Code settings restrict web or external network communication.", claudeNetworkRestrictedLine(cfg))
 	}
-	if cfg.HasSecretReadDeny() {
-		addControlAt(c, "control:deny-secret-read", "deny-secret-read", "claude", source, "Claude Code deny/disallow policy covers secret-like paths.", claudeSecretReadDenyLine(cfg))
+	if patterns := claudeSecretDenyPatterns(cfg); len(patterns) > 0 {
+		addResourceControlAt(c, "control:deny-secret-read", "deny-secret-read", "claude", source, patterns, "Claude Code deny/disallow policy covers named secret-like paths.", claudeSecretReadDenyLine(cfg))
 	}
 	if (cfg.DefaultMode == "default" && len(cfg.Allow) > 0) || len(cfg.Deny) > 0 {
 		addControlAt(c, "control:scoped-permissions", "scoped-permissions", "claude", source, "Claude Code settings declare scoped default-mode permissions.", firstPositive(lineIfEqual(cfg.DefaultMode, "default", cfg.DefaultModeLine), firstPermRuleLine(cfg.Allow), firstPermRuleLine(cfg.Deny)))
@@ -686,6 +941,9 @@ func claudeAllowsExternalCommunication(cfg agentconfig.ClaudeSettings) bool {
 func claudeNetworkRestricted(cfg agentconfig.ClaudeSettings) bool {
 	deniedWebFetch := cfg.HasDenyTool("WebFetch") && !cfg.HasAllowTool("WebFetch")
 	deniedWebSearch := cfg.HasDenyTool("WebSearch") && !cfg.HasAllowTool("WebSearch")
+	if claudeAllowsExternalCommunication(cfg) {
+		return false
+	}
 	if deniedWebFetch || deniedWebSearch {
 		return true
 	}
@@ -693,6 +951,16 @@ func claudeNetworkRestricted(cfg agentconfig.ClaudeSettings) bool {
 		return true
 	}
 	return false
+}
+
+func claudeSecretDenyPatterns(cfg agentconfig.ClaudeSettings) []string {
+	var patterns []string
+	for _, rule := range cfg.Deny {
+		if strings.EqualFold(rule.Tool, "Read") && agentconfig.IsSecretLikePath(rule.Scope) {
+			patterns = append(patterns, rule.Scope)
+		}
+	}
+	return patterns
 }
 
 func claudeBroadLocalLine(cfg agentconfig.ClaudeSettings) int {
@@ -893,8 +1161,17 @@ func collectMCPConfig(c *model.Collection, s model.Surface) {
 	sort.Strings(serverNames)
 	for _, serverName := range serverNames {
 		server := servers[serverName]
+		runtime := runtimeForSurface(s)
+		serverDiscriminator := "server:" + serverName
 		if server.Disabled {
-			addControl(c, "control:tool-allowlist", "tool-allowlist", runtimeForSurface(s), s.Source, "MCP server "+serverName+" is disabled in configuration.")
+			c.Controls = appendUniqueControl(c.Controls, model.Control{
+				ID:           "control:tool-allowlist",
+				OccurrenceID: stableOccurrenceID("control", "control:tool-allowlist", runtime, s.Source, s.Scope, serverDiscriminator),
+				Kind:         "tool-allowlist",
+				Runtime:      runtime,
+				Source:       s.Source,
+				Summary:      "MCP server " + serverName + " is disabled in configuration.",
+			})
 			continue
 		}
 		commandLine := strings.TrimSpace(server.Command + " " + strings.Join(server.Args, " "))
@@ -911,36 +1188,43 @@ func collectMCPConfig(c *model.Collection, s model.Surface) {
 			toolID = "tool:mcp-remote-server"
 			toolKind = "mcp-remote-server"
 		}
+		toolOccurrenceID := stableOccurrenceID("tool", toolID, runtime, s.Source, s.Scope, serverDiscriminator)
 		c.Tools = appendUniqueTool(c.Tools, model.Tool{
-			ID:        toolID,
-			Kind:      toolKind,
-			Runtime:   runtimeForSurface(s),
-			Source:    s.Source,
-			Risky:     riskyPackageLaunch || strings.HasPrefix(lower, "http://"),
-			Summary:   "MCP server " + serverName + " is declared for local agent use.",
-			LineStart: mcpLineStart,
-			LineEnd:   mcpLineEnd,
+			ID:           toolID,
+			OccurrenceID: toolOccurrenceID,
+			Kind:         toolKind,
+			Runtime:      runtime,
+			Source:       s.Source,
+			Risky:        riskyPackageLaunch || strings.HasPrefix(lower, "http://"),
+			Summary:      "MCP server " + serverName + " is declared for local agent use.",
+			LineStart:    mcpLineStart,
+			LineEnd:      mcpLineEnd,
 		})
 		c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+toolID, "tool", s.Source, "declared", "MCP launch mechanism was collected without executing the MCP server.", mcpLine))
 		if packageLaunch {
-			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", Kind: "local-code-execution", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "Package-manager or interpreter-launched MCP can execute local code under the developer user.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
-			c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", Kind: "developer-execution-boundary", Abstract: true, Summary: "Developer user execution context and local machine privileges."})
+			authorityOccurrenceID := stableOccurrenceID("authority", "authority:local-code-execution", runtime, s.Source, s.Scope, serverDiscriminator)
+			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:local-code-execution", OccurrenceID: authorityOccurrenceID, Kind: "local-code-execution", Runtime: runtime, Source: s.Source, GrantedBy: []string{toolOccurrenceID}, Summary: "Package-manager or interpreter-launched MCP can execute local code under the developer user.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
+			c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-execution-boundary", OccurrenceID: stableOccurrenceID("boundary", "boundary:developer-execution-boundary", runtime, s.Source, s.Scope, serverDiscriminator), Kind: "developer-execution-boundary", Source: s.Source, ReachedBy: []string{authorityOccurrenceID}, Abstract: true, Summary: "Developer user execution context and local machine privileges."})
 		}
 		if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || containsExternalCommunication(lower) {
-			addExternalCommunication(c, runtimeForSurface(s), s.Source, "MCP config declares a remote server or external communication path.")
+			authorityOccurrenceID := stableOccurrenceID("authority", "authority:external-communication", runtime, s.Source, s.Scope, serverDiscriminator)
+			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:external-communication", OccurrenceID: authorityOccurrenceID, Kind: "external-communication", Runtime: runtime, Source: s.Source, GrantedBy: []string{toolOccurrenceID}, Summary: "MCP config declares a remote server or external communication path.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
+			c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:external-destination", OccurrenceID: stableOccurrenceID("boundary", "boundary:external-destination", runtime, s.Source, s.Scope, serverDiscriminator), Kind: "external-destination", Source: s.Source, ReachedBy: []string{authorityOccurrenceID}, Abstract: true, Summary: "External network, web, or remote service destination outside the local trust boundary."})
+			c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:authority:external-communication", "authority", s.Source, "declared", "External communication authority was collected.", mcpLine))
 		}
 		if strings.Contains(lower, "~") || strings.Contains(lower, "$home") || strings.Contains(lower, "/users/") {
-			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", Kind: "file-read", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "MCP filesystem arguments appear to include broad home or filesystem reachability.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
-			c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-secret-boundary", Kind: "secret-like-files", Abstract: true, Summary: "Developer machines commonly hold secret-like files and credential caches near local agents."})
+			authorityOccurrenceID := stableOccurrenceID("authority", "authority:file-read", runtime, s.Source, s.Scope, serverDiscriminator)
+			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:file-read", OccurrenceID: authorityOccurrenceID, Kind: "file-read", Runtime: runtime, Source: s.Source, GrantedBy: []string{toolOccurrenceID}, Summary: "MCP filesystem arguments appear to include broad home or filesystem reachability.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
+			c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{ID: "boundary:developer-secret-boundary", OccurrenceID: stableOccurrenceID("boundary", "boundary:developer-secret-boundary", runtime, s.Source, s.Scope, serverDiscriminator), Kind: "secret-like-files", Source: s.Source, ReachedBy: []string{authorityOccurrenceID}, Abstract: true, Summary: "Developer machines commonly hold secret-like files and credential caches near local agents."})
 		}
 		if looksPinned(lower) {
-			c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:mcp-reviewed-pinned", Kind: "mcp-reviewed-pinned", Source: s.Source, Summary: "MCP command pinning constrains package-manager drift.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
+			c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:mcp-reviewed-pinned", OccurrenceID: stableOccurrenceID("control", "control:mcp-reviewed-pinned", runtime, s.Source, s.Scope, serverDiscriminator), Kind: "mcp-reviewed-pinned", Runtime: runtime, Source: s.Source, AppliesTo: []string{toolOccurrenceID}, Summary: "MCP command pinning constrains package-manager drift.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
 		}
 		if server.SandboxEnabled || strings.Contains(lower, "sandboxenabled") {
-			addControl(c, "control:tool-sandbox-execution", "tool-sandbox-execution", runtimeForSurface(s), s.Source, "MCP server "+serverName+" declares sandboxed tool execution.")
+			c.Controls = appendUniqueControl(c.Controls, model.Control{ID: "control:tool-sandbox-execution", OccurrenceID: stableOccurrenceID("control", "control:tool-sandbox-execution", runtime, s.Source, s.Scope, serverDiscriminator), Kind: "tool-sandbox-execution", Runtime: runtime, Source: s.Source, AppliesTo: []string{toolOccurrenceID}, Summary: "MCP server " + serverName + " declares sandboxed tool execution."})
 		}
 		if len(server.AlwaysAllow) > 0 {
-			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", Kind: "broad-local", Runtime: runtimeForSurface(s), Source: s.Source, Summary: "MCP server " + serverName + " declares always-allowed tool calls.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
+			c.Authorities = appendUniqueAuthority(c.Authorities, model.Authority{ID: "authority:broad-local", OccurrenceID: stableOccurrenceID("authority", "authority:broad-local", runtime, s.Source, s.Scope, serverDiscriminator), Kind: "broad-local", Runtime: runtime, Source: s.Source, GrantedBy: []string{toolOccurrenceID}, Summary: "MCP server " + serverName + " declares always-allowed tool calls.", LineStart: mcpLineStart, LineEnd: mcpLineEnd})
 		}
 	}
 }
@@ -2206,6 +2490,12 @@ func addControlAt(c *model.Collection, id, kind, runtime, source, summary string
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+id, "control", source, "declared", summary, line))
 }
 
+func addResourceControlAt(c *model.Collection, id, kind, runtime, source string, resources []string, summary string, line int) {
+	lineStart, lineEnd := lineRange(line)
+	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: id, Kind: kind, Runtime: runtime, Source: source, RestrictedResources: append([]string(nil), resources...), Summary: summary, LineStart: lineStart, LineEnd: lineEnd})
+	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceAt("evidence:"+id, "control", source, "declared", summary, line))
+}
+
 func addObservedControl(c *model.Collection, id, kind, runtime, source, summary string) {
 	c.Controls = appendUniqueControl(c.Controls, model.Control{ID: id, Kind: kind, Runtime: runtime, Source: source, Summary: summary})
 	c.Evidence = appendUniqueEvidence(c.Evidence, evidence("evidence:"+id, "control", source, "observed", summary))
@@ -2235,14 +2525,17 @@ func collectSummarySurface(c *model.Collection, s model.Surface) {
 }
 
 func collectBoundaryIndicator(c *model.Collection, s model.Surface) {
-	c.Boundaries = appendUniqueBoundary(c.Boundaries, model.Boundary{
+	// Discovery yields one boundary-indicator surface per source, so this is
+	// already unique. Appending directly avoids quadratic scans for large repos
+	// while preserving every occurrence instead of collapsing by family ID.
+	c.Boundaries = append(c.Boundaries, model.Boundary{
 		ID:      "boundary:secret-like-file",
 		Kind:    "secret-like-file",
 		Source:  s.Source,
 		Summary: "Secret-like file path exists; contents are not read or reported.",
 		Anchor:  "file",
 	})
-	c.Evidence = appendUniqueEvidence(c.Evidence, evidenceFileAnchor("evidence:boundary:secret-like-file", "boundary", s.Source, "observed", "Secret-like boundary exists; values are not included in reports."))
+	c.Evidence = append(c.Evidence, evidenceFileAnchor("evidence:boundary:secret-like-file", "boundary", s.Source, "observed", "Secret-like boundary exists; values are not included in reports."))
 }
 
 func runtimeForSurface(s model.Surface) string {
@@ -3712,7 +4005,105 @@ func inlineCredentialConfigured(text string) bool {
 }
 
 func looksPinned(text string) bool {
-	return regexp.MustCompile(`@[0-9]+\.[0-9]+`).MatchString(text) || strings.Contains(text, "sha256:")
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false
+	}
+	launcher := strings.TrimSuffix(filepath.Base(fields[0]), ".exe")
+	args := fields[1:]
+	switch launcher {
+	case "npx":
+		coordinate := firstPackageCoordinate(args)
+		return exactPackageVersionPattern.MatchString(coordinate)
+	case "uvx":
+		coordinate := firstPackageCoordinate(args)
+		return exactPackageVersionPattern.MatchString(coordinate) || exactPythonVersionPattern.MatchString(coordinate)
+	case "npm":
+		if len(args) > 0 && (args[0] == "exec" || args[0] == "x") {
+			args = args[1:]
+		}
+		coordinate := firstPackageCoordinate(args)
+		return exactPackageVersionPattern.MatchString(coordinate)
+	case "pnpm", "yarn":
+		if len(args) > 0 && (args[0] == "dlx" || args[0] == "exec") {
+			args = args[1:]
+		}
+		coordinate := firstPackageCoordinate(args)
+		return exactPackageVersionPattern.MatchString(coordinate)
+	case "docker":
+		return boundImageDigestPattern.MatchString(dockerRunImage(args))
+	}
+	return false
+}
+
+func firstPackageCoordinate(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := strings.Trim(args[i], `"',`)
+		if arg == "--" {
+			continue
+		}
+		if strings.HasPrefix(arg, "--package=") {
+			return strings.TrimPrefix(arg, "--package=")
+		}
+		if arg == "-p" || arg == "--package" {
+			if i+1 < len(args) {
+				return strings.Trim(args[i+1], `"',`)
+			}
+			return ""
+		}
+		if packageFlagConsumesValue(arg) {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func packageFlagConsumesValue(flag string) bool {
+	switch flag {
+	case "--cache", "--userconfig", "--registry", "--prefix", "--node-options", "--call", "-c":
+		return true
+	default:
+		return false
+	}
+}
+
+func dockerRunImage(args []string) string {
+	run := -1
+	for i, arg := range args {
+		if arg == "run" {
+			run = i
+			break
+		}
+	}
+	if run < 0 {
+		return ""
+	}
+	for i := run + 1; i < len(args); i++ {
+		arg := strings.Trim(args[i], `"',`)
+		if dockerFlagConsumesValue(arg) {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func dockerFlagConsumesValue(flag string) bool {
+	switch flag {
+	case "-v", "--volume", "-e", "--env", "--name", "--network", "-w", "--workdir", "--entrypoint", "-p", "--publish":
+		return true
+	default:
+		return false
+	}
 }
 
 func declaresSecretDeny(text string) bool {
@@ -3856,12 +4247,22 @@ func rel(root, path string) string {
 
 func appendUniqueRuntime(in []model.RuntimeEvidence, next model.RuntimeEvidence) []model.RuntimeEvidence {
 	for i, item := range in {
-		if item.ID == next.ID && item.Scope == next.Scope {
+		if sameOccurrence(item.OccurrenceID, next.OccurrenceID) || (item.OccurrenceID == "" && next.OccurrenceID == "" && item.ID == next.ID && item.Scope == next.Scope && item.Source == next.Source) {
 			if prefersRuntimeSource(next.Source, item.Source) {
 				in[i] = next
 			} else {
 				in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			}
+			return in
+		}
+	}
+	return append(in, next)
+}
+
+func appendUniqueParserStatus(in []model.ParserStatusFact, next model.ParserStatusFact) []model.ParserStatusFact {
+	for i, item := range in {
+		if sameOccurrence(item.OccurrenceID, next.OccurrenceID) {
+			in[i] = next
 			return in
 		}
 	}
@@ -3900,7 +4301,7 @@ func appendUniqueTrustInput(in []model.TrustInput, next model.TrustInput) []mode
 
 func appendUniqueTool(in []model.Tool, next model.Tool) []model.Tool {
 	for i, item := range in {
-		if item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source {
+		if sameOccurrence(item.OccurrenceID, next.OccurrenceID) || (item.OccurrenceID == "" && next.OccurrenceID == "" && item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source) {
 			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			return in
 		}
@@ -3910,7 +4311,7 @@ func appendUniqueTool(in []model.Tool, next model.Tool) []model.Tool {
 
 func appendUniqueBoundary(in []model.Boundary, next model.Boundary) []model.Boundary {
 	for i, item := range in {
-		if item.ID == next.ID {
+		if sameOccurrence(item.OccurrenceID, next.OccurrenceID) || (item.OccurrenceID == "" && next.OccurrenceID == "" && item.ID == next.ID && item.Source == next.Source && item.Scope == next.Scope && item.ScopeSubtree == next.ScopeSubtree) {
 			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			if in[i].Source == "" && next.Source != "" {
 				in[i].Source = next.Source
@@ -3923,8 +4324,7 @@ func appendUniqueBoundary(in []model.Boundary, next model.Boundary) []model.Boun
 
 func appendUniqueAuthority(in []model.Authority, next model.Authority) []model.Authority {
 	for i, item := range in {
-		sameManagedSource := item.Source == next.Source || (next.Runtime != "github-actions" && next.Runtime != "gitlab-ci")
-		if item.ID == next.ID && item.Runtime == next.Runtime && sameManagedSource {
+		if sameOccurrence(item.OccurrenceID, next.OccurrenceID) || (item.OccurrenceID == "" && next.OccurrenceID == "" && item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source) {
 			in[i].LineStart, in[i].LineEnd, in[i].Anchor = mergedAnchor(item.LineStart, item.LineEnd, item.Anchor, next.LineStart, next.LineEnd, next.Anchor)
 			if in[i].Source == "" && next.Source != "" {
 				in[i].Source = next.Source
@@ -3952,7 +4352,7 @@ func appendUniqueControl(in []model.Control, next model.Control) []model.Control
 		next.Enforcement = controlEnforcement(next.Source)
 	}
 	for i, item := range in {
-		if item.ID == next.ID && item.Runtime == next.Runtime {
+		if sameOccurrence(item.OccurrenceID, next.OccurrenceID) || (item.OccurrenceID == "" && next.OccurrenceID == "" && item.ID == next.ID && item.Runtime == next.Runtime && item.Source == next.Source) {
 			if item.Enforcement == model.EnforcementAttested && next.Enforcement == model.EnforcementEnforced {
 				in[i] = next
 			} else {
@@ -3962,6 +4362,10 @@ func appendUniqueControl(in []model.Control, next model.Control) []model.Control
 		}
 	}
 	return append(in, next)
+}
+
+func sameOccurrence(left, right string) bool {
+	return left != "" && right != "" && left == right
 }
 
 func appendUniqueEvidence(in []model.Evidence, next model.Evidence) []model.Evidence {

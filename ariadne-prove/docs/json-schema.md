@@ -62,6 +62,19 @@ Edge types:
 - `governs`
 - `verifies`
 
+The graph has two layers. Stable family nodes and `path_edges` remain for UI and
+backward compatibility. Proof-bearing nodes use `occurrence:*` identities and
+`instance_of` edges. Each exposure's `occurrence_path_edges` contains the exact
+runtime/config, trust-input, tool, authority, boundary, and control occurrences
+that produced its status; evidence resolution uses these edges instead of a
+family-level last-write-wins lookup.
+
+Controls may include `applies_to` occurrence IDs and
+`restricted_resources`. A path is protected only when the control is enforced,
+is connected to the relevant runtime/source/scope occurrence, and covers the
+specific boundary resource. A deny for one secret path or network operation is
+not a universal barrier for other allowed resources or operations.
+
 ### Interpretation
 
 `prove`, `scan`, and `dashboard` include deterministic interpretation on top of exposure paths.
@@ -258,20 +271,26 @@ An exposure path includes:
 
 ### Verdict (`ariadne verdict --json`)
 
-The compact agent-native verdict (`ariadne.verdict/v1`) grades the target as
-`reckless`, `tradeoffs_only`, `hardened`, or `no_agents_found`:
+The compact agent-native verdict (`ariadne.verdict/v2`) grades the target as
+`reckless`, `inconclusive`, `tradeoffs_only`, `hardened`, or `no_agents_found`.
+Verdict v1 remains frozen; v2 adds the fail-closed `inconclusive` word and
+occurrence-level parser status facts:
 
-- `verdict` — the graded word; `reckless` findings are the only action items
+- `verdict` — the graded word; `reckless` findings require remediation and
+  `inconclusive` requires evidence repair before the target can be treated as safe
 - `scanned` — runtimes found, config surfaces read, `executed: false` always
+- `parser_statuses[]` — stable config occurrence IDs with `parsed`, `malformed`,
+  or `unreadable` status
 - `reckless[]` — `id` (`reckless:N`), `exposure_id`, `title`, `where` (source + line),
   `evidence_refs`, `why`, `fix` (enforced-surface fix, never an `.ariadne/*` declaration),
   and `attested_only` (declared-but-unenforced controls surfaced for transparency)
 - `tradeoffs[]` / `hardened[]` — accepted capabilities and enforced controls
 - `next_action`, `inconclusive`, `limitations`
 
-With `--gate`, the command exits 3 when the verdict is `reckless` (0 otherwise),
-so agents and CI can gate on it in one line. Only enforced configuration can
-produce `hardened` entries or keep a finding out of `reckless`.
+With `--gate`, the command exits 3 when the verdict is `reckless` or
+`inconclusive` (0 otherwise), so agents and CI fail closed on both proven risk
+and missing configuration evidence. Only enforced configuration can produce
+`hardened` entries or keep a finding out of `reckless`.
 
 ## Machine-Readable Draft Schemas
 
@@ -285,3 +304,8 @@ Draft schemas are available in:
 - [schema/ariadne-control-catalog-v1.schema.json](../schema/ariadne-control-catalog-v1.schema.json)
 - [schema/ariadne-operator-packet-v1.schema.json](../schema/ariadne-operator-packet-v1.schema.json)
 - [schema/ariadne-verdict-v1.schema.json](../schema/ariadne-verdict-v1.schema.json)
+- [schema/ariadne-verdict-v2.schema.json](../schema/ariadne-verdict-v2.schema.json)
+
+`ariadne-verdict-v2.schema.json` and `ariadne-scan-v1.schema.json` are
+self-contained Draft 2020-12 documents. They can validate emitted artifacts
+without a custom schema registry or network retrieval.

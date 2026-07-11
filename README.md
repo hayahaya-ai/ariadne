@@ -40,8 +40,8 @@ nothing executed, no secret values read
   ✓  approval prompts are enforced in .claude/settings.json
 ```
 
-The verdict is a word, not a score: `reckless`, `tradeoffs_only`, `hardened`,
-or `no_agents_found`. Every finding carries the exact file and line, why it
+The verdict is a word, not a score: `reckless`, `inconclusive`,
+`tradeoffs_only`, `hardened`, or `no_agents_found`. Every finding carries the exact file and line, why it
 matters in one sentence, and a one-line fix for the same surface the evidence
 came from.
 
@@ -102,7 +102,7 @@ The primary user may be an AI agent deciding what to do next. Every line has a
 stable ID and the CLI is a navigable resource tree:
 
 ```bash
-ariadne verdict --json             # machine verdict (schema: ariadne.verdict/v1)
+ariadne verdict --json             # machine verdict (schema: ariadne.verdict/v2)
 ariadne ls findings                # findings | agents | surfaces | controls | facts | cases
 ariadne show reckless:1            # drill into one finding: evidence, why, fix
 ariadne show .claude/settings.json # everything concluded from one file
@@ -121,10 +121,10 @@ claude plugin install ariadne@ariadne
 ## Gate a pipeline, see a fleet
 
 ```bash
-# CI gate: exit 3 when reckless — this repository gates itself with this line.
+# CI gate: exit 3 when reckless or inconclusive — this repository gates itself with this line.
 ariadne verdict --path . --mode repo --gate
 
-# Fleet rollup: one verdict/v1 JSON line per endpoint, plus a worst-first
+# Fleet rollup: one verdict/v2 JSON line per endpoint, plus a worst-first
 # summary with findings grouped by family — SIEM-ready.
 ariadne scan --targets endpoints.txt --mode endpoint --format jsonl --out verdicts.jsonl
 ariadne scan --targets endpoints.txt --mode endpoint --format json  --out fleet.json
@@ -136,7 +136,7 @@ MDM/fleet deployment patterns documented against verified behavior.
 
 ## Why you can trust the answer
 
-- **Scored against 29 fixture worlds** with known-correct expected verdicts —
+- **Scored against 38 fixture worlds** with known-correct expected verdicts —
   including adversarial twins built to catch lazy shortcuts (keyword-in-string,
   deny-vs-allow, commented-out config, self-declared policies, nested test
   corpora, `pull_request_target` vs plain `pull_request`) — at 100%
@@ -147,7 +147,7 @@ MDM/fleet deployment patterns documented against verified behavior.
 - **Calibrated on real machines**: every false alarm found in the wild became a
   permanent regression fixture.
 - **Exit codes are contract**: 0 success · 1 runtime error · 2 usage error ·
-  3 reckless (with `--gate`) — each tested.
+  3 reckless or inconclusive (with `--gate`) — each tested.
 - **Self-gated**: CI runs the full scorecard plus `ariadne verdict --gate` on
   this repository itself.
 

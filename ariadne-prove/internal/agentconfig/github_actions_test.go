@@ -80,3 +80,15 @@ func TestParseGitHubWorkflowDistinguishesPlainAndTargetPullRequestEvents(t *test
 		t.Fatalf("target trigger events = %v, want %v", target.TriggerEvents, want)
 	}
 }
+
+func TestParseGitHubWorkflowRejectsStructurallyUnparsedContent(t *testing.T) {
+	for _, document := range []string{
+		"this is not a workflow mapping\n",
+		"on: [push\n",
+		"name: \"unterminated\n",
+	} {
+		if _, ok := ParseGitHubWorkflow([]byte(document)); ok {
+			t.Fatalf("ParseGitHubWorkflow(%q) = ok, want malformed", document)
+		}
+	}
+}

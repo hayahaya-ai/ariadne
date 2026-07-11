@@ -1690,6 +1690,25 @@ func TestCLIExitCode3RecklessGate(t *testing.T) {
 	}
 }
 
+func TestCLIInconclusiveGateFailsClosed(t *testing.T) {
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(target, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, ".claude", "settings.json"), []byte(`{"permissions":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	got := runCLI([]string{"verdict", "--path", target, "--mode", "repo", "--gate"}, &stdout, &stderr)
+	if got != exitReckless {
+		t.Fatalf("exit code = %d, want fail-closed %d; stdout:\n%s\nstderr:\n%s", got, exitReckless, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "VERDICT: INCONCLUSIVE") || strings.Contains(strings.ToLower(stdout.String()), "no action needed") {
+		t.Fatalf("inconclusive gate output must require action:\n%s", stdout.String())
+	}
+}
+
 func TestRunLsFindings(t *testing.T) {
 	root := t.TempDir()
 	outPath := filepath.Join(root, "ls-findings.txt")

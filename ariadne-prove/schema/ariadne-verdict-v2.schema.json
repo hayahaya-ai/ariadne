@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ariadne-verdict-v2.schema.json",
+  "title": "Ariadne Verdict v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "target",
+    "mode",
+    "verdict",
+    "scanned",
+    "parser_statuses",
+    "influence_provenance",
+    "authority_scope",
+    "default_judgments",
+    "reckless",
+    "tradeoffs",
+    "hardened",
+    "inconclusive",
+    "next_action",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "ariadne.verdict/v2" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "target": { "type": "string" },
+    "mode": { "type": "string", "enum": ["repo", "endpoint"] },
+    "verdict": { "$ref": "#/$defs/verdict_word" },
+    "scanned": { "$ref": "#/$defs/scanned" },
+    "parser_statuses": { "type": "array", "items": { "$ref": "#/$defs/parser_status" } },
+    "influence_provenance": { "type": "array", "items": { "$ref": "#/$defs/influence_provenance_fact" } },
+    "authority_scope": { "type": "array", "items": { "$ref": "#/$defs/authority_scope_fact" } },
+    "default_judgments": { "type": "array", "items": { "$ref": "#/$defs/default_judgment" } },
+    "reckless": { "type": "array", "items": { "$ref": "#/$defs/reckless_finding" } },
+    "tradeoffs": { "type": "array", "items": { "$ref": "#/$defs/tradeoff_line" } },
+    "hardened": { "type": "array", "items": { "$ref": "#/$defs/hardened_line" } },
+    "inconclusive": { "type": "integer", "minimum": 0 },
+    "next_action": { "type": "string", "minLength": 1 },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "verdict_word": {
+      "type": "string",
+      "enum": ["reckless", "inconclusive", "tradeoffs_only", "hardened", "no_agents_found"]
+    },
+    "scanned": {
+      "type": "object",
+      "required": ["runtimes", "surfaces", "executed"],
+      "properties": {
+        "runtimes": { "type": "array", "items": { "type": "string" } },
+        "surfaces": { "type": "integer", "minimum": 0 },
+        "executed": { "const": false }
+      }
+    },
+    "parser_status": {
+      "type": "object",
+      "required": ["id", "occurrence_id", "source", "scope", "status", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "occurrence_id": { "type": "string", "pattern": "^occurrence:config:" },
+        "source": { "type": "string" },
+        "runtime": { "type": "string" },
+        "scope": { "type": "string", "enum": ["repo", "endpoint"] },
+        "status": { "type": "string", "enum": ["parsed", "malformed", "unreadable"] },
+        "summary": { "type": "string" }
+      }
+    },
+    "influence_provenance_fact": {
+      "type": "object",
+      "required": ["id", "trust_input_id", "provenance", "instruction_scope", "source", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "trust_input_id": { "type": "string" },
+        "provenance": { "type": "string", "enum": ["home_scope", "repo_checkout", "third_party", "unknown"] },
+        "instruction_scope": { "type": "string", "enum": ["root", "nested", "unknown"] },
+        "scope_subtree": { "type": "string" },
+        "source": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "authority_scope_fact": {
+      "type": "object",
+      "required": ["id", "authority_ids", "runtime", "authority_scope", "scope_subtree", "source", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "authority_ids": { "type": "array", "items": { "type": "string" } },
+        "runtime": { "type": "string" },
+        "authority_scope": { "type": "string", "enum": ["root", "nested", "unknown"] },
+        "scope_subtree": { "type": "string" },
+        "source": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "default_judgment": {
+      "type": "object",
+      "required": ["rule", "label", "exposure_id", "trust_input_ids", "basis", "summary"],
+      "properties": {
+        "rule": { "type": "string" },
+        "label": { "const": "default_judgment" },
+        "exposure_id": { "$ref": "#/$defs/exposure_family" },
+        "trust_input_ids": { "type": "array", "items": { "type": "string" } },
+        "basis": { "type": "array", "items": { "type": "object" } },
+        "summary": { "type": "string" }
+      }
+    },
+    "exposure_family": {
+      "type": "string",
+      "enum": ["data-egress-chain", "prompt-injection-to-secret-canary", "mutable-tool-launch-execution"]
+    },
+    "evidence_location": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "anchor": { "type": "string" }
+      }
+    },
+    "evidence_reference": {
+      "type": "object",
+      "required": ["id", "kind", "summary"],
+      "properties": {
+        "target": { "type": "string" },
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "anchor": { "type": "string" },
+        "line_start": { "type": "integer", "minimum": 1 },
+        "line_end": { "type": "integer", "minimum": 1 },
+        "summary": { "type": "string" }
+      }
+    },
+    "related_capability": {
+      "type": "object",
+      "required": ["id", "kind", "source", "summary"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "runtime": { "type": "string" },
+        "source": { "type": "string" },
+        "summary": { "type": "string" }
+      }
+    },
+    "reckless_finding": {
+      "type": "object",
+      "required": ["id", "exposure_id", "title", "where", "evidence_refs", "why", "fix", "related_capabilities", "attested_only"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^reckless:[0-9]+$" },
+        "exposure_id": { "$ref": "#/$defs/exposure_family" },
+        "title": { "type": "string" },
+        "where": { "$ref": "#/$defs/evidence_location" },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/evidence_reference" } },
+        "why": { "type": "string" },
+        "fix": { "type": "string" },
+        "related_capabilities": { "type": "array", "items": { "$ref": "#/$defs/related_capability" } },
+        "attested_only": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "tradeoff_line": {
+      "type": "object",
+      "required": ["id", "summary", "source"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^tradeoff:[0-9]+$" },
+        "summary": { "type": "string" },
+        "source": { "type": "string" }
+      }
+    },
+    "hardened_line": {
+      "type": "object",
+      "required": ["id", "control", "summary", "source"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^hardened:[0-9]+$" },
+        "control": { "type": "string" },
+        "summary": { "type": "string" },
+        "source": { "type": "string" }
+      }
+    }
+  }
+}

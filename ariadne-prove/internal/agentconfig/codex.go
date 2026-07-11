@@ -37,13 +37,11 @@ type CodexConfig struct {
 // "key = value" lines, "[table.header]" lines, comments, quoted and bare
 // string values, booleans, and single-line string arrays.
 //
-// The reader is pure and total: it never panics, and unrecognized or
-// partially-malformed lines are skipped rather than treated as fatal —
-// real-world config files are tolerated. ok=false is reserved for input
-// that cannot be tokenized as text at all (invalid UTF-8); everything else
-// yields ok=true with whatever fields were successfully recognized.
+// The reader is pure and total: it never panics. ok=false means the supported
+// TOML subset could not be structurally parsed. Ariadne must not promote a
+// partially parsed security configuration to conclusive evidence.
 func ParseCodexConfig(data []byte) (CodexConfig, bool) {
-	if !utf8.Valid(data) {
+	if !utf8.Valid(data) || !validCodexDocument(data) {
 		return CodexConfig{}, false
 	}
 
@@ -81,6 +79,85 @@ func ParseCodexConfig(data []byte) (CodexConfig, bool) {
 	}
 
 	return cfg, true
+}
+
+func validCodexDocument(data []byte) bool {
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(strings.TrimRight(rawLine, "\r"))
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !balancedCodexDelimiters(trimmed) {
+			return false
+		}
+		withoutComment := strings.TrimSpace(stripComment(trimmed))
+		if strings.HasPrefix(withoutComment, "[") {
+			if !strings.HasSuffix(withoutComment, "]") || strings.TrimSpace(withoutComment[1:len(withoutComment)-1]) == "" {
+				return false
+			}
+			continue
+		}
+		key, value, ok := splitKeyValue(withoutComment)
+		if !ok || key == "" || value == "" || !validCodexValue(value) {
+			return false
+		}
+	}
+	return true
+}
+
+func balancedCodexDelimiters(value string) bool {
+	inQuote := false
+	escaped := false
+	square := 0
+	curly := 0
+	for _, r := range value {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inQuote && r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			inQuote = !inQuote
+			continue
+		}
+		if inQuote {
+			continue
+		}
+		switch r {
+		case '[':
+			square++
+		case ']':
+			square--
+		case '{':
+			curly++
+		case '}':
+			curly--
+		}
+		if square < 0 || curly < 0 {
+			return false
+		}
+	}
+	return !inQuote && !escaped && square == 0 && curly == 0
+}
+
+func validCodexValue(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	switch value[0] {
+	case '"':
+		return len(value) >= 2 && value[len(value)-1] == '"'
+	case '[':
+		return strings.HasSuffix(value, "]")
+	case '{':
+		return strings.HasSuffix(value, "}")
+	default:
+		return !strings.ContainsAny(value, " \t")
+	}
 }
 
 // parseTableHeader extracts the header name from a "[table.header]" line.

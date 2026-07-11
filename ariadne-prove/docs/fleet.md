@@ -29,16 +29,17 @@ ariadne dashboard --targets endpoints.txt --out ariadne-fleet-dashboard.html
 
 - Default/table output is the fleet summary: verdict-word counts, reckless
   findings grouped by exposure family, and a worst-first target list.
-- `--format jsonl` emits one complete `ariadne.verdict/v1` object per completed
+- `--format jsonl` emits one complete `ariadne.verdict/v2` object per completed
   target, one line per target, for SIEM ingestion.
 - `--format json` emits `ariadne-scan-v1`: the same `fleet` rollup plus
   `targets[].verdict`. Consolidation: scan JSON no longer publishes the
   redundant embedded `targets[].report` payload; the per-endpoint machine object
-  is the reused verdict/v1 schema.
+  is the reused verdict/v2 schema.
 
 Rollup ordering is deterministic: family keys and affected target paths are
-sorted, and worst-first targets are ordered by reckless targets first, reckless
-count descending, then target path.
+sorted, and worst-first targets are ordered by verdict severity (`reckless`,
+`inconclusive`, `tradeoffs_only`, `hardened`, `no_agents_found`), reckless count
+descending, then target path.
 
 Fleet rollups count only enforced evidence already represented in the endpoint
 verdict. Self-declared `.ariadne/*.json` controls are attested-only: they can be
@@ -54,7 +55,8 @@ For endpoint fleets:
 1. Run Ariadne locally on each machine, or mount endpoint snapshots to a collector host.
 2. Store `scan --format jsonl` verdict lines in a central bucket, data lake, or SIEM.
 3. Index each verdict's `target`, `verdict`, `reckless[]`, `tradeoffs[]`, `hardened[]`, and `default_judgments[]`; or index `scan --format json` fields `fleet`, `summary`, and `targets[].verdict`.
-4. Alert on `verdict=reckless` and route by `reckless[].exposure_id`.
+4. Alert on `verdict=reckless` and route by `reckless[].exposure_id`; route
+   `verdict=inconclusive` to evidence repair rather than treating it as healthy.
 5. Track Zero Trust closure by querying `evidence_plan[]`, `closure_families[]`, `closure_plan[]`, `boundary_coverage[].missing_evidence`, `boundary_coverage[].next_collectors`, and `boundary_coverage[].control_evidence_needed`.
 
 ## Privacy Guidance

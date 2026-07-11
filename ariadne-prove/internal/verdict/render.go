@@ -143,6 +143,9 @@ func countsSentence(v Verdict) string {
 		}
 		return "no agent runtimes found"
 	}
+	if v.VerdictWord == WordInconclusive {
+		return fmt.Sprintf("%d path(s) or config occurrence(s) need evidence", v.Inconclusive+verdictParserFailureCount(v))
+	}
 	parts := make([]string, 0, 3)
 	if len(v.Reckless) > 0 {
 		parts = append(parts, fmt.Sprintf("%d finding(s) need action", len(v.Reckless)))
@@ -157,4 +160,14 @@ func countsSentence(v Verdict) string {
 		return fmt.Sprintf("%d agent runtime(s) found", len(v.Scanned.Runtimes))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func verdictParserFailureCount(v Verdict) int {
+	count := 0
+	for _, status := range v.ParserStatuses {
+		if status.Status == "malformed" || status.Status == "unreadable" {
+			count++
+		}
+	}
+	return count
 }

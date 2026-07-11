@@ -354,6 +354,7 @@ func parseYAMLEntries(data []byte) ([]yamlEntry, bool) {
 	blockIndent := -1
 	lineNo := 0
 	content := false
+	mapping := false
 
 	for scanner.Scan() {
 		lineNo++
@@ -377,6 +378,9 @@ func parseYAMLEntries(data []byte) ([]yamlEntry, bool) {
 		if line == "" || line == "---" || line == "..." || strings.HasPrefix(line, "%YAML") {
 			continue
 		}
+		if !validYAMLStructuralLine(raw) {
+			return entries, false
+		}
 		content = true
 		for len(stack) > 0 && stack[len(stack)-1].indent >= indent {
 			stack = stack[:len(stack)-1]
@@ -386,6 +390,7 @@ func parseYAMLEntries(data []byte) ([]yamlEntry, bool) {
 		if strings.HasPrefix(line, "-") && (len(line) == 1 || line[1] == ' ' || line[1] == '\t') {
 			rest := strings.TrimSpace(strings.TrimPrefix(line, "-"))
 			if key, value, found := splitYAMLMapping(rest); found {
+				mapping = true
 				path := appendCopied(parents, normalizeYAMLKey(key))
 				entries = append(entries, yamlEntry{Path: path, Value: value, Line: lineNo})
 				if yamlStartsBlock(value) {
@@ -403,8 +408,9 @@ func parseYAMLEntries(data []byte) ([]yamlEntry, bool) {
 
 		key, value, found := splitYAMLMapping(line)
 		if !found {
-			continue
+			return entries, false
 		}
+		mapping = true
 		key = normalizeYAMLKey(key)
 		path := appendCopied(parents, key)
 		entries = append(entries, yamlEntry{Path: path, Value: value, Line: lineNo})
@@ -416,10 +422,59 @@ func parseYAMLEntries(data []byte) ([]yamlEntry, bool) {
 			stack = append(stack, yamlContext{indent: indent, key: key})
 		}
 	}
-	if scanner.Err() != nil || !content {
+	if scanner.Err() != nil || !content || !mapping {
 		return entries, false
 	}
 	return entries, true
+}
+
+// ValidateYAMLDocument checks the structural subset used by Ariadne's
+// dependency-free workflow readers. It deliberately fails closed on
+// unterminated quotes and inline collections that the collector cannot parse.
+func ValidateYAMLDocument(data []byte) bool {
+	_, ok := parseYAMLEntries(data)
+	return ok
+}
+
+func validYAMLStructuralLine(line string) bool {
+	var quote rune
+	escaped := false
+	square := 0
+	curly := 0
+	for _, r := range stripYAMLComment(line) {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quote == '"' && r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		switch r {
+		case '[':
+			square++
+		case ']':
+			square--
+		case '{':
+			curly++
+		case '}':
+			curly--
+		}
+		if square < 0 || curly < 0 {
+			return false
+		}
+	}
+	return quote == 0 && !escaped && square == 0 && curly == 0
 }
 
 func leadingYAMLIndent(line string) int {

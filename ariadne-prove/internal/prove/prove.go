@@ -9,8 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -72,6 +74,9 @@ func RunStoryWithInventory(opts Options) (StoryRun, error) {
 	manifest := story.Manifest
 	repoPath := resolve(story.Dir, manifest.World.RepoPath)
 	homePath := resolve(story.Dir, manifest.World.HomePath)
+	if err := validateStoryTarget(manifest.Mode, repoPath, homePath); err != nil {
+		return StoryRun{}, err
+	}
 	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
 	graph := BuildGraph(collection)
 	inventory := storyInventoryReport(manifest, collection, graph, storyTargetPath(manifest, repoPath, homePath), opts.IncludeSensitivePaths)
@@ -153,6 +158,9 @@ func RunStoryAllWithInventory(opts Options) (StoryRun, error) {
 	manifest := story.Manifest
 	repoPath := resolve(story.Dir, manifest.World.RepoPath)
 	homePath := resolve(story.Dir, manifest.World.HomePath)
+	if err := validateStoryTarget(manifest.Mode, repoPath, homePath); err != nil {
+		return StoryRun{}, err
+	}
 	collection := adapter.Collect(adapter.Options{RepoPath: repoPath, HomePath: homePath, Mode: manifest.Mode, Runtime: manifest.Runtime, StoryDir: story.Dir, IncludeSensitivePaths: opts.IncludeSensitivePaths})
 	graph := BuildGraph(collection)
 	inventory := storyInventoryReport(manifest, collection, graph, storyTargetPath(manifest, repoPath, homePath), opts.IncludeSensitivePaths)
@@ -227,6 +235,17 @@ func RunStoryAllWithInventory(opts Options) (StoryRun, error) {
 	return StoryRun{Story: story, Report: report, Inventory: inventory}, nil
 }
 
+func validateStoryTarget(mode, repoPath, homePath string) error {
+	target := repoPath
+	if mode == "endpoint" {
+		target = homePath
+	}
+	if target == "" {
+		return fmt.Errorf("story target is empty for %s mode", mode)
+	}
+	return validateTargetDirectory(target)
+}
+
 func storyTargetPath(manifest model.Manifest, repoPath, homePath string) string {
 	if manifest.Mode == "endpoint" && homePath != "" {
 		return homePath
@@ -282,11 +301,14 @@ func RunPathWithInventory(opts Options) (PathRun, error) {
 	if err != nil {
 		return PathRun{}, err
 	}
+	if err := validateTargetDirectory(root); err != nil {
+		return PathRun{}, err
+	}
 	home := ""
 	base := root
 	inventoryTarget := root
 	if opts.Mode == "endpoint" {
-		home = resolveEndpointHome(root)
+		home = root
 		base = home
 		inventoryTarget = home
 	}
@@ -406,10 +428,13 @@ func RunReviewPacket(opts Options) (model.LLMReviewRequest, []byte, string, erro
 	if err != nil {
 		return model.LLMReviewRequest{}, nil, "", err
 	}
+	if err := validateTargetDirectory(root); err != nil {
+		return model.LLMReviewRequest{}, nil, "", err
+	}
 	home := ""
 	base := root
 	if opts.Mode == "endpoint" {
-		home = resolveEndpointHome(root)
+		home = root
 		base = home
 	}
 	collection := adapter.Collect(adapter.Options{
@@ -728,11 +753,14 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 	if err != nil {
 		return model.InventoryReport{}, err
 	}
+	if err := validateTargetDirectory(root); err != nil {
+		return model.InventoryReport{}, err
+	}
 	home := ""
 	target := root
 	base := root
 	if opts.Mode == "endpoint" {
-		home = resolveEndpointHome(root)
+		home = root
 		target = home
 		base = home
 	}
@@ -771,50 +799,27 @@ func RunInventory(opts Options) (model.InventoryReport, error) {
 	}, nil
 }
 
-func resolveEndpointHome(root string) string {
-	if pathLooksLikeEndpointHome(root) {
-		return root
+func validateTargetDirectory(root string) error {
+	info, err := os.Stat(root)
+	if err != nil {
+		return fmt.Errorf("target %q is not readable: %w", root, err)
 	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return home
+	if !info.IsDir() {
+		return fmt.Errorf("target %q is not a directory", root)
 	}
-	return root
-}
-
-func pathLooksLikeEndpointHome(root string) bool {
-	for _, marker := range endpointHomeMarkers() {
-		if _, err := os.Stat(filepath.Join(root, marker)); err == nil {
-			return true
-		}
+	dir, err := os.Open(root)
+	if err != nil {
+		return fmt.Errorf("target %q is not readable: %w", root, err)
 	}
-	return false
-}
-
-func endpointHomeMarkers() []string {
-	return []string{
-		".claude",
-		".codex",
-		".cursor",
-		".windsurf",
-		".continue",
-		".aider",
-		".gemini",
-		".opencode",
-		".aider.conf.yml",
-		".aider.conf.yaml",
-		".aider.conf",
-		".aider.chat.history.md",
-		".aider.input.history",
-		".aider.model.settings.yml",
-		".aider.model.metadata.json",
-		".cursorrules",
-		".windsurfrules",
-		"opencode.json",
-		"opencode.jsonc",
-		"opencode.yml",
-		"opencode.yaml",
-		".opencode.json",
+	_, readErr := dir.Readdirnames(1)
+	closeErr := dir.Close()
+	if readErr != nil && readErr != io.EOF {
+		return fmt.Errorf("target %q is not readable: %w", root, readErr)
 	}
+	if closeErr != nil {
+		return fmt.Errorf("target %q could not be closed after validation: %w", root, closeErr)
+	}
+	return nil
 }
 
 func BuildSurfaceMap(c model.Collection) []model.SurfaceMap {
@@ -1025,6 +1030,9 @@ func RunScan(opts Options) (model.ScanReport, error) {
 	for _, target := range targets {
 		target.Path = strings.TrimSpace(target.Path)
 		if target.Path == "" {
+			result := model.ScanTargetResult{Target: target, Error: "target path is empty"}
+			r.Summary.Errors++
+			r.Targets = append(r.Targets, result)
 			continue
 		}
 		if target.ID == "" {
@@ -1219,7 +1227,12 @@ func zeroTrustEvidenceWithLocations(locations evidenceLocations, values []model.
 }
 
 func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure model.ExposureResult) []model.EvidenceReference {
-	if len(exposure.PathEdges) == 0 {
+	pathEdges := exposure.PathEdges
+	useOccurrencePaths := len(exposure.OccurrencePathEdges) > 0
+	if useOccurrencePaths {
+		pathEdges = exposure.OccurrencePathEdges
+	}
+	if len(pathEdges) == 0 {
 		return []model.EvidenceReference{}
 	}
 	sourceLocations := evidenceLocationsForCollection(c)
@@ -1236,10 +1249,10 @@ func evidenceReferencesForExposure(c model.Collection, g model.Graph, exposure m
 		edgeByKey[edge.Key()] = edge
 	}
 	var refs []model.EvidenceReference
-	for _, pathEdge := range exposure.PathEdges {
+	for _, pathEdge := range pathEdges {
 		edge, ok := edgeByKey[pathEdge]
 		if ok {
-			if edge.EvidenceID != "" {
+			if edge.EvidenceID != "" && !useOccurrencePaths {
 				if evidence, found := evidenceByID[edge.EvidenceID]; found {
 					refs = append(refs, withEvidenceLocation(sourceLocations, model.EvidenceReference{
 						ID:      evidence.ID,
@@ -1306,6 +1319,7 @@ func evidenceLocationsForCollection(c model.Collection) evidenceLocations {
 	}
 	for _, runtime := range c.Runtimes {
 		out.add(runtime.ID, "runtime", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
+		out.add(runtime.OccurrenceID, "runtime_occurrence", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
 		if runtime.Scope != "" {
 			configID := "config:" + runtime.Kind + "-" + runtime.Scope
 			out.add(configID, "config", runtime.Source, runtime.LineStart, runtime.LineEnd, runtime.Anchor)
@@ -1317,22 +1331,27 @@ func evidenceLocationsForCollection(c model.Collection) evidenceLocations {
 		out.add(input.ID, "trust-input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
 		out.add("evidence:"+input.ID, "trust_input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
 		out.add("evidence:"+input.ID, "trust-input", input.Source, input.LineStart, input.LineEnd, input.Anchor)
+		out.add(input.OccurrenceID, "trust_input_occurrence", input.Source, input.LineStart, input.LineEnd, input.Anchor)
 	}
 	for _, tool := range c.Tools {
 		out.add(tool.ID, "tool", tool.Source, tool.LineStart, tool.LineEnd, tool.Anchor)
 		out.add("evidence:"+tool.ID, "tool", tool.Source, tool.LineStart, tool.LineEnd, tool.Anchor)
+		out.add(tool.OccurrenceID, "tool_occurrence", tool.Source, tool.LineStart, tool.LineEnd, tool.Anchor)
 	}
 	for _, authority := range c.Authorities {
 		out.add(authority.ID, "authority", authority.Source, authority.LineStart, authority.LineEnd, authority.Anchor)
 		out.add("evidence:"+authority.ID, "authority", authority.Source, authority.LineStart, authority.LineEnd, authority.Anchor)
+		out.add(authority.OccurrenceID, "authority_occurrence", authority.Source, authority.LineStart, authority.LineEnd, authority.Anchor)
 	}
 	for _, boundary := range c.Boundaries {
 		out.add(boundary.ID, "boundary", boundary.Source, boundary.LineStart, boundary.LineEnd, boundary.Anchor)
 		out.add("evidence:"+boundary.ID, "boundary", boundary.Source, boundary.LineStart, boundary.LineEnd, boundary.Anchor)
+		out.add(boundary.OccurrenceID, "boundary_occurrence", boundary.Source, boundary.LineStart, boundary.LineEnd, boundary.Anchor)
 	}
 	for _, control := range c.Controls {
 		out.add(control.ID, "control", control.Source, control.LineStart, control.LineEnd, control.Anchor)
 		out.add("evidence:"+control.ID, "control", control.Source, control.LineStart, control.LineEnd, control.Anchor)
+		out.add(control.OccurrenceID, "control_occurrence", control.Source, control.LineStart, control.LineEnd, control.Anchor)
 	}
 	return out
 }
@@ -1627,20 +1646,21 @@ func BuildGraph(c model.Collection) model.Graph {
 		Nodes: []model.Node{},
 		Edges: []model.Edge{},
 	}
+	nodeIDs := map[string]bool{}
+	edgeKeys := map[string]bool{}
 	addNode := func(node model.Node) {
-		for _, existing := range g.Nodes {
-			if existing.ID == node.ID {
-				return
-			}
+		if nodeIDs[node.ID] {
+			return
 		}
+		nodeIDs[node.ID] = true
 		g.Nodes = append(g.Nodes, node)
 	}
 	addEdge := func(edge model.Edge) {
-		for _, existing := range g.Edges {
-			if existing.Key() == edge.Key() {
-				return
-			}
+		key := edge.Key()
+		if edgeKeys[key] {
+			return
 		}
+		edgeKeys[key] = true
 		g.Edges = append(g.Edges, edge)
 	}
 	for _, runtime := range c.Runtimes {
@@ -1812,9 +1832,253 @@ func BuildGraph(c model.Collection) model.Graph {
 			}
 		}
 	}
+	addOccurrenceGraph(c, addNode, addEdge)
 	sort.Slice(g.Nodes, func(i, j int) bool { return g.Nodes[i].ID < g.Nodes[j].ID })
 	sort.Slice(g.Edges, func(i, j int) bool { return g.Edges[i].Key() < g.Edges[j].Key() })
+	g.BuildIndex()
 	return g
+}
+
+// addOccurrenceGraph is the proof-bearing layer of the graph. The aggregate
+// family nodes above remain for stable classification and UI compatibility;
+// hard-barrier evaluation and these edges join only occurrence IDs.
+func addOccurrenceGraph(c model.Collection, addNode func(model.Node), addEdge func(model.Edge)) {
+	runtimeByKind := map[string][]model.RuntimeEvidence{}
+	runtimeByKindSource := map[string][]model.RuntimeEvidence{}
+	var runtimeOrder []string
+	seenRuntimeKind := map[string]bool{}
+	for _, runtime := range c.Runtimes {
+		if runtime.OccurrenceID == "" {
+			continue
+		}
+		addNode(model.Node{ID: runtime.OccurrenceID, Type: "runtime_occurrence", Label: runtime.Kind, Runtime: runtime.Kind, Source: runtime.Source})
+		addEdge(model.Edge{From: runtime.OccurrenceID, Type: "instance_of", To: runtime.ID})
+		runtimeByKind[runtime.Kind] = append(runtimeByKind[runtime.Kind], runtime)
+		runtimeByKindSource[runtime.Kind+"\x00"+runtime.Source] = append(runtimeByKindSource[runtime.Kind+"\x00"+runtime.Source], runtime)
+		if !seenRuntimeKind[runtime.Kind] {
+			seenRuntimeKind[runtime.Kind] = true
+			runtimeOrder = append(runtimeOrder, runtime.Kind)
+		}
+	}
+	runtimeTargets := func(runtime, source string) []model.RuntimeEvidence {
+		if runtime != "" {
+			if exact := runtimeByKindSource[runtime+"\x00"+source]; len(exact) > 0 {
+				return exact
+			}
+			if candidates := runtimeByKind[runtime]; len(candidates) > 0 {
+				return candidates[:1]
+			}
+			return nil
+		}
+		out := make([]model.RuntimeEvidence, 0, len(runtimeOrder))
+		for _, kind := range runtimeOrder {
+			if candidates := runtimeByKind[kind]; len(candidates) > 0 {
+				out = append(out, candidates[0])
+			}
+		}
+		return out
+	}
+	rootAuthoritySource := map[string]string{}
+	nestedAuthoritySource := map[string]map[string]string{}
+	for _, authority := range c.Authorities {
+		if authority.Runtime == "" || authority.Source == "" {
+			continue
+		}
+		switch authority.AuthorityScope {
+		case model.AuthorityScopeRoot:
+			if rootAuthoritySource[authority.Runtime] == "" {
+				rootAuthoritySource[authority.Runtime] = authority.Source
+			}
+		case model.AuthorityScopeNested:
+			if nestedAuthoritySource[authority.Runtime] == nil {
+				nestedAuthoritySource[authority.Runtime] = map[string]string{}
+			}
+			if nestedAuthoritySource[authority.Runtime][authority.ScopeSubtree] == "" {
+				nestedAuthoritySource[authority.Runtime][authority.ScopeSubtree] = authority.Source
+			}
+		}
+	}
+	runtimeTargetsForInput := func(input model.TrustInput) []model.RuntimeEvidence {
+		if input.Runtime == "" {
+			return runtimeTargets(input.Runtime, input.Source)
+		}
+		source := rootAuthoritySource[input.Runtime]
+		if source == "" && input.InstructionScope == model.InstructionScopeNested {
+			source = nestedAuthoritySource[input.Runtime][input.ScopeSubtree]
+		}
+		if source != "" {
+			if candidates := runtimeByKindSource[input.Runtime+"\x00"+source]; len(candidates) > 0 {
+				return candidates[:1]
+			}
+		}
+		return runtimeTargets(input.Runtime, input.Source)
+	}
+	for _, input := range c.TrustInputs {
+		if input.OccurrenceID == "" {
+			continue
+		}
+		addNode(model.Node{ID: input.OccurrenceID, Type: "trust_input_occurrence", Label: input.Kind, Runtime: input.Runtime, Source: input.Source})
+		addEdge(model.Edge{From: input.OccurrenceID, Type: "instance_of", To: input.ID})
+		for _, runtime := range runtimeTargetsForInput(input) {
+			addEdge(model.Edge{From: input.OccurrenceID, Type: "influences", To: runtime.OccurrenceID, EvidenceID: "evidence:" + input.ID})
+		}
+	}
+	for _, tool := range c.Tools {
+		if tool.OccurrenceID == "" {
+			continue
+		}
+		addNode(model.Node{ID: tool.OccurrenceID, Type: "tool_occurrence", Label: tool.Kind, Runtime: tool.Runtime, Source: tool.Source})
+		addEdge(model.Edge{From: tool.OccurrenceID, Type: "instance_of", To: tool.ID})
+		for _, runtime := range runtimeTargets(tool.Runtime, tool.Source) {
+			addEdge(model.Edge{From: runtime.OccurrenceID, Type: "can_call", To: tool.OccurrenceID, EvidenceID: "evidence:" + tool.ID})
+		}
+	}
+	for _, authority := range c.Authorities {
+		if authority.OccurrenceID == "" {
+			continue
+		}
+		addNode(model.Node{ID: authority.OccurrenceID, Type: "authority_occurrence", Label: authority.Kind, Runtime: authority.Runtime, Source: authority.Source})
+		addEdge(model.Edge{From: authority.OccurrenceID, Type: "instance_of", To: authority.ID})
+		for _, runtime := range runtimeTargets(authority.Runtime, authority.Source) {
+			if authority.Runtime == "" {
+				break
+			}
+			addEdge(model.Edge{From: runtime.OccurrenceID, Type: "has_authority", To: authority.OccurrenceID})
+		}
+	}
+	for _, boundary := range c.Boundaries {
+		if boundary.OccurrenceID == "" {
+			continue
+		}
+		addNode(model.Node{ID: boundary.OccurrenceID, Type: "boundary_occurrence", Label: boundary.Kind, Source: boundary.Source})
+		addEdge(model.Edge{From: boundary.OccurrenceID, Type: "instance_of", To: boundary.ID})
+	}
+	for _, control := range c.Controls {
+		if control.OccurrenceID == "" {
+			continue
+		}
+		addNode(model.Node{ID: control.OccurrenceID, Type: "control_occurrence", Label: control.Kind, Runtime: control.Runtime, Source: control.Source})
+		addEdge(model.Edge{From: control.OccurrenceID, Type: "instance_of", To: control.ID})
+	}
+
+	for _, tool := range c.Tools {
+		if tool.OccurrenceID == "" {
+			continue
+		}
+		for _, authority := range c.Authorities {
+			if authority.OccurrenceID == "" || !toolGrantsAuthority(tool.ID, authority.ID) {
+				continue
+			}
+			if len(authority.GrantedBy) > 0 && !stringSliceContains(authority.GrantedBy, tool.OccurrenceID) {
+				continue
+			}
+			if len(authority.GrantedBy) == 0 {
+				if tool.Source == "" || tool.Source != authority.Source || !occurrencesSharePath(tool.Runtime, tool.Source, tool.Scope, tool.ScopeSubtree, authority.Runtime, authority.Source, authority.AuthorityScope, authority.ScopeSubtree) {
+					continue
+				}
+			}
+			addEdge(model.Edge{From: tool.OccurrenceID, Type: "grants", To: authority.OccurrenceID, EvidenceID: "evidence:" + tool.ID})
+		}
+	}
+	for _, authority := range c.Authorities {
+		for _, boundary := range c.Boundaries {
+			if authority.OccurrenceID == "" || boundary.OccurrenceID == "" || !authorityReachesBoundary(authority.ID, boundary.ID) || !authorityOccurrenceReachesBoundary(authority, boundary) {
+				continue
+			}
+			addEdge(model.Edge{From: authority.OccurrenceID, Type: "reaches", To: boundary.OccurrenceID})
+		}
+	}
+	for _, control := range c.Controls {
+		if control.OccurrenceID == "" || control.Enforcement != model.EnforcementEnforced {
+			continue
+		}
+		for _, input := range c.TrustInputs {
+			if controlRestrictsTrustInput(control.ID, input.ID) && graphControlApplies(control, input.OccurrenceID, input.Runtime, input.Source, input.InstructionScope, input.ScopeSubtree) {
+				addEdge(model.Edge{From: control.OccurrenceID, Type: "restricts", To: input.OccurrenceID})
+			}
+		}
+		for _, tool := range c.Tools {
+			if controlRestrictsTool(control.ID, tool.ID) && graphControlApplies(control, tool.OccurrenceID, tool.Runtime, tool.Source, tool.Scope, tool.ScopeSubtree) {
+				addEdge(model.Edge{From: control.OccurrenceID, Type: "restricts", To: tool.OccurrenceID})
+			}
+		}
+		for _, authority := range c.Authorities {
+			if !controlRestrictsProofAuthority(control.ID, authority.ID) || !graphControlApplies(control, authority.OccurrenceID, authority.Runtime, authority.Source, authority.AuthorityScope, authority.ScopeSubtree) {
+				continue
+			}
+			addEdge(model.Edge{From: control.OccurrenceID, Type: "restricts", To: authority.OccurrenceID})
+		}
+		if control.ID == "control:deny-secret-read" {
+			for _, authority := range c.Authorities {
+				explicitAuthority := occurrenceExplicitlyApplies(control.AppliesTo, authority.OccurrenceID)
+				if !explicitAuthority && (len(control.AppliesTo) > 0 || !controlAppliesToOccurrence(control.Runtime, control.Source, control.Scope, control.ScopeSubtree, authority.Runtime, authority.Source, authority.AuthorityScope, authority.ScopeSubtree)) {
+					continue
+				}
+				for _, boundary := range c.Boundaries {
+					if !controlRestrictsBoundary(control.ID, boundary.ID) || !authorityOccurrenceReachesBoundary(authority, boundary) || !enforcedControlAppliesToAuthorityBoundary(control, authority, boundary) {
+						continue
+					}
+					addEdge(model.Edge{From: control.OccurrenceID, Type: "restricts", To: boundary.OccurrenceID})
+				}
+			}
+		}
+	}
+}
+
+func toolGrantsAuthority(toolID, authorityID string) bool {
+	switch toolID {
+	case "tool:mcp-package-launch", "tool:agent-command-shell", "tool:managed-agent-workflow":
+		return authorityID == "authority:local-code-execution"
+	case "tool:agent-delegation":
+		return authorityID == "authority:delegated-agent-authority"
+	default:
+		return false
+	}
+}
+
+func authorityOccurrenceReachesBoundary(authority model.Authority, boundary model.Boundary) bool {
+	if len(boundary.ReachedBy) > 0 {
+		return stringSliceContains(boundary.ReachedBy, authority.OccurrenceID)
+	}
+	if authority.Source != boundary.Source && !crossSourcePrivateBoundary(boundary.ID) {
+		return false
+	}
+	switch authority.AuthorityScope {
+	case model.AuthorityScopeRoot:
+		return true
+	case model.AuthorityScopeNested:
+		return boundary.Scope == model.InstructionScopeNested && authority.ScopeSubtree != "" && authority.ScopeSubtree == boundary.ScopeSubtree
+	default:
+		return authority.Source != "" && authority.Source == boundary.Source
+	}
+}
+
+func crossSourcePrivateBoundary(boundaryID string) bool {
+	switch boundaryID {
+	case "boundary:secret-like-file", "boundary:agent-private-context", "boundary:memory-credential-retention", "boundary:credential-material":
+		return true
+	default:
+		return false
+	}
+}
+
+func graphControlApplies(control model.Control, targetOccurrenceID, targetRuntime, targetSource, targetScope, targetSubtree string) bool {
+	if len(control.AppliesTo) > 0 {
+		return occurrenceExplicitlyApplies(control.AppliesTo, targetOccurrenceID)
+	}
+	return controlAppliesToOccurrence(control.Runtime, control.Source, control.Scope, control.ScopeSubtree, targetRuntime, targetSource, targetScope, targetSubtree)
+}
+
+func controlRestrictsProofAuthority(controlID, authorityID string) bool {
+	if controlRestrictsAuthority(controlID, authorityID) {
+		return true
+	}
+	switch controlID {
+	case "control:network-restricted", "control:egress-destination-allowlist", "control:webhook-allowlist", "control:per-tool-network-scope":
+		return authorityID == "authority:external-communication" || authorityID == "authority:broad-local"
+	default:
+		return false
+	}
 }
 
 func controlRestrictsBoundary(controlID, boundaryID string) bool {
@@ -2272,6 +2536,12 @@ func hasSecretEvidence(c model.Collection) bool {
 	return hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasControl(c, "control:deny-secret-read")
 }
 
+type secretOccurrencePath struct {
+	input     model.TrustInput
+	authority model.Authority
+	boundary  model.Boundary
+}
+
 func evaluateSecret(c model.Collection, g model.Graph, mode string) model.ExposureResult {
 	runtimes := runtimeKinds(c)
 	hasTrustInput := false
@@ -2281,17 +2551,89 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 			break
 		}
 	}
-	hasFileRead := hasAuthority(c, "authority:file-read")
-	hasBroadLocal := hasAuthority(c, "authority:broad-local")
-	hasBoundary := len(c.Boundaries) > 0
-	if sources, workflowOnly := managedWorkflowRiskSources(c); workflowOnly {
-		hasFileRead = anySourceHasWorkflowSecretPath(c, sources)
-		hasBroadLocal = anySourceHasAuthority(c, sources, "authority:broad-local")
-		hasBoundary = hasFileRead
+	completePaths := 0
+	unprotectedPaths := 0
+	protectedByInput := false
+	protectedByDeny := false
+	protectedByForkIsolation := false
+	var exposedOccurrencePaths []secretOccurrencePath
+	var protectedOccurrencePaths []secretOccurrencePath
+	exposedOccurrenceSeen := map[string]bool{}
+	protectedOccurrenceSeen := map[string]bool{}
+	boundaryIndex := indexBoundaries(c.Boundaries)
+	secretReach := map[string][]model.Boundary{}
+	privateReach := map[string][]model.Boundary{}
+	for _, authority := range c.Authorities {
+		if authority.ID != "authority:file-read" {
+			continue
+		}
+		secretReach[authority.OccurrenceID] = authorityReachedBoundariesFromIndex(authority, boundaryIndex, secretBoundaryIDs()...)
+		privateReach[authority.OccurrenceID] = authorityReachedBoundariesFromIndex(authority, boundaryIndex, privateBoundaryIDs()...)
 	}
-	hasDeny := hasEnforcedControl(c, "control:deny-secret-read")
-	hasInputBreak := hasHardInputBreak(c)
-	hasForkPRIsolation := hasOnlyForkPRIsolatedWorkflowInputs(c)
+secretSearch:
+	for _, input := range c.TrustInputs {
+		if !input.Risky {
+			continue
+		}
+		for _, authority := range c.Authorities {
+			if authority.ID != "authority:file-read" {
+				continue
+			}
+			boundaries := secretReach[authority.OccurrenceID]
+			if input.Kind == "managed-workflow-trigger" {
+				boundaries = privateReach[authority.OccurrenceID]
+			}
+			if !authorityCanFollowInput(input, authority) || len(boundaries) == 0 {
+				continue
+			}
+			for _, boundary := range boundaries {
+				completePaths++
+				pathProtected := false
+				if input.Kind == "managed-workflow-trigger" && workflowSourceHasForkPRIsolation(c, input.Source) {
+					protectedByForkIsolation = true
+					pathProtected = true
+				}
+				if hasEnforcedControlForTrustInput(c, input, authority.Runtime, "control:input-isolation", "control:trusted-source-policy") {
+					protectedByInput = true
+					pathProtected = true
+				}
+				if hasEnforcedControlForAuthorityBoundary(c, authority, boundary, "control:deny-secret-read") {
+					protectedByDeny = true
+					pathProtected = true
+				}
+				if !pathProtected {
+					unprotectedPaths++
+					exposedOccurrencePaths = appendSecretOccurrencePathUnique(exposedOccurrencePaths, exposedOccurrenceSeen, secretOccurrencePath{input: input, authority: authority, boundary: boundary})
+					break secretSearch
+				} else {
+					protectedOccurrencePaths = appendSecretOccurrencePathUnique(protectedOccurrencePaths, protectedOccurrenceSeen, secretOccurrencePath{input: input, authority: authority, boundary: boundary})
+				}
+			}
+		}
+	}
+	if mode == "endpoint" && unprotectedPaths == 0 {
+	endpointSearch:
+		for _, authority := range c.Authorities {
+			if authority.ID != "authority:broad-local" {
+				continue
+			}
+			boundaries := authorityReachedBoundariesFromIndex(authority, boundaryIndex, secretBoundaryIDs()...)
+			if len(boundaries) == 0 {
+				continue
+			}
+			for _, boundary := range boundaries {
+				completePaths++
+				if hasEnforcedControlForAuthorityBoundary(c, authority, boundary, "control:deny-secret-read") {
+					protectedByDeny = true
+					protectedOccurrencePaths = appendSecretOccurrencePathUnique(protectedOccurrencePaths, protectedOccurrenceSeen, secretOccurrencePath{authority: authority, boundary: boundary})
+					continue
+				}
+				unprotectedPaths++
+				exposedOccurrencePaths = appendSecretOccurrencePathUnique(exposedOccurrencePaths, exposedOccurrenceSeen, secretOccurrencePath{authority: authority, boundary: boundary})
+				break endpointSearch
+			}
+		}
+	}
 
 	result := model.ExposureResult{
 		ID:            "prompt-injection-to-secret-canary",
@@ -2307,36 +2649,41 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 	}
 
 	switch {
-	case mode == "endpoint" && hasBroadLocal && hasBoundary:
+	case completePaths > 0 && unprotectedPaths > 0:
 		result.Status = model.StatusExposed
-		result.ProofMode = model.ProofInferred
-		result.Observation = model.Observation{Status: model.ObservationNotAttempted, Summary: "Endpoint config declares broad local authority; no live behavior was executed."}
-	case hasTrustInput && hasFileRead && hasBoundary && hasForkPRIsolation:
+		if mode == "endpoint" {
+			result.ProofMode = model.ProofInferred
+			result.Observation = model.Observation{Status: model.ObservationNotAttempted, Summary: "At least one endpoint authority occurrence reaches a secret-like boundary without an applicable deny control; no live behavior was executed."}
+		} else {
+			result.ProofMode = model.ProofSimulated
+			result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "At least one influence-to-secret path remains connected without an applicable control for that runtime and scope."}
+		}
+		result.OccurrencePathEdges = secretOccurrencePathsEdges(g, exposedOccurrencePaths)
+	case completePaths > 0:
 		result.Status = model.StatusProtected
 		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Plain pull_request platform semantics isolate fork pull-request content from workflow secrets and write-capable credentials by default."}
-		result.ControlsBreakPath = []string{"isolate fork pull-request secrets and write-capable credentials"}
-	case hasTrustInput && hasFileRead && hasBoundary && hasInputBreak:
-		result.Status = model.StatusProtected
-		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The deterministic path reaches an input-isolation or trusted-source control before runtime authority."}
-		result.ControlsBreakPath = []string{"isolate or trust-gate untrusted instructions"}
-		if hasDeny {
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Every complete influence-to-secret path has an applicable occurrence-scoped control."}
+		if protectedByForkIsolation {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "isolate fork pull-request secrets and write-capable credentials")
+		}
+		if protectedByInput {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "isolate or trust-gate untrusted instructions")
+		}
+		if protectedByDeny {
 			result.ControlsBreakPath = append(result.ControlsBreakPath, "deny-read secret-like paths")
 		}
-	case hasTrustInput && hasFileRead && hasBoundary && hasDeny:
-		result.Status = model.StatusProtected
-		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The simulated path reaches a deny-read control before the fake secret boundary."}
-		result.ControlsBreakPath = []string{"deny-read secret-like paths"}
-	case hasTrustInput && hasFileRead && hasBoundary:
+		result.OccurrencePathEdges = secretOccurrencePathsEdges(g, protectedOccurrencePaths)
+	case hasDisconnectedSecretIngredients(c):
+		// Keep the established scoped-default contract: the verdict layer owns
+		// the explicit trade-off judgment when authority exists only in a
+		// disjoint nested context. This is not treated as a control barrier.
 		result.Status = model.StatusExposed
-		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "The simulated story path reaches the fake secret boundary without a breaking control."}
-	case hasTrustInput && !hasFileRead:
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationNotAttempted, Summary: "Risk ingredients exist, but occurrence metadata shows no same-scope authority path; the verdict layer must apply an explicit scoped-authority judgment."}
+	case hasTrustInput:
 		result.Status = model.StatusInconclusive
 		result.ProofMode = model.ProofInferred
-		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "Risky trust input exists, but runtime file-read authority was not established."}
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "Risky trust input exists, but a connected runtime-and-scope file-read path was not established."}
 	default:
 		result.Status = model.StatusInconclusive
 		result.ProofMode = model.ProofInferred
@@ -2346,12 +2693,101 @@ func evaluateSecret(c model.Collection, g model.Graph, mode string) model.Exposu
 	return result
 }
 
+func secretOccurrencePathsEdges(g model.Graph, paths []secretOccurrencePath) []string {
+	var out []string
+	for _, path := range paths {
+		for _, edge := range secretOccurrencePathEdges(g, path) {
+			out = appendUniqueString(out, edge)
+		}
+	}
+	return out
+}
+
+func appendSecretOccurrencePathUnique(paths []secretOccurrencePath, seen map[string]bool, next secretOccurrencePath) []secretOccurrencePath {
+	key := next.authority.OccurrenceID
+	if key == "" || seen[key] {
+		return paths
+	}
+	seen[key] = true
+	return append(paths, next)
+}
+
+func secretOccurrencePathEdges(g model.Graph, path secretOccurrencePath) []string {
+	if path.authority.OccurrenceID == "" || path.boundary.OccurrenceID == "" {
+		return []string{}
+	}
+	edges := graphEdgeMap(g)
+	runtimeOccurrence := runtimeOccurrenceForPath(g, path.input.OccurrenceID, path.authority.OccurrenceID)
+	var out []string
+	if path.input.OccurrenceID != "" && runtimeOccurrence != "" {
+		out = appendExistingOccurrenceEdge(out, edges, path.input.OccurrenceID, "influences", runtimeOccurrence)
+	}
+	if runtimeOccurrence != "" {
+		out = appendExistingOccurrenceEdge(out, edges, runtimeOccurrence, "has_authority", path.authority.OccurrenceID)
+	}
+	out = appendExistingOccurrenceEdge(out, edges, path.authority.OccurrenceID, "reaches", path.boundary.OccurrenceID)
+	for _, edge := range g.Edges {
+		if edge.Type == "restricts" && edge.To == path.boundary.OccurrenceID {
+			out = appendExistingOccurrenceEdge(out, edges, edge.From, edge.Type, edge.To)
+		}
+	}
+	return out
+}
+
+func graphEdgeMap(g model.Graph) map[string]model.Edge {
+	out := make(map[string]model.Edge, len(g.Edges))
+	for _, edge := range g.Edges {
+		out[edge.Key()] = edge
+	}
+	return out
+}
+
+func runtimeOccurrenceForPath(g model.Graph, inputOccurrenceID, authorityOccurrenceID string) string {
+	for _, edge := range g.Edges {
+		if edge.Type != "has_authority" || edge.To != authorityOccurrenceID {
+			continue
+		}
+		if inputOccurrenceID == "" || g.HasEdge(inputOccurrenceID+"|influences|"+edge.From) {
+			return edge.From
+		}
+	}
+	return ""
+}
+
+func appendExistingOccurrenceEdge(out []string, edges map[string]model.Edge, from, edgeType, to string) []string {
+	key := from + "|" + edgeType + "|" + to
+	if _, ok := edges[key]; !ok {
+		return out
+	}
+	for _, existing := range out {
+		if existing == key {
+			return out
+		}
+	}
+	return append(out, key)
+}
+
 func evaluateMCP(c model.Collection, g model.Graph) model.ExposureResult {
-	hasMCPPackageLaunch := hasTool(c, "tool:mcp-package-launch")
-	hasRiskyMCPPackageLaunch := hasRiskyTool(c, "tool:mcp-package-launch")
-	hasLocalCodeExecution := hasAuthority(c, "authority:local-code-execution")
-	hasExecutionBoundary := hasBoundary(c, "boundary:developer-execution-boundary")
-	hasReviewedPinnedControl := hasEnforcedControl(c, "control:mcp-reviewed-pinned")
+	hasMCPPackageLaunch := false
+	hasProtectedPackageLaunch := false
+	hasUnprotectedRiskyPath := false
+	var exposedTools []model.Tool
+	var protectedTools []model.Tool
+	for _, tool := range c.Tools {
+		if tool.ID != "tool:mcp-package-launch" {
+			continue
+		}
+		hasMCPPackageLaunch = true
+		protected := hasEnforcedControlForTool(c, tool, "control:mcp-reviewed-pinned")
+		if protected {
+			hasProtectedPackageLaunch = true
+			protectedTools = append(protectedTools, tool)
+		}
+		if tool.Risky && !protected && toolHasExecutionPath(c, tool) {
+			hasUnprotectedRiskyPath = true
+			exposedTools = append(exposedTools, tool)
+		}
+	}
 	result := model.ExposureResult{
 		ID:            "mutable-tool-launch-execution",
 		Title:         "MCP package launch to local code execution",
@@ -2365,15 +2801,17 @@ func evaluateMCP(c model.Collection, g model.Graph) model.ExposureResult {
 		},
 	}
 	switch {
-	case hasMCPPackageLaunch && hasReviewedPinnedControl:
-		result.Status = model.StatusProtected
-		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The simulated MCP path reaches a reviewed/pinned control before local code execution."}
-		result.ControlsBreakPath = []string{"review and pin MCP servers"}
-	case hasRiskyMCPPackageLaunch && hasLocalCodeExecution && hasExecutionBoundary:
+	case hasUnprotectedRiskyPath:
 		result.Status = model.StatusExposed
 		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "The simulated story path reaches local code execution through a mutable tool launcher."}
+		result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "The simulated story path reaches local code execution through a mutable tool launcher whose own occurrence is not pinned."}
+		result.OccurrencePathEdges = mcpOccurrencePathEdges(g, exposedTools)
+	case hasMCPPackageLaunch && hasProtectedPackageLaunch:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Every simulated MCP package-launch path is tied to a reviewed/pinned control for that launcher occurrence."}
+		result.ControlsBreakPath = []string{"review and pin MCP servers"}
+		result.OccurrencePathEdges = mcpOccurrencePathEdges(g, protectedTools)
 	default:
 		result.Status = model.StatusInconclusive
 		result.ProofMode = model.ProofInferred
@@ -2381,6 +2819,407 @@ func evaluateMCP(c model.Collection, g model.Graph) model.ExposureResult {
 	}
 	result.PathNodes = nodesFromEdges(result.PathEdges)
 	return result
+}
+
+func mcpOccurrencePathEdges(g model.Graph, tools []model.Tool) []string {
+	selectedTools := map[string]bool{}
+	selectedAuthorities := map[string]bool{}
+	for _, tool := range tools {
+		if tool.OccurrenceID != "" {
+			selectedTools[tool.OccurrenceID] = true
+		}
+	}
+	var out []string
+	seen := map[string]bool{}
+	appendEdge := func(edge model.Edge) {
+		key := edge.Key()
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, key)
+		}
+	}
+	for _, edge := range g.Edges {
+		switch edge.Type {
+		case "can_call":
+			if selectedTools[edge.To] {
+				appendEdge(edge)
+			}
+		case "grants":
+			if selectedTools[edge.From] {
+				selectedAuthorities[edge.To] = true
+				appendEdge(edge)
+			}
+		case "restricts":
+			if selectedTools[edge.To] {
+				appendEdge(edge)
+			}
+		}
+	}
+	for _, edge := range g.Edges {
+		if edge.Type == "reaches" && selectedAuthorities[edge.From] {
+			appendEdge(edge)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func hasEnforcedControlForTool(c model.Collection, tool model.Tool, controlIDs ...string) bool {
+	for _, control := range c.Controls {
+		if control.Enforcement != model.EnforcementEnforced || !stringSliceContains(controlIDs, control.ID) {
+			continue
+		}
+		if len(control.AppliesTo) > 0 {
+			if occurrenceExplicitlyApplies(control.AppliesTo, tool.OccurrenceID) {
+				return true
+			}
+			continue
+		}
+		if controlAppliesToOccurrence(control.Runtime, control.Source, control.Scope, control.ScopeSubtree, tool.Runtime, tool.Source, tool.Scope, tool.ScopeSubtree) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnforcedControlForTrustInput(c model.Collection, input model.TrustInput, pathRuntime string, controlIDs ...string) bool {
+	for _, control := range c.Controls {
+		if control.Enforcement != model.EnforcementEnforced || !stringSliceContains(controlIDs, control.ID) {
+			continue
+		}
+		if len(control.AppliesTo) > 0 {
+			if occurrenceExplicitlyApplies(control.AppliesTo, input.OccurrenceID) {
+				return true
+			}
+			continue
+		}
+		if controlAppliesToOccurrence(control.Runtime, control.Source, control.Scope, control.ScopeSubtree, pathRuntime, input.Source, input.InstructionScope, input.ScopeSubtree) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnforcedControlForAuthority(c model.Collection, authority model.Authority, controlIDs ...string) bool {
+	for _, control := range c.Controls {
+		if control.Enforcement != model.EnforcementEnforced || !stringSliceContains(controlIDs, control.ID) {
+			continue
+		}
+		if len(control.AppliesTo) > 0 {
+			if occurrenceExplicitlyApplies(control.AppliesTo, authority.OccurrenceID) {
+				return true
+			}
+			continue
+		}
+		if controlAppliesToOccurrence(control.Runtime, control.Source, control.Scope, control.ScopeSubtree, authority.Runtime, authority.Source, authority.AuthorityScope, authority.ScopeSubtree) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEnforcedControlForAuthorityBoundary(c model.Collection, authority model.Authority, boundary model.Boundary, controlIDs ...string) bool {
+	for _, control := range c.Controls {
+		if control.Enforcement != model.EnforcementEnforced || !stringSliceContains(controlIDs, control.ID) {
+			continue
+		}
+		if enforcedControlAppliesToAuthorityBoundary(control, authority, boundary) {
+			return true
+		}
+	}
+	return false
+}
+
+func enforcedControlAppliesToAuthorityBoundary(control model.Control, authority model.Authority, boundary model.Boundary) bool {
+	if control.Enforcement != model.EnforcementEnforced {
+		return false
+	}
+	if len(control.AppliesTo) > 0 {
+		if !occurrenceExplicitlyApplies(control.AppliesTo, authority.OccurrenceID) && !occurrenceExplicitlyApplies(control.AppliesTo, boundary.OccurrenceID) {
+			return false
+		}
+	} else if !controlAppliesToOccurrence(control.Runtime, control.Source, control.Scope, control.ScopeSubtree, authority.Runtime, authority.Source, authority.AuthorityScope, authority.ScopeSubtree) {
+		return false
+	}
+	return control.ID != "control:deny-secret-read" || controlRestrictsResource(control, boundary)
+}
+
+func controlRestrictsResource(control model.Control, boundary model.Boundary) bool {
+	if occurrenceExplicitlyApplies(control.AppliesTo, boundary.OccurrenceID) {
+		return true
+	}
+	if boundary.Abstract || boundary.Source == "" || len(control.RestrictedResources) == 0 {
+		return false
+	}
+	for _, pattern := range control.RestrictedResources {
+		if resourcePatternMatches(pattern, boundary.Source) {
+			return true
+		}
+	}
+	return false
+}
+
+func resourcePatternMatches(pattern, source string) bool {
+	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	source = filepath.ToSlash(strings.TrimSpace(source))
+	pattern = strings.TrimPrefix(pattern, "./")
+	pattern = strings.TrimPrefix(pattern, "~/")
+	source = strings.TrimPrefix(source, "./")
+	if pattern == "*" || pattern == "**" || pattern == "/**" {
+		return true
+	}
+	if strings.HasPrefix(pattern, "**/") {
+		rest := strings.TrimPrefix(pattern, "**/")
+		if matched, _ := pathpkg.Match(rest, source); matched {
+			return true
+		}
+		return strings.HasSuffix(source, "/"+rest)
+	}
+	if strings.HasSuffix(pattern, "/**") {
+		prefix := strings.TrimSuffix(pattern, "/**")
+		return source == prefix || strings.HasPrefix(source, prefix+"/")
+	}
+	matched, err := pathpkg.Match(pattern, source)
+	return err == nil && matched
+}
+
+func authorityCanFollowInput(input model.TrustInput, authority model.Authority) bool {
+	if input.Runtime != "" && authority.Runtime != "" && input.Runtime != authority.Runtime {
+		return false
+	}
+	if input.Runtime == "" && authority.Runtime == "" && input.Source != authority.Source {
+		return false
+	}
+	if input.Kind == "managed-workflow-trigger" && input.Source != authority.Source {
+		return false
+	}
+	switch authority.AuthorityScope {
+	case model.AuthorityScopeRoot:
+		return true
+	case model.AuthorityScopeNested:
+		return input.InstructionScope == model.InstructionScopeNested && authority.ScopeSubtree != "" && authority.ScopeSubtree == input.ScopeSubtree
+	default:
+		return input.Source != "" && input.Source == authority.Source
+	}
+}
+
+func authoritiesSharePath(left, right model.Authority) bool {
+	if left.Runtime != "" && right.Runtime != "" && left.Runtime != right.Runtime {
+		return false
+	}
+	if (left.Runtime == "" || right.Runtime == "") && left.Source != right.Source {
+		return false
+	}
+	if left.AuthorityScope == model.AuthorityScopeRoot || right.AuthorityScope == model.AuthorityScopeRoot {
+		return true
+	}
+	if left.AuthorityScope == model.AuthorityScopeNested && right.AuthorityScope == model.AuthorityScopeNested {
+		return left.ScopeSubtree != "" && left.ScopeSubtree == right.ScopeSubtree
+	}
+	return left.Source != "" && left.Source == right.Source
+}
+
+func authorityReachesAnyBoundary(c model.Collection, authority model.Authority, boundaryIDs ...string) bool {
+	return len(authorityReachedBoundaries(c, authority, boundaryIDs...)) > 0
+}
+
+func authorityReachedBoundaries(c model.Collection, authority model.Authority, boundaryIDs ...string) []model.Boundary {
+	return authorityReachedBoundariesFromIndex(authority, indexBoundaries(c.Boundaries), boundaryIDs...)
+}
+
+func indexBoundaries(boundaries []model.Boundary) map[string][]model.Boundary {
+	index := make(map[string][]model.Boundary)
+	for _, boundary := range boundaries {
+		index[boundary.ID] = append(index[boundary.ID], boundary)
+	}
+	return index
+}
+
+func authorityReachedBoundariesFromIndex(authority model.Authority, boundaries map[string][]model.Boundary, boundaryIDs ...string) []model.Boundary {
+	var out []model.Boundary
+	for _, boundaryID := range boundaryIDs {
+		for _, boundary := range boundaries[boundaryID] {
+			switch authority.AuthorityScope {
+			case model.AuthorityScopeRoot:
+				out = append(out, boundary)
+			case model.AuthorityScopeNested:
+				if boundary.Scope == model.InstructionScopeNested && authority.ScopeSubtree != "" && authority.ScopeSubtree == boundary.ScopeSubtree {
+					out = append(out, boundary)
+				}
+			default:
+				if authority.Source != "" && authority.Source == boundary.Source {
+					out = append(out, boundary)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func secretBoundaryIDs() []string {
+	return []string{"boundary:secret-like-file", "boundary:developer-secret-boundary"}
+}
+
+func privateBoundaryIDs() []string {
+	return []string{
+		"boundary:secret-like-file",
+		"boundary:developer-secret-boundary",
+		"boundary:agent-private-context",
+		"boundary:memory-credential-retention",
+		"boundary:credential-material",
+		"boundary:ci-secret-boundary",
+		"boundary:cloud-identity-boundary",
+		"boundary:repository-integrity-boundary",
+	}
+}
+
+func privateAuthorityIDs() []string {
+	return []string{"authority:file-read", "authority:broad-local", "authority:credential-access", "authority:cloud-identity-token", "authority:repository-write"}
+}
+
+func externalAuthorityIDs() []string {
+	return []string{"authority:external-communication", "authority:broad-local"}
+}
+
+func hasDisconnectedSecretIngredients(c model.Collection) bool {
+	if !hasRiskyTrustInputOccurrence(c) {
+		return false
+	}
+	for _, authority := range c.Authorities {
+		if authority.ID == "authority:file-read" && authority.AuthorityScope == model.AuthorityScopeNested && authorityReachesAnyBoundary(c, authority, privateBoundaryIDs()...) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDisconnectedEgressIngredients(c model.Collection) bool {
+	if !hasRiskyTrustInputOccurrence(c) || !hasAnyBoundary(c, privateBoundaryIDs()...) || !hasBoundary(c, "boundary:external-destination") {
+		return false
+	}
+	for _, privateAuthority := range c.Authorities {
+		if privateAuthority.AuthorityScope != model.AuthorityScopeNested || !stringSliceContains(privateAuthorityIDs(), privateAuthority.ID) || !authorityReachesAnyBoundary(c, privateAuthority, privateBoundaryIDs()...) {
+			continue
+		}
+		for _, externalAuthority := range c.Authorities {
+			if externalAuthority.AuthorityScope != model.AuthorityScopeNested || !stringSliceContains(externalAuthorityIDs(), externalAuthority.ID) || !authoritiesSharePath(privateAuthority, externalAuthority) || !authorityReachesAnyBoundary(c, externalAuthority, "boundary:external-destination") {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func hasRiskyTrustInputOccurrence(c model.Collection) bool {
+	for _, input := range c.TrustInputs {
+		if input.Risky {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyBoundary(c model.Collection, ids ...string) bool {
+	for _, id := range ids {
+		if hasBoundary(c, id) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolHasExecutionPath(c model.Collection, tool model.Tool) bool {
+	matchingAuthorities := []model.Authority{}
+	for _, authority := range c.Authorities {
+		if authority.ID != "authority:local-code-execution" {
+			continue
+		}
+		if len(authority.GrantedBy) > 0 && !stringSliceContains(authority.GrantedBy, tool.OccurrenceID) {
+			continue
+		}
+		if occurrencesSharePath(tool.Runtime, tool.Source, tool.Scope, tool.ScopeSubtree, authority.Runtime, authority.Source, authority.AuthorityScope, authority.ScopeSubtree) {
+			matchingAuthorities = append(matchingAuthorities, authority)
+		}
+	}
+	if len(matchingAuthorities) == 0 {
+		return false
+	}
+	for _, authority := range matchingAuthorities {
+		for _, boundary := range c.Boundaries {
+			if boundary.ID == "boundary:developer-execution-boundary" && authorityOccurrenceReachesBoundary(authority, boundary) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func occurrenceExplicitlyApplies(appliesTo []string, occurrenceID string) bool {
+	if occurrenceID == "" {
+		return false
+	}
+	return stringSliceContains(appliesTo, occurrenceID)
+}
+
+// controlAppliesToOccurrence is the generic occurrence join used by all hard
+// barriers. Explicit applies_to edges win. Otherwise a control must share the
+// runtime (or the exact source when runtime is unknown) and its structural
+// scope must contain the target. Family IDs never participate in this join.
+func controlAppliesToOccurrence(controlRuntime, controlSource, controlScope, controlSubtree, targetRuntime, targetSource, targetScope, targetSubtree string) bool {
+	if controlRuntime != "" || targetRuntime != "" {
+		if controlRuntime == "" || targetRuntime == "" || controlRuntime != targetRuntime {
+			return controlSource != "" && controlSource == targetSource && scopeContains(controlScope, controlSubtree, targetScope, targetSubtree)
+		}
+	} else if controlSource == "" || controlSource != targetSource {
+		return false
+	}
+	if controlSource != "" && targetSource != "" && controlSource != targetSource {
+		return false
+	}
+	return scopeContains(controlScope, controlSubtree, targetScope, targetSubtree)
+}
+
+func occurrencesSharePath(leftRuntime, leftSource, leftScope, leftSubtree, rightRuntime, rightSource, rightScope, rightSubtree string) bool {
+	if leftRuntime != "" && rightRuntime != "" && leftRuntime != rightRuntime {
+		return false
+	}
+	if leftRuntime == "" && rightRuntime == "" && leftSource != "" && rightSource != "" && leftSource != rightSource {
+		return false
+	}
+	return scopeContains(leftScope, leftSubtree, rightScope, rightSubtree) || scopeContains(rightScope, rightSubtree, leftScope, leftSubtree)
+}
+
+func scopeContains(containerScope, containerSubtree, targetScope, targetSubtree string) bool {
+	if containerScope == model.InstructionScopeRoot {
+		return true
+	}
+	if containerScope == model.InstructionScopeNested {
+		return targetScope == model.InstructionScopeNested && containerSubtree != "" && containerSubtree == targetSubtree
+	}
+	return containerScope == targetScope && containerSubtree == targetSubtree
+}
+
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+type egressOccurrencePath struct {
+	input             model.TrustInput
+	privateAuthority  model.Authority
+	privateBoundary   model.Boundary
+	externalAuthority model.Authority
+	externalBoundary  model.Boundary
+}
+
+type egressOccurrenceLeg struct {
+	authority model.Authority
+	boundary  model.Boundary
 }
 
 func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) model.ExposureResult {
@@ -2391,21 +3230,134 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 			break
 		}
 	}
-	hasPrivateAuthority := hasAuthority(c, "authority:file-read") || hasAuthority(c, "authority:broad-local") || hasAuthority(c, "authority:credential-access") || hasAuthority(c, "authority:cloud-identity-token") || hasAuthority(c, "authority:repository-write")
-	hasPrivateBoundary := hasBoundary(c, "boundary:secret-like-file") || hasBoundary(c, "boundary:developer-secret-boundary") || hasBoundary(c, "boundary:agent-private-context") || hasBoundary(c, "boundary:memory-credential-retention") || hasBoundary(c, "boundary:credential-material") || hasBoundary(c, "boundary:ci-secret-boundary") || hasBoundary(c, "boundary:cloud-identity-boundary") || hasBoundary(c, "boundary:repository-integrity-boundary")
-	hasExternalCommunication := hasAuthority(c, "authority:external-communication") || hasAuthority(c, "authority:broad-local")
-	hasExternalDestination := hasBoundary(c, "boundary:external-destination")
-	if sources, workflowOnly := managedWorkflowRiskSources(c); workflowOnly {
-		completePath := anySourceHasWorkflowEgressPath(c, sources)
-		hasPrivateAuthority = completePath
-		hasPrivateBoundary = completePath
-		hasExternalCommunication = completePath
-		hasExternalDestination = completePath
+	completePaths := 0
+	unprotectedPaths := 0
+	protectedByInput := false
+	protectedByDeny := false
+	protectedByEgress := false
+	protectedByForkIsolation := false
+	var exposedOccurrencePaths []egressOccurrencePath
+	exposedOccurrenceSeen := map[string]bool{}
+	boundaryIndex := indexBoundaries(c.Boundaries)
+	type egressContext struct {
+		runtime             string
+		hasPrivate          bool
+		hasExternal         bool
+		unprotectedPrivate  bool
+		unprotectedExternal bool
+		protectedPrivate    bool
+		protectedExternal   bool
+		privateLegs         []egressOccurrenceLeg
+		externalLegs        []egressOccurrenceLeg
 	}
-	hasHardEgressControl := hasHardEgressBreak(c)
-	hasDenyRead := hasEnforcedControl(c, "control:deny-secret-read")
-	hasInputBreak := hasHardInputBreak(c)
-	hasForkPRIsolation := hasOnlyForkPRIsolatedWorkflowInputs(c)
+	privateReach := map[string][]model.Boundary{}
+	externalReach := map[string][]model.Boundary{}
+	for _, authority := range c.Authorities {
+		if stringSliceContains(privateAuthorityIDs(), authority.ID) {
+			privateReach[authority.OccurrenceID] = authorityReachedBoundariesFromIndex(authority, boundaryIndex, privateBoundaryIDs()...)
+		}
+		if stringSliceContains(externalAuthorityIDs(), authority.ID) {
+			externalReach[authority.OccurrenceID] = authorityReachedBoundariesFromIndex(authority, boundaryIndex, "boundary:external-destination")
+		}
+	}
+egressSearch:
+	for _, input := range c.TrustInputs {
+		if !input.Risky {
+			continue
+		}
+		contexts := map[string]*egressContext{}
+		var contextOrder []string
+		for _, authority := range c.Authorities {
+			privateBoundaries := privateReach[authority.OccurrenceID]
+			isPrivate := len(privateBoundaries) > 0
+			externalBoundaries := externalReach[authority.OccurrenceID]
+			isExternal := len(externalBoundaries) > 0
+			if (!isPrivate && !isExternal) || !authorityCanFollowInput(input, authority) {
+				continue
+			}
+			key := authority.Runtime
+			if key == "" {
+				key = "unknown\x00" + authority.Source
+			}
+			if input.Kind == "managed-workflow-trigger" {
+				key += "\x00" + authority.Source
+			}
+			context := contexts[key]
+			if context == nil {
+				context = &egressContext{runtime: authority.Runtime}
+				contexts[key] = context
+				contextOrder = append(contextOrder, key)
+			}
+			if isPrivate {
+				context.hasPrivate = true
+				for _, boundary := range privateBoundaries {
+					if hasEnforcedControlForAuthorityBoundary(c, authority, boundary, "control:deny-secret-read") {
+						context.protectedPrivate = true
+					} else {
+						context.unprotectedPrivate = true
+						context.privateLegs = append(context.privateLegs, egressOccurrenceLeg{authority: authority, boundary: boundary})
+					}
+				}
+			}
+			if isExternal {
+				context.hasExternal = true
+				if hasEnforcedControlForAuthority(c, authority, hardEgressControlIDs()...) {
+					context.protectedExternal = true
+				} else {
+					context.unprotectedExternal = true
+					for _, boundary := range externalBoundaries {
+						context.externalLegs = append(context.externalLegs, egressOccurrenceLeg{authority: authority, boundary: boundary})
+					}
+				}
+			}
+		}
+		for _, key := range contextOrder {
+			context := contexts[key]
+			if !context.hasPrivate || !context.hasExternal {
+				continue
+			}
+			completePaths++
+			inputProtected := false
+			if input.Kind == "managed-workflow-trigger" && workflowSourceHasForkPRIsolation(c, input.Source) {
+				protectedByForkIsolation = true
+				inputProtected = true
+			}
+			if hasEnforcedControlForTrustInput(c, input, context.runtime, "control:input-isolation", "control:trusted-source-policy") {
+				protectedByInput = true
+				inputProtected = true
+			}
+			if context.protectedPrivate {
+				protectedByDeny = true
+			}
+			if context.protectedExternal {
+				protectedByEgress = true
+			}
+			if !inputProtected && context.unprotectedPrivate && context.unprotectedExternal {
+				unprotectedPaths++
+				primaryPrivate := context.privateLegs[0]
+				primaryExternal := context.externalLegs[0]
+				for _, privateLeg := range context.privateLegs {
+					exposedOccurrencePaths = appendEgressOccurrencePathUnique(exposedOccurrencePaths, exposedOccurrenceSeen, egressOccurrencePath{
+						input:             input,
+						privateAuthority:  privateLeg.authority,
+						privateBoundary:   privateLeg.boundary,
+						externalAuthority: primaryExternal.authority,
+						externalBoundary:  primaryExternal.boundary,
+					})
+				}
+				for _, externalLeg := range context.externalLegs[1:] {
+					exposedOccurrencePaths = appendEgressOccurrencePathUnique(exposedOccurrencePaths, exposedOccurrenceSeen, egressOccurrencePath{
+						input:             input,
+						privateAuthority:  primaryPrivate.authority,
+						privateBoundary:   primaryPrivate.boundary,
+						externalAuthority: externalLeg.authority,
+						externalBoundary:  externalLeg.boundary,
+					})
+				}
+				break egressSearch
+			}
+		}
+	}
 
 	result := model.ExposureResult{
 		ID:            "data-egress-chain",
@@ -2421,34 +3373,35 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	}
 
 	switch {
-	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && hasForkPRIsolation:
-		result.Status = model.StatusProtected
-		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Plain pull_request platform semantics isolate fork pull-request content from workflow secrets and write-capable credentials by default."}
-		result.ControlsBreakPath = []string{"isolate fork pull-request secrets and write-capable credentials"}
-	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination && (hasInputBreak || hasHardEgressControl || hasDenyRead):
-		result.Status = model.StatusProtected
-		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "The graph contains data-egress ingredients, but a control breaks influence, private-data, or external-communication reachability."}
-		if hasInputBreak {
-			result.ControlsBreakPath = append(result.ControlsBreakPath, "isolate or trust-gate untrusted instructions")
-		}
-		result.ControlsBreakPath = append(result.ControlsBreakPath, egressBreakDescriptions(c)...)
-		if hasDenyRead {
-			result.ControlsBreakPath = append(result.ControlsBreakPath, "deny-read secret-like paths")
-		}
-	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && hasExternalCommunication && hasExternalDestination:
+	case completePaths > 0 && unprotectedPaths > 0:
 		result.Status = model.StatusExposed
 		result.ProofMode = model.ProofSimulated
-		result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "The graph contains all three data-egress ingredients: untrusted influence, private-data reachability, and external communication reachability."}
-	case hasRiskyTrustInput && hasPrivateAuthority && hasPrivateBoundary && !hasExternalCommunication:
+		result.Observation = model.Observation{Status: model.ObservationSucceededInLab, Summary: "At least one occurrence-connected path contains untrusted influence, private-data reachability, and external communication without an applicable control."}
+		result.OccurrencePathEdges = egressOccurrencePathsEdges(g, exposedOccurrencePaths)
+	case completePaths > 0:
+		result.Status = model.StatusProtected
+		result.ProofMode = model.ProofSimulated
+		result.Observation = model.Observation{Status: model.ObservationBlocked, Summary: "Every complete data-egress path has an applicable occurrence-scoped control."}
+		if protectedByForkIsolation {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "isolate fork pull-request secrets and write-capable credentials")
+		}
+		if protectedByInput {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "isolate or trust-gate untrusted instructions")
+		}
+		if protectedByEgress {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "restrict external network communication")
+		}
+		if protectedByDeny {
+			result.ControlsBreakPath = append(result.ControlsBreakPath, "deny-read secret-like paths")
+		}
+	case hasDisconnectedEgressIngredients(c):
+		result.Status = model.StatusExposed
+		result.ProofMode = model.ProofInferred
+		result.Observation = model.Observation{Status: model.ObservationNotAttempted, Summary: "Egress ingredients exist, but occurrence metadata shows no same-scope authority path; the verdict layer must apply an explicit scoped-authority judgment."}
+	case hasRiskyTrustInput:
 		result.Status = model.StatusInconclusive
 		result.ProofMode = model.ProofInferred
-		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "Untrusted influence and private-data reachability exist, but external communication authority was not established."}
-	case hasRiskyTrustInput && hasExternalCommunication && !hasPrivateAuthority:
-		result.Status = model.StatusInconclusive
-		result.ProofMode = model.ProofInferred
-		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "Untrusted influence and external communication exist, but private-data authority was not established."}
+		result.Observation = model.Observation{Status: model.ObservationInconclusive, Summary: "Risky trust input exists, but a complete occurrence-connected private-data-to-egress path was not established."}
 	default:
 		result.Status = model.StatusInconclusive
 		result.ProofMode = model.ProofInferred
@@ -2456,6 +3409,78 @@ func evaluateDataEgressChain(c model.Collection, g model.Graph, mode string) mod
 	}
 	result.PathNodes = nodesFromEdges(result.PathEdges)
 	return result
+}
+
+func egressOccurrencePathEdgesWithIndex(g model.Graph, edges map[string]model.Edge, runtimesByAuthority map[string][]string, path egressOccurrencePath) []string {
+	if path.privateAuthority.OccurrenceID == "" || path.externalAuthority.OccurrenceID == "" {
+		return []string{}
+	}
+	runtimeOccurrence := runtimeOccurrenceForPathFromIndex(g, runtimesByAuthority, path.input.OccurrenceID, path.privateAuthority.OccurrenceID)
+	if runtimeOccurrence == "" || !g.HasEdge(runtimeOccurrence+"|has_authority|"+path.externalAuthority.OccurrenceID) {
+		return []string{}
+	}
+	var out []string
+	if path.input.OccurrenceID != "" {
+		out = appendExistingOccurrenceEdge(out, edges, path.input.OccurrenceID, "influences", runtimeOccurrence)
+	}
+	out = appendExistingOccurrenceEdge(out, edges, runtimeOccurrence, "has_authority", path.privateAuthority.OccurrenceID)
+	out = appendExistingOccurrenceEdge(out, edges, path.privateAuthority.OccurrenceID, "reaches", path.privateBoundary.OccurrenceID)
+	out = appendExistingOccurrenceEdge(out, edges, runtimeOccurrence, "has_authority", path.externalAuthority.OccurrenceID)
+	out = appendExistingOccurrenceEdge(out, edges, path.externalAuthority.OccurrenceID, "reaches", path.externalBoundary.OccurrenceID)
+	return out
+}
+
+func egressOccurrencePathsEdges(g model.Graph, paths []egressOccurrencePath) []string {
+	var out []string
+	seen := map[string]bool{}
+	edges := graphEdgeMap(g)
+	runtimesByAuthority := runtimeOccurrencesByAuthority(g)
+	for _, path := range paths {
+		for _, edge := range egressOccurrencePathEdgesWithIndex(g, edges, runtimesByAuthority, path) {
+			if !seen[edge] {
+				seen[edge] = true
+				out = append(out, edge)
+			}
+		}
+	}
+	return out
+}
+
+func runtimeOccurrencesByAuthority(g model.Graph) map[string][]string {
+	out := map[string][]string{}
+	for _, edge := range g.Edges {
+		if edge.Type == "has_authority" {
+			out[edge.To] = append(out[edge.To], edge.From)
+		}
+	}
+	return out
+}
+
+func runtimeOccurrenceForPathFromIndex(g model.Graph, runtimesByAuthority map[string][]string, inputOccurrenceID, authorityOccurrenceID string) string {
+	for _, runtimeOccurrence := range runtimesByAuthority[authorityOccurrenceID] {
+		if inputOccurrenceID == "" || g.HasEdge(inputOccurrenceID+"|influences|"+runtimeOccurrence) {
+			return runtimeOccurrence
+		}
+	}
+	return ""
+}
+
+func appendEgressOccurrencePathUnique(paths []egressOccurrencePath, seen map[string]bool, next egressOccurrencePath) []egressOccurrencePath {
+	key := next.privateAuthority.OccurrenceID + "\x00" + next.externalAuthority.OccurrenceID
+	if next.privateAuthority.OccurrenceID == "" || next.externalAuthority.OccurrenceID == "" || seen[key] {
+		return paths
+	}
+	seen[key] = true
+	return append(paths, next)
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func hasOnlyForkPRIsolatedWorkflowInputs(c model.Collection) bool {

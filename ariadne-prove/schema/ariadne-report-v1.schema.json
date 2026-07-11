@@ -36,6 +36,7 @@
         "proof_mode": { "type": "string", "enum": ["inferred", "simulated", "live_lab"] },
         "path_nodes": { "type": "array", "items": { "type": "string" } },
         "path_edges": { "type": "array", "items": { "type": "string" } },
+        "occurrence_path_edges": { "type": "array", "items": { "type": "string" } },
         "evidence_refs": {
           "type": "array",
           "items": { "$ref": "#/$defs/evidence_reference" }

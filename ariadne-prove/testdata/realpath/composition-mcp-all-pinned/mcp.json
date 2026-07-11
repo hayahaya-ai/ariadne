@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "a-pinned": {
+      "command": "npx",
+      "args": ["example-safe-server@1.2.3"]
+    },
+    "z-pinned": {
+      "command": "npx",
+      "args": ["example-second-server@4.5.6"]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "minor-range": { "command": "npx", "args": ["example-server@1.2"] },
+    "wildcard-range": { "command": "npx", "args": ["example-server@1.2.x"] }
+  }
+}

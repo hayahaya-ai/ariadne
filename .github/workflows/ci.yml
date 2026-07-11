@@ -57,7 +57,15 @@ jobs:
         run: make eval
 
       - name: Ariadne repository self-gate
-        run: ./ariadne-prove/bin/ariadne verdict --path . --mode repo --gate
+        run: |
+          self_gate_archive="$(mktemp)"
+          self_gate_root="$(mktemp -d)"
+          git archive --format=tar --output="$self_gate_archive" HEAD -- \
+            . \
+            ':(exclude)ariadne-prove/testdata' \
+            ':(exclude)testdata'
+          tar -xf "$self_gate_archive" -C "$self_gate_root"
+          ./ariadne-prove/bin/ariadne verdict --path "$self_gate_root" --mode repo --gate
 
       - name: Fleet rollup smoke
         working-directory: ariadne-prove

@@ -69,6 +69,477 @@ func TestProtectedStoryControlBreaksPath(t *testing.T) {
 	}
 }
 
+func TestPhase5CompositionControlsCannotProtectDisjointOccurrences(t *testing.T) {
+	tests := []struct {
+		fixture  string
+		families map[string]model.Status
+	}{
+		{
+			fixture: "composition-mcp-mixed-launchers",
+			families: map[string]model.Status{
+				"mutable-tool-launch-execution": model.StatusExposed,
+			},
+		},
+		{
+			fixture: "composition-root-unpinned-nested-pinned",
+			families: map[string]model.Status{
+				"mutable-tool-launch-execution": model.StatusExposed,
+			},
+		},
+		{
+			fixture: "composition-cross-runtime-unsafe-codex",
+			families: map[string]model.Status{
+				"prompt-injection-to-secret-canary": model.StatusExposed,
+				"data-egress-chain":                 model.StatusExposed,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.fixture, func(t *testing.T) {
+			r, err := RunPath(Options{Path: realPathFixture(t, tc.fixture), Mode: "repo", Agent: "all"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for family, want := range tc.families {
+				if got := exposureStatus(r.Exposures, family); got != want {
+					t.Fatalf("%s status = %s, want %s", family, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestPhase5CompositionSafeInversesStayProtected(t *testing.T) {
+	tests := []struct {
+		fixture string
+		family  string
+		want    model.Status
+	}{
+		{"composition-mcp-all-pinned", "mutable-tool-launch-execution", model.StatusProtected},
+		{"composition-root-and-nested-pinned", "mutable-tool-launch-execution", model.StatusProtected},
+		{"composition-cross-runtime-all-safe", "data-egress-chain", model.StatusInconclusive},
+		{"composition-cross-runtime-all-safe", "prompt-injection-to-secret-canary", model.StatusProtected},
+	}
+	for _, tc := range tests {
+		t.Run(tc.fixture+"/"+tc.family, func(t *testing.T) {
+			r, err := RunPath(Options{Path: realPathFixture(t, tc.fixture), Mode: "repo", Agent: "all"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := exposureStatus(r.Exposures, tc.family); got != tc.want {
+				t.Fatalf("%s status = %s, want %s", tc.family, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPhase5ReviewPartialControlsDoNotProtectAllowedPaths(t *testing.T) {
+	r, err := RunPath(Options{Path: realPathFixture(t, "composition-partial-deny-unsafe"), Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range []string{"prompt-injection-to-secret-canary", "data-egress-chain"} {
+		if got := exposureStatus(r.Exposures, family); got != model.StatusExposed {
+			t.Fatalf("%s status = %s, want exposed", family, got)
+		}
+	}
+}
+
+func TestPhase5ReviewMalformedParserMatrixFailsClosed(t *testing.T) {
+	for _, fixture := range []string{"inconclusive-malformed-cursor", "inconclusive-malformed-codex", "inconclusive-malformed-github"} {
+		t.Run(fixture, func(t *testing.T) {
+			inventory, err := RunInventory(Options{Path: realPathFixture(t, fixture), Mode: "repo", Agent: "all"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			malformed := false
+			for _, status := range inventory.Collection.ParserStatuses {
+				if status.Status == model.ParserStatusMalformed {
+					malformed = true
+					break
+				}
+			}
+			if !malformed {
+				t.Fatalf("parser statuses = %+v, want malformed occurrence", inventory.Collection.ParserStatuses)
+			}
+			r, err := RunPath(Options{Path: realPathFixture(t, fixture), Mode: "repo", Agent: "all"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode).VerdictWord; got != verdict.WordInconclusive {
+				t.Fatalf("verdict = %s, want inconclusive", got)
+			}
+		})
+	}
+}
+
+func TestPhase5ReviewExposedMCPEvidenceExcludesProtectedPeer(t *testing.T) {
+	path := realPathFixture(t, "composition-root-unpinned-nested-pinned")
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, exposure := range r.Exposures {
+		if exposure.ID != "mutable-tool-launch-execution" {
+			continue
+		}
+		for _, ref := range exposure.EvidenceReferences {
+			if strings.Contains(ref.Source, "examples/safe/mcp.json") {
+				t.Fatalf("exposed MCP path cited protected peer evidence: %+v", exposure.EvidenceReferences)
+			}
+		}
+	}
+	v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
+	for _, finding := range v.Reckless {
+		if finding.ExposureID != "mutable-tool-launch-execution" {
+			continue
+		}
+		for _, capability := range finding.RelatedCapabilities {
+			if strings.Contains(capability.Source, "examples/safe/mcp.json") {
+				t.Fatalf("exposed MCP finding consumed protected peer capability: %+v", finding.RelatedCapabilities)
+			}
+		}
+	}
+}
+
+func TestPhase5ReviewCrossRuntimeEvidenceExcludesProtectedRuntime(t *testing.T) {
+	path := realPathFixture(t, "composition-cross-runtime-unsafe-codex")
+	r, err := RunPath(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, exposure := range r.Exposures {
+		if exposure.ID != "prompt-injection-to-secret-canary" && exposure.ID != "data-egress-chain" {
+			continue
+		}
+		if exposure.Status != model.StatusExposed || len(exposure.OccurrencePathEdges) == 0 {
+			t.Fatalf("%s lacks exposed occurrence path: %+v", exposure.ID, exposure)
+		}
+		for _, ref := range exposure.EvidenceReferences {
+			if ref.Source == ".claude/settings.json" {
+				t.Fatalf("%s cited protected Claude occurrence in unsafe Codex path: %+v", exposure.ID, exposure.EvidenceReferences)
+			}
+		}
+	}
+}
+
+func TestPhase5GraphConnectsControlsOnlyToApplicableOccurrences(t *testing.T) {
+	inventory, err := RunInventory(Options{Path: realPathFixture(t, "composition-mcp-mixed-launchers"), Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pin model.Control
+	for _, control := range inventory.Collection.Controls {
+		if control.ID == "control:mcp-reviewed-pinned" {
+			pin = control
+			break
+		}
+	}
+	if pin.OccurrenceID == "" || len(pin.AppliesTo) != 1 {
+		t.Fatalf("pin control lacks exact occurrence target: %+v", pin)
+	}
+	for _, tool := range inventory.Collection.Tools {
+		if tool.ID != "tool:mcp-package-launch" {
+			continue
+		}
+		edge := pin.OccurrenceID + "|restricts|" + tool.OccurrenceID
+		want := tool.OccurrenceID == pin.AppliesTo[0]
+		if got := inventory.Graph.HasEdge(edge); got != want {
+			t.Fatalf("occurrence edge %s present=%v, want %v", edge, got, want)
+		}
+	}
+
+	inventory, err = RunInventory(Options{Path: realPathFixture(t, "composition-cross-runtime-unsafe-codex"), Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, control := range inventory.Collection.Controls {
+		if control.Runtime != "claude" || (control.ID != "control:deny-secret-read" && control.ID != "control:network-restricted") {
+			continue
+		}
+		for _, authority := range inventory.Collection.Authorities {
+			if authority.Runtime != "codex" {
+				continue
+			}
+			edge := control.OccurrenceID + "|restricts|" + authority.OccurrenceID
+			if inventory.Graph.HasEdge(edge) {
+				t.Fatalf("cross-runtime control acquired false occurrence edge %s", edge)
+			}
+		}
+	}
+}
+
+func TestExplicitTargetsFailClosedAndEndpointPathIsExact(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		missing := filepath.Join(t.TempDir(), "missing")
+		if _, err := RunInventory(Options{Path: missing, Mode: "repo"}); err == nil || !strings.Contains(err.Error(), "not readable") {
+			t.Fatalf("RunInventory missing target error = %v", err)
+		}
+		if _, err := RunPath(Options{Path: missing, Mode: "repo"}); err == nil || !strings.Contains(err.Error(), "not readable") {
+			t.Fatalf("RunPath missing target error = %v", err)
+		}
+	})
+
+	t.Run("not-directory", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "target.txt")
+		if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := RunInventory(Options{Path: path, Mode: "repo"}); err == nil || !strings.Contains(err.Error(), "not a directory") {
+			t.Fatalf("RunInventory file target error = %v", err)
+		}
+	})
+
+	t.Run("unreadable", func(t *testing.T) {
+		path := t.TempDir()
+		if err := os.Chmod(path, 0); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(path, 0o700)
+		if handle, err := os.Open(path); err == nil {
+			handle.Close()
+			t.Skip("current user can read mode-000 directories")
+		}
+		if _, err := RunInventory(Options{Path: path, Mode: "repo"}); err == nil || !strings.Contains(err.Error(), "not readable") {
+			t.Fatalf("RunInventory unreadable target error = %v", err)
+		}
+	})
+
+	t.Run("endpoint-explicit-path-does-not-fall-back-to-home", func(t *testing.T) {
+		home := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{"permissions":{"defaultMode":"bypassPermissions"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("HOME", home)
+		explicit := t.TempDir()
+		inventory, err := RunInventory(Options{Path: explicit, Mode: "endpoint", Agent: "all"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, _ := filepath.Abs(explicit)
+		if inventory.TargetPath != want {
+			t.Fatalf("target_path = %q, want explicit %q", inventory.TargetPath, want)
+		}
+		if len(inventory.Collection.Runtimes) != 0 {
+			t.Fatalf("explicit empty endpoint borrowed HOME runtimes: %+v", inventory.Collection.Runtimes)
+		}
+	})
+}
+
+func TestReadableEmptyTargetRemainsNoAgentsFound(t *testing.T) {
+	path := t.TempDir()
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := RunPath(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
+	if v.VerdictWord != verdict.WordNoAgentsFound {
+		t.Fatalf("verdict = %s, want no_agents_found", v.VerdictWord)
+	}
+}
+
+func TestFleetBadTargetIsErrorAndJSONLFails(t *testing.T) {
+	good := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing")
+	r, err := RunScan(Options{Mode: "repo", Agent: "all", Targets: []model.ScanTarget{
+		{ID: "good", Path: good},
+		{ID: "missing", Path: missing},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Summary.Targets != 2 || r.Summary.Completed != 1 || r.Summary.Errors != 1 {
+		t.Fatalf("fleet summary = %+v, want targets=2 completed=1 errors=1", r.Summary)
+	}
+	if got := r.Fleet.VerdictCounts[verdict.WordNoAgentsFound]; got != 1 {
+		t.Fatalf("healthy verdict counts included bad target: %+v", r.Fleet.VerdictCounts)
+	}
+	if len(r.Targets) != 2 || r.Targets[1].Error == "" || r.Targets[1].Report.RunID != "" {
+		t.Fatalf("bad target result = %+v", r.Targets)
+	}
+	var out bytes.Buffer
+	if err := report.RenderScan(&out, r, "jsonl"); err == nil || !strings.Contains(err.Error(), "target missing failed") {
+		t.Fatalf("jsonl render error = %v", err)
+	}
+}
+
+func TestMalformedConfigProducesFirstClassInconclusiveVerdict(t *testing.T) {
+	path := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(path, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, ".claude", "settings.json"), []byte(`{"permissions":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Collection.ParserStatuses) != 1 || inventory.Collection.ParserStatuses[0].Status != model.ParserStatusMalformed {
+		t.Fatalf("parser statuses = %+v, want one malformed occurrence", inventory.Collection.ParserStatuses)
+	}
+	if inventory.Collection.ParserStatuses[0].OccurrenceID == "" {
+		t.Fatalf("parser status lacks occurrence identity: %+v", inventory.Collection.ParserStatuses[0])
+	}
+	r, err := RunPath(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode)
+	if v.SchemaVersion != "ariadne.verdict/v2" || v.VerdictWord != verdict.WordInconclusive {
+		t.Fatalf("verdict = %+v, want ariadne.verdict/v2 inconclusive", v)
+	}
+	if strings.Contains(strings.ToLower(v.NextAction), "no action needed") || !strings.Contains(strings.ToLower(v.NextAction), "repair") {
+		t.Fatalf("inconclusive next action must fail closed: %q", v.NextAction)
+	}
+}
+
+func TestUnreadableConfigProducesParserStatusWhenFilesystemEnforcesPermissions(t *testing.T) {
+	path := t.TempDir()
+	configDir := filepath.Join(path, ".claude")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(configDir, "settings.json")
+	if err := os.WriteFile(config, []byte(`{"permissions":{"defaultMode":"default"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(config, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(config, 0o600)
+	if _, err := os.ReadFile(config); err == nil {
+		t.Skip("current user can read mode-000 files")
+	}
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Collection.ParserStatuses) != 1 || inventory.Collection.ParserStatuses[0].Status != model.ParserStatusUnreadable {
+		t.Fatalf("parser statuses = %+v, want unreadable", inventory.Collection.ParserStatuses)
+	}
+}
+
+func TestUnreadableRelevantSubtreeFailsClosedWhenFilesystemEnforcesPermissions(t *testing.T) {
+	path := t.TempDir()
+	configDir := filepath.Join(path, ".claude")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(`{"permissions":{"defaultMode":"default"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(configDir, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(configDir, 0o755)
+	if handle, err := os.Open(configDir); err == nil {
+		handle.Close()
+		t.Skip("current user can read mode-000 directories")
+	}
+	inventory, err := RunInventory(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := false
+	for _, status := range inventory.Collection.ParserStatuses {
+		if status.Status == model.ParserStatusUnreadable {
+			failure = true
+			break
+		}
+	}
+	if !failure {
+		t.Fatalf("parser statuses = %+v, want unreadable discovery occurrence; warnings=%v", inventory.Collection.ParserStatuses, inventory.Collection.Warnings)
+	}
+	r, err := RunPath(Options{Path: path, Mode: "repo", Agent: "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := verdict.Build(inventory, r, r.TargetPath, r.Story.Mode).VerdictWord; got != verdict.WordInconclusive {
+		t.Fatalf("verdict = %s, want inconclusive", got)
+	}
+}
+
+func TestPublishedVerdictAndScanSchemasAreSelfContained(t *testing.T) {
+	schemaDir, err := filepath.Abs(filepath.Join("..", "..", "schema"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"ariadne-verdict-v2.schema.json", "ariadne-scan-v1.schema.json"} {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(schemaDir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var document any
+			if err := json.Unmarshal(data, &document); err != nil {
+				t.Fatal(err)
+			}
+			var walk func(any)
+			walk = func(value any) {
+				switch typed := value.(type) {
+				case map[string]any:
+					if ref, ok := typed["$ref"].(string); ok && !strings.HasPrefix(ref, "#") {
+						t.Errorf("published schema must be independently resolvable without an external registry: %s", ref)
+					}
+					for _, child := range typed {
+						walk(child)
+					}
+				case []any:
+					for _, child := range typed {
+						walk(child)
+					}
+				}
+			}
+			walk(document)
+		})
+	}
+}
+
+func TestFleetCountsAndRanksInconclusiveVerdicts(t *testing.T) {
+	inconclusive := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(inconclusive, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inconclusive, ".claude", "settings.json"), []byte(`{"permissions":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	empty := t.TempDir()
+	r, err := RunScan(Options{Mode: "repo", Agent: "all", Targets: []model.ScanTarget{
+		{ID: "empty", Path: empty},
+		{ID: "inconclusive", Path: inconclusive},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Fleet.VerdictCounts[verdict.WordInconclusive] != 1 || r.Fleet.VerdictCounts[verdict.WordNoAgentsFound] != 1 {
+		t.Fatalf("fleet verdict counts = %+v", r.Fleet.VerdictCounts)
+	}
+	if len(r.Fleet.WorstFirstTargets) != 2 || r.Fleet.WorstFirstTargets[0].Verdict != verdict.WordInconclusive {
+		t.Fatalf("fleet worst-first rows = %+v", r.Fleet.WorstFirstTargets)
+	}
+}
+
+func exposureStatus(exposures []model.ExposureResult, family string) model.Status {
+	for _, exposure := range exposures {
+		if exposure.ID == family {
+			return exposure.Status
+		}
+	}
+	return ""
+}
+
 func TestMCPProtectedStoryControlBreaksPath(t *testing.T) {
 	r, err := RunStory(Options{StoryRoot: storyRoot(t), StoryID: "mutable-tool-launch-protected"})
 	if err != nil {
@@ -487,9 +958,8 @@ func TestJSONGraphsUseArraysForEmptyEdges(t *testing.T) {
 	if strings.Contains(out, `"path_edges":null`) || strings.Contains(out, `"path_nodes":null`) || strings.Contains(out, `"evidence_refs":null`) || strings.Contains(out, `"graph_edges":null`) {
 		t.Fatalf("path and issue arrays must not serialize as null: %s", out)
 	}
-	if !strings.Contains(out, `"edges":[]`) {
-		t.Fatalf("expected empty edge array in repo-only graph: %s", out)
-	}
+	// Occurrence identity adds classification edges even when no exposure path
+	// is established; the contract here is array shape, not emptiness.
 }
 
 func TestRunPathCombinedRiskProducesMultipleExposurePaths(t *testing.T) {
@@ -2462,13 +2932,10 @@ func TestZeroTrustHighRiskInfluenceBreaksWithoutSensitiveBoundary(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A broad Bash(*) allow now correctly implies authority:file-read
-	// (docs/parser-spec.md: broad-local implies file-read — shell access can
-	// read any file), where the old keyword scanner missed it because the
-	// text contained no literal "read(" substring. With file-read authority
-	// established, the influence-to-secret path is a complete supported
-	// path, not merely inconclusive.
-	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusExposed)
+	// High-risk influence still breaks the architecture boundary, but without
+	// a collected sensitive boundary the concrete secret exposure is
+	// inconclusive rather than fabricated from an unrelated boundary family.
+	assertExposure(t, r, "prompt-injection-to-secret-canary", model.StatusInconclusive)
 	check := assertZeroTrustCheck(t, r.ZeroTrust.Checks, "zt:influence-boundary", model.ZeroTrustBreaking)
 	if !strings.Contains(strings.ToLower(check.Finding), "high-risk") {
 		t.Fatalf("influence boundary should explain high-risk authority: %q", check.Finding)
@@ -3123,6 +3590,7 @@ func TestRunScanFleetVerdictRollup(t *testing.T) {
 
 	wantCounts := map[string]int{
 		verdict.WordReckless:      3,
+		verdict.WordInconclusive:  0,
 		verdict.WordTradeoffsOnly: 2,
 		verdict.WordHardened:      1,
 		verdict.WordNoAgentsFound: 0,
@@ -3156,9 +3624,9 @@ func TestRunScanFleetVerdictRollup(t *testing.T) {
 		"combined-risk",
 		"attested-only-risk",
 		"attested-only-risk-no-declaration",
-		"gemini-hardened-network",
 		"safe-controls",
 		"tradeoffs-only",
+		"gemini-hardened-network",
 	}
 	if strings.Join(gotWorst, "\n") != strings.Join(wantWorst, "\n") {
 		t.Fatalf("worst-first order:\ngot  %v\nwant %v", gotWorst, wantWorst)
@@ -3533,7 +4001,6 @@ func TestInventoryRedactionDoesNotLeakPrivateSurfaceContent(t *testing.T) {
 
 func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	home := t.TempDir()
-	repo := t.TempDir()
 	t.Setenv("HOME", home)
 	mustMkdirAll(t, filepath.Join(home, ".continue"))
 	mustMkdirAll(t, filepath.Join(home, ".cursor"))
@@ -3565,7 +4032,7 @@ func TestEndpointInventoryDiscoversBoundedAISurfaces(t *testing.T) {
 	mustWriteFile(t, filepath.Join(home, ".env"), "ENDPOINT_ENV_FAKE_SECRET_DO_NOT_LEAK=1\n")
 	mustWriteFile(t, filepath.Join(home, ".ssh", "id_ed25519"), "ENDPOINT_SSH_FAKE_SECRET_DO_NOT_LEAK\n")
 
-	r, err := RunInventory(Options{Path: repo, Mode: "endpoint"})
+	r, err := RunInventory(Options{Path: home, Mode: "endpoint"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3915,13 +4382,18 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 	}
 	decisionBlock := boundedBlock(t, actionRendered, "Decision:", "What was inspected:")
 	for _, want := range []string{
-		"Evidence files: .aider.conf.yml; .claude/settings.local.json; .cline/mcp.json",
-		"Evidence fact: target: .aider.conf.yml:1 [runtime]",
+		"Evidence files:",
+		"Evidence fact:",
 		"Missing hard barrier: control:credential-isolation",
 		"Present hard barrier: control:network-restricted",
 	} {
 		if !strings.Contains(decisionBlock, want) {
 			t.Fatalf("endpoint decision packet should separate present and missing controls; missing %q:\n%s", want, decisionBlock)
+		}
+	}
+	for _, source := range []string{".aider.conf.yml", ".claude/settings.local.json", ".cline/mcp.json"} {
+		if !strings.Contains(decisionBlock, source) {
+			t.Fatalf("endpoint decision evidence should retain actionable source %q:\n%s", source, decisionBlock)
 		}
 	}
 	decisionEvidenceLine := firstLineContaining(decisionBlock, "Evidence files:")
@@ -3935,9 +4407,6 @@ func TestEndpointAssessActionShowsCurrentEvidenceSources(t *testing.T) {
 		".claude/paste-cache",
 		".claude/settings.local.json",
 		".codex/config.toml",
-		".continue/config.json",
-		".cursor/mcp.json",
-		".gemini/settings.json",
 	} {
 		if !strings.Contains(sourceBlock, want) {
 			t.Fatalf("endpoint evidence sources should include %q:\n%s", want, sourceBlock)
@@ -4841,8 +5310,12 @@ func TestEnforcedRuntimeEvidenceClosesLeastAgencyCase(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(path, ".claude", "settings.json"), []byte(settings), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	codexConfig := "approval_policy = \"on-request\"\nsandbox_mode = \"workspace-write\"\n"
+	codexConfig := "approval_policy = \"on-request\"\nsandbox_mode = \"workspace-write\"\ndeny_read = [\".env\", \"**/.env\"]\n"
 	if err := os.WriteFile(filepath.Join(path, ".codex", "config.toml"), []byte(codexConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mcpConfig := `{"mcpServers":{"filesystem":{"command":"npx","args":["@modelcontextprotocol/server-filesystem@1.2.3","."],"disabled":true}}}`
+	if err := os.WriteFile(filepath.Join(path, "mcp.json"), []byte(mcpConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -4856,7 +5329,7 @@ func TestEnforcedRuntimeEvidenceClosesLeastAgencyCase(t *testing.T) {
 		t.Fatal(err)
 	}
 	if compare.Summary.Closed+compare.Summary.Removed != 1 || compare.Decision.Status != "proof_succeeded" {
-		t.Fatalf("enforced runtime evidence should close or remove the least-agency case: %+v", compare.Summary)
+		t.Fatalf("enforced runtime evidence should close or remove the least-agency case: summary=%+v cases=%+v", compare.Summary, compare.Cases)
 	}
 }
 
@@ -5600,7 +6073,7 @@ func TestAssessSummaryIsCompactFirstRunReadout(t *testing.T) {
 		"Access to private data=present",
 		"Ability to externally communicate=present",
 		"Evidence:",
-		"Evidence files: .claude/settings.json; .codex/config.toml; .env",
+		"Evidence files: .claude/settings.json; .codex/config.toml; mcp.json; .env",
 		"Modeled/internal evidence: zt:control-strength",
 		"Source references:",
 		"file:",
@@ -5907,7 +6380,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		!containsString(decoded.ControlState.EvidenceSources, ".claude/settings.json") ||
 		!containsString(decoded.ControlState.EvidenceSources, ".codex/config.toml") ||
 		!containsString(decoded.ControlState.ProofSurfaces, ".ariadne/egress-policy.json") ||
-		!containsString(decoded.ControlState.PathSummary, "Supported graph edge: trust input repo instruction -> runtime claude (influences)") ||
+		!containsString(decoded.ControlState.PathSummary, "Supported graph edge: occurrence trust input") ||
 		!containsString(decoded.ControlState.PathSummary, "boundary external destination (reaches)") ||
 		!containsString(decoded.ControlState.GraphEdges, "authority:broad-local|reaches|boundary:external-destination") ||
 		len(decoded.ControlState.Summary) == 0 {
@@ -6398,7 +6871,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Recognized indicators: egress_destination_allowlist; external_destination_allowlist",
 		"Missing hard-barrier evidence for control:egress-destination-allowlist",
 		"Path to fix:",
-		"Supported graph edge: trust input repo instruction -> runtime claude (influences)",
+		"Supported graph edge: occurrence trust input",
 		"boundary external destination (reaches)",
 		"Signal chain:",
 		"expected capability [normal until correlated]",
@@ -6588,7 +7061,7 @@ func TestAssessReportIsFirstRunCaseBoard(t *testing.T) {
 		"Control State",
 		"State Summary",
 		"Path To Fix",
-		"Supported graph edge: trust input repo instruction -&gt; runtime claude (influences)",
+		"Supported graph edge: occurrence trust input",
 		"boundary external destination (reaches)",
 		"Partial Or Friction Controls",
 		"Unknown Evidence",
@@ -7786,6 +8259,7 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	reportExposure := schemaMap(t, reportSchema, "$defs", "exposure")
 	assertRequiredKeys(t, reportExposure, "evidence_refs")
 	assertSchemaProperty(t, reportExposure, "evidence_refs")
+	assertSchemaProperty(t, reportExposure, "occurrence_path_edges")
 	reportEvidenceReference := schemaMap(t, reportSchema, "$defs", "evidence_reference")
 	assertRequiredKeys(t, reportEvidenceReference, "id", "kind", "summary")
 	reportInterpretation := schemaMap(t, reportSchema, "$defs", "interpretation")
@@ -7818,7 +8292,9 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 		"limitations",
 	)
 	inventoryCollection := schemaMap(t, inventorySchema, "$defs", "collection")
-	assertRequiredKeys(t, inventoryCollection, "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "evidence")
+	assertRequiredKeys(t, inventoryCollection, "parser_statuses", "runtimes", "trust_inputs", "tools", "authorities", "controls", "boundaries", "evidence")
+	inventoryParserStatus := schemaMap(t, inventorySchema, "$defs", "parser_status")
+	assertRequiredKeys(t, inventoryParserStatus, "id", "occurrence_id", "source", "scope", "status", "summary")
 	inventorySurface := schemaMap(t, inventorySchema, "$defs", "surface")
 	assertRequiredKeys(t, inventorySurface, "id", "runtime", "scope", "category", "kind", "handling_mode", "source", "summary")
 	inventoryFact := schemaMap(t, inventorySchema, "$defs", "fact")
@@ -7830,10 +8306,14 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, inventoryFact, "id_token_write")
 	assertSchemaProperty(t, inventoryFact, "write_permissions")
 	inventoryTrustInput := schemaMap(t, inventorySchema, "$defs", "trust_input")
+	assertRequiredKeys(t, inventoryTrustInput, "occurrence_id")
 	assertSchemaProperty(t, inventoryTrustInput, "scope_subtree")
 	inventoryAuthority := schemaMap(t, inventorySchema, "$defs", "authority")
+	assertRequiredKeys(t, inventoryAuthority, "occurrence_id")
 	assertSchemaProperty(t, inventoryAuthority, "authority_scope")
 	assertSchemaProperty(t, inventoryAuthority, "scope_subtree")
+	inventoryControl := schemaMap(t, inventorySchema, "$defs", "control")
+	assertSchemaProperty(t, inventoryControl, "restricted_resources")
 	inventoryGraph := schemaMap(t, inventorySchema, "$defs", "graph")
 	assertRequiredKeys(t, inventoryGraph, "nodes", "edges")
 	inventorySurfaceMap := schemaMap(t, inventorySchema, "$defs", "surface_map")
@@ -7845,6 +8325,8 @@ func TestSchemaFilesCoverArchitectureContracts(t *testing.T) {
 	assertSchemaProperty(t, verdictSchema, "authority_scope")
 	verdictAuthorityScope := schemaMap(t, verdictSchema, "$defs", "authority_scope_fact")
 	assertRequiredKeys(t, verdictAuthorityScope, "id", "authority_ids", "runtime", "authority_scope", "scope_subtree", "source", "summary")
+	verdictV2Schema := loadSchema(t, "ariadne-verdict-v2.schema.json")
+	assertRequiredKeys(t, verdictV2Schema, "schema_version", "verdict", "parser_statuses", "inconclusive", "next_action")
 
 	scanSchema := loadSchema(t, "ariadne-scan-v1.schema.json")
 	assertRequiredKeys(t, scanSchema,

@@ -2,7 +2,7 @@
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["@modelcontextprotocol/server-filesystem@1.2.3", "~"]
+      "args": ["@modelcontextprotocol/server-filesystem@1.2.3", "."]
     }
   }
 }

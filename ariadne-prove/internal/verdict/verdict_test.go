@@ -292,8 +292,8 @@ func TestBuildCombinedRiskKeepsOnlyUnconsumedTradeoffs(t *testing.T) {
 	if len(v.Tradeoffs) != 1 {
 		t.Fatalf("combined-risk tradeoffs = %d, want 1: %+v", len(v.Tradeoffs), v.Tradeoffs)
 	}
-	if v.Tradeoffs[0].Source != "mcp.json" {
-		t.Fatalf("combined-risk trade-off should come from unconsumed MCP file-read: %+v", v.Tradeoffs)
+	if v.Tradeoffs[0].Source != ".codex/config.toml; mcp.json" {
+		t.Fatalf("combined-risk trade-off should merge the occurrence-disconnected Codex and MCP file-read sources: %+v", v.Tradeoffs)
 	}
 	for _, tradeoff := range v.Tradeoffs {
 		if strings.Contains(tradeoff.Summary, "reach the network") {

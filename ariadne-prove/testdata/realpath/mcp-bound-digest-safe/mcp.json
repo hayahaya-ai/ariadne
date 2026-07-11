@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "immutable": {
+      "command": "docker",
+      "args": ["run", "example/server@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    }
+  }
+}

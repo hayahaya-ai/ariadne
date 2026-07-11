@@ -14,11 +14,12 @@ import (
 )
 
 // SchemaVersion identifies the verdict JSON shape.
-const SchemaVersion = "ariadne.verdict/v1"
+const SchemaVersion = "ariadne.verdict/v2"
 
 // Verdict words.
 const (
 	WordReckless      = "reckless"
+	WordInconclusive  = "inconclusive"
 	WordTradeoffsOnly = "tradeoffs_only"
 	WordHardened      = "hardened"
 	WordNoAgentsFound = "no_agents_found"
@@ -44,6 +45,7 @@ type Verdict struct {
 	Mode                string                    `json:"mode"`
 	VerdictWord         string                    `json:"verdict"`
 	Scanned             ScannedSummary            `json:"scanned"`
+	ParserStatuses      []model.ParserStatusFact  `json:"parser_statuses"`
 	InfluenceProvenance []InfluenceProvenanceFact `json:"influence_provenance"`
 	AuthorityScope      []AuthorityScopeFact      `json:"authority_scope"`
 	DefaultJudgments    []DefaultJudgment         `json:"default_judgments"`
@@ -167,17 +169,27 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 	hardened := buildHardened(collection)
 
 	inconclusive := 0
+	conclusive := 0
 	for _, exposure := range r.Exposures {
 		if exposure.Status == model.StatusInconclusive {
 			inconclusive++
+		} else {
+			conclusive++
 		}
 	}
 
-	word := computeVerdictWord(len(reckless), len(tradeoffs), len(hardened), len(collection.Runtimes))
+	parserFailures := parserFailureCount(collection.ParserStatuses)
+	word := computeVerdictWord(len(reckless), len(tradeoffs), len(hardened), inconclusive, conclusive, len(collection.Runtimes), parserFailures)
 
 	nextAction := "no action needed — rerun after config changes"
 	if word == WordReckless {
 		nextAction = "fix reckless:1, then rerun ariadne self"
+	} else if word == WordInconclusive {
+		if parserFailures > 0 {
+			nextAction = "repair unreadable or malformed configuration evidence, then rerun ariadne self"
+		} else {
+			nextAction = "collect the missing authority, boundary, or control evidence, then rerun ariadne self"
+		}
 	}
 
 	return Verdict{
@@ -187,6 +199,7 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 		Mode:                mode,
 		VerdictWord:         word,
 		Scanned:             buildScanned(collection),
+		ParserStatuses:      append([]model.ParserStatusFact{}, collection.ParserStatuses...),
 		InfluenceProvenance: influenceProvenance,
 		AuthorityScope:      authorityScope,
 		DefaultJudgments:    defaultJudgments,
@@ -201,10 +214,12 @@ func Build(inventory model.InventoryReport, r model.Report, target string, mode 
 	}
 }
 
-func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, runtimeCount int) string {
+func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, inconclusiveCount, conclusiveCount, runtimeCount, parserFailureCount int) string {
 	switch {
 	case recklessCount > 0:
 		return WordReckless
+	case parserFailureCount > 0:
+		return WordInconclusive
 	case tradeoffCount > 0:
 		return WordTradeoffsOnly
 	case runtimeCount > 0:
@@ -214,6 +229,16 @@ func computeVerdictWord(recklessCount, tradeoffCount, hardenedCount, runtimeCoun
 		_ = hardenedCount
 		return WordNoAgentsFound
 	}
+}
+
+func parserFailureCount(statuses []model.ParserStatusFact) int {
+	count := 0
+	for _, status := range statuses {
+		if status.Status == model.ParserStatusMalformed || status.Status == model.ParserStatusUnreadable {
+			count++
+		}
+	}
+	return count
 }
 
 func buildScanned(collection model.Collection) ScannedSummary {
@@ -984,7 +1009,7 @@ type recklessFixTarget struct {
 // then used to select a same-runtime edit surface. It never suggests a
 // .ariadne/* declaration.
 func recklessFix(exposureID string, refs []model.EvidenceReference, collection model.Collection) string {
-	target := recklessFixTargetFromEvidence(refs, collection)
+	target := recklessFixTargetFromEvidence(exposureID, refs, collection)
 	source := recklessFixSource(exposureID, target, collection)
 	switch exposureID {
 	case FamilySecret:
@@ -1016,9 +1041,16 @@ func recklessFix(exposureID string, refs []model.EvidenceReference, collection m
 	}
 }
 
-func recklessFixTargetFromEvidence(refs []model.EvidenceReference, collection model.Collection) recklessFixTarget {
+func recklessFixTargetFromEvidence(exposureID string, refs []model.EvidenceReference, collection model.Collection) recklessFixTarget {
 	if len(refs) == 0 {
 		return recklessFixTarget{}
+	}
+	if exposureID != FamilyMCP {
+		for _, ref := range refs {
+			if target, ok := fixTargetFromSurface(ref.Source, collection.Surfaces); ok && isRuntimeFixSurface(target) {
+				return target
+			}
+		}
 	}
 	ref := refs[0]
 	if target, ok := fixTargetFromSurface(ref.Source, collection.Surfaces); ok {
@@ -1247,6 +1279,7 @@ func hasWordPrefix(s, prefix string) bool {
 type capabilityCandidate struct {
 	order           int
 	id              string
+	occurrenceID    string
 	kind            string
 	runtime         string
 	source          string
@@ -1294,6 +1327,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			candidates = append(candidates, capabilityCandidate{
 				order:           10,
 				id:              authority.ID,
+				occurrenceID:    authority.OccurrenceID,
 				kind:            "authority",
 				runtime:         authority.Runtime,
 				source:          authority.Source,
@@ -1305,6 +1339,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			candidates = append(candidates, capabilityCandidate{
 				order:           11,
 				id:              authority.ID,
+				occurrenceID:    authority.OccurrenceID,
 				kind:            "authority",
 				runtime:         authority.Runtime,
 				source:          authority.Source,
@@ -1321,6 +1356,7 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 		candidates = append(candidates, capabilityCandidate{
 			order:           12,
 			id:              boundary.ID,
+			occurrenceID:    boundary.OccurrenceID,
 			kind:            "boundary",
 			source:          boundary.Source,
 			summary:         boundary.Summary,
@@ -1333,14 +1369,15 @@ func capabilityCandidates(collection model.Collection) []capabilityCandidate {
 			continue
 		}
 		candidate := capabilityCandidate{
-			order:   13,
-			id:      tool.ID,
-			kind:    "tool",
-			runtime: tool.Runtime,
-			source:  tool.Source,
-			summary: tool.Summary,
+			order:        13,
+			id:           tool.ID,
+			occurrenceID: tool.OccurrenceID,
+			kind:         "tool",
+			runtime:      tool.Runtime,
+			source:       tool.Source,
+			summary:      tool.Summary,
 		}
-		if control, ok := firstEnforcedControl(collection.Controls, "control:mcp-reviewed-pinned"); ok {
+		if control, ok := firstApplicableEnforcedControl(collection.Controls, "control:mcp-reviewed-pinned", tool.OccurrenceID); ok {
 			candidate.tradeoffSummary = "MCP tools configured and pinned"
 			candidate.tradeoffSource = firstNonEmpty(control.Source, tool.Source)
 		}
@@ -1370,6 +1407,15 @@ func capabilityConsumedByExposure(candidate capabilityCandidate, exposure model.
 			return true
 		}
 	}
+	if len(exposure.OccurrencePathEdges) > 0 {
+		for _, edge := range exposure.OccurrencePathEdges {
+			from, _, to, ok := splitEdge(edge)
+			if ok && candidate.occurrenceID != "" && (from == candidate.occurrenceID || to == candidate.occurrenceID) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, edge := range exposure.PathEdges {
 		if edgeConsumesCandidate(edge, candidate) {
 			return true
@@ -1383,6 +1429,20 @@ func capabilityConsumedByExposure(candidate capabilityCandidate, exposure model.
 		}
 	}
 	return false
+}
+
+func firstApplicableEnforcedControl(controls []model.Control, id, occurrenceID string) (model.Control, bool) {
+	for _, control := range controls {
+		if control.ID != id || control.Enforcement != model.EnforcementEnforced {
+			continue
+		}
+		for _, target := range control.AppliesTo {
+			if target == occurrenceID {
+				return control, true
+			}
+		}
+	}
+	return model.Control{}, false
 }
 
 func evidenceRefMatchesCandidate(ref model.EvidenceReference, candidate capabilityCandidate) bool {

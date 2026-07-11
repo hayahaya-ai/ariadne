@@ -1,0 +1,25 @@
+{
+  "id": "composition-root-unpinned-nested-pinned",
+  "title": "A nested pinned launcher cannot protect an unpinned root launcher",
+  "persona": "developer / AppSec",
+  "user_question": "Does a safe nested MCP fixture leave an unrelated root MCP launcher reckless?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": {
+    "repo_path": "."
+  },
+  "expected": {
+    "verdict": {
+      "word": "reckless",
+      "require_evidence_line_anchors": true,
+      "findings": [
+        {
+          "family": "mutable-tool-launch-execution",
+          "source": "mcp.json",
+          "line": 2,
+          "fix_surface": "mcp.json"
+        }
+      ]
+    }
+  }
+}

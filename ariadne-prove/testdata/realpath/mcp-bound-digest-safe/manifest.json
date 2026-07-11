@@ -1,0 +1,10 @@
+{
+  "id": "mcp-bound-digest-safe",
+  "title": "A digest bound to the launched image remains pinned",
+  "persona": "developer / AppSec",
+  "user_question": "Does an image reference bound to a full digest remain non-reckless?",
+  "runtime": "all",
+  "mode": "repo",
+  "world": { "repo_path": "." },
+  "expected": { "verdict": { "word": "tradeoffs_only", "findings": [] } }
+}

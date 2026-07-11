@@ -307,7 +307,7 @@ func runVerdictWithWriters(args []string, stdout, stderr io.Writer) int {
 			return cliRuntimeError(stderr, err)
 		}
 	}
-	if *gate && v.VerdictWord == verdict.WordReckless {
+	if *gate && (v.VerdictWord == verdict.WordReckless || v.VerdictWord == verdict.WordInconclusive) {
 		return exitReckless
 	}
 	return exitSuccess
@@ -2597,7 +2597,12 @@ func runEval(args []string) {
 			IncludeSensitivePaths: *includeSensitive,
 		})
 		if err != nil {
-			fatal(err)
+			results = append(results, storylab.EvalCaseResult{
+				FixturePath: filepath.ToSlash(story.Dir),
+				Expected:    *story.Manifest.Expected.Verdict,
+				RunError:    err.Error(),
+			})
+			continue
 		}
 		v := verdict.Build(run.Inventory, run.Report, run.Inventory.TargetPath, run.Report.Story.Mode)
 		results = append(results, storylab.EvalCaseResult{
